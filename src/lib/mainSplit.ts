@@ -156,7 +156,7 @@ export function paneContentAlive(l: Live) {
         ? l.repos.some((r) => r.id === c.id)
         : c.kind === 'connector'
           ? l.connectors.some((x) => x.id === c.id)
-          : l.attachments.some((a) => a.kind === c.kind)
+          : l.attachments.some((a) => a.kind === c.kind && (c.kind !== 'discussion' || a.id === c.id))
 }
 
 /** Retarget every DRAFT conversation pane to the materialized session id — by

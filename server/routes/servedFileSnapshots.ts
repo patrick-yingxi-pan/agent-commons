@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { isLocalFolderRefreshRequest } from '../../contract/localFolderCapture.ts'
 import { isLocalGitRefreshRequest } from '../../contract/localGitCapture.ts'
 import { isRefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
-import { ConflictError, ValidationError } from '../conflict.ts'
+import { ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { sendError, sendJson } from '../http/respond.ts'
 import type { Router } from '../http/router.ts'
 import { store } from '../store/index.ts'
@@ -166,7 +166,7 @@ export function registerServedFileSnapshotRoutes(
       sendJson(res, state)
     } catch (error) {
       if (!owner()) return
-      if (error instanceof ConflictError || error instanceof ValidationError) return sendError(res, error.code, error.message)
+      if (error instanceof ConflictError || error instanceof NotFoundError || error instanceof ValidationError) return sendError(res, error.code, error.message)
       throw error
     }
   })

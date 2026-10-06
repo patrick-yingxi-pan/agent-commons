@@ -4,7 +4,7 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 import { join } from 'node:path'
 
 test('served image intake is lazy, cancellable and shares its capture lifetime between retries', () => {
-  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const source = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const capture = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredServedFileIntake.tsx')))
   const loaded = capture.indexOf("await import('../controller/servedImageCapture.ts')")

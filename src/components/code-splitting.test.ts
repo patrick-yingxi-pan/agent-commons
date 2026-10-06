@@ -69,7 +69,7 @@ test('MCP setup and detail bodies stay behind cancellable lazy wrappers in Secti
 })
 
 test('repository options enter through a dismissible lazy shell without granting context on failure', () => {
-  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const picker = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredRepoContextPicker.tsx')))
   assert.match(picker, /DeferredRepoContextPicker as RepoPicker/)
   assert.doesNotMatch(picker, /from ['"]\.\/RepoContextPicker/)
@@ -83,7 +83,7 @@ test('repository options enter through a dismissible lazy shell without granting
 })
 
 test('context browsing loads only after explicit Browse with local cancel and warned reload', () => {
-  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const picker = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const repo = stripComments(read(join(ROOT, 'src/components/RepoContextPicker.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextBrowseDialog.tsx')))
   assert.match(picker, /DeferredContextBrowseDialog as BrowseDialog/)
@@ -106,7 +106,7 @@ test('context browsing loads only after explicit Browse with local cancel and wa
 })
 
 test('served file and photo snapshot runtime loads only after opening its picker with local recovery', () => {
-  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const picker = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredServedFileIntake.tsx')))
   const intake = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   const loadingTest = stripComments(read(join(ROOT, 'e2e/served-file-intake-loading.spec.ts')))
@@ -128,6 +128,24 @@ test('served file and photo snapshot runtime loads only after opening its picker
   assert.match(loadingTest, /served-file-intake="loading"/)
   assert.match(loadingTest, /Cancel intake/)
   assert.match(loadingTest, /Reload app/)
+})
+
+test('the Add Context category workflow stays outside the eager menu graph until a type is selected', () => {
+  const menu = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextPickerWorkflow.tsx')))
+  const workflow = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
+  assert.match(menu, /DeferredContextPickerWorkflow/)
+  assert.match(menu, /\{activeType === null \? \([\s\S]*CONTEXT_TYPES[\s\S]*\) : \([\s\S]*<DeferredContextPickerWorkflow/,
+    'the lightweight category menu and dialog chrome remain usable while step two loads')
+  assert.doesNotMatch(menu, /from ['"]\.\/ContextPickerWorkflow\.tsx/,
+    'the eager entry has no static edge to picker branches')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ContextPickerWorkflow\.tsx'\)/)
+  assert.match(deferred, /getDerivedStateFromError[\s\S]*Suspense/)
+  assert.match(deferred, /Loading context options…/)
+  assert.match(deferred, /Nothing was added[\s\S]*Copy unsent text and any saved Retry context before reloading/)
+  assert.match(deferred, /label: 'Done'[\s\S]*label: 'Reload app'/)
+  assert.match(workflow, /type === 'folder'[\s\S]*type === 'repo'[\s\S]*type === 'connector'[\s\S]*type === 'mcp'[\s\S]*type === 'discussion'[\s\S]*type === 'files'/,
+    'all step-two picker families are admitted through one optional module')
 })
 
 test('MainSplit lazy-loads SectionPane behind accessible in-pane loading and failure states', () => {

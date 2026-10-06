@@ -5,12 +5,12 @@ import { readFileSync } from 'node:fs'
 const source = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf8')
 
 test('served folder intake saves the explicit folder identity and never the live artifact list', () => {
-  const picker = source('./AddContextButton.tsx').split('function ServedFolderPicker')[1].split('function FolderPicker')[0]
+  const picker = source('./ContextPickerWorkflow.tsx').split('function ServedFolderPicker')[1].split('function FolderPicker')[0]
   assert.match(picker, /readFsFolderSnapshot\(source.id, entry.path, controller.signal\)/)
   assert.match(picker, /folder:.*snapshot/)
   assert.match(picker, /artifacts: \[\]/)
   assert.match(picker, /disabled=\{read\?\.status === 'loading'\}/)
-  const rows = source('./AddContextButton.tsx').split('function ServedFolders')[1].split('function ServedFolderPicker')[0]
+  const rows = source('./ContextPickerWorkflow.tsx').split('function ServedFolders')[1].split('function ServedFolderPicker')[0]
   assert.match(rows, /disabled=\{disabled\}/, 'portaled rows retain busy state')
 })
 

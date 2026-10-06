@@ -187,7 +187,7 @@ import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
-import { ConflictError, ValidationError } from '../conflict.ts'
+import { ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
@@ -4494,6 +4494,10 @@ export function buildRouter(): Router {
     if (!store.sessionOwnedBy(session, tenantId)) return sendError(res, 'forbidden', 'Only the conversation owner may change attached context.')
     const input = await body<UpdateSessionContextStateRequest>()
     if (!accountTransitionSourceMatches(req, res)) return
+    if (denyForeignSession(req, res, params.id)) return
+    const currentSession = store.getSession(params.id)
+    if (!currentSession) return sendError(res, 'not_found', `No session '${params.id}'`)
+    if (!store.sessionOwnedBy(currentSession, tenantId)) return sendError(res, 'forbidden', 'Only the conversation owner may change attached context.')
     const ws = input?.workspace
     if (!input || !Array.isArray(input.operations)) {
       return sendError(res, 'bad_request', 'operations and workspace are required')
@@ -4532,7 +4536,12 @@ export function buildRouter(): Router {
         return sendError(res, 'bad_request', 'attach context requires a valid id, type, label, and optional scope')
       }
     }
-    sendJson(res, store.updateSessionContextState(params.id, input.operations, ws))
+    try {
+      sendJson(res, store.updateSessionContextState(params.id, input.operations, ws))
+    } catch (error) {
+      if (error instanceof ConflictError || error instanceof NotFoundError || error instanceof ValidationError) return sendError(res, error.code, error.message)
+      throw error
+    }
   })
 
   registerServedFileSnapshotRoutes(r, denyForeignSession, accountTransitionSourceMatches)

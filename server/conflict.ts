@@ -30,3 +30,12 @@ export class ValidationError extends Error {
     this.name = 'ValidationError'
   }
 }
+
+/** Missing and unreadable references share one existence-hiding response. */
+export class NotFoundError extends Error {
+  readonly code = 'not_found' as const
+  constructor(message: string) {
+    super(message)
+    this.name = 'NotFoundError'
+  }
+}

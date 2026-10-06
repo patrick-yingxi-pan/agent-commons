@@ -19,6 +19,7 @@
  *     context. */
 import { useCallback } from 'react'
 import { rememberAttached } from '../lib/contextShortcuts'
+import { loadSession } from '../api/commands'
 import { enqueueContextMutation } from './contextMutations'
 import type { ContextMutationOutcome } from './contextMutationsCore'
 import {
@@ -53,6 +54,13 @@ export function useSessionContextCommands(sessionId: string): SessionContextComm
           }
         },
         afterCommit: () => rememberAttached(ctx),
+        // A revoked source may never become attachable again. Abandoning that
+        // intent reads saved truth; it must not silently retry a source capture.
+        ...(ctx.kind === 'discussion' ? { reconcile: async (_snapshot: unknown, signal: AbortSignal) => {
+          const session = await loadSession(sessionId, AbortSignal.any([signal, AbortSignal.timeout(30_000)]))
+          if (!session.workspace) throw new Error('The current saved context is unavailable.')
+          return { contexts: session.contexts ?? [], workspace: session.workspace }
+        } } : {}),
       })
     },
     [sessionId],

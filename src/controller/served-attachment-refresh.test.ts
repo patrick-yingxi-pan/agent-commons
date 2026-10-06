@@ -7,6 +7,7 @@ import type { ServedTextSnapshot } from '../../contract/servedTextSnapshot.ts'
 import { EMPTY_LIVE, type Live } from '../data/liveSession.ts'
 import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { discussionContextId, type DiscussionSnapshot } from '../../contract/discussionSnapshot.ts'
 
 const source: FsSource = { id: 'cloud', kind: 'cloud', label: 'Cloud storage' }
 const expectedSnapshotId = '11111111-1111-4111-8111-111111111111'
@@ -132,4 +133,49 @@ test('image receipt merge preserves exact target, newer snapshots, kind and reco
     assert.equal(upgrade.attachments[0].previewUrl, undefined)
     assert.deepEqual(upgrade.attachments[0].imageSnapshot, canonical.imageSnapshot)
   }
+})
+
+function discussionSnapshot(snapshotId: string, text: string): DiscussionSnapshot {
+  return { version: 1, snapshotId, capturedAt: '2026-10-06T10:00:00.000Z', discussionId: 'thread-1', title: 'Thread one', postCount: 2, text }
+}
+
+test('Discussion refresh merges only the still-attached target with its exact server snapshot', () => {
+  const original = discussionSnapshot(expectedSnapshotId, 'saved copy')
+  const refreshed = discussionSnapshot(requestId, 'refreshed copy')
+  const item: Attachment = { id: discussionContextId(original.discussionId), label: original.title, kind: 'discussion', discussionCaptureId: requestId, discussionSnapshot: original }
+  const other = attachment(snapshot(expectedSnapshotId))
+  const current = live([item, other])
+  const returned = state([{ ...item, discussionCaptureId: undefined, discussionSnapshot: refreshed }])
+  const target = { attachmentId: item.id, expectedSnapshotId, requestId }
+  const merged = mergeServedAttachmentRefresh(current, returned, target)
+  assert.deepEqual(merged.attachments[0]?.discussionSnapshot, refreshed)
+  assert.equal(merged.attachments[0]?.discussionCaptureId, undefined, 'acknowledgement clears pending capture intent')
+  assert.deepEqual(merged.attachments[1], other, 'the complete server workspace cannot replace unrelated live attachment state')
+  assert.equal(isAttachmentInput(merged.attachments[0]), true)
+
+  assert.deepEqual(mergeServedAttachmentRefresh(current, state([{ ...item, discussionSnapshot: discussionSnapshot(remoteSnapshotId, 'wrong request') }]), target), current,
+    'an acknowledgement must prove the exact request id')
+  assert.deepEqual(mergeServedAttachmentRefresh(live([other]), returned, target), live([other]),
+    'a late acknowledgement cannot resurrect a locally detached Discussion')
+})
+
+test('Discussion dismissal reconciliation is baseline-fenced and never resurrects a detached reference', () => {
+  const original = discussionSnapshot(expectedSnapshotId, 'saved copy')
+  const refreshed = discussionSnapshot(remoteSnapshotId, 'server current copy')
+  const item: Attachment = { id: discussionContextId(original.discussionId), label: original.title, kind: 'discussion', discussionSnapshot: original }
+  const other = attachment(snapshot(expectedSnapshotId))
+  const target = { attachmentId: item.id, expectedSnapshotId, requestId, reconciled: true, baselineSnapshotId: expectedSnapshotId }
+
+  const merged = mergeServedAttachmentRefresh(live([item, other]), state([{ ...item, discussionSnapshot: refreshed }]), target)
+  assert.deepEqual(merged.attachments[0]?.discussionSnapshot, refreshed)
+  assert.deepEqual(merged.attachments[1], other)
+
+  const changedLocally = { ...item, discussionSnapshot: discussionSnapshot(requestId, 'newer local copy') }
+  assert.deepEqual(mergeServedAttachmentRefresh(live([changedLocally]), state([{ ...item, discussionSnapshot: refreshed }]), target).attachments, [changedLocally],
+    'a reconciliation started from an older snapshot cannot rewind a newer local copy')
+  assert.deepEqual(mergeServedAttachmentRefresh(live([]), state([{ ...item, discussionSnapshot: refreshed }]), target).attachments, [],
+    'a late read cannot resurrect a detached Discussion')
+
+  const absent = mergeServedAttachmentRefresh(live([item, other]), state([other]), target)
+  assert.deepEqual(absent.attachments, [other], 'authoritative absence removes only the refreshed target')
 })

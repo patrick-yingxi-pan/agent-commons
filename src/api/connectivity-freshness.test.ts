@@ -331,7 +331,7 @@ test('the copied A2A card URL resolves to an absolute URL (a bare /api/v1 path i
 // ── The composer quick list reads the saved-contexts REGISTRY (N2) ─────────────
 
 test('the Add-context quick list derives each row’s auth dot from the registry, never asserting it', () => {
-  const picker = src('src', 'components', 'AddContextButton.tsx')
+  const picker = src('src', 'components', 'ContextPickerWorkflow.tsx')
   assert.match(picker, /useSavedContexts\(\)/, 'the picker reads the registry the Contexts page mutates')
   assert.match(picker, /savedStatus\.get\(o\.id\)/, 'the row status is a registry lookup')
   assert.doesNotMatch(picker, /accentDot/, 'the fabricated always-green dot is gone')

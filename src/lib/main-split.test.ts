@@ -34,6 +34,14 @@ const auth: MainPaneContent = { kind: 'msession', id: 'auth-refactor' }
 const liveWith = (o: Partial<Live>): Live =>
   ({ workspaces: [], repos: [], connectors: [], attachments: [], ...o }) as Live
 
+test('a saved discussion pane is exact-target, not the surviving discussion collection', () => {
+  const live = liveWith({ attachments: [{ id: 'discussion::one', label: 'One', kind: 'discussion' }] })
+  assert.equal(paneContentAlive(live)({ kind: 'discussion', id: 'discussion::one' }), true)
+  assert.equal(paneContentAlive(live)({ kind: 'discussion', id: 'discussion::removed' }), false)
+  const node = pane(contextPaneContent('session', { kind: 'discussion', id: 'discussion::one' }))
+  assert.deepEqual(migrateMainSplit(JSON.parse(JSON.stringify(node))), node)
+})
+
 test('the generic tree instantiates with the main vocabulary — every pane an EQUAL page (Phase 6)', () => {
   const tree = splitPane(splitPane(pane(auth), '', 'row', projects), 'b', 'col', artifacts)
   assert.deepEqual(

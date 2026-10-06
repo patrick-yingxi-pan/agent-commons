@@ -7,6 +7,7 @@ import {
   GitBranch,
   Github,
   Image as ImageIcon,
+  MessageSquare,
   PanelsTopLeft,
   Trash2,
   X,
@@ -165,10 +166,13 @@ export function Composer({
   const mcpServers = connectors.filter((c) => c.kind === 'mcp')
   const fileItems = attachments.filter((a) => a.kind === 'file')
   const photoItems = attachments.filter((a) => a.kind === 'photo')
+  const discussionItems = attachments.filter((a) => a.kind === 'discussion')
   const attachmentInput = planAttachmentInput(workspaceInputAttachments({ attachments, workspaces }))
-  const readyAttachmentCount = attachmentInput.filter((item) => item.status === 'ready').length
+  const readyAttachmentCount = attachmentInput.filter((item) => item.status === 'ready' && item.attachment.kind !== 'discussion').length
+  const readyDiscussionCount = attachmentInput.filter((item) => item.status === 'ready' && item.attachment.kind === 'discussion').length
+  const queuedDiscussionCount = discussionItems.filter((item) => item.discussionCaptureId).length
   const readyImageCount = attachmentInput.filter((item) => item.status === 'image-ready').length
-  const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount - readyImageCount
+  const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount - readyImageCount - readyDiscussionCount - queuedDiscussionCount
 
   // Dependency between a GitHub-remote repo and the GitHub connector. It stays
   // invisible until a removal could break it — then the chip's confirm offers to
@@ -177,6 +181,12 @@ export function Composer({
   const remoteRepos = repos.filter((r) => r.remote)
 
   const groups: ChipGroupModel[] = []
+  if (discussionItems.length) {
+    groups.push({
+      key: 'discussions', label: 'Discussions', tone: 'file', icon: <MessageSquare size={12} />,
+      items: discussionItems.map((item) => ({ key: item.id, label: item.label, icon: <MessageSquare size={12} />, focus: { kind: 'discussion', id: item.id } })),
+    })
+  }
   if (repos.length) {
     groups.push({
       key: 'repos',
@@ -374,13 +384,15 @@ export function Composer({
             data-attachment-input-disclosure
             className="mb-1.5 rounded-md bg-panel-2 px-2 py-1.5 text-[11px] leading-snug text-ink-soft"
           >
-            {(readyAttachmentCount > 0 || readyImageCount === 0) && <span data-attachment-input-ready={readyAttachmentCount}>
+            {(readyAttachmentCount > 0 || (readyImageCount === 0 && readyDiscussionCount === 0 && queuedDiscussionCount === 0)) && <span data-attachment-input-ready={readyAttachmentCount}>
               The selected model receives {readyAttachmentCount} text file
               {readyAttachmentCount === 1 ? '' : 's'} on send or retry.
             </span>}
             {readyImageCount > 0 && <span data-attachment-image-ready={readyImageCount}> {readyImageCount} saved image{readyImageCount === 1 ? '' : 's'} will be sent if the selected model and connection support images.</span>}
+            {readyDiscussionCount > 0 && <span data-discussion-input-ready={readyDiscussionCount}> {readyDiscussionCount} saved discussion {readyDiscussionCount === 1 ? 'copy' : 'copies'} will be sent as reference text.</span>}
+            {queuedDiscussionCount > 0 && <span data-discussion-input-queued={queuedDiscussionCount}> {queuedDiscussionCount} discussion {queuedDiscussionCount === 1 ? 'copy' : 'copies'} will be captured on first send if the source is still readable.</span>}
             <span data-attachment-input-omitted={omittedAttachmentCount}>
-              {omittedAttachmentCount > 0 && <> {omittedAttachmentCount} not sent. Open files or the workspace for details.</>}
+              {omittedAttachmentCount > 0 && <> {omittedAttachmentCount} not sent. Open attached context for details.</>}
             </span>
           </div>
         )}

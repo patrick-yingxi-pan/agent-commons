@@ -310,6 +310,10 @@ export function addContextToLive(l: Live, ctx: AddedContext): Live {
       if (added.length === 0) return l
       return { ...l, attachments: [...l.attachments, ...added] }
     }
+    case 'discussion': {
+      if (l.attachments.some((a) => a.id === ctx.attachment.id)) return l
+      return { ...l, attachments: [...l.attachments, ctx.attachment] }
+    }
     default:
       return l
   }
@@ -394,6 +398,8 @@ export function focusForAdded(ctx: AddedContext, live: Live): PanelFocus | null 
       const first = ctx.attachments[0]
       return first ? { kind: first.kind, id: first.id } : null
     }
+    case 'discussion':
+      return { kind: 'discussion', id: ctx.attachment.id }
     default:
       return null
   }
@@ -416,9 +422,11 @@ export function bucketFocuses(focuses: PanelFocus[]): {
   repoIds: Set<string>
   connIds: Set<string>
   attIds: Set<string>
+  discussionIds: Set<string>
 } {
   const ids = (kind: PanelFocus['kind']) => new Set(focuses.filter((f) => f.kind === kind).map((f) => f.id))
-  return { wsIds: ids('workspace'), repoIds: ids('repo'), connIds: ids('connector'), attIds: new Set([...ids('file'), ...ids('photo')]) }
+  const discussionIds = ids('discussion')
+  return { wsIds: ids('workspace'), repoIds: ids('repo'), connIds: ids('connector'), attIds: new Set([...ids('file'), ...ids('photo'), ...discussionIds]), discussionIds }
 }
 
 /** Resolve visible panel targets back to their authorization bindings. A
@@ -426,8 +434,10 @@ export function bucketFocuses(focuses: PanelFocus[]): {
  * source ids rather than the shared panel id; include both so seeded/escalated
  * workspaces and multi-folder workspaces are each detached correctly. */
 export function detachOperationsForFocuses(live: Live, focuses: PanelFocus[]): SessionContextOperation[] {
-  const { wsIds, repoIds, connIds, attIds } = bucketFocuses(focuses)
-  const ids = new Set<string>([...repoIds, ...connIds, ...attIds])
+  const { wsIds, repoIds, connIds, attIds, discussionIds } = bucketFocuses(focuses)
+  // Discussion copies are ordinary saved reference data, not SessionContext
+  // effect bindings. Removing one changes the workspace projection only.
+  const ids = new Set<string>([...repoIds, ...connIds, ...attIds].filter((id) => !discussionIds.has(id)))
   for (const workspace of live.workspaces) {
     if (!wsIds.has(workspace.id)) continue
     ids.add(workspace.id)

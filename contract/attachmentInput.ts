@@ -8,6 +8,8 @@ import { isServedImageSnapshot } from './servedImageSnapshot.ts'
 import { fsRecentKey } from './fs.ts'
 import { workspaceArtifacts } from './workspaceFolders.ts'
 import type { DocumentImportOutcome } from './documentImport.mjs'
+import { discussionIdFromContextId, isDiscussionSnapshot } from './discussionSnapshot.ts'
+import { isSnapshotId } from './servedSnapshotIdentity.ts'
 
 /** One ordered input projection for the composer, previews and both transports.
  * Folder bodies are durable snapshots, never a request to read a path. Direct
@@ -88,6 +90,16 @@ export function isAttachmentInput(value: unknown): value is Attachment {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const item = value as Record<string, unknown>
   if (typeof item.id !== 'string' || !item.id || typeof item.label !== 'string' || !item.label) return false
+  if (item.kind === 'discussion') {
+    const discussionId = discussionIdFromContextId(item.id)
+    if (!discussionId || item.label.length > 160) return false
+    const fields = ['id', 'label', 'kind', item.discussionSnapshot === undefined ? 'discussionCaptureId' : 'discussionSnapshot']
+    if (Reflect.ownKeys(item).length !== fields.length || !fields.every((field) => Object.hasOwn(item, field))) return false
+    return item.discussionSnapshot === undefined
+      ? isSnapshotId(item.discussionCaptureId)
+      : isDiscussionSnapshot(item.discussionSnapshot) && item.discussionSnapshot.discussionId === discussionId && item.label === item.discussionSnapshot.title
+  }
+  if (item.discussionCaptureId !== undefined || item.discussionSnapshot !== undefined || discussionIdFromContextId(item.id)) return false
   if (item.kind !== 'file' && item.kind !== 'photo') return false
   if (item.previewText !== undefined && typeof item.previewText !== 'string') return false
   if (item.previewUrl !== undefined && typeof item.previewUrl !== 'string') return false
@@ -137,7 +149,7 @@ export function planAttachmentInput(attachments: readonly Attachment[] = []): At
       imageBytes += image.byteLength
       return { attachment, status: 'image-ready', bytes: image.byteLength }
     }
-    if (attachment.kind !== 'file' || (attachment.source?.kind !== 'ui-host' && !attachment.textSnapshot)) return { attachment, status: 'preview-only' }
+    if (attachment.kind !== 'discussion' && (attachment.kind !== 'file' || (attachment.source?.kind !== 'ui-host' && !attachment.textSnapshot))) return { attachment, status: 'preview-only' }
     if (attachment.documentImport && attachment.documentImport.status !== 'ready') return { attachment, status: 'unavailable' }
     const text = attachmentText(attachment)
     if (typeof text !== 'string') return { attachment, status: 'unavailable' }
@@ -154,7 +166,7 @@ export function planAttachmentInput(attachments: readonly Attachment[] = []): At
 
 /** Callers still use the shared admission plan before sending any text. */
 export function attachmentText(attachment: Attachment): string | undefined {
-  return attachment.textSnapshot?.text ?? attachment.previewText
+  return attachment.discussionSnapshot?.text ?? attachment.textSnapshot?.text ?? attachment.previewText
 }
 
 /** Resolve extraction provenance from its one authoritative saved location.
@@ -171,7 +183,7 @@ export function attachmentImageRef(attachment: Attachment | null | undefined): I
 
 /** The receipt for a saved source snapshot, independent of its media type. */
 export function attachmentSnapshotId(attachment: Attachment | null | undefined): string | null {
-  return attachment?.textSnapshot?.snapshotId ?? attachment?.imageSnapshot?.snapshotId ?? null
+  return attachment?.discussionSnapshot?.snapshotId ?? attachment?.textSnapshot?.snapshotId ?? attachment?.imageSnapshot?.snapshotId ?? null
 }
 
 export function attachmentInputCopy(status: AttachmentInputStatus): string {

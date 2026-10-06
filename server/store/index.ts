@@ -154,6 +154,7 @@ import { join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from '../fs.ts'
 import { attachmentImageRef, attachmentSnapshotId, isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { buildDiscussionSnapshot, discussionIdFromContextId } from '../../contract/discussionSnapshot.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../../contract/index.ts'
 import { fsRecentKey, parseFsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity.ts'
@@ -164,7 +165,7 @@ import { ARTIFACT_CONTENT } from '../data/artifactContent.ts'
 import { estimateTokens, mintBudget } from '../usage.ts'
 import { UsageRegistry } from '../usageRegistry.ts'
 import { mintAuthority } from '../authority.ts'
-import { ConflictError, ValidationError } from '../conflict.ts'
+import { ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MAX_DISCUSSION_POSTS, MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
@@ -3831,7 +3832,20 @@ function canAdmitServedImageSnapshot(
     store.fsReadPermitted(snapshot.sourceId, snapshot.path)
 }
 
-/** Keep a store-owned served-file receipt monotonic across workspace projections.
+/** Capture only through the destination owner's current source-read wall.
+ * This synchronous projection commits no state until the whole context validates. */
+function captureDiscussionContext(sessionId: string, attachmentId: string, snapshotId: string): import('../../contract/entities.ts').Attachment {
+  const session = store.getSession(sessionId)
+  const discussionId = discussionIdFromContextId(attachmentId)
+  if (!session || !discussionId) throw new NotFoundError('This discussion is unavailable.')
+  const discussion = store.getDiscussion(discussionId, session.tenantId ?? defaultTenantId())
+  if (!discussion) throw new NotFoundError('This discussion is unavailable.')
+  const snapshot = buildDiscussionSnapshot(discussion, snapshotId, new Date().toISOString())
+  if (!snapshot) throw new ValidationError('Could not capture a complete discussion of 64 KB or less. The saved copy is unchanged.')
+  return { id: attachmentId, kind: 'discussion', label: snapshot.title, discussionSnapshot: snapshot }
+}
+
+/** Keep a store-owned saved-copy receipt monotonic across workspace projections.
  * Only the refresh commit path may name the one row whose saved copy is replaced. */
 function preserveSessionWorkspaceSnapshots(
   sessionId: string,
@@ -3861,6 +3875,17 @@ function preserveSessionWorkspaceSnapshots(
     }),
     attachments: workspace.attachments.map((item) => {
       const previous = previousAttachments.get(item.id)
+      if (item.kind === 'discussion' || previous?.kind === 'discussion') {
+        if (!isAttachmentInput(item) || item.kind !== 'discussion') throw new ValidationError('The discussion reference is invalid.')
+        if (refreshAttachmentId === item.id) return item
+        // Generic writes (including stale retries) cannot replace an owned copy.
+        // Only the explicit Refresh door can acquire newer source text.
+        if (previous?.discussionSnapshot) return previous
+        if (!item.discussionCaptureId || item.discussionSnapshot) {
+          throw new ValidationError('Attach the discussion from its source to create a saved copy.')
+        }
+        return captureDiscussionContext(sessionId, item.id, item.discussionCaptureId)
+      }
       const savedText = previous?.textSnapshot
       const savedImage = previous?.imageSnapshot
       if (refreshAttachmentId === item.id) return item
@@ -4445,6 +4470,19 @@ export const store = {
   refreshSessionAttachment(sessionId: string, attachmentId: string, request: RefreshServedAttachmentRequest): SessionContextState {
     const workspace = store.sessionWorkspace(sessionId)
     const attachment = workspace?.attachments.find((item) => item.id === attachmentId)
+    if (attachment?.kind === 'discussion') {
+      if ('snapshot' in request || 'imageSnapshot' in request) throw new ValidationError('Discussion copies are captured by the server; supplied file or image content is not accepted.')
+      const saved = attachment.discussionSnapshot
+      if (!saved) throw new ConflictError('This discussion has no saved copy to refresh.')
+      // Recover the exact acknowledged copy before requiring source access again.
+      if (saved.snapshotId === request.requestId) return { contexts: store.sessionContexts(sessionId), workspace }
+      if (saved.snapshotId !== request.expectedSnapshotId) throw new ConflictError('This saved discussion changed. Reopen it before refreshing again.')
+      const refreshed = captureDiscussionContext(sessionId, attachmentId, request.requestId)
+      return commitSessionContextState(sessionId, [], {
+        ...workspace,
+        attachments: workspace.attachments.map((item) => item.id === attachmentId ? refreshed : item),
+      }, attachmentId)
+    }
     const address = parseFsRecentKey(attachmentId)
     const expectedKind = address?.sourceId === 'cloud' ? 'cloud' : 'runner'
     const frozenText = 'snapshot' in request ? request.snapshot : undefined

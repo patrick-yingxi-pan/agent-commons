@@ -32,7 +32,7 @@ export interface PaneId {
  *  'runs' switcher and 'picker' kinds migrate out of persisted trees in
  *  mainSplit's migrateMainSplit). */
 export interface PaneContent {
-  kind: 'workspace' | 'repo' | 'connector' | 'file' | 'photo'
+  kind: 'workspace' | 'repo' | 'connector' | 'file' | 'photo' | 'discussion'
   id: string
 }
 

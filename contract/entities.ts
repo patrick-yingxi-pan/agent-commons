@@ -40,11 +40,17 @@ export interface Connector {
   kind?: 'github' | 'connector' | 'mcp'
 }
 
-/** A file or photo attached to the conversation (shown as a composer chip). */
+/** Read-only reference data attached to a conversation (shown as a composer chip). */
 export interface Attachment {
   id: string
   label: string
-  kind: 'file' | 'photo'
+  kind: 'file' | 'photo' | 'discussion'
+  /** A draft stages only a Discussion target. The server captures current
+   * readable posts on first durable attachment, never client-supplied prose. */
+  discussionCaptureId?: string
+  /** An immutable saved transcript, governed by the destination conversation's
+   * sharing rather than the source's later access or deletion. */
+  discussionSnapshot?: import('./discussionSnapshot.ts').DiscussionSnapshot
   /** Which filesystem source it came from — UI host, a runner, or cloud storage
    *  (contract/fs.ts). Drives where its content is read from. Absent on legacy /
    *  seeded attachments (no readable source until reattached). */
@@ -122,6 +128,7 @@ export type AddedContext =
   | { kind: 'mcp'; connector: Connector }
   | { kind: 'files'; attachments: Attachment[] }
   | { kind: 'photos'; attachments: Attachment[] }
+  | { kind: 'discussion'; attachment: Attachment }
 
 /** Which attached context the right-hand sidebar is currently showing. Every
  *  chip maps to one of these; clicking a chip focuses it. Workspaces and repos
@@ -132,6 +139,7 @@ export type PanelFocus =
   | { kind: 'connector'; id: string }
   | { kind: 'file'; id: string }
   | { kind: 'photo'; id: string }
+  | { kind: 'discussion'; id: string }
 
 export interface Message {
   id: string
@@ -359,7 +367,7 @@ export interface SessionPreferences {
   panelFocus?: PanelFocus | null
 }
 
-const PANEL_FOCUS_KINDS = new Set<PanelFocus['kind']>(['workspace', 'repo', 'connector', 'file', 'photo'])
+const PANEL_FOCUS_KINDS = new Set<PanelFocus['kind']>(['workspace', 'repo', 'connector', 'file', 'photo', 'discussion'])
 
 /** Runtime guard at both ends of the wire. Keeping the closed kind set beside
  * the contract prevents client storage and server request validation drifting. */

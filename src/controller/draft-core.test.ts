@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createDraftController, type DraftDeps } from './draftCore.ts'
-import { DRAFT_ID, EMPTY_LIVE, type Live } from '../data/liveSession.ts'
+import { DRAFT_ID, EMPTY_LIVE, repoIdForLabel, type Live } from '../data/liveSession.ts'
 import type { Session } from '../../contract/index.ts'
 import type { PanelFocus } from '../types.ts'
 import type { WorkspaceFolder } from '../../contract/entities.ts'
@@ -20,6 +20,8 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   const log: string[] = []
   const focuses = new Map<string, PanelFocus | null>()
   const lives = new Map<string, Live>()
+  const epochs = new Map<string, number>()
+  const sendFailures: Array<{ id: string; since: number; text: string; failure: string }> = []
   const prefs: Array<{ id: string; focus: PanelFocus | null }> = []
   const patches: Array<{ id: string; providerId: string; modelId: string }> = []
   let created = 0
@@ -48,7 +50,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
       log.push(`context:${sid}:${request.operations.length}`)
       return opts?.failContextOnce && contextAttempts === 1
         ? Promise.reject(new Error('context unavailable'))
-        : Promise.resolve()
+        : Promise.resolve({ contexts: [], workspace: request.workspace })
     },
     captureSessionWriteSourceUserId: () => currentSource,
     patchSession: (sid, p) => {
@@ -60,12 +62,22 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
     defaultProviderId: 'anthropic',
     store: {
       get: (id) => ({ live: lives.get(id) ?? EMPTY_LIVE, focus: focuses.get(id) ?? null }),
-      adopt: (from, to) => log.push(`adopt:${from}->${to}`),
+      epoch: (id) => epochs.get(id) ?? 0,
+      adopt: (from, to) => {
+        epochs.set(from, (epochs.get(from) ?? 0) + 1)
+        log.push(`adopt:${from}->${to}`)
+      },
+      failPendingSend: (id, since, text, failure) => {
+        if ((epochs.get(id) ?? 0) !== since) return
+        sendFailures.push({ id, since, text, failure })
+        log.push(`failure:${id}:${failure}`)
+      },
       sendTurn: (id, text) => {
         log.push(`send:${id}:${text}`)
         return Promise.resolve()
       },
       reset: (id, live) => {
+        epochs.set(id, (epochs.get(id) ?? 0) + 1)
         lives.set(id, live)
         log.push(`reset:${id}`)
       },
@@ -79,6 +91,8 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   }
   return {
     deps, log, prefs, patches, focuses, contextRequests, contextWorkspaces, creationKeys, createSources, frozenCreateSources, contextSources,
+    sendFailures,
+    disposeDraftStore: () => { epochs.set(DRAFT_ID, (epochs.get(DRAFT_ID) ?? 0) + 1) },
     setCurrentSource: (source: string | null) => { currentSource = source },
     createdCount: () => created,
   }
@@ -147,7 +161,7 @@ test('draft generation waits for the atomic binding + workspace acknowledgement'
   const contextWrite = new Promise<void>((resolve) => { releaseContext = resolve })
   deps.updateContextState = (sid, request) => {
     log.push(`context:${sid}:${request.operations.length}`)
-    return contextWrite
+    return contextWrite.then(() => ({ contexts: [], workspace: request.workspace }))
   }
   const draft = createDraftController(deps)
   draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
@@ -283,11 +297,13 @@ test('a failed superseded materialization cannot clear or send into the new draf
 })
 
 test('a failed context transaction retries against the already-created session instead of minting a duplicate', async () => {
-  const { deps, log, createdCount } = fakeDeps({ failContextOnce: true })
+  const { deps, log, createdCount, sendFailures } = fakeDeps({ failContextOnce: true })
   const draft = createDraftController(deps)
   draft.bufferContext({ kind: 'repo', label: 'acme/api' } as never)
   await draft.sendDraftTurn('go', () => ({}))
-  assert.ok(log.includes(`send:${DRAFT_ID}:go`), 'the first attempt degrades without lying about durability')
+  assert.equal(log.includes(`send:${DRAFT_ID}:go`), false, 'a created session with a refused context never posts to the synthetic draft id')
+  assert.equal(sendFailures.length, 1, 'the original optimistic turn remains explicitly retryable')
+  assert.match(sendFailures[0]?.failure ?? '', /Couldn’t confirm the queued context before sending\. context unavailable/)
   await draft.sendDraftTurn('retry', () => ({}))
   assert.equal(createdCount(), 1, 'retry reuses the materialized server row')
   assert.equal(log.filter((line) => line.startsWith('context:real-1')).length, 2, 'the idempotent transaction retries')
@@ -343,6 +359,231 @@ test('removeContexts purges the FWD-1 buffer — a removed chip never re-attache
   assert.equal(focuses.get(DRAFT_ID), null, 'the dangling panel cleared (focusValidIn)')
   await draft.sendDraftTurn('go', () => ({}))
   assert.equal(log.some((l) => l.startsWith('context:')), false, 'nothing stale flushed onto the real session')
+})
+
+test('first-send acknowledgement replaces queued Discussion references before draft adoption', async () => {
+  const { deps } = fakeDeps()
+  const draft = createDraftController(deps)
+  const discussionCaptureId = '11111111-1111-4111-8111-111111111111'
+  const attachment = { id: 'discussion::thread-1', label: 'Thread one', kind: 'discussion' as const, discussionCaptureId }
+  const saved = { id: attachment.id, label: attachment.label, kind: 'discussion' as const, discussionSnapshot: {
+    version: 1 as const, discussionId: 'thread-1', title: 'Thread one', snapshotId: discussionCaptureId,
+    capturedAt: '2026-10-06T00:00:00.000Z', postCount: 1, text: 'Saved source text',
+  } }
+  deps.updateContextState = async (_sid, request) => ({ contexts: [], workspace: { ...request.workspace, attachments: [saved] } })
+  deps.store.adopt = () => assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [saved], 'the adopted panel must show the committed copy, never a permanently queued reference')
+  draft.attach({ kind: 'discussion', attachment })
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [saved])
+})
+
+test('a context acknowledgement cannot adopt a replacement draft or erase its queued input', async () => {
+  const { deps, log } = fakeDeps()
+  const draft = createDraftController(deps)
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  deps.updateContextState = async (_sid, request) => {
+    await gate
+    return { contexts: [], workspace: request.workspace }
+  }
+  const attachment = { id: 'discussion::old', label: 'Old', kind: 'discussion' as const, discussionCaptureId: '11111111-1111-4111-8111-111111111111' }
+  draft.attach({ kind: 'discussion', attachment })
+  const sending = draft.sendDraftTurn('old turn', () => ({}))
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+  draft.reset()
+  draft.attach({ kind: 'discussion', attachment: { ...attachment, id: 'discussion::new', label: 'New' } })
+  release()
+  await sending
+  assert.equal(log.some((line) => line.startsWith('adopt:')), false)
+  assert.equal(deps.store.get(DRAFT_ID).live.attachments[0]?.id, 'discussion::new')
+  assert.ok(log.includes('send:real-1:old turn'))
+})
+
+test('removing a staged Discussion drops its pending reference before first send', async () => {
+  const { deps, log, focuses, contextWorkspaces } = fakeDeps()
+  const draft = createDraftController(deps)
+  const attachment = {
+    id: 'discussion::thread-1',
+    label: 'Thread one',
+    kind: 'discussion',
+    discussionCaptureId: '11111111-1111-4111-8111-111111111111',
+  }
+  draft.attach({ kind: 'discussion', attachment } as never)
+  assert.equal(deps.store.get(DRAFT_ID).live.attachments[0]?.id, attachment.id)
+  assert.deepEqual(focuses.get(DRAFT_ID), { kind: 'discussion', id: attachment.id })
+  draft.removeContexts([{ kind: 'discussion', id: attachment.id }])
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [])
+  assert.equal(focuses.get(DRAFT_ID), null, 'removal clears the discussion panel focus')
+
+  await draft.sendDraftTurn('go', () => ({}))
+  assert.equal(log.some((line) => line.startsWith('context:')), false, 'the removed reference is not flushed to the new session')
+  assert.equal(contextWorkspaces.length, 0)
+})
+
+test('a failed first-send Discussion capture can be removed before retrying the draft', async () => {
+  const { deps, log, contextRequests, contextWorkspaces, createdCount, sendFailures } = fakeDeps({ failContextOnce: true })
+  const draft = createDraftController(deps)
+  const attachment = {
+    id: 'discussion::thread-1',
+    label: 'Thread one',
+    kind: 'discussion',
+    discussionCaptureId: '11111111-1111-4111-8111-111111111111',
+  }
+  draft.attach({ kind: 'discussion', attachment } as never)
+
+  await draft.sendDraftTurn('first attempt', () => ({}))
+  assert.equal(contextRequests.length, 1, 'first send attempts the server-owned copy capture')
+  assert.equal(log.some((line) => line === 'send:draft:first attempt'), false, 'failed capture never posts to the synthetic draft id')
+  assert.equal(sendFailures.length, 1, 'the optimistic turn is retained as a retryable pre-send failure')
+  assert.equal(sendFailures[0]?.id, DRAFT_ID)
+  assert.match(sendFailures[0]?.failure ?? '', /context unavailable/)
+  assert.equal(createdCount(), 1, 'the materialized session is retained for recovery')
+
+  draft.removeContexts([{ kind: 'discussion', id: attachment.id }])
+  await draft.sendDraftTurn('continue without copy', () => ({}))
+  assert.equal(createdCount(), 1, 'retry reuses the already-minted session')
+  assert.equal(contextRequests.length, 2, 'retry reconciles the now-empty target after the ambiguous first write')
+  assert.deepEqual(contextWorkspaces[0] && (contextWorkspaces[0] as { attachments: unknown[] }).attachments, [attachment],
+    'only the failed first attempt carried the explicitly queued target')
+  assert.deepEqual((contextWorkspaces[1] as { attachments: unknown[] }).attachments, [],
+    'the recovery write removes any server copy that may have committed before the lost acknowledgement')
+  assert.ok(log.includes('send:real-1:continue without copy'))
+})
+
+test('an ambiguous mixed context flush reconciles removed Discussion and effect bindings across repeated failures', async () => {
+  const { deps, log, createdCount } = fakeDeps()
+  const writes: Array<{ sid: string; operations: Array<{ action: string; contextId?: string; context?: { id: string } }>; workspace: unknown }> = []
+  let serverWorkspace: unknown
+  deps.updateContextState = (sid, request) => {
+    writes.push({ sid, operations: request.operations, workspace: request.workspace })
+    // Model a committed write whose acknowledgement is lost on the first two
+    // attempts; the retry must keep reconciling the same created session.
+    serverWorkspace = request.workspace
+    return writes.length < 3
+      ? Promise.reject(new Error('response lost after commit'))
+      : Promise.resolve({ contexts: [], workspace: request.workspace })
+  }
+  const draft = createDraftController(deps)
+  const discussion = {
+    id: 'discussion::thread-1', label: 'Thread one', kind: 'discussion' as const,
+    discussionCaptureId: '11111111-1111-4111-8111-111111111111',
+  }
+  const repoId = repoIdForLabel('acme/api')
+  draft.attach({ kind: 'discussion', attachment: discussion } as never)
+  draft.attach({ kind: 'repo', label: 'acme/api' } as never)
+
+  await draft.sendDraftTurn('first attempt', () => ({}))
+  assert.equal(writes.length, 1)
+  assert.ok(writes[0]?.operations.some((operation) => operation.action === 'attach' && operation.context?.id === repoId))
+  assert.deepEqual((serverWorkspace as { attachments: unknown[] }).attachments, [discussion])
+
+  draft.removeContexts([{ kind: 'discussion', id: discussion.id }, { kind: 'repo', id: repoId }])
+  await draft.sendDraftTurn('retry after removal', () => ({}))
+  assert.equal(writes.length, 2, 'uncertain workspace state is written even with no pending seeds')
+  assert.deepEqual(writes[1]?.operations, [{ action: 'detach', contextId: repoId }],
+    'only an effect binding attempted before failure needs a matching detach')
+  assert.deepEqual((writes[1]?.workspace as { attachments: unknown[] }).attachments, [],
+    'the Discussion is removed through workspace reconciliation without minting an effect binding')
+
+  await draft.sendDraftTurn('retry reconciliation', () => ({}))
+  assert.equal(writes.length, 3, 'a second lost acknowledgement keeps the reconciliation latch')
+  assert.deepEqual(writes[2]?.operations, [{ action: 'detach', contextId: repoId }])
+  assert.deepEqual((serverWorkspace as { attachments: unknown[] }).attachments, [])
+  assert.equal(createdCount(), 1, 'all retries reuse the original session')
+  assert.ok(log.includes('send:real-1:retry reconciliation'))
+})
+
+test('same Discussion reselected after an ambiguous capture adopts the server-represented snapshot receipt', async () => {
+  const { deps, log } = fakeDeps()
+  const captureA = '11111111-1111-4111-8111-111111111111'
+  const captureB = '22222222-2222-4222-8222-222222222222'
+  const attachmentA = { id: 'discussion::thread-1', label: 'Thread one', kind: 'discussion' as const, discussionCaptureId: captureA }
+  const savedA = { id: attachmentA.id, label: 'Thread one', kind: 'discussion' as const, discussionSnapshot: {
+    version: 1 as const, snapshotId: captureA, capturedAt: '2026-10-06T00:00:00.000Z',
+    discussionId: 'thread-1', title: 'Thread one', postCount: 1, text: 'Already captured source',
+  } }
+  let attempts = 0
+  deps.updateContextState = (_sid, request) => {
+    attempts += 1
+    if (attempts === 1) return Promise.reject(new Error('response lost after commit'))
+    // Generic workspace retry preserves the already-saved copy instead of
+    // recapturing merely because the user selected the same source again.
+    return Promise.resolve({ contexts: [], workspace: { ...request.workspace, attachments: [savedA] } })
+  }
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'discussion', attachment: attachmentA } as never)
+  await draft.sendDraftTurn('first attempt', () => ({}))
+
+  draft.removeContexts([{ kind: 'discussion', id: attachmentA.id }])
+  draft.attach({ kind: 'discussion', attachment: { ...attachmentA, discussionCaptureId: captureB } } as never)
+  await draft.sendDraftTurn('retry same source', () => ({}))
+
+  assert.equal(attempts, 2)
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [savedA],
+    'the unchanged submitted intent adopts the server copy even with a different represented receipt')
+  assert.ok(log.includes('send:real-1:retry same source'))
+})
+
+test('reset clears uncertain context flush bookkeeping before a new draft session', async () => {
+  const { deps, log } = fakeDeps()
+  let attempts = 0
+  deps.updateContextState = () => {
+    attempts += 1
+    return Promise.reject(new Error('response lost'))
+  }
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'repo', label: 'acme/api' } as never)
+  await draft.sendDraftTurn('old attempt', () => ({}))
+  assert.equal(attempts, 1)
+
+  draft.reset()
+  await draft.sendDraftTurn('new draft', () => ({}))
+  assert.equal(attempts, 1, 'new blank draft does not replay/detach prior session state')
+  assert.ok(log.includes('send:real-2:new draft'))
+})
+
+test('a context-flush failure after draft reset cannot install stale retry state or post to the old draft', async () => {
+  const { deps, log, sendFailures } = fakeDeps()
+  let rejectContext!: (error: Error) => void
+  deps.updateContextState = (sid, request) => {
+    log.push(`context:${sid}:${request.operations.length}`)
+    return new Promise((_resolve, reject) => { rejectContext = reject })
+  }
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'discussion', attachment: {
+    id: 'discussion::thread-1', label: 'Thread one', kind: 'discussion',
+    discussionCaptureId: '11111111-1111-4111-8111-111111111111',
+  } } as never)
+  const sending = draft.sendDraftTurn('old attempt', () => ({}))
+  await Promise.resolve()
+  await Promise.resolve()
+  draft.reset()
+  rejectContext(new Error('source is no longer readable'))
+  await sending
+  assert.equal(sendFailures.length, 0, 'a superseded request cannot publish retry state into the fresh draft')
+  assert.equal(log.includes('send:draft:old attempt'), false, 'a refused old capture never posts to the synthetic id')
+})
+
+test('conversation disposal fences a late context-flush error from the replacement account draft', async () => {
+  const { deps, log, sendFailures, disposeDraftStore } = fakeDeps()
+  let rejectContext!: (error: Error) => void
+  deps.updateContextState = (sid, request) => {
+    log.push(`context:${sid}:${request.operations.length}`)
+    return new Promise((_resolve, reject) => { rejectContext = reject })
+  }
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'discussion', attachment: {
+    id: 'discussion::thread-1', label: 'Thread one', kind: 'discussion',
+    discussionCaptureId: '11111111-1111-4111-8111-111111111111',
+  } } as never)
+  const sending = draft.sendDraftTurn('old account attempt', () => ({}))
+  await Promise.resolve()
+  await Promise.resolve()
+  disposeDraftStore()
+  rejectContext(new Error('account changed'))
+  await sending
+  assert.equal(sendFailures.length, 0, 'the cleared store epoch rejects stale failure publication')
+  assert.equal(log.includes('send:draft:old account attempt'), false, 'no stale fallback send targets the synthetic id')
 })
 
 test('removeFolder purges exactly the removed folder seed; other seeds still flush', async () => {

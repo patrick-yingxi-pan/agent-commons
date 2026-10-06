@@ -36,6 +36,9 @@ function repoCatalogId(ctx: Extract<AddedContext, { kind: 'repo' }>): string | u
  *  safe to call on a re-attach (it just refreshes recency / membership). */
 export function rememberAttached(ctx: AddedContext) {
   switch (ctx.kind) {
+    case 'discussion':
+      // Always enumerate current readable discussions, never a stale authority shortcut.
+      break
     case 'files':
       // Skip the UI-host source: its ids are session-only (the browser can't
       // persist file handles across reloads), so a server recent would never

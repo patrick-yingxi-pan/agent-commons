@@ -18,6 +18,7 @@ import { PaneChromeContext, type PaneChrome } from './paneChrome'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
 import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
+import { DeferredDiscussionContextPanel } from './DeferredDiscussionContextPanel'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { useContextWritable } from '../controller/useContextWritable'
@@ -65,6 +66,10 @@ export function ContextPanelView({
         return c ? (
           <ConnectorPanel connector={c} onClose={noop} onDisconnect={writable ? () => removeContexts([{ kind: 'connector', id: c.id }]) : undefined} />
         ) : null
+      }
+      case 'discussion': {
+        const attachment = live.attachments.find((item) => item.kind === 'discussion' && item.id === panel.id)
+        return attachment ? <DeferredDiscussionContextPanel sessionId={sessionId} attachment={attachment} /> : null
       }
       case 'file':
       case 'photo':

@@ -29,6 +29,7 @@ import { deriveRelayRotationSecret } from '../relay.ts'
 import { providerSecretRotationId } from '../providerSecretRotationIdentity.ts'
 import { ImageAssetRegistry } from '../imageAssets.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
+import { buildDiscussionSnapshot, discussionContextId } from '../../contract/discussionSnapshot.ts'
 
 const TMP = join(tmpdir(), `claude-ui-snapshot-test-${process.pid}`)
 const FS_STORE = join(TMP, 'fs', '.data', 'store.json')
@@ -61,6 +62,26 @@ function stateNamed(title: string): PersistedState {
     },
     seq: { session: 1, message: 0, schedule: 0, run: 0, artifact: 0, provider: 0, systemPrompt: 0, agent: 0, commission: 0 },
   } as PersistedState
+}
+
+function portableDiscussionAttachment() {
+  const discussionId = 'disc-portable-copy'
+  const snapshot = buildDiscussionSnapshot({
+    id: discussionId,
+    posts: [{
+      id: 'post-portable-copy',
+      author: 'Ada Lovelace',
+      body: 'Detached transcript survives portable export and restart.',
+      at: Date.parse('2026-10-04T12:00:00.000Z'),
+    }],
+  } as any, 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', '2026-10-04T12:05:00.000Z')
+  assert.ok(snapshot, 'the fixture is a valid bounded detached Discussion snapshot')
+  return {
+    id: discussionContextId(discussionId),
+    label: snapshot.title,
+    kind: 'discussion',
+    discussionSnapshot: snapshot,
+  }
 }
 
 after(() => {
@@ -208,6 +229,48 @@ test('an invalid portable snapshot is rejected before live storage changes', () 
 
   assert.throws(() => restoreSnapshot('invalid'), /not readable JSON/)
   assert.deepEqual(JSON.parse(readFileSync(FS_STORE, 'utf8')), original)
+})
+
+test('Discussion copies survive portable export/restore and incomplete or malformed copies fail admission', () => {
+  process.env.PERSIST_BACKEND = 'json'
+  process.env.DATA_FILE = FS_STORE
+  process.env.SNAPSHOT_DIR = join(TMP, 'discussion-snapshots')
+  mkdirSync(dirname(FS_STORE), { recursive: true })
+  const attachment = portableDiscussionAttachment()
+  const live = stateNamed('portable Discussion copy')
+  live.workspaces = [['s1', { workspaces: [], repos: [], connectors: [], attachments: [attachment] }]] as any
+  writeFileSync(FS_STORE, JSON.stringify(live))
+
+  const { to } = saveSnapshot('discussion-copy')
+  const exported = JSON.parse(readFileSync(to, 'utf8'))
+  assert.deepEqual(exported.workspaces.find(([id]: [string]) => id === 's1')?.[1].attachments, [attachment],
+    'the canonical portable export includes the exact saved transcript')
+
+  const savedLiveBytes = readFileSync(FS_STORE, 'utf8')
+  const invalidAttachments = [
+    [{ id: attachment.id, label: attachment.label, kind: 'discussion', discussionCaptureId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' }],
+    [{ ...attachment, discussionSnapshot: { ...attachment.discussionSnapshot, privateTenant: 'must-not-persist' } }],
+    [{ ...attachment, discussionSnapshot: { ...attachment.discussionSnapshot, discussionId: 'another-thread' } }],
+  ]
+  for (const [index, attachments] of invalidAttachments.entries()) {
+    const invalid = JSON.parse(JSON.stringify(exported))
+    const entry = invalid.workspaces.find(([id]: [string]) => id === 's1')
+    entry[1].attachments = attachments
+    const name = `discussion-invalid-${index}`
+    writeFileSync(snapshotPath(name), JSON.stringify(invalid))
+    assert.throws(() => restoreSnapshot(name), /unsupported or invalid store version/,
+      'pending, extra-field, or mismatched Discussion data cannot enter durable state')
+    assert.equal(readFileSync(FS_STORE, 'utf8'), savedLiveBytes,
+      'invalid portable input is rejected before touching the live store')
+  }
+
+  const editedLive = JSON.parse(savedLiveBytes)
+  editedLive.workspaces.find(([id]: [string]) => id === 's1')[1].attachments = []
+  writeFileSync(FS_STORE, JSON.stringify(editedLive))
+  restoreSnapshot('discussion-copy')
+  const restored = JSON.parse(readFileSync(FS_STORE, 'utf8'))
+  assert.deepEqual(restored.workspaces.find(([id]: [string]) => id === 's1')?.[1].attachments, [attachment],
+    'restoring the portable export brings back the same immutable copy')
 })
 
 test('build produces a snapshot covering every persisted slice', async () => {
@@ -706,6 +769,12 @@ test('the built snapshot boots through the real rehydrate path', async () => {
     bell('ntf-renamed-actor', { actor: 'A Name Nobody Wears Now' }),
     bell('ntf-live', {}),
   ]
+  const discussionAttachment = portableDiscussionAttachment()
+  const discussionSession = stale.sessions.find((session: any) => session.title.startsWith('Draft the launch one-pager'))
+  assert.ok(discussionSession, 'the comprehensive state has a conversation for the detached copy')
+  const discussionWorkspace = stale.workspaces.find(([id]: [string]) => id === discussionSession.id)
+  assert.ok(discussionWorkspace, 'the conversation workspace is a durable map entry')
+  discussionWorkspace[1].attachments.push(discussionAttachment)
   writeFileSync(BUILD_STORE, JSON.stringify(stale))
 
   const { store } = await import('../store/index.ts')
@@ -750,6 +819,8 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const full = created && store.getSession(created.id)
   assert.ok(full && (full.messages?.length ?? 0) >= 2, 'getSession returns the rehydrated thread')
   assert.ok(full && (full.workspace?.repos.length ?? 0) > 0, 'getSession surfaces the rehydrated workspace')
+  assert.deepEqual(full?.workspace?.attachments.find((item: any) => item.id === discussionAttachment.id)?.discussionSnapshot,
+    discussionAttachment.discussionSnapshot, 'rehydrate restores the exact saved Discussion copy through the public Session projection')
   const compactedSession = store.listSessions().find((x) => x.title === 'Playground compaction receipt')
   assert.equal(
     compactedSession && typeof store.getSessionCompaction(

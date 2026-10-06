@@ -53,7 +53,7 @@ test('docked panel content can shrink below a long file list', () => {
 })
 
 test('local picker copy distinguishes text input from preview-only formats and folders', () => {
-  const src = stripComments(read(join(ROOT, 'src', 'components', 'AddContextButton.tsx')))
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'AddContextButton.tsx')) + read(join(ROOT, 'src', 'components', 'ContextPickerWorkflow.tsx')))
   const intake = stripComments(read(join(ROOT, 'src', 'components', 'UiHostDropZone.tsx')))
   assert.match(src, /Text, documents, spreadsheets, slides and images/)
   assert.match(intake, /Images are saved as a resized PNG of the first frame/)
@@ -71,7 +71,7 @@ test('local picker copy distinguishes text input from preview-only formats and f
 })
 
 test('local picker chunk failure has honest explicit recovery without automatic reload', () => {
-  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')) + read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const intake = stripComments(read(join(ROOT, 'src/components/UiHostDropZone.tsx')))
   const notice = stripComments(read(join(ROOT, 'src/components/UiHostLoadNotice.tsx')))
   const loader = stripComments(read(join(ROOT, 'src/lib/useUiHostFs.ts')))
@@ -102,7 +102,7 @@ test('local picker chunk failure has honest explicit recovery without automatic 
 test('context mutation controls share authoritative ownership across chips and both panel tiers', () => {
   const access = stripComments(read(join(ROOT, 'src/controller/useContextWritable.ts')))
   assert.match(access, /useSession\(draft \? '' : sessionId\)/)
-  assert.match(access, /draft \|\| \(!!session && session\.own !== false\)/)
+  assert.match(access, /draft \? !busy : \(!!session && session\.own !== false\)/)
   for (const file of ['Composer.tsx', 'ContextPanelView.tsx', 'OverlayPanelDock.tsx']) {
     const source = stripComments(read(join(ROOT, 'src/components', file)))
     assert.match(source, /useContextWritable\(sessionId\)/, `${file} uses the shared ownership projection`)

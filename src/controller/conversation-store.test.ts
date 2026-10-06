@@ -116,6 +116,45 @@ test('epoch staleness: a reset stales in-flight streams; navigation elsewhere do
   assert.equal(store.get('s').busy, false)
 })
 
+test('a pre-send draft context refusal preserves one retryable user row and reset/disposal epochs fence late failure', () => {
+  const { transport } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.setLive('draft', (live) => ({ ...live, messages: [user('prior-user', 'earlier'), shell('prior-answer'), user('draft-user', 'send this')] }))
+  store.update('draft', (state) => ({ ...state, busy: true, typing: true }))
+  const since = store.epoch('draft')
+
+  store.failPendingSend('draft', since, 'send this', 'Couldn’t save the queued context. Source unavailable.')
+
+  const failed = store.get('draft')
+  assert.equal(failed.busy, false)
+  assert.equal(failed.typing, false)
+  assert.equal(failed.sendFailure, 'Couldn’t save the queued context. Source unavailable.')
+  assert.deepEqual(failed.retryableSend, {
+    text: 'send this',
+    idempotencyKey: failed.retryableSend?.idempotencyKey,
+    userMessageId: 'draft-user',
+    priorMessageId: 'prior-answer',
+  })
+  assert.match(failed.retryableSend?.idempotencyKey ?? '', /^[0-9a-f-]{36}$/i)
+  assert.equal(store.beginRetry('draft')?.userMessageId, 'draft-user', 'Retry keeps the same optimistic user row')
+  assert.equal(store.get('draft').sendFailure, null)
+
+  store.update('draft', (state) => ({ ...state, busy: true, typing: true }))
+  const beforeReset = store.epoch('draft')
+  store.reset('draft', EMPTY)
+  store.failPendingSend('draft', beforeReset, 'send this', 'stale reset failure')
+  assert.equal(store.get('draft').sendFailure, null, 'reset invalidates pending failure publication')
+  assert.equal(store.get('draft').retryableSend, null)
+
+  store.setLive('draft', (live) => ({ ...live, messages: [user('new-user', 'new account')] }))
+  store.update('draft', (state) => ({ ...state, busy: true, typing: true }))
+  const beforeDisposal = store.epoch('draft')
+  store.clearAll()
+  store.failPendingSend('draft', beforeDisposal, 'new account', 'stale account failure')
+  assert.equal(store.get('draft').sendFailure, null, 'account disposal invalidates pending failure publication')
+  assert.equal(store.get('draft').retryableSend, null)
+})
+
 test('reconcile replaces live WITHOUT staling the stream, and refuses after a reset', async () => {
   const { transport, sends } = fakeTransport()
   const store = createConversationStore(transport, empty)

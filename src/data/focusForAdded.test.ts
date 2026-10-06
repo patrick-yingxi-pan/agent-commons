@@ -6,7 +6,7 @@
  *  changes which panel opens (or lingers) on a context change. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { detachOperationsForFocuses, focusForAdded, focusValidIn, addContextToLive, EMPTY_LIVE, WS_ID, repoIdForLabel } from './liveSession.ts'
+import { bindingsFor, bucketFocuses, detachOperationsForFocuses, focusForAdded, focusValidIn, addContextToLive, EMPTY_LIVE, WS_ID, repoIdForLabel } from './liveSession.ts'
 import type { AddedContext, PanelFocus } from '../types.ts'
 import type { Live } from './liveSession.ts'
 
@@ -33,6 +33,17 @@ test('files/photos → the first attachment; an empty attachment list → null',
   assert.deepEqual(focusForAdded(f, EMPTY_LIVE), { kind: 'file', id: 'a1' })
   const empty = { kind: 'files', attachments: [] } as unknown as AddedContext
   assert.equal(focusForAdded(empty, EMPTY_LIVE), null)
+})
+
+test('discussion → a read-only discussion focus with no effect binding', () => {
+  const ctx = { kind: 'discussion', attachment: { id: 'discussion::thread-1', label: 'Thread', kind: 'discussion', discussionCaptureId: '11111111-1111-4111-8111-111111111111' } } as unknown as AddedContext
+  const live = addContextToLive(EMPTY_LIVE, ctx)
+  assert.deepEqual(live.attachments, [ctx.attachment])
+  assert.deepEqual(focusForAdded(ctx, live), { kind: 'discussion', id: ctx.attachment.id })
+  assert.equal(focusValidIn(live, { kind: 'discussion', id: ctx.attachment.id }), true)
+  assert.deepEqual(bindingsFor(ctx), [], 'a discussion copy is reference data, not effect authority')
+  assert.deepEqual(bucketFocuses([{ kind: 'discussion', id: ctx.attachment.id }]).attIds, new Set([ctx.attachment.id]))
+  assert.deepEqual(detachOperationsForFocuses(live, [{ kind: 'discussion', id: ctx.attachment.id }]), [], 'removal does not synthesize a SessionContext detach binding')
 })
 
 test('focusValidIn: present contexts validate, absent ones do not — every panel kind', () => {

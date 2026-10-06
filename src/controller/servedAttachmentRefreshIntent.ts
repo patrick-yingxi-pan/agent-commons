@@ -25,11 +25,20 @@ export function createServedAttachmentRefreshIntent(sessionId: string, attachmen
     mutate: async ({ live }, _plan, expectedSessionUserId) => {
       deps.assertCurrent()
       const current = live.attachments.find((item) => item.id === attachmentId)
-      const source = parseFsRecentKey(attachmentId)
-      if (!current || !source || current.source?.id !== source.sourceId ||
-          current.source.kind !== (source.sourceId === 'cloud' ? 'cloud' : 'runner')) throw new Error('This served file is no longer attached.')
+      if (!current || current.kind !== attachment.kind) throw new Error('This context is no longer attached.')
       const currentId = attachmentSnapshotId(current)
       if (currentId !== expectedSnapshotId && currentId !== requestId) throw new Error('This saved copy changed. Use saved state, then review it before refreshing again.')
+      if (current.kind === 'discussion') {
+        if (!expectedSnapshotId || !current.discussionSnapshot) throw new Error('There is no saved discussion copy to refresh.')
+        if (sessionId === DRAFT_ID) throw new Error('Send this conversation before refreshing its saved discussion copy.')
+        // Discussion Refresh is server-owned: only the target and its expected
+        // snapshot receipt cross the API boundary. No source lookup or prose
+        // capture runs in the renderer.
+        return deps.refresh(sessionId, attachmentId, { expectedSnapshotId, requestId }, expectedSessionUserId)
+      }
+      const source = parseFsRecentKey(attachmentId)
+      if (!source || current.source?.id !== source.sourceId ||
+          current.source.kind !== (source.sourceId === 'cloud' ? 'cloud' : 'runner')) throw new Error('This served file is no longer attached.')
       if (sessionId !== DRAFT_ID && !documentFormatForName(source.entryId) && !isServedImageFileName(source.entryId)) {
         return deps.refresh(sessionId, attachmentId, { expectedSnapshotId, requestId }, expectedSessionUserId)
       }

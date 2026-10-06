@@ -22,7 +22,7 @@
  *  What stays with the host: the draft's model-pick STATE (the composer
  *  renders it), handed in via `getPick` so the funnel reads dispatch-time and
  *  post-materialize values without owning the state. */
-import type { Session, UpdateSessionContextStateRequest } from '../../contract/index'
+import type { Session, SessionContextState, UpdateSessionContextStateRequest } from '../../contract/index'
 import type { AddedContext, PanelFocus } from '../types'
 import type { ModelPick } from '../lib/models'
 import { workspaceFolders } from '../../contract/workspaceFolders.ts'
@@ -57,7 +57,7 @@ export interface DraftDeps {
       freezeSessionWriteSource?: true
     },
   ) => Promise<Session>
-  updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest, expectedSessionUserId?: string | null) => Promise<unknown>
+  updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest, expectedSessionUserId?: string | null) => Promise<SessionContextState>
   /** Read once at send dispatch; materialization retries and context flush use the same source. */
   captureSessionWriteSourceUserId?: () => string | null | undefined
   patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
@@ -70,8 +70,10 @@ export interface DraftDeps {
   /** The keyed conversation store — the slice the funnel drives. */
   store: {
     get: (id: string) => { live: Live; focus: PanelFocus | null }
+    epoch: (id: string) => number
     adopt: (from: string, to: string) => void
     sendTurn: (id: string, text: string) => Promise<void>
+    failPendingSend: (id: string, since: number, text: string, failure: string) => void
     reset: (id: string, live: Live) => void
     setLive: (id: string, live: Live) => void
     setFocus: (id: string, f: PanelFocus | null) => void
@@ -89,6 +91,12 @@ export function createDraftController(deps: DraftDeps) {
   let materializationKey: string | null = null
   /** Contexts attached to the draft before first send, awaiting the flush. */
   let pendingContexts: AddedContext[] = []
+  /** A context-state request can commit even when its acknowledgement is lost.
+   * Keep the workspace reconciliation alive until a later acknowledgement. */
+  let contextFlushUncertain = false
+  /** Effect bindings named by unacknowledged attach requests. If removed before
+   * retry, they still need an explicit detach. */
+  const attemptedBindingIds = new Set<string>()
   /** Bumped by every `reset()` — a generation stamp captured at dispatch. If it
    *  moves across the materialization await, the draft the send began on was
    *  ABANDONED (New session, an FWD-1 seed launch, the root route) and its
@@ -169,6 +177,7 @@ export function createDraftController(deps: DraftDeps) {
         const left = ctx.attachments.filter((a) => !attIds.has(a.id))
         return left.length ? { ...ctx, attachments: left } : null
       }
+      if (ctx.kind === 'discussion') return attIds.has(ctx.attachment.id) ? null : ctx
       return ctx
     })
     reconcileFocus(next)
@@ -204,6 +213,8 @@ export function createDraftController(deps: DraftDeps) {
   const reset = (seed?: AddedContext): void => {
     materializing = null
     materializationKey = null
+    contextFlushUncertain = false
+    attemptedBindingIds.clear()
     resetGen += 1
     if (seed) {
       const seeded = addContextToLive(EMPTY_LIVE, seed)
@@ -236,6 +247,7 @@ export function createDraftController(deps: DraftDeps) {
     const draftModel = sanitizePick(getPick())
     const expectedSessionUserId = deps.captureSessionWriteSourceUserId?.()
     const genAtDispatch = resetGen
+    const conversationEpochAtDispatch = deps.store.epoch(DRAFT_ID)
     const creationKey = materializationKey ?? crypto.randomUUID()
     materializationKey = creationKey
     let sid: string = DRAFT_ID
@@ -287,15 +299,47 @@ export function createDraftController(deps: DraftDeps) {
           .find((folder) => folder.id === ctx.folder!.id)
         return latest ? { ...ctx, folder: latest } : ctx
       })
-      if (seeded.length) {
+      const submittedDiscussionCaptures = new Map(seeded.flatMap((ctx) =>
+        ctx.kind === 'discussion' && ctx.attachment.discussionCaptureId
+          ? [[ctx.attachment.id, ctx.attachment.discussionCaptureId] as const]
+          : [],
+      ))
+      if (seeded.length || contextFlushUncertain) {
         const seededLive = seeded.reduce((l, ctx) => addContextToLive(l, ctx), EMPTY_LIVE)
-        await deps.updateContextState(sid, {
-          operations: seeded.flatMap((ctx) =>
-            bindingsFor(ctx).map((context) => ({ action: 'attach' as const, context })),
-          ),
+        const desiredBindings = seeded.flatMap(bindingsFor)
+        const desiredBindingIds = new Set(desiredBindings.map((binding) => binding.id))
+        const operations = [
+          ...desiredBindings.map((context) => ({ action: 'attach' as const, context })),
+          ...[...attemptedBindingIds].filter((id) => !desiredBindingIds.has(id))
+            .map((contextId) => ({ action: 'detach' as const, contextId })),
+        ]
+        // Remember intent before yielding: a rejected promise may mean the
+        // complete transaction committed but its response was lost. Discussion
+        // copies have no effect binding, so the separate latch covers them too.
+        contextFlushUncertain = true
+        for (const binding of desiredBindings) attemptedBindingIds.add(binding.id)
+        const acknowledged = await deps.updateContextState(sid, {
+          operations,
           workspace: workspaceOf(seededLive),
         }, expectedSessionUserId)
+        if (resetGen !== genAtDispatch) {
+          await deps.store.sendTurn(sid, text)
+          return
+        }
+        // Adopt the acknowledged saved copy for each unchanged submitted
+        // capture intent. A same-source re-selection during an ambiguous retry
+        // can legitimately receive an older already-saved snapshot receipt.
+        const current = deps.store.get(DRAFT_ID).live
+        const captured = new Map(acknowledged.workspace.attachments.map((item) => [item.id, item]))
+        deps.store.setLive(DRAFT_ID, { ...current, attachments: current.attachments.map((item) => {
+          const saved = captured.get(item.id)
+          return item.kind === 'discussion' && item.discussionCaptureId &&
+            submittedDiscussionCaptures.get(item.id) === item.discussionCaptureId &&
+            saved?.kind === 'discussion' && saved.discussionSnapshot ? saved : item
+        }) })
         pendingContexts = []
+        contextFlushUncertain = false
+        attemptedBindingIds.clear()
       }
       // Carry the draft's panel choice onto the real session (FWD-2): the
       // draft couldn't persist a pref (no server id), so an explicitly-closed
@@ -313,16 +357,29 @@ export function createDraftController(deps: DraftDeps) {
       // and adopt() skips it.
       deps.store.adopt(DRAFT_ID, sid)
       onAdopted?.(sid)
-    } catch {
-      // Couldn't materialize (server unreachable) — stream against the draft
-      // id; the reply still renders, it just isn't persisted.
-      // If session creation itself failed, retry the mint. If the session was
-      // created but its atomic context transaction failed, retain that row and
-      // retry against it — never mint a trail of blank duplicate sessions.
+    } catch (error) {
+      // If session creation failed, stream against the draft id as a deliberate
+      // offline fallback. If the session exists but its context transaction
+      // failed, retain that row and expose a retryable pre-send failure instead.
+      // A later retry reuses the row; never mint a trail of blank duplicates.
       if (!createdSession && materializing === pending) materializing = null
       // A superseded draft owns neither this failure nor its fallback send.
       // Let the abandoned attempt end without poisoning the newly reset draft.
       if (resetGen !== genAtDispatch) return
+      if (createdSession) {
+        // The real row exists, but the atomic context transaction was not confirmed.
+        // Keep this exact user turn retryable on the draft; the person can
+        // remove a refused queued source before retrying, and no POST targets
+        // the synthetic DRAFT_ID (or sends without the requested context).
+        const detail = error instanceof Error && error.message.trim() ? ` ${error.message.trim()}` : ''
+        deps.store.failPendingSend(
+          DRAFT_ID,
+          conversationEpochAtDispatch,
+          text,
+          `Couldn’t confirm the queued context before sending.${detail}`,
+        )
+        return
+      }
       sid = DRAFT_ID
     }
     await deps.store.sendTurn(sid, text)

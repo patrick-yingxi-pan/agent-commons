@@ -899,6 +899,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       if (record(workspace) && Array.isArray(workspace.workspaces) && !validWorkspaceFolders(workspace.workspaces)) return false
       if (!record(workspace) || !Array.isArray(workspace.attachments)) continue
       for (const attachment of workspace.attachments) {
+        if (record(attachment) && (attachment.kind === 'discussion' || Object.hasOwn(attachment, 'discussionSnapshot') || Object.hasOwn(attachment, 'discussionCaptureId'))) {
+          if (!isAttachmentInput(attachment) || !attachment.discussionSnapshot) return false
+        }
         if (record(attachment) && (Object.hasOwn(attachment, 'textSnapshot') || Object.hasOwn(attachment, 'imageSnapshot')) && !isAttachmentInput(attachment)) return false
       }
     }

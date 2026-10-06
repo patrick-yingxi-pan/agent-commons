@@ -23,6 +23,10 @@ export function projectContextTone(kind: ProjectContext['kind']): ChipTone {
  *  by its meta and optional opaque source id. */
 export function addedToProjectContexts(ctx: AddedContext): ProjectContext[] {
   switch (ctx.kind) {
+    case 'discussion':
+      // Project context is descriptive metadata, not a saved-copy destination.
+      // The shared picker hides this conversation-only branch on project pages.
+      return []
     case 'folder':
       {
         const count = ctx.folder?.snapshot?.files.length ?? ctx.artifacts.length

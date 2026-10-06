@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('served text files attach only an explicit, exact source snapshot', () => {
-  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const source = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const body = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredServedFileIntake.tsx')))
   assert.match(body, /readFsSnapshot\(source\.id, entry\.id, controller\.signal\)/)
@@ -30,7 +30,7 @@ test('served text files attach only an explicit, exact source snapshot', () => {
 })
 
 test('portal overflow retains real button semantics and explicit intake disablement', () => {
-  const picker = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const picker = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const files = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   assert.match(files, /<OptionRow[\s\S]*disabled=\{disabled\}/)
   const row = stripComments(read(join(ROOT, 'src/components/ContextOptionRow.tsx')))
@@ -43,7 +43,7 @@ test('portal overflow retains real button semantics and explicit intake disablem
 })
 
 test('unsupported served formats remain metadata-only attachments', () => {
-  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const source = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const intake = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   assert.match(intake, /if \(kind === 'photos' \|\| isServedImageFileName\(entry\.id\) \|\| documentFormatForName\(entry\.id\) \|\| isLocalTextFileName\(entry\.name\)\) onCapture\(entry\)/)
   assert.match(source, /const attachServed = \(e: FsFileEntry \| FsPhotoEntry\) =>\s+active && onAdd\(\{ kind, attachments: \[\{ id: fsRecentKey\(active\.id, e\.id\), label: e\.name, kind: kind === 'photos' \? 'photo' : 'file', source: active \}\] \}\)/)

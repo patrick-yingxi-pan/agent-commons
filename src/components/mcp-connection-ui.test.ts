@@ -22,7 +22,7 @@ test('real MCP identities open the authoritative shared catalog, never the fixtu
 })
 
 test('execution-ready external MCP rows attach by their exact opaque identity', () => {
-  const picker = source('components/AddContextButton.tsx')
+  const picker = source('components/ContextPickerWorkflow.tsx')
   assert.match(picker, /useMcpConnections\(\)/,
     'the conversation picker reads the tenant-owned external connection registry')
   assert.match(picker, /connection\.execution === 'approval-required'/,

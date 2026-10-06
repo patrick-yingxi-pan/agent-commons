@@ -5,7 +5,7 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 import { FS_SOURCE_GROUP_CLASS, FS_SOURCE_OPTION_CLASS } from './fsSourceLayout.ts'
 
 test('filesystem source switcher layout is shared, wrapping, and reachable', () => {
-  const component = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const component = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const switcherStart = component.indexOf('function SourceSwitcher(')
   assert.notEqual(switcherStart, -1, 'the shared source switcher exists')
   const switcher = component.slice(switcherStart).split('\nfunction ')[0]
@@ -43,7 +43,7 @@ test('filesystem source switcher layout is shared, wrapping, and reachable', () 
 })
 
 test('every filesystem intake scrolls one shared body while Done stays outside it', () => {
-  const component = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const component = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const panel = component.slice(component.indexOf('function FsSourcePanel(')).split('\nfunction ')[0]
   assert.match(panel, /data-fs-picker-body className=\{FS_PICKER_BODY_CLASS\}/)
   assert.doesNotMatch(panel, /MultiAddFooter/)

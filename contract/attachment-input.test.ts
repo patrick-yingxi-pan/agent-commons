@@ -9,6 +9,25 @@ import {
   planAttachmentInput,
 } from './attachmentInput.ts'
 import type { Attachment } from './entities.ts'
+import { discussionContextId, type DiscussionSnapshot } from './discussionSnapshot.ts'
+
+test('discussion copies share text budgets and reject file-shaped provenance or mismatched identity', () => {
+  const snapshot: DiscussionSnapshot = { version: 1, snapshotId: '12345678-1234-4123-8123-123456789012', capturedAt: '2026-10-06T00:00:00.000Z', discussionId: 'disc-1', title: 'Discussion', postCount: 1, text: 'x'.repeat(65_536) }
+  const saved: Attachment = { id: discussionContextId(snapshot.discussionId), label: snapshot.title, kind: 'discussion', discussionSnapshot: snapshot }
+  const pending: Attachment = { id: saved.id, label: saved.label, kind: 'discussion', discussionCaptureId: snapshot.snapshotId }
+  assert.equal(isAttachmentInput(saved), true)
+  assert.equal(isAttachmentInput(pending), true)
+  for (const malformed of [
+    { ...saved, source: { id: 'cloud', kind: 'cloud', label: 'Cloud' } },
+    { ...saved, discussionCaptureId: snapshot.snapshotId },
+    { ...saved, previewText: 'forged' },
+    { ...saved, label: 'different' },
+    { ...saved, id: discussionContextId('other') },
+    { ...saved, kind: 'file' },
+    { ...pending, discussionCaptureId: 'not-a-uuid' },
+  ]) assert.equal(isAttachmentInput(malformed), false)
+  assert.deepEqual(planAttachmentInput([saved, saved, saved, pending]).map((item) => item.status), ['ready', 'ready', 'total-limit', 'unavailable'])
+})
 
 let nextId = 0
 const uiFile = (previewText: string, overrides: Partial<Attachment> = {}): Attachment => ({

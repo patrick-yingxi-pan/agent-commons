@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('all served pickers distinguish source/catalog failure from an empty answer', () => {
-  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const source = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const intake = stripComments(read(join(ROOT, 'src/components/ServedFileIntake.tsx')))
   for (const [name, module, catalog] of [
     ['ServedFileIntake', intake, 'catalog'],
@@ -24,7 +24,7 @@ test('all served pickers distinguish source/catalog failure from an empty answer
 })
 
 test('served folder intake is cancellable, single-flight, and fenced before mutation', () => {
-  const source = stripComments(read(join(ROOT, 'src/components/AddContextButton.tsx')))
+  const source = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
   const body = source.slice(source.indexOf('function ServedFolderPicker(')).split('\nfunction ')[0]
   assert.match(source, /<ServedFolderPicker key=\{active\.id\}/)
   assert.match(body, /if \(intake\.current\) return/)

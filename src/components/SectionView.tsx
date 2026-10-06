@@ -1731,6 +1731,7 @@ function ProjectDetail({
               <AddContextButton
                 variant="section"
                 onAttach={attachToProject}
+                discussionEnabled={false}
                 connectors={contextsToConnectors(contexts)}
                 repos={[]}
                 attachments={[]}

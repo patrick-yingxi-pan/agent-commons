@@ -555,6 +555,28 @@ export function createConversationStore(
     )
   }
 
+  /** Retain a draft turn as explicitly retryable when pre-send materialization
+   *  succeeded but an attached-context transaction refused. The user row was
+   *  already published by the draft host; never send it to the synthetic draft
+   *  id just to manufacture a transport failure. `since` keeps reset/account
+   *  disposal from installing stale recovery state. */
+  const failPendingSend = (id: string, since: number, text: string, failure: string): void => {
+    if (epoch(id) !== since) return
+    const messages = get(id).live.messages
+    let userIndex = -1
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.role === 'user' && messages[index]?.content === text) { userIndex = index; break }
+    }
+    if (userIndex < 0) return
+    const userMessage = messages[userIndex]!
+    settle(id, since, failure, {
+      text: userMessage.content,
+      idempotencyKey: crypto.randomUUID(),
+      userMessageId: userMessage.id,
+      priorMessageId: messages[userIndex - 1]?.id ?? null,
+    })
+  }
+
   /** The whole send in one call — the PANE path (a real session, no draft
    *  materialization): the optimistic user turn + the generation flags land on
    *  the entry, then the turn streams. The singleton hook keeps its own
@@ -840,6 +862,7 @@ export function createConversationStore(
     clearAll,
     sendTurn,
     dispatchTurn,
+    failPendingSend,
     beginRetry,
     retryTurn,
     nextUserMessageId,

@@ -18,6 +18,7 @@ import { DRAFT_ID } from '../data/liveSession'
 import { WorkspacePanel } from './WorkspacePanel'
 import { ConnectorPanel } from './ConnectorPanel'
 import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
+import { DeferredDiscussionContextPanel } from './DeferredDiscussionContextPanel'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { PaneChromeContext, type PaneChrome } from './paneChrome'
 
@@ -48,6 +49,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
   const focusedWorkspace = focus?.kind === 'workspace' ? live.workspaces.find((w) => w.id === focus.id) : undefined
   const focusedRepo = focus?.kind === 'repo' ? live.repos.find((r) => r.id === focus.id) : undefined
   const focusedConnector = focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
+  const focusedDiscussion = focus?.kind === 'discussion' ? live.attachments.find((item) => item.kind === 'discussion' && item.id === focus.id) : undefined
   const panelOpen = !!focus
   const chrome: PaneChrome = {
     footer: panelOpen ? (
@@ -110,6 +112,10 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
                 onDisconnect={writable ? () => removeContexts([{ kind: 'connector', id: focusedConnector.id }]) : undefined}
               />
             )}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {focusedDiscussion && <DeferredDiscussionContextPanel key={focusedDiscussion.id} sessionId={sessionId} attachment={focusedDiscussion} onClose={closePanel} />}
           </AnimatePresence>
 
           <AnimatePresence>
