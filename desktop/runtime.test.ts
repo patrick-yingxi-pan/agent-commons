@@ -377,6 +377,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/mcpSchemaSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/attachmentSmokeFixture.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/contributionReviewSmoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/contributionReviewSmokeFixture.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/artifactSheetImportSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/restoreWorker.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/authRoot.mjs'), false)
@@ -448,6 +450,20 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'the ordinary executable and freshly extracted release both prove real OS-backed MCP credential reconciliation')
   assert.match(smoke, /await smokePackagedMcpSchema\(\{ executable \}\)/,
     'the ordinary executable and freshly extracted release both prove the isolated schema worker loads from ASAR')
+  assert.ok(smoke.includes('await smokePackagedContributionReview({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })'),
+    'ordinary smoke and extracted release smoke await real review interruption/relaunch acceptance')
+  const reviewSmoke = readFileSync(new URL('./contributionReviewSmoke.mjs', import.meta.url), 'utf8')
+  for (const evidence of [
+    'new DatabaseSync', '{ readOnly: true }',
+    'the actual packaged wire contains only the frozen changeset',
+    'the real interrupted request left a durable pending receipt',
+    'startup recovery itself is durable',
+    'same-key Retry returns durable history after restart',
+    'mount, restart and exact Retry cannot dispatch again',
+    'the real managed backup preserves every exact private receipt',
+  ]) assert.ok(reviewSmoke.includes(evidence), `packaged review acceptance must prove ${evidence}`)
+  assert.doesNotMatch(reviewSmoke, /_electron|use-mock-keychain|saveState\(|store\.runContribution/,
+    'review acceptance uses ordinary packaged launches and never injects a store or OS-storage fixture')
 
   const schemaSmoke = readFileSync(new URL('./mcpSchemaSmoke.mjs', import.meta.url), 'utf8')
   for (const contract of [

@@ -86,6 +86,36 @@ unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
 
+### Packaged owner-review lifecycle acceptance (2026-10-06 UTC)
+
+The rebuilt unsigned arm64 application now has a dedicated acceptance phase in
+the ordinary desktop and extracted-release smoke. It uses an isolated generated
+profile and the real OS-backed authentication root, production renderer, HTTP
+service, Messages client and SQLite; only the local Messages peer is a fixture.
+Rendered review controls produce findings and a pass without landing. The wire
+contains only the frozen changeset and no tools, and completed replies meter
+exactly the fixture's reported usage.
+
+An unanswered third request is observed as pending in the real database before
+and after app shutdown. A new process commits uncertainty, retains both earlier
+results and exact usage windows, and answers the original keyed request without
+another model call. Only an explicit fourth review dispatches again; a separate
+human Land completes the workflow. The actual managed backup preserves all four
+private receipts. Package-hash-bound evidence and screenshots are emitted under
+`.data/desktop-review-smoke/`; no real provider credentials or user data are used.
+
+The focused packaged walk passed. To verify the acceptance lock, a disposable
+copy of the ASAR was changed to leave the interrupted receipt pending: its
+relaunch failed at the expected rendered uncertain-state assertion. The altered
+copy was removed; the ordinary artifact was unchanged. Fixture tests also catch
+scoped finding corruption, and package exclusion tests reject shipping either
+acceptance helper. Harness review additionally reproduced an unhandled rejection
+when socket failure preceded late assertion attachment; the rejection assertion
+now attaches before shutdown. The complete desktop smoke also passes its ordinary startup,
+credential, attachment, schema-worker and restore phases. The complete local
+verifier remains the final pre-push gate. This does not close signed/notarized, native Intel,
+paid-provider, delegated judgment or external-effect milestones.
+
 ### Owner-controlled contribution review (2026-10-06 UTC)
 
 The Contribution page offers an explicit eligible Agent selection and discloses

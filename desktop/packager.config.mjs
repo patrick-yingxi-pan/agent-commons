@@ -84,6 +84,8 @@ export function ignoreFromPackage(path) {
       'desktop/attachmentSmoke.mjs',
       'desktop/localGitSmoke.mjs',
       'desktop/attachmentSmokeFixture.mjs',
+      'desktop/contributionReviewSmoke.mjs',
+      'desktop/contributionReviewSmokeFixture.mjs',
       'desktop/artifactSheetImportSmoke.mjs',
       'desktop/restoreSmoke.mjs',
     ].includes(normalized)

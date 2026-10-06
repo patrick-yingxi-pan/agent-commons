@@ -17,6 +17,7 @@ import { smokePackagedMcpSchema } from './mcpSchemaSmoke.mjs'
 import { smokePackagedRestore } from './restoreSmoke.mjs'
 import { smokePackagedProfileAdmission } from './profileAdmissionSmoke.mjs'
 import { smokePackagedBundledGit } from './bundledGitSmoke.mjs'
+import { smokePackagedContributionReview } from './contributionReviewSmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
@@ -70,7 +71,7 @@ async function waitForCdp(origin) {
   throw new Error('The packaged renderer did not expose its isolated smoke-test debugging endpoint.')
 }
 
-async function launchPackagedDesktop(executable, userDataPath) {
+export async function launchPackagedDesktop(executable, userDataPath) {
   const debuggingOrigin = loopbackOrigin(await findAvailableLoopbackPort())
   let output = ''
   const child = spawn(executable, [
@@ -131,7 +132,7 @@ async function launchPackagedDesktop(executable, userDataPath) {
   }
 }
 
-async function closePackagedDesktop(run) {
+export async function closePackagedDesktop(run) {
   if (!run) return
   await run.browser.close().catch(() => {})
   await stop(run.child)
@@ -533,6 +534,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   // Sequential and independently isolated: the ordinary launch above proves
   // real OS-backed storage; Playwright's main-process dialog fixture below must
   // neither reuse that profile nor compete with its single-instance lock.
+  await smokePackagedContributionReview({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedAttachments({ executable })
   await smokePackagedMcpCredentials({ executable })
   await smokePackagedMcpSchema({ executable })
