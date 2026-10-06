@@ -2,12 +2,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Identity } from '../../contract/identity.ts'
 import type { LocalGitConnection, NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
+import type { LocalGitReview } from '../../contract/localGitReview.mjs'
 import { refreshAccount, accountGeneration } from './account.ts'
 import { peek, resetAll, setData } from './cache.ts'
 import { AccountSwitchedError } from './client.ts'
 import { keys } from './keys.ts'
 import { localGitAvailable } from './localGitCapability.ts'
-import { captureLocalGit, captureLocalGitSource, connectLocalGit, disconnectLocalGit, readLocalGitConnections } from './localGit.ts'
+import { captureLocalGit, captureLocalGitSource, connectLocalGit, disconnectLocalGit, readLocalGitChanges, readLocalGitConnections } from './localGit.ts'
 
 const ada: Identity = { user: { id: 'ada', name: 'Ada' }, tenant: { id: 'tenant-a', name: 'A', kind: 'org' }, role: 'member', local: false, via: 'session' }
 const grace: Identity = { ...ada, user: { id: 'grace', name: 'Grace' }, tenant: { id: 'tenant-b', name: 'B', kind: 'org' } }
@@ -15,6 +16,19 @@ const id = `GIT_${'A'.repeat(32)}` as LocalGitConnection['id']
 const row: LocalGitConnection = { id, name: 'Commons', remembered: false }
 const file = { path: 'src/nested/notes.md', sizeBytes: 3, snapshot: { text: 'abc' } }
 const snapshotId = '00000000-0000-4000-8000-000000000001'
+const review: LocalGitReview = {
+  version: 1,
+  comparison: 'raw',
+  head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' },
+  excludedCount: 0,
+  unchangedCount: 0,
+  files: [{
+    path: 'src/nested/notes.md', staged: 'modified', unstaged: 'modified',
+    head: { kind: 'text', text: 'before', mode: '100644' },
+    index: { kind: 'text', text: 'staged', mode: '100644' },
+    working: { kind: 'text', text: 'working', mode: '100644' },
+  }],
+}
 
 function select(identity: Identity) {
   refreshAccount({ userId: identity.user.id, tenantId: identity.tenant.id })
@@ -33,6 +47,7 @@ function bridge(overrides: Partial<NativeLocalGitBridge> = {}, calls: unknown[][
     async list(source) { calls.push(['list', source]); return [row] },
     async connect(input, source) { calls.push(['connect', input, source]); return { status: 'connected', connection: { ...row, remembered: input.remember } } },
     async snapshot(connectionId, source) { calls.push(['snapshot', connectionId, source]); return { name: 'Commons', files: [file] } },
+    async review(connectionId, source) { calls.push(['review', connectionId, source]); return structuredClone(review) },
     async disconnect(connectionId, source) { calls.push(['disconnect', connectionId, source]) },
     ...overrides,
   }
@@ -117,5 +132,45 @@ test('native Git operation results are fenced when account identity changes', as
     assert.throws(source.assertCurrent, AccountSwitchedError)
     assert.equal(accountGeneration(), startGeneration + 7)
     assert.equal(peek<Identity>(keys.me)?.user.id, 'grace')
+  } finally { cleanup() }
+})
+
+test('local Git review is explicit, account-scoped, validated and detached from native output', async () => {
+  try {
+    select(ada)
+    const calls: unknown[][] = []
+    const nativeReview = structuredClone(review)
+    const scope = scopeFor(bridge({ review: async (connectionId, source) => {
+      calls.push(['review', connectionId, source])
+      return nativeReview
+    } }, calls))
+    const result = await readLocalGitChanges(id, scope)
+    assert.deepEqual(calls, [['review', id, { userId: 'ada', namespace: 'tenant-a' }]])
+    assert.deepEqual(result, review)
+    nativeReview.files[0]!.head.kind === 'text' && (nativeReview.files[0]!.head.text = 'mutated after return')
+    assert.equal(result.files[0]!.head.kind === 'text' ? result.files[0]!.head.text : '', 'before')
+
+    await assert.rejects(readLocalGitChanges('not-a-connection', scope), /connection is unavailable/i)
+    assert.equal(calls.length, 1, 'an invalid id never reaches the native bridge')
+    const malformed = scopeFor(bridge({ review: async () => ({ ...review, privatePath: '/private/repository' } as never) }))
+    await assert.rejects(readLocalGitChanges(id, malformed), /invalid review/i)
+  } finally { cleanup() }
+})
+
+test('native Git review response is fenced across an account switch', async () => {
+  try {
+    select(ada)
+    const pending = deferred<LocalGitReview>()
+    const calls: unknown[][] = []
+    const scope = scopeFor(bridge({ review: (connectionId, source) => {
+      calls.push([connectionId, source])
+      return pending.promise
+    } }))
+    const reading = readLocalGitChanges(id, scope)
+    refreshAccount({ userId: 'grace', tenantId: 'tenant-b' })
+    setData(keys.me, grace)
+    pending.resolve(review)
+    await assert.rejects(reading, AccountSwitchedError)
+    assert.deepEqual(calls, [[id, { userId: 'ada', namespace: 'tenant-a' }]])
   } finally { cleanup() }
 })

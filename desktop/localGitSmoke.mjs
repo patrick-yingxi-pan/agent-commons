@@ -97,13 +97,13 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await mkdir(join(repository, 'src'), { recursive: true })
   await writeFile(join(repository, '.gitignore'), 'ignored-secret.md\n')
   await writeFile(join(repository, '.config', 'tracked.md'), 'captured-dotfile-v1\n')
-  await writeFile(join(repository, 'src', 'nested.md'), 'captured-nested-v1\n')
+  await writeFile(join(repository, 'src', 'nested.md'), 'captured-nested-index-v1\n')
   await writeFile(join(repository, 'ignored-secret.md'), 'must-never-enter-model ignored content')
   await writeFile(join(repository, 'untracked-secret.md'), 'must-never-enter-model untracked content')
   git(gitExecutable, repository, 'init', '--template=', '--initial-branch=main', '.')
   git(gitExecutable, repository, 'add', '--', '.gitignore', '.config/tracked.md', 'src/nested.md')
   git(gitExecutable, repository, 'update-index', '--split-index')
-  await writeFile(join(repository, 'src', 'nested.md'), 'captured-nested-v1-edited-after-stage\n')
+  await writeFile(join(repository, 'src', 'nested.md'), 'captured-nested-working-v1\n')
   const indexBeforeAttach = await indexState(repository)
 
   const session = await run.page.evaluate(async id => {
@@ -145,7 +145,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.ok(attached?.gitSnapshot, 'Attach persists a distinct gitSnapshot, not a live repository or local folder snapshot')
   assert.equal(attached.localSnapshot, undefined)
   assert.deepEqual(attached.gitSnapshot.files.map(file => file.path), ['.config/tracked.md', '.gitignore', 'src/nested.md'])
-  assert.equal(attached.gitSnapshot.files.find(file => file.path === 'src/nested.md').snapshot.text, 'captured-nested-v1-edited-after-stage\n',
+  assert.equal(attached.gitSnapshot.files.find(file => file.path === 'src/nested.md').snapshot.text, 'captured-nested-working-v1\n',
     'capture reads current tracked working bytes, including edits made after staging')
   await assertIndexUnchanged(repository, indexBeforeAttach)
 
@@ -156,7 +156,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
     ['.gitignore', 'ready', 'ignored-secret.md\n'],
-    ['nested.md', 'ready', 'captured-nested-v1-edited-after-stage\n'],
+    ['nested.md', 'ready', 'captured-nested-working-v1\n'],
   ])
   assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false, 'native absolute repository paths never enter model requests')
 
@@ -171,13 +171,53 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   const refreshed = gitFolder(refreshedWorkspace, connectionId)
   assert.equal(refreshed.gitSnapshot.files.find(file => file.path === 'src/nested.md').snapshot.text,
     'captured-nested-v2-before-refresh\n')
-  await writeFile(join(repository, 'src', 'nested.md'), 'not-saved-until-next-refresh\n')
+  await writeFile(join(repository, 'src', 'nested.md'), 'review-working-only-v3\n')
   await send(run.page, 'Read the refreshed Git snapshot.', 'captured-dotfile-v1')
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
     ['.gitignore', 'ready', 'ignored-secret.md\n'],
     ['nested.md', 'ready', 'captured-nested-v2-before-refresh\n'],
   ])
+
+  const beforeReview = await readWorkspace(run.page, session.id)
+  const modelRequestsBeforeReview = endpoint.requests.length
+  const indexBeforeReview = await indexState(repository)
+  await run.page.goto(run.origin + '/contexts/' + encodeURIComponent(connectionId))
+  const reviewPanel = run.page.locator('[data-local-git-review]')
+  await expect(reviewPanel).toBeVisible()
+  await expect(reviewPanel.locator('[data-local-git-review-result]')).toHaveCount(0,
+    'opening repository detail does not read or restore a review result')
+  await reviewPanel.getByRole('button', { name: 'Review changes', exact: true }).click()
+  const reviewResult = reviewPanel.locator('[data-local-git-review-result]')
+  await expect(reviewResult).toBeVisible({ timeout: TIMEOUT_MS })
+  await expect(reviewResult).toContainText('No commit yet')
+  await expect(reviewResult).toContainText('main')
+  await run.page.getByLabel('Compare').selectOption('staged')
+  await run.page.getByLabel('Changed file').selectOption('src/nested.md')
+  await expect(reviewResult).toContainText('Added')
+  await expect(reviewResult.getByText('Not present in this version.', { exact: true })).toBeVisible()
+  assert.equal(await reviewResult.getByLabel('Index · Regular file').textContent(), 'captured-nested-index-v1\n',
+    'staged review shows the exact index bytes')
+  await run.page.getByLabel('Compare').selectOption('unstaged')
+  assert.equal(await reviewResult.getByLabel('Index · Regular file').textContent(), 'captured-nested-index-v1\n',
+    'unstaged review begins from the exact staged index bytes')
+  assert.equal(await reviewResult.getByLabel('Working tree · Regular file').textContent(), 'review-working-only-v3\n',
+    'unstaged review shows the exact later working-tree bytes')
+  assert.equal(endpoint.requests.length, modelRequestsBeforeReview, 'review itself makes no model request')
+  assert.deepEqual(await readWorkspace(run.page, session.id), beforeReview,
+    'review is transient and cannot alter the saved conversation snapshot')
+  await assertIndexUnchanged(repository, indexBeforeReview)
+  await run.page.goto(run.origin + '/s/' + encodeURIComponent(session.id))
+  await send(run.page, 'Read the saved snapshot after local review.', 'captured-dotfile-v1')
+  await assertModelFiles(endpoint, [
+    ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
+    ['.gitignore', 'ready', 'ignored-secret.md\n'],
+    ['nested.md', 'ready', 'captured-nested-v2-before-refresh\n'],
+  ])
+  assert.equal(JSON.stringify(endpoint.requests).includes('review-working-only-v3'), false,
+    'transient review text never enters model input')
+  assert.equal(JSON.stringify(endpoint.requests).includes('captured-nested-index-v1'), false,
+    'staged-only review text never enters model input')
 
   // A full packaged-process relaunch proves the remembered native grant and
   // durable saved snapshot are separate: reopening access does not auto-attach.
@@ -190,6 +230,12 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.equal(connections[0].id, connectionId, 'relaunch restores the original opaque Git connection id')
   const reopenedWorkspace = await readWorkspace(run.page, session.id)
   assert.ok(gitFolder(reopenedWorkspace, connectionId)?.gitSnapshot, 'the saved Git copy survives relaunch')
+  await run.page.goto(run.origin + '/contexts/' + encodeURIComponent(connectionId))
+  const reopenedReviewPanel = run.page.locator('[data-local-git-review]')
+  await expect(reopenedReviewPanel).toBeVisible()
+  await expect(reopenedReviewPanel.locator('[data-local-git-review-result]')).toHaveCount(0,
+    'a prior transient review does not return automatically after relaunch')
+  await run.page.goto(run.origin + '/s/' + encodeURIComponent(session.id))
   await send(run.page, 'Read the Git snapshot after relaunch.', 'captured-dotfile-v1')
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
@@ -219,17 +265,23 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
 
   // Disconnect is a real renderer-to-preload-to-main action. It revokes later
   // reads but neither deletes the conversation's saved copy nor its model input.
-  const identity = await run.page.evaluate(async () => {
-    const response = await fetch('/api/v1/me')
-    if (!response.ok) throw new Error('The local Git identity precondition failed.')
-    const value = await response.json()
-    return { namespace: value.tenant.id, userId: value.user.id }
-  })
-  await run.page.evaluate(async ({ id, source }) => {
-    await window.agentCommonsDesktop.context.localGit.disconnect(id, source)
-  }, { id: connectionId, source: identity })
+  await run.page.goto(run.origin + '/contexts/' + encodeURIComponent(connectionId))
+  const disconnectReviewPanel = run.page.locator('[data-local-git-review]')
+  await expect(disconnectReviewPanel).toBeVisible()
+  await expect(disconnectReviewPanel.locator('[data-local-git-review-result]')).toHaveCount(0,
+    'the relaunch left no automatic transient review')
+  await disconnectReviewPanel.getByRole('button', { name: 'Review changes', exact: true }).click()
+  await expect(disconnectReviewPanel.locator('[data-local-git-review-result]')).toBeVisible({ timeout: TIMEOUT_MS })
+  const beforeDisconnect = await readWorkspace(run.page, session.id)
+  await run.page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+  await expect(run.page.locator('[data-local-git-review]')).toHaveCount(0,
+    'disconnect removes the device-only review result from the repository page')
+  await expect(run.page.getByText(/This repository connection is not available to this account on this device/)).toBeVisible()
   const afterDisconnectConnections = await nativeGitConnections(run.page)
   assert.deepEqual(afterDisconnectConnections, [], 'Disconnect revokes the remembered native connection')
+  assert.deepEqual(await readWorkspace(run.page, session.id), beforeDisconnect,
+    'disconnect preserves the conversation saved copy')
+  await run.page.goto(run.origin + '/s/' + encodeURIComponent(session.id))
   const beforeRevokedRefresh = await readWorkspace(run.page, session.id)
   const disconnectedGroup = run.page.locator(`[data-workspace-folder="ui-host::${connectionId}"]:visible`)
   await disconnectedGroup.getByRole('button', { name: /^Refresh/ }).click()
@@ -244,6 +296,6 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     ['nested.md', 'ready', 'captured-nested-v2-before-refresh\n'],
   ])
   assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
-  console.log('[desktop-local-git-smoke] native dialog result fixture only · bundled Git + packaged reader/IPC/preload/renderer · tracked working edits and exclusions · index/sharedindex bytes+mtime unchanged · remembered relaunch · saved-only Attach/Refresh/model input · missing-source recovery · disconnect retains copy and revokes Refresh')
+  console.log('[desktop-local-git-smoke] native dialog result fixture only · bundled Git + packaged reader/IPC/preload/renderer · tracked working edits and exclusions · explicit transient staged/unstaged review · index/sharedindex bytes+mtime unchanged · remembered relaunch · saved-only Attach/Refresh/review/model input · missing-source recovery · disconnect clears review, retains copy and revokes Refresh')
   return run
 }

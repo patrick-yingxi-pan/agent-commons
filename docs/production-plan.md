@@ -86,10 +86,37 @@ unreported spend. Legacy reviewer omission remains a development fixture only.
 
 ## Progress and next milestones
 
-### Read-only Git diff foundation (2026-10-06 UTC)
+### Explicit local Git review (2026-10-06 UTC)
 
-The next core workflow is a real Git baseline review, not a comparison of saved
-snapshots. Its first prerequisite adds internal no-follow object range reads and
+The existing repository page now exposes an explicit **Review changes** read,
+with separate staged (HEAD → index) and unstaged (index → working tree)
+comparisons. The shared diff primitive shows complete bounded before/after text,
+executable mode, absent/empty files and explicit omissions. Read time and raw-byte
+limits stay visible; this is neither live Git status nor a line-hunk/rename engine.
+Review is account-scoped memory only: no saved snapshot refresh, model input,
+HTTP mutation or Git write is implied. Dismiss, disconnect and account switches
+fence late replies. Native snapshot/review operations share capacity and shutdown
+revocation; the portable parser validates and detaches every publication.
+
+This completes the user-facing read-only baseline workflow over the internal
+foundation below. Signed/notarized two-architecture release, external-service and
+paid-provider acceptance, OCR, and richer source/format workflows remain separate
+production milestones. Local verification and browser/native acceptance remain
+the checkpoint gate; GitHub Actions is not used.
+
+Checkpoint evidence: all seven focused Git browser journeys pass, including
+five-viewport ready/empty/omitted/error/loading/dismissed states, bounded keyboard
+code scrolling, navigation retention, account disposal, malformed output and
+lazy-module recovery. The general sweep covers 135/135 cells with zero skips or
+violations; all 142 captures were visually reviewed. The complete unsigned
+arm64 desktop suite passes, including actual bundled-reader/preload/renderer
+review, unchanged index/sharedindex bytes and timestamps, saved-only model input,
+relaunch and disconnect. This is not signed/Intel or real-provider acceptance.
+
+### Read-only Git diff foundation checkpoints (2026-10-06 UTC)
+
+The real Git baseline review rests on these completed prerequisites, not a
+comparison of saved snapshots. Its first layer adds internal no-follow object range reads and
 fixed-depth pack-index discovery to the existing native helper. Exact slices are
 bounded at 16 MiB even when a pack is larger; every result carries the whole-file
 version, and an out-of-range request cannot silently return partial bytes.
@@ -136,11 +163,10 @@ to reproduce Git status with source configuration, attributes, line-ending
 conversion, clean/smudge filters or external drivers. This reader adds no source
 writes, automatic reads, renderer bridge, saved-context schema or model input.
 
-Next connect the tested transaction to an explicit local review surface with
-separate staged and unstaged views and visible omissions. Keep source Git
-configuration, external diff drivers, untracked/ignored files and repository
-writes excluded. Persisting,
-sharing or sending this new diff to a model needs a separate product decision.
+PORT-25 now connects this transaction to the explicit local review surface above.
+Source Git configuration, external diff drivers, untracked/ignored files and
+repository writes remain excluded. Persisting, sharing or sending this review
+to a model needs a separate product decision.
 The OCR choice and signed/paid-provider release gates remain pending.
 
 ### Packaged delegated judgment acceptance (2026-10-06 UTC)
@@ -1756,7 +1782,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. OCR, unsupported document formats, rich Office fidelity, live/recursive folder or Git browsing/diff and paid-provider acceptance remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. OCR, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. OAuth, local transports, standing trust, MRTR and third-party acceptance remain required. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |

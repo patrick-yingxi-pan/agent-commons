@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { GitBranch } from 'lucide-react'
 import type { AddedContext } from '../types'
 import type { LocalGitConnection } from '../../contract/localGitCapture.ts'
@@ -15,6 +15,10 @@ import { CheckboxRow } from './Checkbox'
 import { BackButton } from './BackButton'
 import { AtomicResourcePage, ResourcePageSynopsisRow, ResourceUnavailablePage } from './ResourcePage'
 import { GitSnapshotPolicy } from './GitSnapshotPolicy'
+
+// Optional native review is requested only on its canonical page. The existing
+// DeferredLocalGit boundary contains module failure and preserves navigation.
+const LocalGitReview = lazy(() => import('./LocalGitReview.tsx').then(module => ({ default: module.LocalGitReview })))
 
 export function LocalGitStatus() {
   const state = useLocalGitConnections()
@@ -34,7 +38,7 @@ export function LocalGitConnect() {
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   return <div data-local-git-connect className="space-y-2 py-2">
-    <p className="text-[12px] leading-snug text-ink-soft">Choose a repository on this device. Tracked files are read only when you explicitly attach a saved snapshot.</p>
+    <p className="text-[12px] leading-snug text-ink-soft">Choose a repository on this device. Tracked files are read only when you explicitly attach or refresh a saved snapshot, or review changes on its page.</p>
     <CheckboxRow checked={remember} disabled={state.busy} onToggle={() => setRemember(value => !value)} className="text-[12px] text-ink">
       <span>Remember this connection<span className="block text-[11px] text-ink-soft">Keep access after relaunch until you disconnect. Otherwise select again next time.</span></span>
     </CheckboxRow>
@@ -96,7 +100,7 @@ export function NativeLocalGitPicker({ onAdd, addedIds, onClose }: { onAdd: (ctx
 }
 
 export function LocalGitRow({ connection, onOpen }: { connection: LocalGitConnection; onOpen: () => void }) {
-  return <ResourcePageSynopsisRow title={<span title={connection.name}>{connection.name}</span>} description="Read-only Git snapshot · this device" meta={connection.remembered ? 'Remembered' : 'Until app closes'} prefix={<GitBranch size={15} className="shrink-0 text-ink-soft" />} onOpen={onOpen} />
+  return <ResourcePageSynopsisRow title={<span title={connection.name}>{connection.name}</span>} description="Read-only Git repository · this device" meta={connection.remembered ? 'Remembered' : 'Until app closes'} prefix={<GitBranch size={15} className="shrink-0 text-ink-soft" />} onOpen={onOpen} />
 }
 
 const contextsHome: NavLocation = { kind: 'section', section: 'contexts', projectId: null, scheduleId: null }
@@ -116,7 +120,10 @@ export function LocalGitDetail({ id, onBack, backTo }: { id: string; onBack: () 
       <button type="button" disabled={state.busy || state.status !== 'ready'} className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`} onClick={() => void localGitConnections.disconnect(id)}>Disconnect</button>
     </header>
     <LocalGitStatus />
-    <div className="space-y-3 text-[13px] leading-relaxed text-ink-soft">
+    <Suspense fallback={<p role="status" className="mt-6 text-[12px] text-ink-soft">Loading repository review…</p>}>
+      <LocalGitReview id={connection.id} enabled={state.status === 'ready' && !state.busy} />
+    </Suspense>
+    <div className="mt-6 space-y-3 text-[13px] leading-relaxed text-ink-soft">
       <p>In a conversation, choose Add context → Repository → This computer, then Attach. Refresh an attached repository explicitly to save later tracked edits. Opening this page never reads repository files.</p>
       <p>Disconnect ends future reads; saved snapshots in conversations remain available as model input until removed.</p>
       <GitSnapshotPolicy />

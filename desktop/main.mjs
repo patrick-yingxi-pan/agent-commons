@@ -14,6 +14,7 @@ import { createNativeContextPicker } from './contextPicker.mjs'
 import { createLocalConnectionHost, localConnectionReply } from './localConnectionHost.mjs'
 import { LocalConnectionError, LOCAL_CONNECTION_FILE, LOCAL_GIT_CONNECTION_FILE, openLocalConnectionStore } from './localConnectionStore.mjs'
 import { createLocalGitReader, isLocalGitRoot } from './localGitReader.mjs'
+import { readLocalGitReview } from './localGitReview.mjs'
 import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs'
 import { gitFileExecutable } from './gitFileRead.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
@@ -140,11 +141,13 @@ async function startDesktop() {
   if (process.platform === 'darwin') {
     try {
       const gitExecutable = await verifyBundledGitDirectory(bundledGitDirectory({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }))
-      const reader = createLocalGitReader({ gitExecutable, fileExecutable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }) })
+      const fileExecutable = gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath })
+      const reader = createLocalGitReader({ gitExecutable, fileExecutable })
       localGitStore = await openLocalConnectionStore({
         filePath: join(app.getPath('userData'), LOCAL_GIT_CONNECTION_FILE), storage: safeStorage,
         connectionKind: 'git', validateRoot: isLocalGitRoot,
         inspectRoot: reader.inspectLocalGitRoot, capture: reader.readLocalGitSnapshot,
+        review: (root, { signal }) => readLocalGitReview(root, { gitExecutable, fileExecutable, signal }),
       })
     } catch { console.warn('[desktop] local Git access is unavailable for this run.') }
   }

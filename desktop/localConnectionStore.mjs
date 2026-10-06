@@ -95,7 +95,7 @@ function assertStorage(storage, platform) {
  */
 export async function openLocalConnectionStore({
   filePath, storage, platform = process.platform,
-  inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, fsApi = REAL_FS,
+  inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, review: reviewGit, fsApi = REAL_FS,
   connectionKind = 'folder', validateRoot = validRoot,
 } = {}) {
   try {
@@ -175,6 +175,30 @@ export async function openLocalConnectionStore({
       }
     }
 
+    async function read(owner, id, reader) {
+      if (!validOwner(owner) || typeof id !== 'string' || !idPattern.test(id)) fail()
+      const binding = { ...owner }
+      const pending = await serial(() => {
+        const found = entries.get(id)
+        if (!found || !sameOwner(found.owner, binding)) fail()
+        if (captures.size >= MAX_LOCAL_CAPTURES) throw new LocalConnectionError('busy')
+        const pending = { entry: found, controller: new AbortController() }
+        captures.add(pending)
+        return pending
+      })
+      try {
+        available()
+        if (entries.get(id) !== pending.entry || pending.controller.signal.aborted) fail()
+        const result = await reader(structuredClone(pending.entry.root), { signal: pending.controller.signal })
+        // Reads stay outside the disk queue so disconnect can revoke them promptly.
+        return await serial(() => {
+          if (entries.get(id) !== pending.entry || pending.controller.signal.aborted) fail()
+          return result
+        })
+      } catch { throw new LocalConnectionError() }
+      finally { captures.delete(pending) }
+    }
+
     return {
       connect({ owner, path, remember = false } = {}) {
         // Copy the binding before any asynchronous selection inspection.
@@ -201,29 +225,12 @@ export async function openLocalConnectionStore({
         const binding = { ...owner }
         return serial(() => [...entries.values()].filter((entry) => sameOwner(entry.owner, binding)).map(descriptor))
       },
-      async snapshot(owner, id) {
-        if (!validOwner(owner) || typeof id !== 'string' || !idPattern.test(id)) fail()
-        const binding = { ...owner }
-        const pending = await serial(() => {
-          const found = entries.get(id)
-          if (!found || !sameOwner(found.owner, binding)) fail()
-          if (captures.size >= MAX_LOCAL_CAPTURES) throw new LocalConnectionError('busy')
-          const pending = { entry: found, controller: new AbortController() }
-          captures.add(pending)
-          return pending
-        })
-        try {
-          available()
-          if (entries.get(id) !== pending.entry || pending.controller.signal.aborted) fail()
-          const snapshot = await capture(structuredClone(pending.entry.root), { signal: pending.controller.signal })
-          // Read outside the disk queue: disconnect can finish during a slow
-          // read, but content cannot be delivered after revocation settles.
-          return await serial(() => {
-            if (entries.get(id) !== pending.entry) fail()
-            return snapshot
-          })
-        } catch { throw new LocalConnectionError() }
-        finally { captures.delete(pending) }
+      snapshot(owner, id) {
+        return read(owner, id, capture)
+      },
+      async review(owner, id) {
+        if (connectionKind !== 'git' || typeof reviewGit !== 'function') fail()
+        return read(owner, id, reviewGit)
       },
       disconnect(owner, id) {
         if (!validOwner(owner) || typeof id !== 'string' || !idPattern.test(id)) return Promise.reject(new LocalConnectionError())

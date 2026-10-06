@@ -300,6 +300,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'the Git access bridge exists only on macOS')
   const localGitBridge = contextBridge.slice(contextBridge.indexOf('localGit: Object.freeze('))
   assert.match(localGitBridge, /list: \(source\) => invokeLocalFolder\(localGitChannels\.list, source\)/)
+  assert.match(localGitBridge, /review: \(id, source\) => invokeLocalFolder\(localGitChannels\.review, id, source\)/)
   assert.doesNotMatch(localGitBridge, /owner|path|ipcRenderer\.(send|on)/i,
     'the renderer can select a Git connection id but cannot claim an owner or repository path')
   assert.match(main, /installLocalFolderIpc\(\)/)
@@ -307,13 +308,18 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(main, /session\.defaultSession\.cookies\.get\(\{ url: trustedOrigin \}\)/)
   assert.match(main, /redirect: 'error'/)
   assert.match(main, /generation !== localFolderCookieGeneration/)
+  assert.match(main, /review: \(root, \{ signal \}\) => readLocalGitReview\(root, \{ gitExecutable, fileExecutable, signal \}\)/,
+    'the native Git store runs only the explicit, pinned-tool review reader')
   assert.match(main, /function beginShutdown\(\) \{[^}]*quitting = true[^}]*localFolderStore\?\.shutdown\(\)/)
   assert.equal((main.match(/quitting = true/g) ?? []).length, 1, 'quitting is a one-way transition owned by beginShutdown')
   assert.equal((main.match(/^\s+beginShutdown\(\)$/gm) ?? []).length, 4, 'update, restore, and both before-quit paths cancel local work')
   const packagedSmokeSource = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
   assert.ok(packagedSmokeSource.includes("'localFolders,localGit,pickFiles,pickFolder'"), 'macOS packaged smoke locks the exact context bridge surface')
   assert.ok(packagedSmokeSource.includes("'connect,disconnect,list,snapshot'"), 'packaged smoke locks all four local-folder methods')
-  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,list,snapshot'"), 'packaged smoke locks all four Git methods')
+  assert.ok(packagedSmokeSource.includes("typeof window.agentCommonsDesktop?.context?.localGit?.review === 'function'"),
+    'packaged smoke requires the explicit Git review method')
+  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,list,review,snapshot'"),
+    'packaged smoke locks all five Git methods without widening the folder bridge')
   assert.match(preload, /mcpCredentials = Object.freeze\(/)
   assert.match(preload, /mcp-provision-v1/)
   assert.match(preload, /mcp-credentials:provision/)

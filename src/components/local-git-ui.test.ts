@@ -14,8 +14,27 @@ test('Repository → This computer uses the native Git picker as a separate save
   assert.ok(picker.includes('Remember this connection'))
   assert.ok(picker.includes('captureLocalGit(connection.id)'), 'only explicit Attach captures repository content')
   assert.ok(picker.includes('gitSnapshot }'), 'native Git state uses the distinct gitSnapshot field')
-  assert.ok(!/terminal|diff|branch:/i.test(picker), 'native snapshots are not presented as live repository sessions')
+  assert.ok(!/terminal|branch:/i.test(picker), 'native snapshots are not presented as live repository sessions')
   assert.ok(controller.includes('onAccountSwitch(() => localGitConnections.clear())'))
+})
+
+test('local Git review is a separate explicit memory-only comparison on the canonical repository page', () => {
+  const detail = source('src/components/LocalGitConnections.tsx')
+  const review = source('src/components/LocalGitReview.tsx')
+  const diff = source('src/components/TextDiffCode.tsx')
+  assert.ok(source('src/components/TextDiff.tsx').includes("lazy(() => import('./TextDiffCode.tsx'))"))
+  assert.ok(detail.includes('<LocalGitReview id={connection.id}'))
+  assert.ok(review.includes('onClick={() => void localGitReviews.read(id)}'))
+  assert.ok(review.includes('localGitReviews.dismiss(id)'))
+  assert.ok(review.includes('gitReviewComparison(file, state.comparison)'))
+  assert.ok(review.includes('Omitted comparisons are not evidence of a clean repository'))
+  assert.ok(review.includes('never attached, saved to a conversation, or sent to a model'))
+  assert.ok(review.includes('Full text comparison'))
+  assert.ok(!/captureLocalGit|useEffect|localStorage|fetch\(/.test(review), 'rendering and selection grant no source or network authority')
+  assert.ok(diff.includes('data-text-comparison'))
+  assert.ok(diff.includes('aria-label={side.label} tabIndex={0}'))
+  assert.ok(diff.includes('side.text !== undefined'))
+  assert.ok(diff.includes('side.notice'))
 })
 
 test('Contexts page and rail expose the same native Git connection rows and disconnect detail', () => {

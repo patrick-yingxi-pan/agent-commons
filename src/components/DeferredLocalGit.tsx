@@ -16,7 +16,7 @@ class Boundary extends Component<{ children: ReactNode; navigation?: Pick<Compon
   static getDerivedStateFromError() { return { failed: true } }
   notice(failed: boolean) {
     const notice = <InlineOperationStatus tone={failed ? 'alert' : 'status'}
-      message={failed ? 'Couldn’t load local repository controls. Saved snapshots are unchanged. Copy unsent text before reloading.' : 'Loading local repository controls…'}
+      message={failed ? 'Couldn’t load local repository controls. Saved snapshots are unchanged. Reload discards in-memory reviews; copy unsent text first.' : 'Loading local repository controls…'}
       action={failed ? { label: 'Reload controls', onClick: () => window.location.reload() } : undefined} />
     const navigation = this.props.navigation
     return navigation ? <AtomicResourcePage>

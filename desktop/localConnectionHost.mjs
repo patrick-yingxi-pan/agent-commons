@@ -1,4 +1,5 @@
 import { LocalConnectionError } from './localConnectionStore.mjs'
+import { parseLocalGitReview } from '../contract/localGitReview.mjs'
 
 const ID = /^LOCAL_[A-F0-9]{32}$/
 const fail = () => { throw new LocalConnectionError() }
@@ -119,6 +120,19 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
         const value = await store.snapshot(before.owner, id)
         await unchanged(before)
         return safeSnapshot(value, connectionKind)
+      })
+    },
+    review(event, id, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        if (extra.length || connectionKind !== 'git') fail()
+        if (typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id)) fail()
+        const before = await source()
+        assertExpectedSource(before, expectedSource)
+        const value = await store.review(before.owner, id)
+        await unchanged(before)
+        const parsed = parseLocalGitReview(value)
+        if (!parsed) fail()
+        return parsed
       })
     },
     disconnect(event, id, expectedSource, ...extra) {

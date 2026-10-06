@@ -8,16 +8,33 @@
  *  content-bearing relation-consent cards (description / instructions / prompt bodies).
  *  Extracting it the first time a second entity needs it is form-follows-function —
  *  the diff cue can't drift between copies. */
+import { lazy, Suspense } from 'react'
+import type { TextDiffSide } from '../lib/textDiff.ts'
+
+const CodeDiff = lazy(() => import('./TextDiffCode.tsx'))
+
 export function TextDiff({
   label,
   current,
   proposed,
+  sides,
 }: {
   label?: string
+} & ({
   /** The current value (left column). Omit for a create — proposed renders alone. */
   current?: string
   proposed: string
-}) {
+  sides?: never
+} | {
+  current?: never
+  proposed?: never
+  /** Raw code uses explicit before/after states: absence and unread content
+   * must never be rendered as an empty file or a fabricated removal. */
+  sides: { before: TextDiffSide; after: TextDiffSide }
+})) {
+  if (sides) return <Suspense fallback={<p role="status" className="text-[12px] text-ink-soft">Loading text comparison…</p>}>
+    <CodeDiff label={label} sides={sides} />
+  </Suspense>
   return (
     <div className="mt-2">
       {label && (

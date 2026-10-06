@@ -59,8 +59,10 @@ reread the original image; legacy attachments require explicit Save snapshot.
 CTX-FS-26 also retains served-image originals privately; legacy normalized-only
 imports remain valid. Native local Git Attach/Refresh now
 captures bounded tracked working-tree text into a portable saved snapshot
-(CTX-FS-25); this does not make demo/live-repository diff or terminal surfaces
-real. Recursive folder selection, rich remote document fidelity and signed
+(CTX-FS-25). Explicit read-only Git review on that connection's page now shows
+real bounded HEAD/index/working-tree comparisons (PORT-25), kept only in local
+account-scoped memory and never sent to a model. Existing demo repository panels
+and terminal surfaces remain fixtures. Recursive folder selection, rich remote document fidelity and signed
 two-architecture acceptance remain production work.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values

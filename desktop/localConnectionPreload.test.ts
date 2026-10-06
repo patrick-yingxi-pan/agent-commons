@@ -14,6 +14,7 @@ const gitChannels = {
   list: 'agent-commons:local-git:list',
   connect: 'agent-commons:local-git:connect',
   snapshot: 'agent-commons:local-git:snapshot',
+  review: 'agent-commons:local-git:review',
   disconnect: 'agent-commons:local-git:disconnect',
 }
 const unavailableMessage = 'The local folder is unavailable. Your saved snapshots have not been changed.'
@@ -133,6 +134,7 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
     [{ id: 'GIT_0123456789ABCDEF0123456789ABCDEF', name: 'Agent Commons', remembered: false }],
     { status: 'cancelled' },
     { name: 'Agent Commons', files },
+    { version: 1, comparison: 'raw', head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' }, excludedCount: 0, unchangedCount: 0, files: [] },
     undefined,
   ]
   const { bridge, calls } = loadPreload(values.map(value => ({ value: { ok: true, value } })), 'darwin')
@@ -141,11 +143,13 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
   const remember = { remember: true }
   assert.deepEqual(await git.connect(remember, sourceIdentity), values[1])
   assert.deepEqual(await git.snapshot('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), values[2])
+  assert.deepEqual(await git.review('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), values[3])
   assert.equal(await git.disconnect('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), undefined)
   assert.deepEqual(calls, [
     [gitChannels.list, sourceIdentity],
     [gitChannels.connect, remember, sourceIdentity],
     [gitChannels.snapshot, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
+    [gitChannels.review, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
     [gitChannels.disconnect, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
   ])
   assert.equal(JSON.stringify(values[2]).includes('/Users/'), false, 'Git snapshots expose relative tracked paths only')
@@ -159,6 +163,7 @@ test('Git preload is absent outside macOS and maps every native failure to fixed
     ['list', () => [sourceIdentity]],
     ['connect', () => [{ remember: false }, sourceIdentity]],
     ['snapshot', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
+    ['review', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
     ['disconnect', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
   ]
   const privatePath = '/Users/private/customer/repository'

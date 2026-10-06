@@ -18,6 +18,13 @@
 
 ## Themes (the cross-cutting shapes)
 
+Local Git review (2026-10-06): a time-bound observation with a change payload
+belongs on its canonical repository page. Explicit read time, staged/unstaged
+selection and the shared full-text diff retain before/after truth; missing,
+empty and omitted sides stay distinct. Results are transient account-scoped
+memory, not a new resource or a saved model context (`LocalGitReview.tsx`,
+`TextDiff.tsx`; `e2e/local-git-review.spec.ts`).
+
 1. **Diff — a change belongs in a diff, not prose.** The proposal's side-by-side field
    diff (`SectionView.tsx`, `ProposalsReviewDialog`) is already well-tuned. Extract it
    as the shared **`FieldDiff`** primitive and reuse it verbatim where a change is shown

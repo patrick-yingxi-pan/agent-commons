@@ -371,7 +371,9 @@ remain readable independently of the source. This is not live diff or terminal a
 
 The same cloud and mapped-runner sources support bounded PDF/DOCX/XLSX/PPTX text
 projections and normalized saved images, with explicit Refresh. Original document
-and image bytes are transient. Git writes/live diff, recursive folders and rich document
+and image bytes are transient. PORT-25 adds explicit local staged/unstaged full-text
+review, held only in account memory and never sent to a model. Git writes/live diff,
+recursive folders and rich document
 fidelity remain unfinished work. The recorded [native Folder acceptance](docs/acceptance/native-folder-2026-10-05.md)
 covers actual macOS selection and remembered-connection lifecycles on its named
 unsigned arm64 build; it is not a signed two-architecture release receipt.

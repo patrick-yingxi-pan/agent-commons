@@ -7,7 +7,18 @@ const event = { sender: 'trusted' }
 const identityA = { user: { id: 'user-a' }, tenant: { id: 'tenant-a', kind: 'personal' }, role: 'owner', local: false, via: 'session' }
 const identityB = { user: { id: 'user-b' }, tenant: { id: 'tenant-b', kind: 'personal' }, role: 'owner', local: false, via: 'session' }
 const validId = 'LOCAL_0123456789ABCDEF0123456789ABCDEF'
+const validGitId = 'GIT_0123456789ABCDEF0123456789ABCDEF'
 const source = (identity = identityA, cookieGeneration = 1, cookieFingerprint = 'fingerprint-a') => ({ identity, cookieGeneration, cookieFingerprint })
+const validReview = () => ({
+  version: 1, comparison: 'raw', head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' },
+  excludedCount: 0, unchangedCount: 0,
+  files: [{
+    path: 'src/note.txt', staged: 'modified', unstaged: 'modified',
+    head: { kind: 'text', text: 'head\n', mode: '100644' },
+    index: { kind: 'text', text: 'index\n', mode: '100644' },
+    working: { kind: 'text', text: 'working\n', mode: '100644' },
+  }],
+})
 
 function fakeStore(overrides = {}) {
   const calls = []
@@ -16,13 +27,14 @@ function fakeStore(overrides = {}) {
     async list(owner) { calls.push(['list', owner]); return [{ id: validId, name: 'selected', remembered: false, rootPath: '/private/path' }] },
     async connect(input) { calls.push(['connect', input]); return { id: validId, name: 'selected', remembered: input.remember, root: { path: input.path } } },
     async snapshot(owner, id) { calls.push(['snapshot', owner, id]); return { name: 'selected', path: '/private/path', files: [{ name: 'note.txt', sizeBytes: 4, snapshot: { text: 'body' } }] } },
+    async review(owner, id) { calls.push(['review', owner, id]); return validReview() },
     async disconnect(owner, id) { calls.push(['disconnect', owner, id]) },
     ...overrides,
   }
 }
 
-function makeHost({ store = fakeStore(), resolveSource = async () => source(), assertCaller = (candidate) => assert.equal(candidate, event), showFolderDialog = async () => ({ canceled: false, filePaths: ['/private/path'] }) } = {}) {
-  return { host: createLocalConnectionHost({ store, resolveSource, assertCaller, showFolderDialog }), store }
+function makeHost({ store = fakeStore(), resolveSource = async () => source(), assertCaller = (candidate) => assert.equal(candidate, event), showFolderDialog = async () => ({ canceled: false, filePaths: ['/private/path'] }), connectionKind = 'folder' } = {}) {
+  return { host: createLocalConnectionHost({ store, resolveSource, assertCaller, showFolderDialog, connectionKind }), store }
 }
 
 test('connect derives exact owner, uses only the native-selected path, and does not capture content', async () => {
@@ -88,6 +100,49 @@ test('snapshot output is fenced and projected to path-free snapshot fields', asy
   assert.deepEqual(await host.snapshot(event, validId, { namespace: 'tenant-a', userId: 'user-a' }), {
     name: 'selected', files: [{ name: 'note.txt', sizeBytes: 4, snapshot: { text: 'body' } }],
   })
+})
+
+test('Git review uses the native connection ID, fences account identity, and returns detached path-free output', async () => {
+  const raw = validReview()
+  const store = fakeStore({ async review(owner, id) { this.calls.push(['review', owner, id]); return raw } })
+  const { host } = makeHost({ store, connectionKind: 'git' })
+  const result = await host.review(event, validGitId, { namespace: 'tenant-a', userId: 'user-a' })
+  assert.deepEqual(store.calls, [['review', { namespace: 'tenant-a', userId: 'user-a' }, validGitId]])
+  assert.deepEqual(result, raw)
+  assert.notStrictEqual(result, raw)
+  assert.notStrictEqual(result.files, raw.files)
+  raw.files[0].working.text = 'mutated after IPC projection'
+  assert.equal(result.files[0].working.text, 'working\n', 'the host returns parser-detached data')
+  assert.equal(JSON.stringify(result).includes('/private/path'), false)
+
+  let lookups = 0
+  const staleStore = fakeStore()
+  const staleHost = makeHost({
+    store: staleStore,
+    connectionKind: 'git',
+    resolveSource: async () => ++lookups === 1 ? source(identityA) : source(identityB, 2, 'fingerprint-b'),
+  }).host
+  await assert.rejects(staleHost.review(event, validGitId, { namespace: 'tenant-a', userId: 'user-a' }), LocalConnectionError)
+  assert.deepEqual(staleStore.calls, [['review', { namespace: 'tenant-a', userId: 'user-a' }, validGitId]],
+    'an account switch during content review fences its late result')
+})
+
+test('review is exact-arity Git-only and malformed parser output becomes generic unavailable', async () => {
+  const folder = makeHost().host
+  await assert.rejects(folder.review(event, validGitId, { namespace: 'tenant-a', userId: 'user-a' }), LocalConnectionError)
+  const store = fakeStore()
+  const { host } = makeHost({ store, connectionKind: 'git' })
+  await assert.rejects(host.review(event, validGitId, { namespace: 'tenant-a', userId: 'user-a' }, 'extra'), LocalConnectionError)
+  await assert.rejects(host.review(event, 'GIT_../../private/path', { namespace: 'tenant-a', userId: 'user-a' }), LocalConnectionError)
+  const unsafe = fakeStore({ async review() { return { ...validReview(), files: [{ ...validReview().files[0], path: '/Users/private/source.txt' }] } } })
+  const unsafeHost = makeHost({ store: unsafe, connectionKind: 'git' }).host
+  await assert.rejects(unsafeHost.review(event, validGitId, { namespace: 'tenant-a', userId: 'user-a' }), (error) => {
+    assert.ok(error instanceof LocalConnectionError)
+    assert.equal(error.message.includes('/Users/private'), false)
+    assert.equal(error.cause, undefined)
+    return true
+  })
+  assert.deepEqual(store.calls, [], 'invalid argument shape and identity never reaches storage')
 })
 
 test('unauthorized sender is refused before identity lookup, dialog, or store access', async () => {

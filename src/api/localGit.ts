@@ -1,5 +1,6 @@
 import type { Identity } from '../../contract/identity.ts'
 import { isLocalGitCapture, isLocalGitConnectionId, type LocalGitCapture, type LocalGitConnection, type NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
+import { parseLocalGitReview, type LocalGitReview } from '../../contract/localGitReview.mjs'
 import { accountGeneration, activeAccount } from './account.ts'
 import { AccountSwitchedError } from './client.ts'
 import { peek } from './cache.ts'
@@ -76,4 +77,17 @@ export async function captureLocalGit(id: string, snapshotId = crypto.randomUUID
   const snapshot: LocalGitCapture = { version: 1, snapshotId, capturedAt: new Date().toISOString(), connectionId: id, files: result.files }
   if (!isLocalGitCapture(snapshot)) throw new Error('The repository did not return a complete supported snapshot.')
   return structuredClone(snapshot)
+}
+
+/** Read one explicit, transient local review from the native pinned source.
+ * The identity fence and detached contract parser keep device data account-
+ * scoped and out of persistence/model-input paths. */
+export async function readLocalGitChanges(id: string, scope: DesktopBridgeScope = window): Promise<LocalGitReview> {
+  const identity = captureLocalGitSource()
+  if (!isLocalGitConnectionId(id)) throw new Error('This repository connection is unavailable.')
+  const result = await bridge(scope).review(id, identity.source)
+  identity.assertCurrent()
+  const review = parseLocalGitReview(result)
+  if (!review) throw new Error('The repository returned an invalid review.')
+  return structuredClone(review)
 }
