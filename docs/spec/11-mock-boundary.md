@@ -1,7 +1,8 @@
 # 11 · The mock boundary
 
-> **Intent.** The project's claim is "real boundaries, only the model mocked." In
-> practice a few **content** surfaces are also fixtures — which is fine and
+> **Intent.** The project builds real boundaries with explicitly declared fixtures.
+> Some **content** surfaces and contribution execution seams are still fixtures —
+> which is acceptable for development and
 > deliberate (deterministic, reviewable data), but only if it's *declared*. This
 > pillar enumerates the **complete** set of things faked beyond the model, each
 > naming the real boundary it stubs, so "is X real or mock?" always has an answer.
@@ -19,18 +20,21 @@ tenant-scoped asset references through SQL and portable backups. Model turns are
 bounded to 8 images/8 MiB; endpoint and negotiated relay/MCP image blocks are
 real boundary work. Owner context walls and shared-view image reads are real.
 Raw local admission also validates bounded RGB BMP CORE/INFO/V2/V3/V4/V5
-variants and ICO PNG/DIB entries, but those bytes remain transient and do not
-become durable image MIME types. Self-contained static SVG follows the same PNG
+variants and ICO PNG/DIB entries; normalized previews remain PNG.
+Self-contained static SVG follows the same PNG
 normalization path through bounded worker-only XML admission and detached image
 decode. Scripts, animation, external resources, malformed geometry and recursive
 use are rejected; only static PNG/JPEG raster embeds within a combined 32-megapixel
-budget are admitted. Raw SVG stays
-transient, never inline application markup or a durable SVG asset. Structural
+budget are admitted. CTX-FS-26 retains exact originals privately alongside the
+normalized asset, including BMP, ICO and SVG. Originals are inert owner-only
+downloads, never inline application markup, shared previews or automatic model
+image input; storage limits, backups and cleanup include both copies. Structural
 validation is not complete codec decoding. Protocol and persistence
 locks, packaged executable smoke, and the complete responsive sweep exercise
 this boundary. Automated repository and packaged-executable verification cover
 the implemented path; they do not by themselves claim a completed manual macOS
-picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants, other documents, live folder/Git, rich document fidelity,
+picker handoff. OCR, active/external-resource SVG, RLE/embedded BMP variants,
+unsupported documents, live folder/Git browsing and rich document fidelity,
 paid-provider acceptance, and manual OS-dialog acceptance remain outside this
 milestone. A public native release additionally still requires the signed,
 notarized two-architecture release gate.
@@ -50,7 +54,8 @@ complete saved text, and Refresh retries the same captured projection. CTX-FS-24
 extends the existing bounded PNG normalization and tenant-asset path to explicit
 Files/Photos capture from these sources. Saved previews and model input never
 reread the original image; legacy attachments require explicit Save snapshot.
-Original-image retention is not added. Native local Git Attach/Refresh now
+CTX-FS-26 also retains served-image originals privately; legacy normalized-only
+imports remain valid. Native local Git Attach/Refresh now
 captures bounded tracked working-tree text into a portable saved snapshot
 (CTX-FS-25); this does not make demo/live-repository diff or terminal surfaces
 real. Recursive folder selection, rich remote document fidelity and signed
@@ -109,8 +114,21 @@ Actual saved MCP connections and native Folder access remain separate. Locks:
 `server/contextCatalog.test.ts`, `server/persistence/initial-world.test.ts`,
 `src/components/context-catalog.test.ts`, `e2e/context-catalog.spec.ts`.
 
+Contribution governance has three additional explicit development fixtures
+(MOCK-7): adversarial review, delegated policy judgment, and envelope effect
+execution. Desktop/web profiles refuse these operations with
+`409 capability_unavailable`, including replay attempts against old fixture
+receipts, before any new verdict, effect consumption or event. Old timelines
+remain readable, but a mock review is not current release authority for a
+Tier-1 contributor landing. The owner can still review and land manually or
+approve a proposed envelope; approval alone does not execute it. Configuring a
+conversation model or connector does not configure these independent seams.
+The locks are `server/store/contribution-runtime.test.ts`,
+`server/routes/contribution-runtime.test.ts` and `server/mcp.test.ts`.
+
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |
 |----|--------------------------------------------------|--------|--------|
+| MOCK-7 | **Contribution cognition and envelope fulfilment** — the development adversarial reviewer reports no findings, the delegate reports policy satisfied, and a matching envelope line records a simulated effect rather than calling an adapter. Release profiles fail closed before execution or fixture receipt replay; historical mock verdicts cannot satisfy fresh Tier-1 landing. Owner-authored policy/envelope configuration, manual approval/landing, mechanical bounds and the durable ledger are real. Actual reviewer/delegate model execution and effect adapters remain unbuilt (COMMONS-29/31/32). | `server/contributionRuntime.ts`, `server/store/index.ts`, `server/routes/index.ts` | 🟡 |
 | MOCK-1 | **The development model** — the one intended behavioral mock. Generation runs through a real Messages + tool-use boundary; development fulfilment is a local deterministic endpoint. Release profiles never enable it implicitly: the selected endpoint is visibly unconfigured and fail-before-write until a real connection exists (MODEL-28). Going live remains config only (MODEL-5); Electron's OS-encrypted provider-key creation/rotation lifecycle, acknowledgement recovery, and atomic connection probe/swap are real and never silently select this fixture. | `server/model/index.ts`, `server/model/endpointExecution.ts`, `server/generate.ts`, `server/runtimeProfile.ts`, `server/routes/providerConnection.ts`, `src/controller/providerCreationCredentialCore.ts`, `desktop/credentialVault.mjs` | 🟡 |
 | MOCK-2 | **Seeded/imported artifact bodies** — hand-authored demo doc/email/image/slide/sheet bodies remain fixtures, but `/artifact-content` projects only actual readable seed identities and unambiguous compatibility names under REL-22. It never dumps the global fixture library; clean installs and unrelated tenants receive no fictional body content. CTX-FS-12, CTX-FS-14, CTX-FS-15 and CTX-FS-16 extract actual bounded text/value projections from directly selected PDFs, DOCX, XLSX and PPTX archives; PDF/DOCX/XLSX/PPTX layout, formulas/calculation, images/OCR, notes/media and other rich document extraction remain unbuilt. The fixture does **not** back newly authored documents (including REL-13 standing routine reports), CTX-FS-11 local folder snapshots or PDF/DOCX/XLSX/PPTX attachments: those persist actual bounded bodies under opaque identities. Local previews never substitute the demo library for missing content. Served folder artifacts fetch real content via CTX-FS-5. | `server/data/artifactContent.ts`, `contract/content.ts`, `server/store/index.ts`, `src/components/panels/ArtifactPanel.tsx`, `src/lib/docxExtraction.ts`, `src/lib/xlsxExtraction.ts`, `src/lib/pptxExtraction.ts` | 🟡 |
 | MOCK-3 | **External MCP has a real, bounded interactive execution path; other connector fulfilment remains mocked or unavailable.** Tenant-owned HTTPS connections undergo real catalog discovery and isolated schema admission before exact attachment. Both model transports produce owner-approved proposals; confirmation persists a running receipt before one outbound attempt, then saves a bounded inert result, known failure or uncertainty without automatic replay. Electron provisions OS-encrypted tokens through a write-only bridge. Remote metadata is not consent, safety or live health. Deterministic loopback browser and JSON/SQLite recovery fixtures prove this path, not third-party acceptance. Legacy development connectors remain visibly `(mock)` in demo catalogs; clean release catalogs offer no such candidates, and other release adapters remain `unconfigured`; routines reject failed provenance. Combined real-service/native acceptance, OAuth, stdio, standing trust and MRTR remain unfinished. | `server/mcpDiscovery.ts`, `server/mcpCatalog.ts`, `server/mcpHttpTransport.ts`, `server/mcpConnectionService.ts`, `server/routes/mcpConnections.ts`, `server/connectorRuntime.ts`, `server/model/connectorTools.ts`, `server/data/connectorDetails.ts`, `server/runtimeProfile.ts`, `server/routineRunner.ts`, `server/contextCatalog.ts`, `src/components/McpCatalogBody.tsx` | 🟡 |

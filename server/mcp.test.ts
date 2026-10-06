@@ -7,7 +7,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { call, callRaw } from './testkit/http.ts'
-import { MCP_PROTOCOL_VERSION } from './mcp.ts'
+import { MCP_PROTOCOL_VERSION, toolNameFor } from './mcp.ts'
+import { store } from './store/index.ts'
 
 let seq = 0
 const rpc = async (method: string, params?: unknown, headers?: Record<string, string>) =>
@@ -378,6 +379,96 @@ test('tools/call: a non-2xx inner response is isError with the same error envelo
   assert.equal(r.isError, true)
   assert.equal(r.status, 404)
   assert.equal(r.body.error.code, 'not_found', 'the HTTP error envelope is preserved verbatim')
+})
+
+test('tools/call: release profiles fail closed for contribution review, delegation, and effects', async () => {
+  const routes = [
+    { method: 'POST', path: '/projects/:id/contributions/:cid/review' },
+    { method: 'POST', path: '/projects/:id/contributions/:cid/delegated/:did' },
+    { method: 'POST', path: '/projects/:id/contributions/:cid/effects' },
+  ] as const
+  const catalog = await rpc('tools/list')
+  assert.equal(catalog.status, 200)
+  const toolNames = new Set<string>(catalog.json.result.tools.map((tool: any) => tool.name))
+  const names = routes.map(({ method, path }) => toolNameFor(method, path))
+  for (const name of names) assert.ok(toolNames.has(name), `actual MCP catalog contains ${name}`)
+
+  const previousProfile = process.env.DEPLOYMENT_PROFILE
+  const owner = 'tenant-mcp-contribution-owner'
+  const contributor = 'tenant-mcp-contribution-author'
+  let serial = 0
+  const makeProject = () => {
+    const id = `p-mcp-contribution-runtime-${++serial}`
+    store.applyRelationOp({ kind: 'create-project', projectId: id, projectName: id, projectDescription: '' }, owner)
+    store.applyRelationOp({ kind: 'share-project', projectId: id, projectName: id, shared: true }, owner)
+    return id
+  }
+  const open = (projectId: string) => {
+    const row = store.openContribution(projectId, { title: `MCP runtime ${serial}` }, contributor, undefined)
+    assert.equal(typeof row, 'object')
+    return row.id
+  }
+
+  try {
+    delete process.env.DEPLOYMENT_PROFILE
+    for (const profile of ['desktop', 'web'] as const) {
+      delete process.env.DEPLOYMENT_PROFILE
+      const projectId = makeProject()
+      const reviewCid = open(projectId)
+      assert.equal(typeof store.crystallizeContribution(projectId, reviewCid, {
+        entries: [{ kind: 'note', target: `mcp-${profile}`, after: 'release review target' }],
+      }, contributor, undefined), 'object')
+
+      const delegate = store.createAgent({ label: `MCP runtime delegate ${profile}`, providerId: 'provider-claude', tools: [] } as any, owner)
+      const delegation = store.createDelegation(projectId, {
+        agentId: delegate.id,
+        actKind: 'approve-envelope',
+        policy: 'Approve the proposed monotonic envelope.',
+        mode: 'decide',
+      }, owner)
+      assert.equal(typeof delegation, 'object')
+      const delegatedCid = open(projectId)
+      assert.equal(typeof store.proposeEnvelope(projectId, delegatedCid, {
+        lines: [{ type: 'connector.read', target: `mcp:${profile}`, harness: 'dry-run' }],
+      }, contributor, undefined), 'object')
+
+      const effectCid = open(projectId)
+      const effectProposal = store.proposeEnvelope(projectId, effectCid, {
+        lines: [{ type: 'connector.write', target: `mcp:${profile}`, harness: 'draft-escrow' }],
+      }, contributor, undefined)
+      assert.equal(typeof effectProposal, 'object')
+      const effectApproval = store.approveEnvelope(projectId, effectCid, owner, undefined)
+      assert.equal(typeof effectApproval, 'object')
+      const lineId = effectApproval.envelope.lines[0].id
+
+      process.env.DEPLOYMENT_PROFILE = profile
+      const before = store.listContributions(projectId, owner)
+      const emitted: string[] = []
+      const off = store.subscribe((event) => {
+        if (event.type === 'contribution.changed' && event.projectId === projectId) emitted.push(event.type)
+      })
+      try {
+        const headers = { 'x-tenant-id': contributor }
+        const results = [
+          await toolCall(names[0], { id: projectId, cid: reviewCid, body: { expectedVersion: 1 } }, headers),
+          await toolCall(names[1], { id: projectId, cid: delegatedCid, did: delegation.id }, headers),
+          await toolCall(names[2], { id: projectId, cid: effectCid, body: { lineId } }, headers),
+        ]
+        for (const result of results) {
+          assert.equal(result.isError, true)
+          assert.equal(result.status, 409)
+          assert.equal(result.body.error.code, 'capability_unavailable')
+        }
+        assert.deepEqual(store.listContributions(projectId, owner), before, `${profile}: no Contribution state changed`)
+        assert.deepEqual(emitted, [], `${profile}: refusals emit no Contribution changes`)
+      } finally {
+        off()
+      }
+    }
+  } finally {
+    if (previousProfile === undefined) delete process.env.DEPLOYMENT_PROFILE
+    else process.env.DEPLOYMENT_PROFILE = previousProfile
+  }
 })
 
 test('tools/call: unknown tools and missing path params are JSON-RPC -32602', async () => {

@@ -14,6 +14,7 @@
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
+import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
 import { parseArtifactMetadataEntries } from '../artifactMetadata.ts'
 import { parseArtifactLifecycleEntries } from '../artifactLifecycle.ts'
 import { nextArtifactLifecycle, type ArtifactLifecycle, type TrashedArtifact } from '../../contract/artifactLifecycle.ts'
@@ -1409,9 +1410,11 @@ function tierFor(c: StoredContribution): import('../../contract/index.ts').Contr
 }
 
 function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
-  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, ...pub } = c
+  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, ...pub } = c
+  const effectiveReview = c.status === 'open' ? contributionReviewVersion(c) : reviewedVersion
   return {
     ...pub,
+    ...(effectiveReview !== undefined ? { reviewedVersion: effectiveReview } : {}),
     ...(contributorPrincipal ? { contributorKind: contributorPrincipal.kind } : {}),
     // Viewer-relative, never stored: display names aren't unique, so the client
     // must not infer "yours" from a name — the raw-id comparison happens HERE,
@@ -10114,7 +10117,7 @@ export const store = {
       // Tier 1: the adversarial verdict must cover the LATEST version — a
       // re-crystallize invalidates it, and un-crystallized work has nothing
       // a reviewer could pass (reviewedVersion stays unset ⇒ refused).
-      if (tier.level === 1 && c.reviewedVersion !== (c.changeset?.length ?? 0)) return 'needs-review'
+      if (tier.level === 1 && contributionReviewVersion(c) !== (c.changeset?.length ?? 0)) return 'needs-review'
     }
     return commitMutationBatch(() => {
       const now = Date.now()
@@ -10203,8 +10206,11 @@ export const store = {
         const latest = c.changeset?.length ?? 0
         if (latest === 0) {
           asks.push({ contributionId: c.id, title: c.title, function: 'error-catching', label: 'Crystallize a changeset — un-crystallized work has nothing a reviewer can pass' })
-        } else if (c.reviewedVersion !== latest) {
-          asks.push({ contributionId: c.id, title: c.title, function: 'error-catching', label: `Run the adversarial review over v${latest} — then this self-lands` })
+        } else if (contributionReviewVersion(c) !== latest) {
+          const label = contributionRuntimeMode() === 'fixture'
+            ? `Run the adversarial review over v${latest} — then this self-lands`
+            : 'Ask the project owner to review and land this contribution — automated review is not configured'
+          asks.push({ contributionId: c.id, title: c.title, function: 'error-catching', label })
         }
       }
     }
@@ -10213,7 +10219,7 @@ export const store = {
     // a pattern a draft-mode delegation could hold.
     const hasApproveDelegation = delegations.some((d) => d.projectId === projectId && d.actKind === 'approve-envelope')
     const proposal =
-      ownerActs && manualMonotonicApprovals >= 2 && !hasApproveDelegation
+      contributionRuntimeMode() === 'fixture' && ownerActs && manualMonotonicApprovals >= 2 && !hasApproveDelegation
         ? `${manualMonotonicApprovals} of your approvals were monotonic-only envelopes — a draft-mode delegation could hold these (irreversible ones would still escalate to you).`
         : undefined
     return { humanActs, delegatedActs, machineActs, escalations, asks, ...(proposal ? { proposal } : {}) }
@@ -10393,7 +10399,8 @@ export const store = {
     tenantId: string,
     principal: PrincipalRef | undefined,
     options: { logicalId?: string } = {},
-  ): Contribution | 'forbidden' | 'self' | 'inapplicable' | 'invalid' | undefined {
+  ): Contribution | 'forbidden' | 'self' | 'inapplicable' | 'invalid' | 'unconfigured' | undefined {
+    if (contributionRuntimeMode() === 'unconfigured') return 'unconfigured'
     if (options.logicalId) {
       const represented = this.getDelegatedJudgment(options.logicalId, projectId, cid, did, tenantId)
       if (typeof represented === 'object') return represented
@@ -10565,7 +10572,8 @@ export const store = {
     tenantId: string,
     principal: PrincipalRef | undefined,
     options: { logicalId?: string; expectedVersion?: number } = {},
-  ): Contribution | 'nothing' | 'stale' | 'conflict' | 'invalid' | undefined {
+  ): Contribution | 'nothing' | 'stale' | 'conflict' | 'invalid' | 'unconfigured' | undefined {
+    if (contributionRuntimeMode() === 'unconfigured') return 'unconfigured'
     if (options.logicalId) {
       const represented = this.getContributionReview(
         options.logicalId,
@@ -10968,7 +10976,8 @@ export const store = {
     tenantId: string,
     principal: PrincipalRef | undefined,
     options: { logicalId?: string } = {},
-  ): Contribution | 'forbidden' | 'closed' | 'unapproved' | 'refused' | undefined {
+  ): Contribution | 'forbidden' | 'closed' | 'unapproved' | 'refused' | 'unconfigured' | undefined {
+    if (contributionRuntimeMode() === 'unconfigured') return 'unconfigured'
     if (options.logicalId) {
       const represented = this.getContributionEffectExecution(
         options.logicalId,

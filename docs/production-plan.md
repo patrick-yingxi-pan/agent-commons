@@ -69,6 +69,36 @@ Approval alone does not establish implementation or release acceptance.
 
 ## Progress and next milestones
 
+### Contribution execution release wall (2026-10-06 UTC)
+
+The current audit found three development fixtures outside the existing model
+and connector release guards: contribution review always passed, delegated
+judgment always found policy satisfied, and effect-envelope execution recorded
+success without calling an external adapter. Desktop/web profiles now refuse
+all three operations before new state or fixture receipt replay. The same store
+wall protects internal callers; HTTP and MCP expose the ordinary
+`capability_unavailable` refusal behind the Project visibility boundary.
+
+Historical timeline entries remain readable. Their mock review stamps no longer
+appear as effective review on an open release contribution or authorize Tier-1
+contributor landing. Attention guidance directs the contributor to the Project
+owner instead of promising a mock self-landing, and release advice no longer
+proposes an unavailable delegated reviewer. Manual owner approval and landing
+remain intact; approving an envelope is not a claim that its effect ran.
+
+This closes a false-success defect, not the underlying production feature gap.
+Real adversarial review, delegated policy evaluation and envelope effect
+fulfilment remain required core work. A configured conversation provider or
+connector does not silently configure these seams or approve paid acceptance.
+Direct-store and route regressions were watched fail against the old behavior
+before implementation; focused tests cover both release profiles, old fixture
+receipts, unchanged state/events, private Project walls and the human path.
+Disabling the shared release guard after implementation made six tests fail,
+including the real MCP tools/call regression; the original guard was restored.
+Complete local verification and final diff review remain the landing gate.
+
+### Prior attachment and native acceptance checkpoints
+
 The preceding checkpoint closed the actual macOS Git chooser acceptance gate on
 the unchanged unsigned arm64 build at `a4212731`. The
 [dated native record](acceptance/native-git-2026-10-06.md) covers real selection
@@ -80,7 +110,7 @@ unchanged. Only generated repositories, an isolated profile and a credential-fre
 loopback model fixture were used. Native-control limitations are recorded without
 turning unresponsive actions into passes. No product code changed in this check.
 
-The current checkpoint implements approved private original-image retention
+The previous checkpoint implemented approved private original-image retention
 and authenticated download. Explicit local and served imports bind the exact
 source container and normalized copy to one immutable asset identity. Original
 bytes count toward quota and cleanup, survive JSON/SQLite and portable backups,
@@ -1451,7 +1481,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. OCR, other document formats, live folder/Git and remote-source input remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. OCR, unsupported document formats, rich Office fidelity, live/recursive folder or Git browsing/diff and paid-provider acceptance remain the FWD-9 gap. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. OAuth, local transports, standing trust, MRTR and third-party acceptance remain required. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |

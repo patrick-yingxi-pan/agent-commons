@@ -2,6 +2,7 @@
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
+import { contributionRuntimeMode, CONTRIBUTION_RUNTIME_UNAVAILABLE } from '../contributionRuntime.ts'
 import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
 import { messageHistoryText } from '../toolActivityHistory.ts'
 import { exportArtifact } from './artifactExport.ts'
@@ -3332,6 +3333,9 @@ export function buildRouter(): Router {
   }))
   r.post('/projects/:id/contributions/:cid/delegated/:did', idempotent(({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    if (contributionRuntimeMode() === 'unconfigured') {
+      return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.delegation)
+    }
     const who = store.identity(req.headers)
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     const logicalJudgmentId = idempotencyKey
@@ -3357,6 +3361,7 @@ export function buildRouter(): Router {
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Not permitted')
     if (out === 'inapplicable') return sendError(res, 'conflict', 'Nothing for this delegation to decide here (no pending act, or the contribution landed)')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This delegated judgment identity is invalid')
+    if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.delegation)
     sendJson(res, out)
   }))
   // The changeset (CW3/CW4, Phase D): crystallize a version — contributor or
@@ -3487,9 +3492,12 @@ export function buildRouter(): Router {
     sendJson(res, out)
   })
   r.post('/projects/:id/contributions/:cid/effects', idempotent(async ({ req, res, params, body }) => {
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    if (contributionRuntimeMode() === 'unconfigured') {
+      return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.effect)
+    }
     const input = await body<RunEnvelopeEffectRequest>()
     if (typeof input?.lineId !== 'string' || !input.lineId) return sendError(res, 'bad_request', 'lineId is required')
-    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     const logicalExecutionId = idempotencyKey
@@ -3527,6 +3535,7 @@ export function buildRouter(): Router {
     if (out === 'closed') return sendError(res, 'conflict', 'A landed contribution’s plan is immutable — remaining cardinality does not survive the landing')
     if (out === 'unapproved') return sendError(res, 'conflict', 'No approved envelope covers this act — the refusal is on the timeline')
     if (out === 'refused') return sendError(res, 'conflict', 'Outside the approved envelope — the refusal is on the timeline; amend and re-approve')
+    if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.effect)
     sendJson(res, out)
   }))
   r.post('/projects/:id/contributions/:cid/land', ({ req, res, params }) => {
@@ -3594,6 +3603,9 @@ export function buildRouter(): Router {
   })
   r.post('/projects/:id/contributions/:cid/review', async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    if (contributionRuntimeMode() === 'unconfigured') {
+      return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.review)
+    }
     const who = store.identity(req.headers)
     const input = await body<ReviewContributionRequest>()
     const expectedVersion = input?.expectedVersion
@@ -3626,6 +3638,7 @@ export function buildRouter(): Router {
     if (out === 'stale') return sendError(res, 'conflict', 'The changeset changed after this review was started')
     if (out === 'conflict') return sendError(res, 'conflict', 'This contribution’s timeline is at its cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This review identity or expected version is invalid')
+    if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.review)
     sendJson(res, out)
   })
 
