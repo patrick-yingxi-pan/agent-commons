@@ -119,6 +119,25 @@ language support are OS-dependent, not a promise of universal recognition.
 
 ## Progress and next milestones
 
+### Changed-line Git review (2026-10-06 UTC)
+
+PORT-27 turns the existing read-only Git capture into line-numbered changed
+sections with three context lines, added/removed totals, newline cues, and a
+Full files alternative. Rendering is paged at 200 text rows without dropping
+later changes. Exact missing sides and unread sides stay distinct; unavailable
+or excessively complex comparisons retain the captured full text and explain
+why changed lines cannot be shown. View changes do not reread the repository.
+
+The pure bounded matcher preserves CRLF and final-newline identity, handles
+whole-file addition/deletion linearly and is checked by reconstruction and a
+small-input minimality oracle. The byte-limit and unknown-side-as-empty
+mutations were watched fail. Acceptance covers changed-line/full-file views,
+pagination, long lines, mode-only and empty changes, omission/fallback, native
+read counts, account disposal and the five-viewport accessibility matrix.
+The complete local verifier, general UI sweep and packaged Git walk remain the
+delivery gates. This does not add rename detection, Git writes, live status,
+model access, or signed/Intel evidence.
+
 ### Saved Discussion context (2026-10-06 UTC)
 
 CTX-DISC-1 adds a confirmed saved-copy attachment to existing conversations and

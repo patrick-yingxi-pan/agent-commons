@@ -6,7 +6,8 @@ import { TextDiff } from './TextDiff.tsx'
 import type { LocalGitConnectionId } from '../../contract/localGitCapture.ts'
 
 /** A local, time-bound observation belongs on the repository page, not in a
- * persisted artifact or a model context. Each change exposes its full sides;
+ * persisted artifact or a model context. Changed lines and full sides share
+ * one exact captured input;
  * unknown content is explicit and never becomes a fictitious deletion. */
 export function LocalGitReview({ id, enabled }: { id: LocalGitConnectionId; enabled: boolean }) {
   const state = useLocalGitReview(id)
@@ -31,6 +32,7 @@ export function LocalGitReview({ id, enabled }: { id: LocalGitConnectionId; enab
       <details className="text-[12px] leading-relaxed text-ink-soft">
         <summary className="cursor-pointer py-1">Review limits and privacy</summary>
         <p className="py-1">Raw bytes and executable mode only; Git filters, attributes, rename detection, and global configuration are not applied. Untracked and ignored files are excluded. Up to 500 HEAD/index paths, 24 working files, 64 KiB per file and 128 KiB total displayed text. Omitted comparisons are not evidence of a clean repository.</p>
+        <p className="py-1">Changed-line review supports up to 8,000 lines per side within a bounded comparison budget. More complex comparisons show full files instead. Pagination limits what is rendered at once, not which captured changes can be read.</p>
         <p className="py-1">Results and selection stay in memory, not browser storage. Dismiss, Disconnect, changing accounts, reloading or closing the app clears the review.</p>
       </details>
       <p className="text-[12px] text-ink-soft">{result.unchangedCount} compared unchanged · {result.excludedCount} ignored paths excluded</p>
@@ -47,7 +49,7 @@ export function LocalGitReview({ id, enabled }: { id: LocalGitConnectionId; enab
           </select>
         </label>
         <h3 className="break-words font-mono text-[13px] text-ink [overflow-wrap:anywhere]">{file.path}</h3>
-        <TextDiff label={`${GIT_CHANGE_LABELS[file[state.comparison]]} · Full text comparison`} sides={gitReviewComparison(file, state.comparison)} />
+        <TextDiff key={`${file.path}:${state.comparison}`} label={GIT_CHANGE_LABELS[file[state.comparison]]} sides={gitReviewComparison(file, state.comparison)} />
       </> : <p role="status" className="text-[13px] text-ink-soft">No {state.comparison} changes in the compared paths.</p>}
     </div>}
   </section>

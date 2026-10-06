@@ -4,7 +4,7 @@ import { gitReviewSide, gitReviewComparison, GIT_CHANGE_LABELS } from './localGi
 import type { GitReviewSide, LocalGitReviewFile } from '../../contract/localGitReview.mjs'
 
 test('review projection distinguishes missing, empty and unavailable text without fabricating deletions', () => {
-  assert.deepEqual(gitReviewSide({ kind: 'missing' }, 'HEAD'), { label: 'HEAD', notice: 'Not present in this version.' })
+  assert.deepEqual(gitReviewSide({ kind: 'missing' }, 'HEAD'), { label: 'HEAD', notice: 'Not present in this version.', missing: true })
   assert.deepEqual(gitReviewSide({ kind: 'text', text: '', mode: '100644' }, 'Index'), { label: 'Index · Regular file', text: '' })
   const reasons = ['unsupported', 'too-large', 'budget', 'unreadable', 'unmerged', 'sparse', 'not-needed'] as const
   for (const reason of reasons) {

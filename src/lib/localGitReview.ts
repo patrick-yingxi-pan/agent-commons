@@ -19,7 +19,9 @@ const omissionCopy: Record<Extract<GitReviewSide, { kind: 'omitted' }>['reason']
 
 export function gitReviewSide(side: GitReviewSide, label: string): TextDiffSide {
   if (side.kind === 'text') return { label: `${label} · ${side.mode === '100755' ? 'Executable' : 'Regular file'}`, text: side.text }
-  return { label, notice: side.kind === 'missing' ? 'Not present in this version.' : omissionCopy[side.reason] }
+  return side.kind === 'missing'
+    ? { label, notice: 'Not present in this version.', missing: true }
+    : { label, notice: omissionCopy[side.reason] }
 }
 
 export function gitReviewComparison(file: LocalGitReviewFile, comparison: GitComparison) {

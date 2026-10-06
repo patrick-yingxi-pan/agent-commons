@@ -1,6 +1,7 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { API } from './social-helpers.ts'
 import { ms } from './budget.ts'
+import { assertWcag22Aa } from './accessibility-helpers.ts'
 
 const GIT_ID = `GIT_${'A'.repeat(32)}`
 const VIEWPORTS = [
@@ -12,6 +13,27 @@ const VIEWPORTS = [
 ] as const
 const LONG_PATH = `src/${Array.from({ length: 12 }, (_, index) => `deep-${index}`).join('/')}/${'long-component-'.repeat(8)}review.txt`
 const LONG_TEXT = 'Working tree body '.repeat(3600)
+const DIFF_PATH = 'src/distant-edits.txt'
+const PAGED_PATH = 'src/paged-review.txt'
+const ENDING_PATH = 'src/line-endings.txt'
+const NEWLINE_PATH = 'src/no-final-newline-change.txt'
+const EMPTY_PATH = 'src/empty-added.txt'
+const ADDED_PATH = 'src/new-added.txt'
+const MODE_PATH = 'src/executable.sh'
+const UNKNOWN_PATH = 'src/unreadable.bin'
+const COMPLEX_PATH = 'src/over-complex.txt'
+const SCROLL_PATH = 'src/long-changed-line.txt'
+const DISTANT_HEAD = Array.from({ length: 40 }, (_, index) => `stable row ${index + 1}`).map((line, index) =>
+  index === 4 ? 'old distant first' : index === 35 ? 'old distant second' : line).join('\n') + '\n'
+const DISTANT_INDEX = DISTANT_HEAD.replace('old distant first', 'new distant first').replace('old distant second', 'new distant second')
+const PAGED_HEAD = Array.from({ length: 230 }, (_, index) => `old page row ${index + 1}`).join('\n') + '\n'
+const PAGED_INDEX = Array.from({ length: 230 }, (_, index) => `new page row ${index + 1}`).join('\n') + '\n'
+const ENDING_HEAD = 'keep\r\nold ending\r\nno-final-newline'
+const ENDING_INDEX = 'keep\r\nnew ending\r\nno-final-newline'
+const COMPLEX_HEAD = Array.from({ length: 1100 }, (_, index) => `old complexity row ${index + 1}`).join('\n') + '\n'
+const COMPLEX_INDEX = Array.from({ length: 1100 }, (_, index) => `new complexity row ${index + 1}`).join('\n') + '\n'
+const SCROLL_HEAD = `before ${'long old source '.repeat(90)}\nafter context\n`
+const SCROLL_INDEX = `before ${'long new target '.repeat(90)}\nafter context\n`
 
 async function switchAccount(page: Page, optionText: string, expected: string) {
   // Narrow review preserves the user's collapsed rail when widened again.
@@ -176,6 +198,7 @@ test('local Git review stays transient, bounded, account-fenced, and usable acro
   await compare.selectOption('unstaged')
   await changedFile.selectOption(LONG_PATH)
   await expect(result.getByRole('heading', { name: LONG_PATH, exact: true })).toBeVisible()
+  await result.getByLabel('Review view').selectOption('full')
   const workingCode = result.getByLabel('Working tree · Regular file')
   await expect(workingCode).toContainText('Working tree body')
   await expect.poll(() => workingCode.evaluate((node: HTMLElement) => node.scrollWidth > node.clientWidth)).toBe(true)
@@ -277,6 +300,205 @@ test('local Git review stays transient, bounded, account-fenced, and usable acro
   }))
   expect(JSON.stringify(browserStorage)).not.toMatch(/git.?review/i)
   expect(JSON.stringify(browserStorage)).not.toMatch(/HEAD staged body|Index staged body|Working tree body|late old-account result/)
+})
+
+test('changed-line Git review preserves exact hunks, line endings, metadata, and bounded paging without rereading', async ({ page }, testInfo) => {
+  test.setTimeout(ms(120_000))
+  await page.setViewportSize(VIEWPORTS[4])
+  await page.addInitScript(({ connectionId, distantHead, distantIndex, pagedHead, pagedIndex, endingHead, endingIndex,
+    complexHead, complexIndex, scrollHead, scrollIndex }) => {
+    const harness = { reviewCalls: 0 }
+    Object.defineProperty(window, '__localGitChangedLineHarness', { configurable: true, value: harness })
+    Object.defineProperty(window, 'agentCommonsDesktop', {
+      configurable: false,
+      value: { context: { localGit: {
+        list: async (source: any) => source?.userId === 'user-ada'
+          ? [{ id: connectionId, name: 'Changed-line fixture', remembered: true }]
+          : [],
+        connect: async () => { throw new Error('changed-line review must not connect') },
+        snapshot: async () => { throw new Error('changed-line review must not capture') },
+        disconnect: async () => undefined,
+        review: async () => {
+          harness.reviewCalls++
+          const files = [
+              { path: 'src/distant-edits.txt', staged: 'modified', unstaged: 'unchanged',
+                head: { kind: 'text', text: distantHead, mode: '100644' },
+                index: { kind: 'text', text: distantIndex, mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/line-endings.txt', staged: 'modified', unstaged: 'unchanged',
+                head: { kind: 'text', text: endingHead, mode: '100644' },
+                index: { kind: 'text', text: endingIndex, mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/no-final-newline-change.txt', staged: 'modified', unstaged: 'unchanged',
+                head: { kind: 'text', text: 'terminal line\n', mode: '100644' },
+                index: { kind: 'text', text: 'terminal line', mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/empty-added.txt', staged: 'added', unstaged: 'unchanged',
+                head: { kind: 'missing' }, index: { kind: 'text', text: '', mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/new-added.txt', staged: 'added', unstaged: 'unchanged',
+                head: { kind: 'missing' }, index: { kind: 'text', text: 'new file body\n', mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/executable.sh', staged: 'mode-changed', unstaged: 'unchanged',
+                head: { kind: 'text', text: 'same executable body\n', mode: '100644' },
+                index: { kind: 'text', text: 'same executable body\n', mode: '100755' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/over-complex.txt', staged: 'modified', unstaged: 'unchanged',
+                head: { kind: 'text', text: complexHead, mode: '100644' },
+                index: { kind: 'text', text: complexIndex, mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/paged-review.txt', staged: 'modified', unstaged: 'unchanged',
+                head: { kind: 'text', text: pagedHead, mode: '100644' },
+                index: { kind: 'text', text: pagedIndex, mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/long-changed-line.txt', staged: 'modified', unstaged: 'unchanged',
+                head: { kind: 'text', text: scrollHead, mode: '100644' },
+                index: { kind: 'text', text: scrollIndex, mode: '100644' },
+                working: { kind: 'omitted', reason: 'not-needed' } },
+              { path: 'src/unreadable.bin', staged: 'unavailable', unstaged: 'unavailable',
+                head: { kind: 'omitted', reason: 'unsupported' },
+                index: { kind: 'text', text: 'available index side\n', mode: '100644' },
+                working: { kind: 'omitted', reason: 'unsupported' } },
+            ].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+          return { version: 1, comparison: 'raw', head: { oid: 'f'.repeat(40), ref: 'refs/heads/main' },
+            excludedCount: 1, unchangedCount: 0, files }
+        },
+      } } },
+    })
+  }, {
+    connectionId: GIT_ID, distantHead: DISTANT_HEAD, distantIndex: DISTANT_INDEX,
+    pagedHead: PAGED_HEAD, pagedIndex: PAGED_INDEX, endingHead: ENDING_HEAD, endingIndex: ENDING_INDEX,
+    complexHead: COMPLEX_HEAD, complexIndex: COMPLEX_INDEX, scrollHead: SCROLL_HEAD, scrollIndex: SCROLL_INDEX,
+  })
+
+  await page.goto('/')
+  await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
+  const adaLogin = await page.request.post(`${API}/auth/login`, { data: { email: 'ada@acme.example', password: 'ada-demo-password' } })
+  expect(adaLogin.ok(), await adaLogin.text()).toBeTruthy()
+  const graceLogin = await page.request.post(`${API}/auth/login`, { data: { email: 'grace@acme.example', password: 'grace-demo-password' } })
+  expect(graceLogin.ok(), await graceLogin.text()).toBeTruthy()
+  await page.reload()
+  await expect(page.getByTestId('account-chip')).toContainText('Grace Hopper')
+  await switchAccount(page, 'Ada Lovelace', 'Ada Lovelace')
+  await page.goto(`/contexts/${GIT_ID}`)
+  const review = page.locator('[data-local-git-review]')
+  await review.getByRole('button', { name: 'Review changes', exact: true }).click()
+  const result = review.locator('[data-local-git-review-result]')
+  await expect(result).toBeVisible()
+  await expect.poll(() => page.evaluate(() => (window as any).__localGitChangedLineHarness.reviewCalls)).toBe(1)
+
+  const compare = result.getByLabel('Compare')
+  const changedFile = result.getByLabel('Changed file')
+  await compare.selectOption('staged')
+  await changedFile.selectOption(DIFF_PATH)
+  const view = result.getByLabel('Review view')
+  await expect(view).toHaveValue('changes')
+  const changedRows = result.locator('[data-diff-lines] tr[data-diff-kind]')
+  await expect(result.getByText('2 added · 2 removed', { exact: true })).toBeVisible()
+  await expect(result.locator('[data-diff-hunk]'), 'far-separated edits remain separate hunks').toHaveCount(2)
+  const removedFirst = changedRows.filter({ hasText: 'old distant first' })
+  const addedFirst = changedRows.filter({ hasText: 'new distant first' })
+  const removedSecond = changedRows.filter({ hasText: 'old distant second' })
+  const addedSecond = changedRows.filter({ hasText: 'new distant second' })
+  await expect(removedFirst).toHaveAttribute('data-diff-kind', 'delete')
+  await expect(addedFirst).toHaveAttribute('data-diff-kind', 'add')
+  await expect(removedSecond).toHaveAttribute('data-diff-kind', 'delete')
+  await expect(addedSecond).toHaveAttribute('data-diff-kind', 'add')
+  await expect(removedFirst.locator('td').nth(0)).toHaveText('5')
+  await expect(addedFirst.locator('td').nth(1)).toHaveText('5')
+
+  await changedFile.selectOption(PAGED_PATH)
+  await expect(result.getByText('230 added · 230 removed', { exact: true })).toBeVisible()
+  const pageStatus = result.getByRole('status').filter({ hasText: /^Page / })
+  await expect(pageStatus).toHaveText('Page 1 of 3')
+  const previousPage = result.getByRole('button', { name: 'Previous diff page', exact: true })
+  const nextPage = result.getByRole('button', { name: 'Next diff page', exact: true })
+  const pageRows = result.locator('[data-diff-lines] tr[data-diff-kind]')
+  await expect(pageRows, 'a page mounts no more than 200 changed/context rows').toHaveCount(200)
+  await expect(previousPage).toBeDisabled()
+  await expect(nextPage).toBeEnabled()
+  await nextPage.click()
+  await expect(pageStatus).toHaveText('Page 2 of 3')
+  await expect(pageRows).toHaveCount(200)
+  await expect(previousPage).toBeEnabled()
+  await nextPage.click()
+  await expect(pageStatus).toHaveText('Page 3 of 3')
+  await expect(pageRows).toHaveCount(60)
+  await expect(nextPage).toBeDisabled()
+  await previousPage.click()
+  await expect(pageStatus).toHaveText('Page 2 of 3')
+  await previousPage.click()
+  await expect(pageStatus).toHaveText('Page 1 of 3')
+  expect(await page.evaluate(() => (window as any).__localGitChangedLineHarness.reviewCalls),
+    'view and page changes use the captured comparison without another native read').toBe(1)
+
+  const captureMatrix = async (state: 'hunks' | 'distant' | 'paged' | 'fallback' | 'fallback-details', target: Locator) => {
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      await settleMotion(page)
+      const viewPicker = result.getByLabel('Review view')
+      if (await viewPicker.count()) await viewPicker.scrollIntoViewIfNeeded()
+      await target.scrollIntoViewIfNeeded()
+      await expect(target).toBeVisible()
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+        { message: `${state} review has no page-level horizontal overflow at ${viewport.width}px` }).toBe(true)
+      await assertWcag22Aa(page, `Local Git ${state} review at ${viewport.width}x${viewport.height}`)
+      await page.screenshot({ path: testInfo.outputPath(`local-git-review-${state}-${viewport.width}x${viewport.height}.png`), fullPage: false })
+    }
+    await page.setViewportSize(VIEWPORTS[4])
+  }
+  await changedFile.selectOption(DIFF_PATH)
+  await captureMatrix('distant', result.locator('[data-diff-lines]'))
+  await changedFile.selectOption(SCROLL_PATH)
+  const longLineRegion = result.locator('[data-diff-lines]')
+  await expect.poll(() => longLineRegion.evaluate(node => node.scrollWidth > node.clientWidth),
+    { message: 'long changed lines scroll within the diff region, not the page' }).toBe(true)
+  await longLineRegion.focus()
+  await longLineRegion.press('ArrowRight')
+  await expect.poll(() => longLineRegion.evaluate(node => node.scrollLeft > 0),
+    { message: 'keyboard horizontal scrolling stays inside the changed-lines region' }).toBe(true)
+  await longLineRegion.evaluate(node => { node.scrollLeft = 0 })
+  await captureMatrix('hunks', longLineRegion)
+  await changedFile.selectOption(PAGED_PATH)
+  await expect(pageStatus).toHaveText('Page 1 of 3')
+  await captureMatrix('paged', result.locator('[data-diff-lines]'))
+  await page.setViewportSize(VIEWPORTS[4])
+  await changedFile.selectOption(ENDING_PATH)
+  await expect(result.locator('[data-diff-lines]')).toContainText('CRLF')
+  await expect(result.locator('[data-diff-lines]')).toContainText('No newline at end of file')
+  await changedFile.selectOption(NEWLINE_PATH)
+  const newlineRows = result.locator('[data-diff-lines] tr[data-diff-kind]')
+  const noFinalNewlineAddition = newlineRows.filter({ hasText: 'No newline at end of file' })
+  await expect(noFinalNewlineAddition).toHaveCount(1)
+  await expect(noFinalNewlineAddition).toHaveAttribute('data-diff-kind', 'add')
+  await expect(result.getByText('1 added · 1 removed', { exact: true })).toBeVisible()
+  await changedFile.selectOption(EMPTY_PATH)
+  await expect(result.getByText('Not present in this version.', { exact: true })).toBeVisible()
+  await expect(result.getByText('Empty file (0 bytes).', { exact: true })).toBeVisible()
+  await expect(result.getByText('No text changes. File presence and executable mode are shown above.', { exact: true })).toBeVisible()
+  await changedFile.selectOption(ADDED_PATH)
+  await expect(result.getByText('Not present in this version.', { exact: true })).toBeVisible()
+  await expect(result.locator('[data-diff-lines] tr[data-diff-kind="add"]')).toContainText('new file body')
+  await changedFile.selectOption(MODE_PATH)
+  await expect(result.getByText('HEAD · Regular file', { exact: true })).toBeVisible()
+  await expect(result.getByText('Index · Executable', { exact: true })).toBeVisible()
+  await expect(result.getByText('0 added · 0 removed', { exact: true })).toBeVisible()
+  await expect(result.getByText('No text changes. File presence and executable mode are shown above.', { exact: true })).toBeVisible()
+  await changedFile.selectOption(COMPLEX_PATH)
+  await expect(result.getByText('This comparison exceeds the changed-line review limit. Full files are shown above; no changes have been summarized or omitted from those captured files.', { exact: true })).toBeVisible()
+  await expect(result.getByLabel('Review view')).toHaveCount(0)
+  await expect(result.locator('[data-diff-summary]')).toHaveCount(0)
+  await expect(result.locator('[data-diff-lines]')).toHaveCount(0)
+  await expect(result.getByLabel('HEAD · Regular file')).toContainText('old complexity row 1100')
+  await expect(result.getByLabel('Index · Regular file')).toContainText('new complexity row 1100')
+  await captureMatrix('fallback', result.getByLabel('HEAD · Regular file'))
+  await captureMatrix('fallback-details', result.getByText('This comparison exceeds the changed-line review limit. Full files are shown above; no changes have been summarized or omitted from those captured files.', { exact: true }))
+  await page.setViewportSize(VIEWPORTS[4])
+  await changedFile.selectOption(UNKNOWN_PATH)
+  await expect(result.getByText('Changed lines are unavailable because a comparison side was not read. Available full text is shown above.', { exact: true })).toBeVisible()
+  await expect(result.getByLabel('Review view'), 'unknown content never offers a fabricated changed-lines mode').toHaveCount(0)
+  await expect(result.getByLabel('Index · Regular file')).toContainText('available index side')
+  expect(await page.evaluate(() => (window as any).__localGitChangedLineHarness.reviewCalls)).toBe(1)
 })
 
 async function exerciseReviewChunkFailure(page: Page, chunk: 'LocalGitReview' | 'TextDiffCode') {

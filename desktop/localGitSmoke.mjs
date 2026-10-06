@@ -196,9 +196,17 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await run.page.getByLabel('Changed file').selectOption('src/nested.md')
   await expect(reviewResult).toContainText('Added')
   await expect(reviewResult.getByText('Not present in this version.', { exact: true })).toBeVisible()
+  await expect(run.page.getByLabel('Review view')).toHaveValue('changes')
+  await expect(reviewResult.locator('[data-diff-lines] tr[data-diff-kind="add"]'),
+    'the packaged default changed-line view exposes captured index bytes').toContainText('captured-nested-index-v1')
+  await run.page.getByLabel('Review view').selectOption('full')
   assert.equal(await reviewResult.getByLabel('Index · Regular file').textContent(), 'captured-nested-index-v1\n',
     'staged review shows the exact index bytes')
   await run.page.getByLabel('Compare').selectOption('unstaged')
+  await expect(run.page.getByLabel('Review view')).toHaveValue('changes')
+  await expect(reviewResult.locator('[data-diff-lines] tr[data-diff-kind="delete"]')).toContainText('captured-nested-index-v1')
+  await expect(reviewResult.locator('[data-diff-lines] tr[data-diff-kind="add"]')).toContainText('review-working-only-v3')
+  await run.page.getByLabel('Review view').selectOption('full')
   assert.equal(await reviewResult.getByLabel('Index · Regular file').textContent(), 'captured-nested-index-v1\n',
     'unstaged review begins from the exact staged index bytes')
   assert.equal(await reviewResult.getByLabel('Working tree · Regular file').textContent(), 'review-working-only-v3\n',
