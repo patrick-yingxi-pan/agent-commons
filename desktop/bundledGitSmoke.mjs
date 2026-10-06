@@ -9,6 +9,7 @@ import { BUNDLED_GIT, bundledGitProbeEnvironment, verifyBundledGitDirectory } fr
 import { withLocalGitBaseline } from './gitBaselineReader.mjs'
 import { gitFileExecutable } from './gitFilePaths.mjs'
 import { createLocalGitReader, runLocalGit } from './localGitReader.mjs'
+import { readLocalGitReview } from './localGitReview.mjs'
 
 const require = createRequire(import.meta.url)
 const { extractFile } = require('@electron/asar')
@@ -21,6 +22,10 @@ const BASELINE_MODULES = [
   'desktop/gitPackIndex.mjs',
   'desktop/gitFileRead.mjs',
   'desktop/gitFilePaths.mjs',
+  'desktop/localGitReview.mjs',
+  'desktop/gitIgnore.mjs',
+  'desktop/gitReviewPlan.mjs',
+  'desktop/gitWorkingMode.mjs',
   'desktop/localGitReader.mjs',
   'desktop/localFolderReader.mjs',
   'desktop/bundledGit.mjs',
@@ -143,13 +148,31 @@ export async function smokePackagedBundledGit({ executable }) {
     assert.equal(baseline, 'head/index verified')
     for (const cwd of new Set(privateGitCwds)) await assert.rejects(access(cwd))
     assert.deepEqual(await readFile(indexPath), beforeIndex, 'the probe does not change split index bytes')
-    assert.deepEqual(await metadataSnapshot(join(fixture, '.git')), beforeMetadata,
-      'the probe does not change source refs, packs, index, or other repository metadata')
     assert.equal(await readFile(join(fixture, 'tracked.txt'), 'utf8'), 'uncommitted working text\n')
+
+    const review = await readLocalGitReview(pinned, { gitExecutable: git, fileExecutable: fileHelper })
+    const trackedReview = review.files.find((entry) => entry.path === 'tracked.txt')
+    assert.ok(trackedReview, 'the review includes the changed tracked path')
+    assert.equal(trackedReview.staged, 'modified')
+    assert.equal(trackedReview.unstaged, 'modified')
+    assert.deepEqual(trackedReview.head, { kind: 'text', text: 'HEAD baseline bytes\n', mode: '100644' })
+    assert.deepEqual(trackedReview.index, { kind: 'text', text: 'staged index bytes\n', mode: '100644' })
+    assert.deepEqual(trackedReview.working, { kind: 'text', text: 'uncommitted working text\n', mode: '100644' })
+    const removedReview = review.files.find((entry) => entry.path === 'removed.txt')
+    assert.ok(removedReview, 'the review includes the staged deletion')
+    assert.equal(removedReview.staged, 'deleted')
+    assert.equal(removedReview.unstaged, 'unchanged')
+    assert.deepEqual(removedReview.head, { kind: 'text', text: 'HEAD-only deleted path\n', mode: '100644' })
+    assert.deepEqual(removedReview.index, { kind: 'missing' })
+    assert.deepEqual(removedReview.working, { kind: 'missing' })
+    assert.equal(review.files.some((entry) => ['untracked.txt', 'private.secret'].includes(entry.path)), false,
+      'untracked and ignored private files are not review rows')
+    assert.deepEqual(await metadataSnapshot(join(fixture, '.git')), beforeMetadata,
+      'baseline and review do not change source refs, packs, index, or other repository metadata')
     assert.deepEqual((await readdir(bundle)).sort(), [
       BUNDLED_GIT.sourceArchive, 'COPYING', 'LGPL-2.1', 'build-recipe.json', 'git',
     ].sort())
-    console.log(`[desktop-smoke] bundled Git ${BUNDLED_GIT.version} · native architecture · system libraries only · exact source/licenses · packaged internal HEAD/index baseline verified without source mutation or product IPC/UI`)
+    console.log(`[desktop-smoke] bundled Git ${BUNDLED_GIT.version} · native architecture · system libraries only · exact source/licenses · packaged internal HEAD/index/review verified without source mutation or product IPC/UI`)
   } finally {
     await rm(fixture, { recursive: true, force: true })
   }

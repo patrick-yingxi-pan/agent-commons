@@ -62,7 +62,7 @@ test('reader enumerates only private metadata copies and reads only tracked work
       assert.equal(options.cwd.includes(root), false)
       assert.equal(args.some(arg => arg.includes(root)), false, 'Git must never receive source paths')
       if (args.includes('config')) return { status: 1, stdout: Buffer.alloc(0) }
-      return { status: 0, stdout: Buffer.from(args.includes('--ignored') ? '' : row('src/app.ts')) }
+      return { status: args.includes('check-ignore') ? 1 : 0, stdout: Buffer.from(args.includes('check-ignore') ? '' : row('src/app.ts')) }
     },
   })
   const pinned = await reader.inspectLocalGitRoot(root)
@@ -178,7 +178,7 @@ test('a changed source after read or cancelled capture yields no snapshot', { sk
   const controller = new AbortController()
   let mutate = true
   const reader = createLocalGitReader({ gitExecutable: '/bundled/git', fileExecutable,
-    runGit: async args => ({ status: args.includes('config') ? 1 : 0, stdout: Buffer.from(args.includes('ls-files') && !args.includes('--ignored') ? row('src/app.ts') : '') }),
+    runGit: async args => ({ status: args.includes('config') || args.includes('check-ignore') ? 1 : 0, stdout: Buffer.from(args.includes('ls-files') ? row('src/app.ts') : '') }),
     readFile: async (base, path, options) => {
       const value = await readGitFile(base, path, options)
       if (path === 'src/app.ts' && value.bytes && mutate) {
@@ -199,7 +199,7 @@ test('a tracked directory replaced with a symlink never exposes its destination'
   await fs.rename(join(root, 'src'), join(parent, 'outside'))
   await fs.symlink(join(parent, 'outside'), join(root, 'src'))
   const reader = createLocalGitReader({ gitExecutable: '/bundled/git', fileExecutable,
-    runGit: async args => ({ status: args.includes('config') ? 1 : 0, stdout: Buffer.from(args.includes('ls-files') && !args.includes('--ignored') ? row('src/app.ts') : '') }),
+    runGit: async args => ({ status: args.includes('config') || args.includes('check-ignore') ? 1 : 0, stdout: Buffer.from(args.includes('ls-files') ? row('src/app.ts') : '') }),
   })
   const captured = await reader.readLocalGitSnapshot(await reader.inspectLocalGitRoot(root))
   assert.deepEqual(captured.files, [{ path: 'src/app.ts', sizeBytes: 0, snapshot: { omitted: 'unsupported' } }])

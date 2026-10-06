@@ -95,6 +95,18 @@ test('stage parser preserves unmerged records, orders conflict stages, and legac
   assert.deepEqual(parseGitIndexEntries(Buffer.from(row('clean.md'))), [{ name: 'clean.md', mode: '100644' }])
 })
 
+test('tagged stage parser preserves skip-worktree and rejects inconsistent or unknown tags', () => {
+  assert.deepEqual(parseGitIndexStages(Buffer.from(`S ${row('skipped.txt')}H ${row('present.txt')}M ${row('conflict.txt', '100644', oid2, 2)}`), { tagged: true }), [
+    { name: 'conflict.txt', mode: '100644', oid: oid2, stage: 2, skipWorktree: false },
+    { name: 'present.txt', mode: '100644', oid: oid1, stage: 0, skipWorktree: false },
+    { name: 'skipped.txt', mode: '100644', oid: oid1, stage: 0, skipWorktree: true },
+  ])
+  for (const invalid of [row('untagged'), `X ${row('unknown')}`, `M ${row('merged')}`,
+    `S ${row('conflict', '100644', oid1, 1)}`, `H ${row('conflict', '100644', oid1, 2)}`]) {
+    assert.throws(() => parseGitIndexStages(Buffer.from(invalid), { tagged: true }))
+  }
+})
+
 test('stage parser rejects malformed UTF-8, missing NUL, unsafe paths, duplicate stages and stage-zero conflicts', () => {
   for (const bytes of [
     Buffer.from([0xff, 0x00]),
@@ -117,7 +129,8 @@ test('index preparation detects checksummed index formats without reading config
     const { objectFormat, calls, metadata, staging, git } = await prepareFixture(t, { index: checksummedIndex(format) })
     assert.equal(objectFormat, format)
     assert.deepEqual(await readFile(join(metadata, 'config'), 'utf8'),
-      `[core]\nrepositoryformatversion=${format === 'sha256' ? 1 : 0}\nbare=false\nsparseCheckout=true\n[index]\nsparse=true\n${format === 'sha256' ? '[extensions]\nobjectformat=sha256\n' : ''}`)
+      `[core]\nrepositoryformatversion=${format === 'sha256' ? 1 : 0}\nbare=false\nsparseCheckout=true\nsparseCheckoutCone=true\n[index]\nsparse=true\n${format === 'sha256' ? '[extensions]\nobjectformat=sha256\n' : ''}`)
+    assert.equal(await readFile(join(metadata, 'info', 'sparse-checkout'), 'utf8'), '/*\n!/*/\n')
     assert.equal(calls.some(([kind]) => kind === 'load'), false)
     const copied = calls.filter(([kind]) => kind === 'copy')
     assert.deepEqual(copied.map(([, base, name, destination, limit, optional]) => [base.path, name, destination, limit, optional]), [

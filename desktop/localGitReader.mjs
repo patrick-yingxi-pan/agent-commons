@@ -8,6 +8,7 @@ import { bundledGitProbeEnvironment } from './bundledGit.mjs'
 import { parseGitIndexStages, prepareGitIndex } from './gitIndex.mjs'
 import { readGitFile, listGitSharedIndexes } from './gitFileRead.mjs'
 import { inspectLocalFolderRoot } from './localFolderReader.mjs'
+import { readGitIgnoredPaths } from './gitIgnore.mjs'
 
 export { parseGitIndexStages } from './gitIndex.mjs'
 
@@ -170,37 +171,19 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
         runGit,
         signal,
       })
-      const list = async (ignored = false) => {
+      const list = async () => {
         const result = await runGit([`--git-dir=${metadata}`, `--work-tree=${worktree}`, 'ls-files', '--cached', '--stage', '--sparse', '-z', '--full-name',
-          ...(ignored ? ['--ignored', '--exclude-standard'] : []), '--'], { cwd: staging, signal })
+          '--'], { cwd: staging, signal })
         if (result.status !== 0) fail()
         return parseGitIndexEntries(result.stdout)
       }
       const entries = await list()
-      const directories = new Set([''])
-      for (const entry of entries) {
-        const parts = entry.name.split('/')
-        for (let i = 1; i < parts.length; i++) directories.add(parts.slice(0, i).join('/'))
-        if (['160000', '040000'].includes(entry.mode)) directories.add(entry.name)
-      }
-      for (const directory of [...directories].sort()) if (directory) await mkdir(join(worktree, directory), { recursive: true, mode: 0o700 })
-      for (const entry of entries) if (!['160000', '040000'].includes(entry.mode)) await writeFile(join(worktree, entry.name), '', { mode: 0o600, flag: 'wx' })
-      // Ignore evaluation also stays private: copy only the bounded ignore
-      // metadata for indexed paths. Git never sees the source working tree.
-      for (const directory of directories) {
-        const name = directory ? `${directory}/.gitignore` : '.gitignore'
-        const value = await load(root, name, 64 * 1024)
-        if (value.status === 'missing' || value.status === 'unsupported') continue
-        if (value.status !== 'file' || !value.bytes) fail()
-        metadataBytes += value.bytes.length
-        if (metadataBytes > MAX_METADATA_BYTES) fail()
-        await writeFile(join(worktree, name), value.bytes, { mode: 0o600 })
-      }
-      await mkdir(join(metadata, 'info'), { mode: 0o700 })
-      const excludes = await load(common, 'info/exclude', 64 * 1024)
-      if (excludes.status === 'file' && excludes.bytes) await writeFile(join(metadata, 'info', 'exclude'), excludes.bytes, { mode: 0o600 })
-      else if (excludes.status !== 'missing') fail()
-      const ignored = new Set((await list(true)).map(entry => entry.name))
+      const ignored = await readGitIgnoredPaths({ root, common, metadata, worktree, staging,
+        entries: entries.map(entry => ({ name: entry.name, mode: entry.mode === 'mixed' ? '100644' : entry.mode })),
+        load, runGit, signal, reserveMetadata: size => {
+          if (!Number.isSafeInteger(size) || size < 0 || size > MAX_METADATA_BYTES - metadataBytes) fail()
+          metadataBytes += size
+        } })
       const files = []
       const omissions = []
       for (const entry of entries) {

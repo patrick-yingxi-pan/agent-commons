@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isGitSnapshotPath, MAX_GIT_SNAPSHOT_ENTRIES } from '../contract/localGitSnapshot.mjs'
 
@@ -51,12 +51,18 @@ export async function prepareGitIndex({
   }
 
   objectFormat ??= 'sha1'
-  await writeFile(join(metadata, 'config'), `[core]\nrepositoryformatversion=${objectFormat === 'sha256' ? 1 : 0}\nbare=false\nsparseCheckout=true\n[index]\nsparse=true\n${objectFormat === 'sha256' ? '[extensions]\nobjectformat=sha256\n' : ''}`, { mode: 0o600 })
+  // A valid generated cone keeps Git from expanding sparse-directory entries
+  // through this deliberately object-free private index store. No checkout or
+  // sparse-index rewrite is requested; the captured index stays authoritative.
+  await mkdir(join(metadata, 'info'), { recursive: true, mode: 0o700 })
+  await writeFile(join(metadata, 'info', 'sparse-checkout'), '/*\n!/*/\n', { mode: 0o600, flag: 'wx' })
+  await writeFile(join(metadata, 'config'), `[core]\nrepositoryformatversion=${objectFormat === 'sha256' ? 1 : 0}\nbare=false\nsparseCheckout=true\nsparseCheckoutCone=true\n[index]\nsparse=true\n${objectFormat === 'sha256' ? '[extensions]\nobjectformat=sha256\n' : ''}`, { mode: 0o600 })
   return objectFormat
 }
 
-/** Parse Git's NUL-delimited ls-files --stage output as authoritative stages. */
-export function parseGitIndexStages(bytes) {
+/** Parse Git's NUL-delimited ls-files --stage output as authoritative stages.
+ * Review additionally requests -t so skip-worktree never means deleted. */
+export function parseGitIndexStages(bytes, { tagged = false } = {}) {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength > MAX_INDEX_OUTPUT_BYTES) fail()
   const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
   if (!text) return []
@@ -67,11 +73,14 @@ export function parseGitIndexStages(bytes) {
   const entries = []
   const stagesByName = new Map()
   for (const record of records) {
-    const match = /^(100644|100755|120000|160000|040000) ([a-f0-9]{40}|[a-f0-9]{64}) ([0-3])\t([^\0]+)$/.exec(record)
+    const tag = tagged ? record.slice(0, 2) : undefined
+    if (tagged && !['H ', 'S ', 'M '].includes(tag)) fail()
+    const match = /^(100644|100755|120000|160000|040000) ([a-f0-9]{40}|[a-f0-9]{64}) ([0-3])\t([^\0]+)$/.exec(tagged ? record.slice(2) : record)
     if (!match) fail()
     const mode = match[1]
     const oid = match[2]
     const stage = Number(match[3])
+    if (tagged && (tag === 'M ') !== (stage !== 0)) fail()
     const name = mode === '040000' && match[4].endsWith('/') ? match[4].slice(0, -1) : match[4]
     if (!isGitSnapshotPath(name)) fail()
 
@@ -79,7 +88,7 @@ export function parseGitIndexStages(bytes) {
     if (stages.has(stage) || (stage === 0 && stages.size > 0) || (stage !== 0 && stages.has(0))) fail()
     stages.add(stage)
     stagesByName.set(name, stages)
-    entries.push({ name, mode, oid, stage })
+    entries.push({ name, mode, oid, stage, ...(tagged ? { skipWorktree: tag === 'S ' } : {}) })
     if (stagesByName.size > MAX_GIT_SNAPSHOT_ENTRIES) fail()
   }
   return entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : left.stage - right.stage)

@@ -168,6 +168,10 @@ test('packaged Git smoke verifies the internal baseline against shipped ASAR dep
     'desktop/gitPackIndex.mjs',
     'desktop/gitFileRead.mjs',
     'desktop/gitFilePaths.mjs',
+    'desktop/localGitReview.mjs',
+    'desktop/gitIgnore.mjs',
+    'desktop/gitReviewPlan.mjs',
+    'desktop/gitWorkingMode.mjs',
     'desktop/localGitReader.mjs',
     'desktop/localFolderReader.mjs',
     'desktop/bundledGit.mjs',
@@ -180,10 +184,16 @@ test('packaged Git smoke verifies the internal baseline against shipped ASAR dep
   assert.ok(smokeSource.includes('extractFile(archive, name)'))
   assert.ok(smokeSource.includes('assert.deepEqual(packaged, source'))
   assert.ok(smokeSource.includes('withLocalGitBaseline(pinned'))
+  assert.ok(smokeSource.includes('readLocalGitReview(pinned, { gitExecutable: git, fileExecutable: fileHelper })'))
   assert.ok(smokeSource.includes("createLocalGitReader({ gitExecutable: git, fileExecutable: fileHelper })"))
   assert.ok(smokeSource.includes("headBytes.toString('utf8'), 'HEAD baseline bytes\\n'"))
   assert.ok(smokeSource.includes("indexBytes.toString('utf8'), 'staged index bytes\\n'"))
   assert.ok(smokeSource.includes("'uncommitted working text\\n'"))
+  assert.ok(smokeSource.includes("trackedReview.staged, 'modified'"))
+  assert.ok(smokeSource.includes("trackedReview.unstaged, 'modified'"))
+  assert.ok(smokeSource.includes("removedReview.staged, 'deleted'"))
+  assert.ok(smokeSource.includes("removedReview.unstaged, 'unchanged'"))
+  assert.ok(smokeSource.includes("['untracked.txt', 'private.secret']"))
   assert.ok(smokeSource.includes("run(['pack-refs', '--all', '--prune'])"))
   assert.ok(smokeSource.includes("'the fixture exercises packed refs'"))
   assert.ok(smokeSource.includes("'the fixture exercises packed objects'"))
@@ -198,4 +208,5 @@ test('packaged Git smoke verifies the internal baseline against shipped ASAR dep
     }
   }
   assert.equal(ignoreFromPackage('/desktop/gitBaselineReader.test.ts'), true)
+  assert.equal(ignoreFromPackage('/desktop/localGitReview.test.ts'), true)
 })

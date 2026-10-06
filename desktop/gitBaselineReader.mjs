@@ -8,6 +8,7 @@ import { prepareGitIndex, parseGitIndexStages } from './gitIndex.mjs'
 import { createLocalGitReader, isLocalGitRoot, runLocalGit } from './localGitReader.mjs'
 import { withGitObjectReader } from './gitObjectReader.mjs'
 import { resolveGitHead } from './gitHead.mjs'
+import { readGitIgnoredPaths } from './gitIgnore.mjs'
 
 const FAILURE = 'The Git baseline is unavailable, changed or exceeds its read limits.'
 const fail = () => { throw new Error(FAILURE) }
@@ -78,6 +79,7 @@ async function readHeadTree(head, objectFormat, readObject) {
 export async function withLocalGitBaseline(root, {
   gitExecutable, fileExecutable, signal: callerSignal, readFile = readGitFile,
   listSharedIndexes = listGitSharedIndexes,
+  includeWorkingTree = false,
   runGit = (args, options) => runLocalGit(gitExecutable, args, options),
 } = {}, callback) {
   const lifetime = new AbortController()
@@ -102,12 +104,15 @@ export async function withLocalGitBaseline(root, {
       return value
     }
     let metadataBytes = 0
+    const reserveMetadata = (size) => {
+      if (!Number.isSafeInteger(size) || size < 0 || size > MAX_METADATA_BYTES - metadataBytes) fail()
+      metadataBytes += size
+    }
     const copyMetadata = async (base, name, destination, limit, optional = false) => {
       const value = await load(base, name, limit)
       if (optional && value.status === 'missing') return undefined
       if (value.status !== 'file' || !(value.bytes instanceof Uint8Array) || value.sizeBytes !== value.bytes.byteLength) fail()
-      metadataBytes += value.bytes.byteLength
-      if (metadataBytes > MAX_METADATA_BYTES) fail()
+      reserveMetadata(value.bytes.byteLength)
       await writeFile(destination, value.bytes, { mode: 0o600, flag: 'wx' })
       return value.bytes
     }
@@ -121,17 +126,39 @@ export async function withLocalGitBaseline(root, {
     const objectFormat = await prepareGitIndex({ git, common, metadata, staging, load, copyMetadata,
       listSharedIndexes, fileExecutable, runGit, signal })
     const result = await runGit([`--git-dir=${metadata}`, `--work-tree=${worktree}`, 'ls-files',
-      '--cached', '--stage', '--sparse', '-z', '--full-name', '--'], { cwd: staging, signal })
+      ...(includeWorkingTree ? ['-t'] : []), '--cached', '--stage', '--sparse', '-z', '--full-name', '--'], { cwd: staging, signal })
     if (result.status !== 0) fail()
-    const indexEntries = parseGitIndexStages(result.stdout)
+    const indexEntries = parseGitIndexStages(result.stdout, { tagged: includeWorkingTree })
     const head = await resolveGitHead({ git, common, objectFormat, load })
     const output = await withGitObjectReader(common, { objectFormat, fileExecutable, runGit, signal, readFile }, async ({ readObject, probeObject }) => {
       const headEntries = await readHeadTree(head, objectFormat, readObject)
       const paths = new Set([...headEntries, ...indexEntries].map(entry => entry.name))
       if (paths.size > MAX_GIT_SNAPSHOT_ENTRIES) fail()
+      const ignoreCandidates = new Map()
+      for (const entry of [...headEntries, ...indexEntries]) {
+        if (!ignoreCandidates.has(entry.name) || ['040000', '160000'].includes(entry.mode)) {
+          ignoreCandidates.set(entry.name, { name: entry.name, mode: entry.mode })
+        }
+      }
+      const ignoredPaths = includeWorkingTree ? await readGitIgnoredPaths({ root, common, metadata, worktree, staging,
+        entries: [...ignoreCandidates.values()], load, runGit, signal, reserveMetadata }) : new Set()
       const admittedBlobs = new Set([...headEntries, ...indexEntries]
-        .filter(entry => ['100644', '100755'].includes(entry.mode)).map(entry => entry.oid))
+        .filter(entry => !ignoredPaths.has(entry.name) && ['100644', '100755'].includes(entry.mode)).map(entry => entry.oid))
+      const workingPaths = new Set(indexEntries.filter(entry => entry.stage === 0 && !entry.skipWorktree &&
+        !ignoredPaths.has(entry.name) && ['100644', '100755'].includes(entry.mode)).map(entry => entry.name))
       let refused = false
+      let workingOpen = true
+      let workingQueue = Promise.resolve()
+      const readWorkingFile = (name, maxBytes = MAX_GIT_SNAPSHOT_FILE_BYTES) => {
+        const admitted = workingOpen && includeWorkingTree && workingPaths.has(name) &&
+          (maxBytes === null || (Number.isSafeInteger(maxBytes) && maxBytes >= 0 && maxBytes <= MAX_GIT_SNAPSHOT_FILE_BYTES))
+        const result = workingQueue.then(() => {
+          if (!admitted) fail()
+          return load(root, name, maxBytes)
+        }).catch(() => { refused = true; fail() })
+        workingQueue = result.then(() => {}, () => {})
+        return result
+      }
       const readBlob = (oid, maxBytes = MAX_GIT_SNAPSHOT_FILE_BYTES) => {
         if (!admittedBlobs.has(oid) || !Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > MAX_GIT_SNAPSHOT_FILE_BYTES) {
           refused = true
@@ -147,9 +174,16 @@ export async function withLocalGitBaseline(root, {
         if (info.typeHint !== 'blob') { refused = true; fail() }
         return { sizeHintBytes: info.sizeHintBytes, contentVerified: false }
       }
-      const value = await callback(Object.freeze({ objectFormat, head: Object.freeze({ ...head }),
-        headEntries: Object.freeze(headEntries.map(entry => Object.freeze(entry))),
-        indexEntries: Object.freeze(indexEntries.map(entry => Object.freeze(entry))), readBlob, probeBlob }))
+      let value
+      try {
+        value = await callback(Object.freeze({ objectFormat, head: Object.freeze({ ...head }),
+          headEntries: Object.freeze(headEntries.map(entry => Object.freeze(entry))),
+          indexEntries: Object.freeze(indexEntries.map(entry => Object.freeze(entry))), readBlob, probeBlob,
+          ...(includeWorkingTree ? { ignoredPaths: Object.freeze([...ignoredPaths]), readWorkingFile } : {}) }))
+      } finally {
+        workingOpen = false
+        await workingQueue
+      }
       if (refused) fail()
       return value
     })

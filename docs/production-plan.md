@@ -114,13 +114,32 @@ the actual bundled Git and descriptor helper, checks unchanged source metadata,
 and byte-compares the baseline modules/dependencies against their ASAR copies.
 This is internal-library acceptance, not product IPC, native selection or diff UI.
 
-This is not a shipped diff workflow: no renderer bridge, saved-context schema,
-HTTP route or model input changes. The existing capture reuses extracted index
-preparation/parsing without new authority. Next integrate working-tree capture
-and ignore exclusions into one consistent transaction, then an explicit local
-review separating staged HEAD-to-index and unstaged index-to-working-tree
-changes. Keep source Git configuration, external diff
-drivers, untracked/ignored files and repository writes excluded. Persisting,
+The internal review reader now combines HEAD, index, current ignore rules and
+working-tree reads under the same final fences. It reports staged and unstaged
+raw-byte/mode changes separately, distinguishes missing files from unsupported
+or unreadable ones, and never presents sparse subtrees or skip-worktree leaves
+as deletions, or an unmerged index as a normal comparison. A generated private
+sparse cone preserves captured sparse-directory entries without source rules;
+tagged index enumeration retains leaf skip-worktree state. A path deleted from the index grants
+no access to a recreated, now-untracked working file. Ignored paths are excluded
+before any baseline/working body reads. The shared private ignore helper now
+also serves existing saved captures, with 64-level/1,024-directory limits and
+32 KiB candidate batches. File/directory transitions use conservative directory
+ignore matching, which can exclude an additional historical file rather than
+expose an ignored subtree.
+
+Working input remains limited to 24 readable files/128 KiB; display text across
+all sides is separately capped at 128 KiB, with 64 KiB per body. Staged changes
+receive first access to the bounded preview; every remaining omission is
+explicit. Comparisons are literal bytes and owner-executable mode, not a promise
+to reproduce Git status with source configuration, attributes, line-ending
+conversion, clean/smudge filters or external drivers. This reader adds no source
+writes, automatic reads, renderer bridge, saved-context schema or model input.
+
+Next connect the tested transaction to an explicit local review surface with
+separate staged and unstaged views and visible omissions. Keep source Git
+configuration, external diff drivers, untracked/ignored files and repository
+writes excluded. Persisting,
 sharing or sending this new diff to a model needs a separate product decision.
 The OCR choice and signed/paid-provider release gates remain pending.
 
