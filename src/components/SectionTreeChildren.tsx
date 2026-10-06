@@ -817,10 +817,10 @@ function AgentLeafList({ rows, empty, activeId, onOpen, nodeKeyFor }: {
  *  here" and there are none, which is worth a word rather than a blank gap. */
 export function NoRowsRow({ children }: { children: ReactNode }) {
   return (
-    <p className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-faint`}>
+    <div className={`${SIDEBAR_NESTED_ENTRY_LAYOUT} text-ink-faint`}>
       <RailEntryLead />
-      <span>{children}</span>
-    </p>
+      <div>{children}</div>
+    </div>
   )
 }
 

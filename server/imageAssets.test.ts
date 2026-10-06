@@ -58,3 +58,27 @@ test('removing assets restores tenant, global, and count capacity without double
   const otherTenant = registry.put('tenant-b', input)
   assert.deepEqual(registry.snapshot(), [otherTenant])
 })
+
+test('originals distinguish equal previews, remain immutable, and count toward both byte limits', () => {
+  const preview = image()
+  const original = { name: 'source.svg', data: 'PHN2Zy8+', byteLength: 6 }
+  const other = { ...original, data: 'PHN2ZyA+' }
+  const registry = new ImageAssetRegistry()
+  const legacy = registry.put('a', preview, 1)
+  const retained = registry.put('a', preview, 2, original)
+  assert.notEqual(retained.id, legacy.id)
+  assert.deepEqual(retained.original, original)
+  assert.deepEqual(registry.put('a', preview, 99, { ...original }), retained)
+  assert.notEqual(registry.put('a', preview, 2, other).id, retained.id)
+  assert.deepEqual(new ImageAssetRegistry(registry.snapshot()).snapshot(), registry.snapshot())
+  assert.throws(() => new ImageAssetRegistry([{ ...retained, original: other }]), ValidationError)
+  retained.original!.data = 'bad'
+  assert.deepEqual(registry.get(retained.id)?.original, original)
+  for (const limits of [{ maxTenantBytes: preview.byteLength + 5 }, { maxTotalBytes: preview.byteLength + 5 }]) {
+    assert.throws(() => new ImageAssetRegistry([], limits).put('a', preview, 1, original), ValidationError)
+  }
+  const limited = new ImageAssetRegistry([], { maxTotalBytes: preview.byteLength + 6 })
+  const row = limited.put('a', preview, 1, original)
+  assert.equal(limited.remove([row.id, row.id]), 1)
+  assert.deepEqual(limited.put('b', preview, 1, original).original, original)
+})

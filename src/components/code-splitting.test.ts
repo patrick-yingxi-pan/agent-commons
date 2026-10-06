@@ -9,6 +9,7 @@ test('expanded Contexts rail rows load registry and native metadata behind local
   const tree = stripComments(read(join(ROOT, 'src/components/SectionTreeChildren.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextChildren.tsx')))
   const boundary = stripComments(read(join(ROOT, 'src/components/DeferredRailChildren.tsx')))
+  const inlineStatus = stripComments(read(join(ROOT, 'src/components/InlineOperationStatus.tsx')))
   const body = stripComments(read(join(ROOT, 'src/components/ContextChildren.tsx')))
   assert.doesNotMatch(tree, /import\s+\{\s*useLocalFolderConnections\s*\}\s+from/,
     'native connection metadata is absent from the eager tree graph')
@@ -19,6 +20,10 @@ test('expanded Contexts rail rows load registry and native metadata behind local
     'loading remains visible in the expanded branch')
   assert.match(deferred, /lazy\([\s\S]*DeferredRailChildrenBoundary/)
   assert.match(boundary, /data-rail-children-load-error[\s\S]*Couldn’t load \$\{label\} rows/)
+  assert.match(boundary, /<NoRowsRow>[\s\S]*<InlineOperationStatus/,
+    'deferred loading and recovery use the shared empty-row container')
+  assert.match(inlineStatus, /return\s*\(\s*<div\s+role=\{tone\}/,
+    'the operation status requires a flow-capable host')
   assert.match(boundary, /getDerivedStateFromError/,
     'a rejected chunk has a local failure face')
   assert.match(boundary, /Reload \$\{label\}[\s\S]*window\.location\.reload\(\)/,

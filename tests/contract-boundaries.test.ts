@@ -133,6 +133,21 @@ test('local images cross one bounded normalization, upload, and immutable refere
   assert.match(routes, /images: store\.sessionImageInput\(known\.id\)/)
 })
 
+test('private image originals share one upload contract and never become model input authority', () => {
+  const intake = stripComments(read(join(ROOT, 'src/lib/uiHostFs.ts')))
+  const served = stripComments(read(join(ROOT, 'src/controller/servedImageCapture.ts')))
+  const prepare = stripComments(read(join(ROOT, 'src/controller/imageAttachments.ts')))
+  const routes = stripComments(read(join(ROOT, 'server/routes/index.ts')))
+  const download = stripComments(read(join(ROOT, 'src/lib/imageOriginalDownload.ts')))
+  for (const source of [intake, served]) assert.match(source, /from '[^']*contract\/imageOriginal\.ts'/)
+  assert.match(prepare, /imageAssetRefMatches\(image, file\.imageInput, file\.imageOriginal\)/)
+  assert.match(routes, /r\.intrinsicGet\('\/image-assets\/:id\/original'/)
+  assert.ok(download.includes("mediaType: 'application/octet-stream'"), 'source containers remain download-only')
+  assert.match(download, /file\.id !== ref\.id/)
+  assert.match(download, /file\.original\.byteLength !== ref\.originalByteLength/)
+  assert.match(stripComments(read(join(ROOT, 'server/attachmentInput.ts'))), /imageAssetPreviewMatches/)
+})
+
 test('Office parsing stays lazy, shared, worker-only, and resource-free', () => {
   const workerLifecycle = stripComments(read(join(ROOT, 'src/lib/documentWorkerImport.ts')))
   assert.match(workerLifecycle, /export function createDocumentWorkerImporter/)

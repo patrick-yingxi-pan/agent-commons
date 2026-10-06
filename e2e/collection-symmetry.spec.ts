@@ -106,6 +106,12 @@ test('collection roots preserve main-page sections in the rail and canonical URL
   test.setTimeout(ms(90_000))
   const ada = await newUser(browser)
   const page = ada.page
+  const invalidNesting: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error' && /In HTML|cannot be a descendant|cannot contain a nested/i.test(message.text())) {
+      invalidNesting.push(message.text())
+    }
+  })
 
   await page.goto('/artifacts')
   await expect(page.getByRole('heading', { name: 'Artifacts', exact: true })).toBeVisible({ timeout: ms(20_000) })
@@ -135,6 +141,7 @@ test('collection roots preserve main-page sections in the rail and canonical URL
   await providers.getByRole('button', { name: 'Providers', exact: true }).click()
   await expect(page).toHaveURL(/\/models\/groups\/providers$/)
   await expect(page.locator('main').getByText('Providers', { exact: true }).first()).toBeVisible()
+  expect(invalidNesting, `React reported invalid rail nesting:\n${invalidNesting.join('\n')}`).toEqual([])
 
   await ada.context.close()
 })

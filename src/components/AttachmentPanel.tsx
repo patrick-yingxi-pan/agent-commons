@@ -13,6 +13,7 @@ import { documentFormatForName } from '../../contract/servedTextSnapshot.ts'
 import { isServedImageFileName } from '../../contract/servedImageSnapshot.ts'
 import { SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { refreshServedAttachment } from '../controller/servedAttachmentRefresh'
+import { ImageOriginalDownload } from './ImageOriginalDownload.tsx'
 
 const IMG_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']
 const isImageLabel = (label: string) => IMG_EXTS.includes(label.split('.').pop()?.toLowerCase() ?? '')
@@ -200,6 +201,7 @@ function PhotoBody({
 
         <p className="mt-2 text-[11px] leading-snug text-ink-faint">{attachmentInputCopy(status)}</p>
         {image && <p className="mt-1 text-[11px] leading-snug text-ink-faint">Saved {image.width} × {image.height} image. Imports save a PNG copy of the first frame (largest image for ICO).</p>}
+        {image && onRemove && (image.originalByteLength ? <ImageOriginalDownload key={image.id} image={image} /> : <p className="mt-1 text-[11px] text-ink-soft">No original was retained for this older import.</p>)}
         <div className="mt-2"><ServedSnapshotControls item={item} onRefresh={onRefresh} refreshDisabled={refreshDisabled} /></div>
 
         {onRemove && <button
@@ -233,6 +235,7 @@ function FileBody({
 }) {
   const content = attachmentContent(item)
   const documentImport = attachmentDocumentImport(item)
+  const image = attachmentImageRef(item)
   const status: AttachmentInputStatus = planAttachmentInput(allAttachments).find((entry) => entry.attachment.id === item.id)?.status ?? 'unavailable'
 
   return (
@@ -271,7 +274,8 @@ function FileBody({
         <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(status)}</p>
         <ServedSnapshotControls item={item} onRefresh={onRefresh} refreshDisabled={refreshDisabled} />
         {documentImport && <p data-document-import={documentImport.status} className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">{documentImportCopy(documentImport)}</p>}
-        {attachmentImageRef(item) && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG (largest image for ICO); the selected model must support vision to use this image.</p>}
+        {image && <p className="mb-2 shrink-0 text-[11px] leading-snug text-ink-soft">Durable resized first-frame PNG (largest image for ICO); the selected model must support vision to use this image.</p>}
+        {image && onRemove && (image.originalByteLength ? <ImageOriginalDownload key={image.id} image={image} /> : <p className="mb-2 text-[11px] text-ink-soft">No original was retained for this older import.</p>)}
         {content.isImage ? (
           <>
             <div className="mb-2 break-all text-[11px] font-medium uppercase tracking-wide text-ink-faint">

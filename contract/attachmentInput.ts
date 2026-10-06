@@ -176,7 +176,7 @@ export function attachmentSnapshotId(attachment: Attachment | null | undefined):
 
 export function attachmentInputCopy(status: AttachmentInputStatus): string {
   switch (status) {
-    case 'image-ready': return 'Saved image. Sent on your next turn when the selected model and connection support images.'
+    case 'image-ready': return 'Saved image. Included when the conversation owner sends a turn using an image-capable model and connection.'
     case 'image-count-limit': return 'Preview only for this turn. Up to 8 attached images can be sent at once.'
     case 'image-total-limit': return 'Preview only for this turn. Attached images share an 8 MB input budget.'
     case 'ready': return 'Send and retry use the currently attached text for the selected model.'

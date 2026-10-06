@@ -4,6 +4,7 @@ import {
   ATTACHMENT_INPUT_MAX_ITEMS,
   ATTACHMENT_TEXT_FILE_BYTES,
   ATTACHMENT_TEXT_TOTAL_BYTES,
+  attachmentInputCopy,
   isAttachmentInput,
   planAttachmentInput,
 } from './attachmentInput.ts'
@@ -68,6 +69,13 @@ test('only UI-host text files are model-ready; photos, remote files, and blob UR
   const planned = planAttachmentInput([photo, cloud, runner])
   assert.deepEqual(planned.map(({ status }) => status), ['preview-only', 'preview-only', 'preview-only'])
   assert.equal(planned.every(({ status }) => status !== 'ready'), true)
+})
+
+test('image-ready copy describes owner-controlled sending without addressing shared viewers', () => {
+  assert.equal(
+    attachmentInputCopy('image-ready'),
+    'Saved image. Included when the conversation owner sends a turn using an image-capable model and connection.',
+  )
 })
 
 test('invalid legacy shapes are safely marked unavailable', () => {

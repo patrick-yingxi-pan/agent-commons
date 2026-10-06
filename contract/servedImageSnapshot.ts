@@ -32,8 +32,8 @@ export function isServedImageSnapshot(value: unknown): value is ServedImageSnaps
   if (!isImageAssetRef(item.image)) return false
   const image = item.image as ImageAssetRef
   const imageKeys = Reflect.ownKeys(image)
-  return imageKeys.length === 5 && imageKeys.every((key) =>
-    typeof key === 'string' && ['id', 'mimeType', 'width', 'height', 'byteLength'].includes(key)) &&
+  return imageKeys.length === (image.originalByteLength === undefined ? 5 : 6) && imageKeys.every((key) =>
+    typeof key === 'string' && ['id', 'mimeType', 'width', 'height', 'byteLength', 'originalByteLength'].includes(key)) &&
     image.mimeType === 'image/png' && image.width <= SERVED_IMAGE_SNAPSHOT_MAX_DIMENSION &&
     image.height <= SERVED_IMAGE_SNAPSHOT_MAX_DIMENSION
 }

@@ -1,5 +1,6 @@
 import { IMAGE_MAX_CONTAINER_BYTES, isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
 import { imageAssetRefMatches } from '../../contract/imageAssets.ts'
+import { imageOriginal, type ImageOriginal } from '../../contract/imageOriginal.ts'
 import { isServedImageFileName, isServedImageSnapshot, SERVED_IMAGE_SNAPSHOT_MAX_DIMENSION, type ServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
 import { isServedPath, isServedSourceId, isSnapshotId } from '../../contract/servedTextSnapshot.ts'
 import { accountGeneration, onAccountSwitch } from '../api/account.ts'
@@ -13,12 +14,12 @@ interface CaptureDependencies {
   upload?: typeof uploadImageSnapshot
 }
 
-/** One explicit intent owns its normalized bytes even if upload acknowledgement
- * is lost. Retry can re-upload those bytes but cannot silently recapture a newer
- * source. The original file is transient and never enters the asset store. */
+/** One explicit intent owns both source and normalized bytes if upload
+ * acknowledgement is lost. Retry reuploads that exact pair instead of silently
+ * recapturing a newer source; the raw bytes stay out of workspace projections. */
 export function createServedImageCapture(sourceId: string, path: string, snapshotId: string, deps: CaptureDependencies = {}) {
   const generation = accountGeneration()
-  let captured: { capturedAt: string; image: ImageSnapshot } | undefined
+  let captured: { capturedAt: string; image: ImageSnapshot; original: ImageOriginal } | undefined
   let saved: ServedImageSnapshot | undefined
   return async (signal?: AbortSignal): Promise<ServedImageSnapshot> => {
     if (!isServedSourceId(sourceId) || !isServedPath(path) || !isSnapshotId(snapshotId) || !isServedImageFileName(path)) {
@@ -43,15 +44,16 @@ export function createServedImageCapture(sourceId: string, path: string, snapsho
         if (!isImageSnapshot(image) || image.mimeType !== 'image/png' || image.width > SERVED_IMAGE_SNAPSHOT_MAX_DIMENSION || image.height > SERVED_IMAGE_SNAPSHOT_MAX_DIMENSION) {
           throw new Error('The image returned an invalid saved copy. Nothing was saved.')
         }
-        captured = { capturedAt, image }
+        captured = { capturedAt, image, original: imageOriginal(path.slice(path.lastIndexOf('/') + 1), bytes) }
       }
-      const image = await (deps.upload ?? uploadImageSnapshot)(captured.image, intake)
+      const image = await (deps.upload ?? uploadImageSnapshot)(captured.image, intake, captured.original)
       assertCurrent()
       const snapshot = { version: 1 as const, snapshotId, capturedAt: captured.capturedAt, sourceId, path, image }
-      if (!isServedImageSnapshot(snapshot) || !imageAssetRefMatches(image, captured.image)) {
+      if (!isServedImageSnapshot(snapshot) || !imageAssetRefMatches(image, captured.image, captured.original)) {
         throw new Error('The image upload did not match the saved copy. Nothing was attached.')
       }
       saved = snapshot
+      captured = undefined
       return snapshot
     } finally {
       controller.abort()

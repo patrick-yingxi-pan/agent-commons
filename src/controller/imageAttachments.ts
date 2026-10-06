@@ -1,6 +1,7 @@
 import type { UiHostFile } from '../lib/uiHostFs'
 import { uploadImageSnapshot } from '../api/imageAssets.ts'
 import { accountGeneration } from '../api/account.ts'
+import { imageAssetRefMatches, isImageAssetRef } from '../../contract/imageAssets.ts'
 
 export interface ImageAttachmentDeps {
   upload?: typeof uploadImageSnapshot
@@ -15,10 +16,11 @@ export async function prepareUiHostFiles(files: UiHostFile[], signal?: AbortSign
   const prepared: UiHostFile[] = []
   for (const file of files) {
     if (signal?.aborted || generation() !== issued) return []
-    if (!file.imageInput) { prepared.push(file); continue }
-    const image = await upload(file.imageInput, signal)
+    if (!file.imageInput) { prepared.push({ ...file, imageOriginal: undefined }); continue }
+    const image = await upload(file.imageInput, signal, file.imageOriginal)
     if (signal?.aborted || generation() !== issued) return []
-    prepared.push({ ...file, image, imageInput: undefined })
+    if (!isImageAssetRef(image) || !imageAssetRefMatches(image, file.imageInput, file.imageOriginal)) throw new Error('The saved image did not match the selected copy. Try again.')
+    prepared.push({ ...file, image, imageInput: undefined, imageOriginal: undefined })
   }
   return prepared
 }

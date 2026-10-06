@@ -31,6 +31,10 @@ import {
 } from './format.ts'
 import { migrateState } from './migrate.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
+import type { ImageOriginal } from '../../contract/imageOriginal.ts'
+type ImageContent = { image: ImageSnapshot; original?: ImageOriginal }
+const copyContent = (row: ImageContent): ImageContent => ({ image: { ...row.image }, ...(row.original ? { original: { ...row.original } } : {}) })
+const sameOriginal = (a?: ImageOriginal, b?: ImageOriginal) => a?.name === b?.name && a?.data === b?.data && a?.byteLength === b?.byteLength
 
 function sameImage(a: ImageSnapshot, b: ImageSnapshot): boolean {
   return a.data === b.data && a.mimeType === b.mimeType && a.width === b.width && a.height === b.height && a.byteLength === b.byteLength
@@ -101,6 +105,7 @@ const MIGRATIONS: { version: number; sql: string }[] = [
       CREATE INDEX image_assets_by_tenant ON image_assets (tenant_id);
     `,
   },
+  { version: 3, sql: 'ALTER TABLE image_assets ADD COLUMN original_json TEXT;' },
 ]
 
 /** Best-effort id extraction for the `entities.entity_id` index column — populated
@@ -120,7 +125,7 @@ export class SqliteBackend implements PersistenceBackend {
   readonly #freshAtOpen: boolean
   // The process owns this connection. Retain immutable content references so an
   // ordinary small mutation need not reread/re-encode the entire image library.
-  #imageContent = new Map<string, ImageSnapshot>()
+  #imageContent = new Map<string, ImageContent>()
 
   /** Opens (creating if absent) the database at `path` and brings its schema up to
    *  date. `path` defaults to `databaseFile()`; tests pass `':memory:'` or a temp
@@ -212,8 +217,8 @@ export class SqliteBackend implements PersistenceBackend {
         const kind = SLICE_KIND[key]
         if (!kind) continue // a slice this build no longer knows — skip it
         if (key === 'imageAssets') {
-          const rows = this.#db.prepare('SELECT id, tenant_id, image_json, created_at FROM image_assets ORDER BY ord').all()
-          result[key] = rows.map((r) => ({ id: String(r.id), tenantId: String(r.tenant_id), image: JSON.parse(String(r.image_json)), createdAt: Number(r.created_at) }))
+          const rows = this.#db.prepare('SELECT id, tenant_id, image_json, original_json, created_at FROM image_assets ORDER BY ord').all()
+          result[key] = rows.map((r) => ({ id: String(r.id), tenantId: String(r.tenant_id), image: JSON.parse(String(r.image_json)), createdAt: Number(r.created_at), ...(r.original_json === null ? {} : { original: JSON.parse(String(r.original_json)) }) }))
           continue
         }
         if (kind === 'singleton') {
@@ -236,7 +241,7 @@ export class SqliteBackend implements PersistenceBackend {
       const migrated = migrateState(result as unknown as PersistedState)
       if (!migrated) throw new Error('store version is unsupported or has no migration path')
       if (!hasCorePersistedShape(migrated)) throw new Error('store snapshot is missing required core slices')
-      this.#imageContent = new Map((migrated.imageAssets ?? []).map((row) => [row.id, { ...row.image }]))
+      this.#imageContent = new Map((migrated.imageAssets ?? []).map((row) => [row.id, copyContent(row)]))
       return migrated
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err)
@@ -274,18 +279,20 @@ export class SqliteBackend implements PersistenceBackend {
       const wantedImages = new Set(desiredImages.map((row) => row.id))
       const removeImage = this.#db.prepare('DELETE FROM image_assets WHERE id = ?')
       for (const id of existingImages.keys()) if (!wantedImages.has(id)) removeImage.run(id)
-      const insertImage = this.#db.prepare('INSERT INTO image_assets (id, tenant_id, image_json, created_at, ord) VALUES (?, ?, ?, ?, ?)')
-      const updateImage = this.#db.prepare('UPDATE image_assets SET tenant_id = ?, image_json = ?, created_at = ?, ord = ? WHERE id = ?')
+      const insertImage = this.#db.prepare('INSERT INTO image_assets (id, tenant_id, image_json, original_json, created_at, ord) VALUES (?, ?, ?, ?, ?, ?)')
+      const updateImage = this.#db.prepare('UPDATE image_assets SET tenant_id = ?, image_json = ?, original_json = ?, created_at = ?, ord = ? WHERE id = ?')
       const reorderImage = this.#db.prepare('UPDATE image_assets SET ord = ? WHERE id = ?')
-      const readImage = this.#db.prepare('SELECT image_json FROM image_assets WHERE id = ?')
-      const nextImageContent = new Map<string, ImageSnapshot>()
+      const readImage = this.#db.prepare('SELECT image_json, original_json FROM image_assets WHERE id = ?')
+      const nextImageContent = new Map<string, ImageContent>()
       for (const [ord, row] of desiredImages.entries()) {
         const old = existingImages.get(row.id)
-        const priorContent = old && (this.#imageContent.get(row.id) ?? JSON.parse(String(readImage.get(row.id)?.image_json)) as ImageSnapshot)
-        if (!old) insertImage.run(row.id, row.tenantId, JSON.stringify(row.image), row.createdAt, ord)
-        else if (String(old.tenant_id) !== row.tenantId || !priorContent || !sameImage(priorContent, row.image) || Number(old.created_at) !== row.createdAt) updateImage.run(row.tenantId, JSON.stringify(row.image), row.createdAt, ord, row.id)
+        const stored = old && !this.#imageContent.has(row.id) ? readImage.get(row.id) : undefined
+        const priorContent = old && (this.#imageContent.get(row.id) ?? (stored && { image: JSON.parse(String(stored.image_json)), ...(stored.original_json === null ? {} : { original: JSON.parse(String(stored.original_json)) }) }))
+        // Large source containers are encoded only when content actually changes.
+        if (!old) insertImage.run(row.id, row.tenantId, JSON.stringify(row.image), row.original ? JSON.stringify(row.original) : null, row.createdAt, ord)
+        else if (String(old.tenant_id) !== row.tenantId || !priorContent || !sameImage(priorContent.image, row.image) || !sameOriginal(priorContent.original, row.original) || Number(old.created_at) !== row.createdAt) updateImage.run(row.tenantId, JSON.stringify(row.image), row.original ? JSON.stringify(row.original) : null, row.createdAt, ord, row.id)
         else if (Number(old.ord) !== ord) reorderImage.run(ord, row.id)
-        nextImageContent.set(row.id, { ...row.image })
+        nextImageContent.set(row.id, copyContent(row))
       }
       for (const key of present) {
         const kind = SLICE_KIND[key]

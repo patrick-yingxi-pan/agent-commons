@@ -232,6 +232,11 @@ test('the UI-host adapter prefers Electron selected-file previews without learni
   assert.equal(selected[1]?.name, 'photo.png')
   assert.equal(selected[1]?.kind, 'photo')
   assert.ok(selected[1]?.imageInput)
+  assert.deepEqual(selected[1]?.imageOriginal, {
+    name: 'photo.png',
+    data: Buffer.from(imageFixture()).toString('base64'),
+    byteLength: imageFixture().byteLength,
+  })
   assert.ok(selected[0]?.id && selected[0].id !== selected[0].name)
   assert.ok(selected[1]?.id && selected[1].id !== selected[1].name)
   assert.notEqual(selected[0]?.id, selected[1]?.id)
@@ -246,6 +251,10 @@ test('browser BMP and ICO intake normalizes transient photos while preserving op
   ]), 'image')
   assert.deepEqual(selected.map((file) => file.name), ['source.BMP', 'icon.ICO'])
   assert.ok(selected.every((file) => file.kind === 'photo' && file.imageInput && file.id && file.id !== file.name))
+  assert.deepEqual(selected.map((file) => file.imageOriginal?.data), [
+    Buffer.from(bitmapFixture(2, 2)).toString('base64'),
+    Buffer.from(iconFixture(2, 2, { png: true })).toString('base64'),
+  ])
   assert.ok(selected.every((file) => file.imageInput?.mimeType === 'image/png'))
   assert.notEqual(selected[0]?.id, selected[1]?.id)
 })
@@ -263,6 +272,7 @@ test('native BMP and ICO previews are admitted, normalized, and remain path-free
   const selected = await pickUiHostFiles('image', scope)
   assert.deepEqual(selected.map((file) => file.name), ['source.BMP', 'icon.ICO'])
   assert.ok(selected.every((file) => file.kind === 'photo' && file.imageInput?.mimeType === 'image/png'))
+  assert.deepEqual(selected.map((file) => file.imageOriginal?.data), [Buffer.from(bmp).toString('base64'), Buffer.from(ico).toString('base64')])
   assert.doesNotMatch(JSON.stringify(selected), /private|previewDataUrl/)
 })
 

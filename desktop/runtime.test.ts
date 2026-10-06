@@ -485,6 +485,15 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     "ppt/slides/slide1.xml",
     "vbaProject|externalLink",
     "exact renamed .pptx download",
+    "Retained original download failed",
+    "exact original filename and source bytes survive the initial attachment",
+    "relaunch retains exact original filename and source bytes after source files are absent",
+    "reattached model image blocks remain normalized after the source-free relaunch",
+    "Download original",
+    "packaged Download original completes with the source filename",
+    "downloaded original file contains the exact selected source bytes",
+    "initial-original-native-image.svg",
+    "relaunched-original-native-image.svg",
   ]) {
     assert.match(attachmentSmoke, new RegExp(contract.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
       `packaged attachment smoke must prove Office export contract: ${contract}`)

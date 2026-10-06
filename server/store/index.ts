@@ -29,7 +29,8 @@ import { artifactBodyExcerpt } from '../../contract/artifactExcerpt.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
 import { isArtifactCreationId, type CreateArtifactRequest, type CreateArtifactResponse } from '../../contract/artifactCreation.ts'
 import { imageAssetRef, imageAssetRefMatches, type ImageAssetRef } from '../../contract/imageAssets.ts'
-import { isImageSnapshot, type ImageSnapshot } from '../../contract/imageInput.ts'
+import type { ImageSnapshot } from '../../contract/imageInput.ts'
+import { parseImageAssetUpload, type ImageOriginalDownload } from '../../contract/imageOriginal.ts'
 import type {
   A2aPeer,
   AnchorLocus,
@@ -3439,7 +3440,7 @@ function rehydrate(s: PersistedState): boolean {
       const ownerTenant = session?.tenantId ?? defaultTenantId()
       const asset = imageAssets.get(snapshot.image.id)
       if (!session || !isServedImageSnapshot(snapshot) || !asset || asset.tenantId !== ownerTenant ||
-          !imageAssetRefMatches(snapshot.image, asset.image)) {
+          !imageAssetRefMatches(snapshot.image, asset.image, asset.original)) {
         throw new Error('Invalid served image receipt ownership in persisted workspace.')
       }
     }
@@ -3788,7 +3789,7 @@ function canAdmitServedImageSnapshot(
   const session = SESSIONS.find((candidate) => candidate.id === sessionId)
   const tenantId = session?.tenantId ?? defaultTenantId()
   const asset = imageAssets.get(snapshot.image.id)
-  return !!asset && asset.tenantId === tenantId && imageAssetRefMatches(snapshot.image, asset.image) &&
+  return !!asset && asset.tenantId === tenantId && imageAssetRefMatches(snapshot.image, asset.image, asset.original) &&
     store.fsReadPermitted(snapshot.sourceId, snapshot.path)
 }
 
@@ -4454,7 +4455,7 @@ export const store = {
       const session = store.getSession(sessionId)
       const tenantId = session?.tenantId ?? defaultTenantId()
       const row = imageAssets.get(frozenImage.image.id)
-      if (!row || row.tenantId !== tenantId || !imageAssetRefMatches(frozenImage.image, row.image)) {
+      if (!row || row.tenantId !== tenantId || !imageAssetRefMatches(frozenImage.image, row.image, row.original)) {
         throw new ValidationError('The saved image asset is unavailable to this conversation owner. The saved copy is unchanged.')
       }
     } else {
@@ -5019,8 +5020,9 @@ export const store = {
   /** Binary snapshots are stored once, separately from workspace projections.
    * Deduplication is tenant-scoped, so content equality cannot expose another
    * account's upload. Abandoned selections expire only when unreferenced. */
-  putImageAsset(tenantId: string, image: unknown) {
-    if (!isImageSnapshot(image)) throw new ValidationError('Choose a valid PNG, JPEG, GIF, or WebP image snapshot up to 3 MB.')
+  putImageAsset(tenantId: string, input: unknown) {
+    const parsed = parseImageAssetUpload(input)
+    if (!parsed) throw new ValidationError('Choose a valid image snapshot up to 3 MB and an original up to 8 MB.')
     const referenced = new Set([...sessionWorkspaces.values()].flatMap((workspace) => workspace.attachments.flatMap((item) => {
       const image = attachmentImageRef(item)
       return image ? [image.id] : []
@@ -5029,9 +5031,14 @@ export const store = {
     // Garbage collection is its own committed transition; a later quota refusal
     // must not leave an uncommitted removal or poison the compound-mutation wall.
     if (imageAssets.remove(imageAssets.snapshot().filter((row) => row.createdAt < cutoff && !referenced.has(row.id)).map((row) => row.id))) persist()
-    const row = imageAssets.put(tenantId, image)
+    const row = imageAssets.put(tenantId, parsed.image, Date.now(), parsed.original)
     persist()
-    return imageAssetRef(row.id, row.image)
+    return imageAssetRef(row.id, row.image, row.original)
+  },
+  /** Private source bytes are never widened by a conversation sharing grant. */
+  imageOriginalForTenant(id: string, tenantId: string): ImageOriginalDownload | undefined {
+    const row = imageAssets.get(id)
+    return row?.tenantId === tenantId && row.original ? { id, original: row.original } : undefined
   },
   imageAssetForTenant(id: string, tenantId: string): ImageSnapshot | undefined {
     const row = imageAssets.get(id)
@@ -5047,7 +5054,7 @@ export const store = {
       const image = attachmentImageRef(item)
       if (!image) return true
       const row = imageAssets.get(image.id)
-      if (!row || !imageAssetRefMatches(image, row.image)) return false
+      if (!row || !imageAssetRefMatches(image, row.image, row.original)) return false
       if (item.imageSnapshot) {
         const represented = current.find((old) => old.id === item.id)?.imageSnapshot
         if (!represented &&
@@ -5064,7 +5071,7 @@ export const store = {
       const image = attachmentImageRef(item)
       if (!image) continue
       const row = imageAssets.get(image.id)
-      if (row && imageAssetRefMatches(image, row.image)) images[row.id] = row.image
+      if (row && imageAssetRefMatches(image, row.image, row.original)) images[row.id] = row.image
     }
     return images
   },

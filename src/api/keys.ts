@@ -134,6 +134,7 @@ export const paths = {
   modelPreferences: '/viewer-preferences/model',
   imageAssets: '/image-assets',
   imageAssetContent: (id: string) => `/image-assets/${encodePathSegment(id)}/content`,
+  imageAssetOriginal: (id: string) => `/image-assets/${encodePathSegment(id)}/original`,
   capabilities: '/capabilities',
   me: '/me',
   /** Mint (POST) / clear (DELETE) the verified session cookie (multi-account P6). */

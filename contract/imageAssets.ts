@@ -1,16 +1,18 @@
-import { IMAGE_MAX_BYTES, IMAGE_MAX_DIMENSION, IMAGE_MAX_PIXELS, type ImageSnapshot } from './imageInput.ts'
+import { IMAGE_MAX_BYTES, IMAGE_MAX_CONTAINER_BYTES, IMAGE_MAX_DIMENSION, IMAGE_MAX_PIXELS, type ImageSnapshot } from './imageInput.ts'
+import type { ImageOriginal } from './imageOriginal.ts'
 
 /** Durable immutable content reference. Neither this id nor a preview URL is
  * authority: each read and attachment resolves through the session/tenant wall. */
-export interface ImageAssetRef extends Omit<ImageSnapshot, 'data'> { id: string }
+export interface ImageAssetRef extends Omit<ImageSnapshot, 'data'> { id: string; originalByteLength?: number }
 
-/** A single bounded snapshot plus JSON/MCP framing; ordinary JSON stays 1 MiB. */
-export const IMAGE_UPLOAD_BODY_BYTES = Math.ceil(IMAGE_MAX_BYTES / 3) * 4 + 16 * 1024
+/** Normalized copy + optional original + JSON/MCP framing; ordinary JSON stays 1 MiB. */
+export const IMAGE_UPLOAD_BODY_BYTES = Math.ceil(IMAGE_MAX_BYTES / 3) * 4 + Math.ceil(IMAGE_MAX_CONTAINER_BYTES / 3) * 4 + 16 * 1024
 
 export function isImageAssetRef(value: unknown): value is ImageAssetRef {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false
   const ref = value as Record<string, unknown>
-  return Object.keys(ref).length === 5 &&
+  return Object.keys(ref).length === (ref.originalByteLength === undefined ? 5 : 6) &&
+    (ref.originalByteLength === undefined || (Number.isSafeInteger(ref.originalByteLength) && (ref.originalByteLength as number) > 0 && (ref.originalByteLength as number) <= IMAGE_MAX_CONTAINER_BYTES)) &&
     typeof ref.id === 'string' && /^img-[a-f0-9]{64}$/.test(ref.id) &&
     ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(ref.mimeType as string) &&
     typeof ref.width === 'number' && Number.isSafeInteger(ref.width) && ref.width > 0 && ref.width <= IMAGE_MAX_DIMENSION &&
@@ -19,10 +21,15 @@ export function isImageAssetRef(value: unknown): value is ImageAssetRef {
     typeof ref.byteLength === 'number' && Number.isSafeInteger(ref.byteLength) && ref.byteLength > 0 && ref.byteLength <= IMAGE_MAX_BYTES
 }
 
-export function imageAssetRef(id: string, image: ImageSnapshot): ImageAssetRef {
-  return { id, mimeType: image.mimeType, width: image.width, height: image.height, byteLength: image.byteLength }
+export function imageAssetRef(id: string, image: ImageSnapshot, original?: ImageOriginal): ImageAssetRef {
+  return { id, mimeType: image.mimeType, width: image.width, height: image.height, byteLength: image.byteLength, ...(original ? { originalByteLength: original.byteLength } : {}) }
 }
 
-export function imageAssetRefMatches(ref: ImageAssetRef, image: ImageSnapshot): boolean {
+export function imageAssetRefMatches(ref: ImageAssetRef, image: ImageSnapshot, original?: ImageOriginal): boolean {
+  return imageAssetPreviewMatches(ref, image) && ref.originalByteLength === original?.byteLength
+}
+
+/** Model projection deliberately has no access to the retained original. */
+export function imageAssetPreviewMatches(ref: ImageAssetRef, image: ImageSnapshot): boolean {
   return ref.mimeType === image.mimeType && ref.width === image.width && ref.height === image.height && ref.byteLength === image.byteLength
 }

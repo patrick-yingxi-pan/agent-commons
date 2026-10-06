@@ -69,7 +69,7 @@ Approval alone does not establish implementation or release acceptance.
 
 ## Progress and next milestones
 
-The current checkpoint closes the actual macOS Git chooser acceptance gate on
+The preceding checkpoint closed the actual macOS Git chooser acceptance gate on
 the unchanged unsigned arm64 build at `a4212731`. The
 [dated native record](acceptance/native-git-2026-10-06.md) covers real selection
 and cancellation, explicit temporary/remembered grants, Attach, saved-only model
@@ -80,10 +80,38 @@ unchanged. Only generated repositories, an isolated profile and a credential-fre
 loopback model fixture were used. Native-control limitations are recorded without
 turning unresponsive actions into passes. No product code changed in this check.
 
-The next implementation slice is approved private original-image retention and
-authenticated download. Extend the existing immutable image-asset boundary,
-including quota/identity accounting, persistence/portable backups and lifecycle
-cleanup; normalized copies remain the preview/shared/model representation.
+The current checkpoint implements approved private original-image retention
+and authenticated download. Explicit local and served imports bind the exact
+source container and normalized copy to one immutable asset identity. Original
+bytes count toward quota and cleanup, survive JSON/SQLite and portable backups,
+and are downloadable only by the owning tenant; shared views and in-session
+models retain only the normalized representation. Legacy imports remain valid.
+The UI checks original availability before offering download and fences pending
+reads across selection/account changes. Focused regression tests cover exact
+bytes, original-private metadata, body budgets, acknowledgement validation and
+restart. Original metadata and body responses are no-store; source containers
+download as opaque files, never as inline image markup.
+
+Focused browser acceptance passes all 28 image/collection workflows; the eight
+new original-file workflows also pass after the final shared-view copy repair.
+These cover exact SVG/ICO/PNG bytes across reload, legacy imports, owner/shared/
+foreign walls, availability/body failure and retry, revocation, delayed selection
+and account switches, and served-image capture. The frozen responsive sweep
+passes 135/135 cells with zero violations or skips. All 137 fresh sweep captures
+and 20 image-specific captures were visually reviewed across five sizes; five
+older artifact-viewer PNGs were excluded from this revision's evidence.
+
+The rebuilt unsigned arm64 package passes attachment acceptance, including an
+actual original-file download with the exact filename/bytes before and after a
+full relaunch with source files removed. Model image blocks remain normalized.
+Native selection results and model responses in this automated gate are fixtures;
+the earlier native Git chooser record is not substituted for this new image flow.
+Review corrected private-download vs model-input disclosure, stale intake copy,
+shared-reader send wording, error contrast and invalid deferred rail-status
+nesting, with failing-then-passing locks (UI-129, UI-179, UI-180).
+The live preview remains on Ada's original-image walkthrough with all six demo
+accounts stacked. The complete local verifier is the mandatory final landing gate;
+no GitHub CI is used.
 Signing/notarization credentials, hosting, native Intel and real signed updates
 remain separate release gates. No public production-release claim is made.
 
@@ -135,7 +163,8 @@ The live preview remains signed in as Ada with all six demo accounts stacked,
 on an active disposable deletion walkthrough; no real user artifact was purged.
 That checkpoint left native Git chooser acceptance open; the current dated record
 above supplies actual OS-dialog evidence without substituting packaged fixtures.
-Original-image retention is now approved but not implemented. Signing/notarization
+Original-image retention was approved but not yet implemented at that checkpoint;
+the current checkpoint above supplies it. Signing/notarization
 credentials, download hosting, native Intel and signed update acceptance remain
 separate production gates.
 

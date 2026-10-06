@@ -27,6 +27,7 @@ import type { PresentationSnapshot } from '../../contract/presentationImport.ts'
 import { importImage, ImageImportError } from './imageImport.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
+import { imageOriginal, type ImageOriginal } from '../../contract/imageOriginal.ts'
 import { IMAGE_MAX_CONTAINER_BYTES } from '../../contract/imageInput.ts'
 import { isArtifactDocumentFileName } from './artifactDocumentImport.ts'
 import { isArtifactSheetFileName } from './artifactSheetImport.ts'
@@ -46,6 +47,8 @@ export interface UiHostFile {
   presentation?: PresentationSnapshot
   workbook?: WorkbookSnapshot
   imageInput?: ImageSnapshot
+  /** Exact selected source bytes, transient until the normalized asset upload. */
+  imageOriginal?: ImageOriginal
   image?: ImageAssetRef
 }
 
@@ -128,7 +131,8 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
     try {
       const bytes = new Uint8Array(await file.slice(0, 8 * 1024 * 1024 + 1).arrayBuffer())
       if (bytes.byteLength !== file.size) throw new ImageImportError('invalid')
-      return selectedFile({ name, kind: 'photo', imageInput: await importImage(bytes, signal) })
+      const imageInput = await importImage(bytes, signal)
+      return selectedFile({ name, kind: 'photo', imageInput, imageOriginal: imageOriginal(name, bytes) })
     } catch (error) {
       if (error instanceof UiHostPickerError || error instanceof ImageImportError) throw error
       throw new UiHostPickerError('unreadable')
@@ -217,7 +221,10 @@ export async function pickUiHostFiles(
           ? file.pptxFailure ? pptxImportFailure(file.pptxFailure)
             : file.pptxBytes ? await (accept === 'slides' ? importPresentation : importPptx)(file.pptxBytes, signal) : pptxImportFailure('unavailable')
         : file.kind === 'photo'
-          ? { imageInput: await importImage(nativeImages.get(file)!, signal) }
+          ? await (async () => {
+              const bytes = nativeImages.get(file)!
+              return { imageInput: await importImage(bytes, signal), imageOriginal: imageOriginal(file.name, bytes) }
+            })()
           : { text: file.text }
       files.push(selectedFile({ name: file.name, kind: file.kind, ...extracted }))
     }

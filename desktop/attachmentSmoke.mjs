@@ -80,6 +80,45 @@ async function openFilesPicker(page) {
   return picker
 }
 
+async function selectImagePreview(page, count, name) {
+  if (count > 1) {
+    await page.getByTitle(`Photos (${count})`, { exact: true }).click()
+    await page.getByRole('menu', { name: 'Photos', exact: true }).getByRole('button', { name, exact: true }).click()
+  } else {
+    await page.getByTitle('Open in sidebar', { exact: true }).filter({ hasText: name }).click()
+  }
+  await expect(page.locator('[data-attachment-preview]')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Download original', exact: true })).toBeVisible()
+}
+
+async function downloadImageOriginalFromUi(run, page, origin, target, expectedBytes, expectedName) {
+  const downloadDone = await run.app.evaluateHandle(({ session }, { trustedOrigin, savePath }) => ({
+    done: new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve({ state: 'timed-out', filename: '' }), 30_000)
+      session.defaultSession.once('will-download', (event, item, contents) => {
+        let downloadOrigin = ''
+        try { downloadOrigin = new URL(contents.getURL()).origin } catch {}
+        if (downloadOrigin !== trustedOrigin) {
+          event.preventDefault()
+          clearTimeout(timeout)
+          resolve({ state: 'unexpected-origin', filename: '' })
+          return
+        }
+        item.setSavePath(savePath)
+        item.once('done', (_event, state) => {
+          clearTimeout(timeout)
+          resolve({ state, filename: item.getFilename() })
+        })
+      })
+    }),
+  }), { trustedOrigin: origin, savePath: target })
+  await page.getByRole('button', { name: 'Download original', exact: true }).click()
+  const result = await downloadDone.evaluate((holder) => holder.done)
+  await downloadDone.dispose()
+  assert.deepEqual(result, { state: 'completed', filename: expectedName }, 'packaged Download original completes with the source filename')
+  assert.deepEqual(await readFile(target), Buffer.from(expectedBytes), 'downloaded original file contains the exact selected source bytes')
+}
+
 async function openNativeLocalFolderPicker(page) {
   await page.getByRole('button', { name: 'Add context' }).click()
   const picker = page.getByRole('dialog', { name: 'Add context' })
@@ -1543,9 +1582,10 @@ export async function smokePackagedAttachments({ executable }) {
       assert.equal(image.mimeType, 'image/png')
       assert.equal(image.data, undefined)
       assert.equal(previewUrl, undefined)
-      assert.deepEqual(Object.keys(image).sort(), ['byteLength', 'height', 'id', 'mimeType', 'width'])
+      assert.deepEqual(Object.keys(image).sort(), ['byteLength', 'height', 'id', 'mimeType', 'originalByteLength', 'width'])
     }
     assert.deepEqual(imageRefs.map(({ label }) => label), imageInputs.map(({ name }) => name))
+    assert.deepEqual(imageRefs.map(({ image }) => image.originalByteLength), imageInputs.map(({ bytes }) => bytes.byteLength))
     for (const [{ image }, { width, height }] of imageRefs.map((entry, index) => [entry, imageInputs[index]])) {
       assert.equal(image.mimeType, 'image/png')
       assert.equal(image.width, width)
@@ -1565,6 +1605,18 @@ export async function smokePackagedAttachments({ executable }) {
       return encoded
     }, imageRefs.map(({ image }) => image.id))
     assert.deepEqual(imageRefs.map(({ image }) => image.byteLength), authorizedImageData.map((data) => Buffer.from(data, 'base64').byteLength))
+    const originalDownloads = await page.evaluate(async (ids) => {
+      const downloads = []
+      for (const id of ids) {
+        const response = await fetch(`/api/v1/image-assets/${encodeURIComponent(id)}/original`)
+        if (!response.ok) throw new Error(`Retained original download failed: HTTP ${response.status}`)
+        downloads.push(await response.json())
+      }
+      return downloads
+    }, imageRefs.map(({ image }) => image.id))
+    assert.deepEqual(originalDownloads.map(({ original }) => ({ name: original.name, data: original.data, byteLength: original.byteLength })),
+      imageInputs.map(({ name, bytes }) => ({ name, data: bytes.toString('base64'), byteLength: bytes.byteLength })),
+    'exact original filename and source bytes survive the initial attachment')
     await closePreview(page)
     await send(page, 'Describe the native images.', `Received ${imageInputs.length} supplied image(s).`)
     const imageBlocks = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
@@ -1573,6 +1625,10 @@ export async function smokePackagedAttachments({ executable }) {
     assert.deepEqual(sentImageBlocks.map((block) => block.source.media_type), imageRefs.map(({ image }) => image.mimeType))
     assert.deepEqual(sentImageBlocks.map((block) => block.source.data), authorizedImageData)
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+    const nativeSvg = imageInputs.find(({ name }) => name === 'native-image.svg')
+    await selectImagePreview(page, imageInputs.length, nativeSvg.name)
+    await downloadImageOriginalFromUi(run, page, origin, join(fixtureRoot, 'initial-original-native-image.svg'), nativeSvg.bytes, nativeSvg.name)
+    await closePreview(page)
     await run.app.close()
     run = undefined
     await Promise.all(imageInputs.map(({ path }) => rm(path)))
@@ -1584,6 +1640,26 @@ export async function smokePackagedAttachments({ executable }) {
       return detail.workspace.attachments.filter((attachment) => attachment.image).map((attachment) => ({ id: attachment.id, label: attachment.label, image: attachment.image }))
     }, pdfSession.id)
     assert.deepEqual(restoredImages.map(({ label, image }) => ({ label, image })), imageRefs.map(({ label, image }) => ({ label, image })))
+    const relaunchedOriginals = await page.evaluate(async (ids) => {
+      const downloads = []
+      for (const id of ids) {
+        const response = await fetch(`/api/v1/image-assets/${encodeURIComponent(id)}/original`)
+        if (!response.ok) throw new Error(`Relaunched retained original download failed: HTTP ${response.status}`)
+        downloads.push(await response.json())
+      }
+      return downloads
+    }, imageRefs.map(({ image }) => image.id))
+    assert.deepEqual(relaunchedOriginals.map(({ original }) => ({ name: original.name, data: original.data, byteLength: original.byteLength })),
+      originalDownloads.map(({ original }) => ({ name: original.name, data: original.data, byteLength: original.byteLength })),
+    'relaunch retains exact original filename and source bytes after source files are absent')
+    await send(page, 'Describe the restored native images.', `Received ${imageInputs.length} supplied image(s).`)
+    const relaunchedImageBlocks = endpoint.requests.at(-1).messages.filter((message) => message.role === 'user').at(-1).content
+      .filter((block) => block.type === 'image')
+    assert.deepEqual(relaunchedImageBlocks.map((block) => block.source.data), authorizedImageData,
+      'reattached model image blocks remain normalized after the source-free relaunch')
+    await selectImagePreview(page, imageInputs.length, nativeSvg.name)
+    await downloadImageOriginalFromUi(run, page, origin, join(fixtureRoot, 'relaunched-original-native-image.svg'), nativeSvg.bytes, nativeSvg.name)
+    await closePreview(page)
     for (const [index, { name, width, height }] of imageInputs.entries()) {
       const remaining = imageInputs.length - index
       if (remaining > 1) {

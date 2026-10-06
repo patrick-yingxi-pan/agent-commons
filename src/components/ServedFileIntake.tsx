@@ -5,6 +5,7 @@ import { readFsSnapshot } from '../api/fsReads.ts'
 import { retryFsCatalog } from '../api/fsReads.ts'
 import { useFsCatalog, fsContentUrl } from '../api/hooks'
 import { SECONDARY_BUTTON_CLASS } from '../lib/button'
+import { IMAGE_ORIGINAL_PRIVACY_COPY } from '../lib/imageOriginalDownload.ts'
 import { fsReadPhase } from '../lib/fsReadState.ts'
 import { useRecentIds } from '../lib/recents'
 import { documentFormatForName, type ServedTextSnapshot } from '../../contract/servedTextSnapshot.ts'
@@ -108,7 +109,7 @@ export function ServedFileIntake({
   const phase = fsReadPhase(catalog.status, (kind === 'photos' ? photos : files).length > 0)
   const recent = new Set(recentKeys.map(parseFsRecentKey).filter((key) => key?.sourceId === source.id).map((key) => key!.entryId))
   const description = kind === 'photos'
-    ? 'Images up to 8 MB attach as saved PNG copies, resized to at most 2,000 pixels per side. The first frame is saved; originals are not retained. Use Refresh in Photos for later changes.'
+    ? `Images up to 8 MB attach as saved PNG copies of the first frame, resized to at most 2,000 pixels per side. Originals are retained privately. ${IMAGE_ORIGINAL_PRIVACY_COPY} Use Refresh in Photos for later changes.`
     : 'Text, documents and images attach as saved copies: text up to 64 KB, or PDF, DOCX, XLSX, PPTX and images up to 8 MB. Use Refresh in Files for later changes.'
 
   return <>

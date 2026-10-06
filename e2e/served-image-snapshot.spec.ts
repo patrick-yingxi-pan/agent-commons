@@ -165,7 +165,7 @@ type SavedAttachment = {
     capturedAt: string
     sourceId: string
     path: string
-    image: { id: string; mimeType: string; width: number; height: number; byteLength: number }
+    image: { id: string; mimeType: string; width: number; height: number; byteLength: number; originalByteLength?: number }
   }
 }
 
@@ -299,6 +299,8 @@ test('served Photo and Files images normalize into durable snapshots reused by r
       expect(result.attachment.imageSnapshot?.image.byteLength).toBeGreaterThan(0)
       expect(JSON.stringify(result.attachment)).not.toMatch(/data:image|blob:/)
       if (image.kind === 'photo') {
+        expect(result.attachment.imageSnapshot?.image.originalByteLength).toBe(image.bytes.byteLength)
+        await expect(result.preview.getByText('Shared views and conversation image input use the preview copy.')).toBeVisible()
         for (const viewport of VIEWPORTS) {
           await page.setViewportSize(viewport)
           await settledAttachmentPreview(page)

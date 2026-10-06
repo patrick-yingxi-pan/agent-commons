@@ -4109,7 +4109,7 @@ export function buildRouter(): Router {
     if (!accountTransitionSourceMatches(req, res)) return
     let input: unknown
     try { input = await body({ maxBytes: IMAGE_UPLOAD_BODY_BYTES }) }
-    catch { return sendError(res, 'bad_request', 'Choose a valid image snapshot up to 3 MB.') }
+    catch { return sendError(res, 'bad_request', 'Choose a valid image copy up to 3 MB with an optional original up to 8 MB.') }
     try {
       sendJson(res, store.putImageAsset(store.identity(req.headers).tenant.id, input))
     } catch (error) {
@@ -4121,6 +4121,15 @@ export function buildRouter(): Router {
     const image = store.imageAssetForTenant(params.id, store.identity(req.headers).tenant.id)
     if (!image) return sendError(res, 'not_found', 'No such image')
     sendBytes(res, Buffer.from(image.data, 'base64'), image.mimeType)
+  })
+  r.intrinsicGet('/image-assets/:id/original', 'the host offers an explicit private download; the model receives only the normalized image and cannot widen its own input to original source bytes', ({ req, res, params, url }) => {
+    res.setHeader('Cache-Control', 'no-store')
+    if (!accountTransitionSourceMatches(req, res)) return
+    const file = store.imageOriginalForTenant(params.id, store.identity(req.headers).tenant.id)
+    if (!file) return sendError(res, 'not_found', 'No retained original image')
+    const metadata = url.searchParams.get('metadata')
+    if (metadata !== null && metadata !== '1') return sendError(res, 'bad_request', 'metadata must be 1 or absent')
+    sendJson(res, metadata === '1' ? { id: file.id, name: file.original.name, byteLength: file.original.byteLength } : file)
   })
   // The tenant boundary for an existing session addressed by id (F2/PD9), shared by
   // every by-id session route so reads and writes are isolated alike. If the session

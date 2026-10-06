@@ -116,6 +116,20 @@ test('every leaf-like rail row keeps the lead column and mirrored partitions rem
   assert.doesNotMatch(sidebar, /function GroupHeader/, 'state labels do not use a one-off tag-like renderer')
 })
 
+test('empty rail rows admit flow content such as deferred recovery controls', () => {
+  const start = children.indexOf('export function NoRowsRow')
+  const end = children.indexOf('\nexport ', start + 1)
+  assert.ok(start >= 0 && end > start, 'NoRowsRow has an enumerable source body')
+  const row = children.slice(start, end)
+  assert.match(
+    row,
+    /<div className=\{`\$\{SIDEBAR_NESTED_ENTRY_LAYOUT\} text-ink-faint`\}>\s*<RailEntryLead\s*\/>\s*<div>\{children\}<\/div>\s*<\/div>/,
+    'the shared row uses flow containers so status/recovery content is valid HTML',
+  )
+  assert.doesNotMatch(row, /<p\b|<span>\{children\}<\/span>/,
+    'arbitrary row children are not constrained to phrasing content')
+})
+
 test('every resource-forest row uses one depth rhythm without decorative selection bullets', () => {
   const kinds: SidebarEntryKind[] = ['root', 'group', 'item', 'view']
   for (const kind of kinds) {

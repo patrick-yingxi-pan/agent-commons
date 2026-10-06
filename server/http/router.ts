@@ -146,6 +146,9 @@ export class Router {
   intrinsicPost(p: string, reason: string, h: Handler, capability?: string) {
     return this.post(p, h, sessionIntrinsic(reason, capability))
   }
+  intrinsicGet(p: string, reason: string, h: Handler, capability?: string) {
+    return this.get(p, h, sessionIntrinsic(reason, capability))
+  }
 
   /** Try to match + run a route. Returns false if nothing matched (the caller
    *  then falls through to static-file serving / 404). */

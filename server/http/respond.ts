@@ -160,7 +160,7 @@ const MAX_BODY_BYTES = 1024 * 1024
  *  handlers can destructure without guarding; rejects past the size cap. */
 export function readBody<T>(req: IncomingMessage, options?: { maxBytes: number }): Promise<T> {
   const maxBytes = options?.maxBytes ?? MAX_BODY_BYTES
-  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 8 * MAX_BODY_BYTES) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 16 * MAX_BODY_BYTES) {
     return Promise.reject(new Error('invalid request body budget'))
   }
   return new Promise((resolve, reject) => {

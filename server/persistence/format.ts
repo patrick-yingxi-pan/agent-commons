@@ -901,7 +901,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
         const session = sessionsById.get(entry[0])
         const asset = assetsById.get(snapshot.image.id)
         if (!session || !asset || asset.id !== snapshot.image.id ||
-            !imageAssetRefMatches(snapshot.image as ImageAssetRef, asset.image)) return false
+            !imageAssetRefMatches(snapshot.image as ImageAssetRef, asset.image, asset.original)) return false
         if (session.tenantId !== undefined && asset.tenantId !== session.tenantId) return false
       }
     }
