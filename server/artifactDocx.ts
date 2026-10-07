@@ -11,6 +11,7 @@ import {
   MAX_AUTHORED_DOCUMENT_CHARS,
   type ArtifactWordExport,
   type ArtifactContent,
+  parseDocBlocks,
 } from '../contract/index.ts'
 
 type DocumentBody = Extract<ArtifactContent, { type: 'doc' }>
@@ -64,9 +65,14 @@ function emailParagraph(label: string, value: string): string {
 function validBody(body: ArtifactContent): body is DocumentBody {
   if (!body || typeof body !== 'object' || body.type !== 'doc' || typeof body.title !== 'string' || !Array.isArray(body.blocks) || body.blocks.length > MAX_AUTHORED_DOCUMENT_BLOCKS) return false
   if (body.title.length > MAX_ARTIFACT_BLOCK_CHARS || !hasWordprocessingText(body.title)) return false
+  const identified = body.blocks.some((block) => block !== null && typeof block === 'object' && Object.hasOwn(block, 'id'))
+  // Share block identity admission without changing the export-specific title,
+  // empty-body, XML and total-text limits below.
+  if (identified && !parseDocBlocks(body.blocks)) return false
   let chars = 0
   for (const block of body.blocks) {
-    if (!block || typeof block !== 'object' || Array.isArray(block) || Object.keys(block).length !== 1) return false
+    if (!block || typeof block !== 'object' || Array.isArray(block) ||
+      Object.keys(block).length !== (identified ? 2 : 1) || (identified && !Object.hasOwn(block, 'id'))) return false
     let values: string[]
     if ('h' in block && typeof block.h === 'string') values = [block.h]
     else if ('p' in block && typeof block.p === 'string') values = [block.p]

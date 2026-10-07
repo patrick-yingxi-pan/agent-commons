@@ -105,6 +105,69 @@ test('DOCX preserves ordered saved title, headings, prose, lists, code, and emai
   assert.deepEqual(body.blocks[1], { p: 'Literal =1+1, 00123, _x000A_,  leading\t tab\nnext' })
 })
 
+test('DOCX exports identified blocks exactly like legacy content without serializing IDs', async () => {
+  const legacy: Extract<ArtifactContent, { type: 'doc' }> = {
+    type: 'doc', revision: 7, title: 'All block types', blocks: [
+      { h: 'Heading' },
+      { p: 'Paragraph with <literal> text' },
+      { ul: ['First item', 'Second item'] },
+      { code: ['const answer = 42'] },
+      { email: { to: 'team@example.test', subject: 'Quarterly update' } },
+    ],
+  }
+  const identified = structuredClone(legacy) as Extract<ArtifactContent, { type: 'doc' }>
+  identified.blocks = identified.blocks.map((block, index) => ({ ...block, id: `opaque-id-${index}` }))
+  const before = structuredClone(identified)
+
+  assert.equal(hasWordText(legacy), true)
+  assert.equal(hasWordText(identified), true)
+  const legacyFile = await documentDocx('notes.docx', legacy)
+  const identifiedFile = await documentDocx('notes.docx', identified)
+  assert.ok(legacyFile)
+  assert.ok(identifiedFile)
+  assert.equal(identifiedFile.content, legacyFile.content, 'IDs do not change any DOCX package bytes')
+  const xml = Object.values(await parts(identifiedFile.content)).join('\n')
+  for (const block of identified.blocks) assert.ok(block.id)
+  assert.doesNotMatch(xml, /opaque-id-/u, 'no block identity enters any DOCX XML part')
+  assert.deepEqual(identified, before, 'export never mutates the caller-owned saved body')
+
+  // DOCX has historically allowed a longer/empty title and an empty body than
+  // the retained-history parser. Identity admission must not tighten those
+  // existing export-specific boundaries.
+  const longTitle: Extract<ArtifactContent, { type: 'doc' }> = {
+    type: 'doc', title: 'T'.repeat(2_000), blocks: [{ p: 'Text', id: 'long-title-block' }],
+  }
+  assert.equal(hasWordText(longTitle), true)
+  assert.equal(hasWordText({ type: 'doc', title: '', blocks: [] }), true)
+  assert.ok(await documentDocx('empty.docx', { type: 'doc', title: '', blocks: [] }))
+})
+
+test('DOCX refuses invalid, duplicate, and mixed block identities', async () => {
+  const bodies = [
+    { type: 'doc', title: 'IDs', blocks: [{ p: 'Text', id: 'bad.id' }] },
+    { type: 'doc', title: 'IDs', blocks: [{ p: 'One', id: 'same' }, { h: 'Two', id: 'same' }] },
+    { type: 'doc', title: 'IDs', blocks: [{ p: 'Identified', id: 'block-one' }, { p: 'Legacy' }] },
+    { type: 'doc', title: 'IDs', blocks: [{ p: 'Legacy' }, { p: 'Identified', id: 'block-two' }] },
+  ]
+  for (const body of bodies) {
+    assert.equal(hasWordText(body as never), false)
+    assert.equal(await documentDocx('bad-identity.docx', body as never), null)
+  }
+})
+
+test('identified DOCX bodies keep the same XML, per-block, count, and total-size limits', async () => {
+  const invalidBodies = [
+    { type: 'doc', title: 'T', blocks: [{ p: 'bad\u0000text', id: 'block-1' }] },
+    { type: 'doc', title: 'T', blocks: [{ p: 'x'.repeat(2_001), id: 'block-1' }] },
+    { type: 'doc', title: 'T', blocks: Array.from({ length: 101 }, (_, index) => ({ p: 'x', id: `block-${index}` })) },
+    { type: 'doc', title: 'T', blocks: Array.from({ length: 11 }, (_, index) => ({ p: 'x'.repeat(2_000), id: `block-${index}` })) },
+  ]
+  for (const body of invalidBodies) {
+    assert.equal(hasWordText(body as never), false)
+    assert.equal(await documentDocx('oversized.docx', body as never), null)
+  }
+})
+
 test('DOCX refuses incompatible controls, lone surrogates, wrong shapes, and oversized bodies whole', async () => {
   for (const value of ['bad\0', 'bad\u000b', 'bad\uffff', 'lone\ud800', 'lone\udfff']) {
     const body = { type: 'doc' as const, title: 'T', blocks: [{ p: value }] }

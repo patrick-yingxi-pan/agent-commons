@@ -6,7 +6,61 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: packaged current and saved search workflow
+## Current checkpoint: Document block-identity foundation
+
+The owner approved full Document editing with stable block IDs, insert, delete
+and reorder. Discussions must follow the original block; deletion must leave an
+explicit “original block deleted” state, never attach the thread to a neighbor.
+This approval replaces the earlier pending Document-identity decision. External
+Contribution execution and the outstanding release gates remain separate.
+
+Implementation is staged without exposing structural edits prematurely. First,
+the shared body contract, prose patch helper and history admission/append path
+preserve exact IDs across all five existing block variants. A body is wholly
+legacy or wholly identified; duplicate, malformed and partial identities refuse
+admission. Restore must match the retained source including its IDs, independent
+of object field order. This checkpoint neither assigns IDs to existing data nor
+changes discussion/proposal addresses, the storage version, or editor controls.
+
+Next, connect authoritative ID assignment, conservative migration and typed
+anchor resolution before the full editor. Old history can contain whole-body
+replacements, so equal indices or equal prose cannot establish lineage. Retain
+provable identities; preserve ambiguous legacy anchors as explicitly unavailable
+without guessing. Saved-source restore may reattach only the exact retained ID.
+The editor must cover headings, prose, lists, code and email headers, retain
+account-scoped drafts, require the reviewed body revision, and preserve explicit
+conflict recovery. Existing revision-fenced search locations remain safe without
+being turned into permanent block addresses.
+
+Foundation acceptance includes tests observed failing before implementation,
+exact JSON/SQLite restart and restore checks, focused history/content suites and
+the complete frozen-tree local verifier. The UI-review skill's matrix is deferred
+until renderer changes land; this checkpoint changes no rendered surface or
+preview account. It does not claim the approved full editor is already shipped.
+
+The focused 82-test content/history/route/persistence/context run passed. Negative
+checks rejected the old ID-dropping parser, removed all-or-none/ID validation and
+weakened exact-source restore. Review also exposed current Documents without
+history bypassing ID checks; admission now validates identity-bearing bodies
+before any backend save, with failing-then-passing tests for both backends.
+Wholly legacy current-body admission remains unchanged. Sparse list/code arrays
+are refused instead of turning missing lines into JSON nulls. The complete local
+verifier remains the pre-commit/pre-push gate for this final tree.
+
+The consumer audit also found Word export rejecting otherwise valid ID-bearing
+blocks. Its admission now shares the portable block parser while retaining its
+own title, XML and text limits. A failing-then-passing test proves all five block
+variants produce byte-identical Word exports with or without IDs; no identity
+metadata enters the package. The first verifier was stopped before this repair;
+only the subsequent full run on the final frozen tree counts as acceptance.
+
+## Completed checkpoint: packaged current and saved search workflow
+
+Committed locally as `79ca86d3`: the complete unsigned arm64 packaged smoke and
+all five local verifier lanes passed, including 564 browser tests. All eighteen
+history/search captures were reviewed. The working tree was frozen throughout
+final acceptance. The normal HTTPS push succeeded after transient GitHub server
+errors; `79ca86d3` is now on `main`, with no force push or CI use.
 
 The browser checkpoint is complete at `c5637ea9`: all five local verifier lanes
 passed, including 564 browser tests; the responsive sweep covered 135/135 cells
@@ -30,8 +84,8 @@ review, the complete packaged smoke and a final frozen-tree local verifier.
 The added helper is excluded from shipped code and reuses the existing real
 profile/authentication lifecycle. No provider call or user document is involved.
 Unsigned arm64 acceptance cannot close signing/notarization, native Intel,
-real-service or release-hosting gates. Document identity and external Contribution
-execution remain separate product decisions.
+real-service or release-hosting gates. Document identity was approved after this
+checkpoint; external Contribution execution remains a separate product decision.
 
 The focused ordinary packaged journey passed on unsigned arm64. A copied ASAR
 with current-search locators removed then failed at the exact rendered Document
@@ -41,8 +95,8 @@ preserving those links repaired only the disposable copy harness. All five new
 source/packaging locks were watched fail against removed guarantees, then passed
 after restoration. The focused receipt binds ASAR SHA-256
 `47255cb0f1bb513d94c438640c99538f68753f72317b97832067b3474b1e9ddd`.
-Final delivery still requires the complete packaged smoke and local verifier on
-the final frozen tree; focused evidence alone does not replace either gate.
+The complete packaged smoke and local verifier subsequently passed on the final
+frozen tree, and the verified commit was pushed successfully.
 
 ## Completed checkpoint: reveal exact Artifact search matches
 

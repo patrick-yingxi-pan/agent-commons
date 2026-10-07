@@ -1,9 +1,8 @@
 import type { ArtifactContent, DocBlock } from './content.ts'
-import { MAX_ARTIFACT_BLOCK_CHARS, MAX_AUTHORED_DOCUMENT_BLOCKS } from './content.ts'
+import { parseDocBlocks } from './content.ts'
 import { parseStructuredArtifactBody, type StructuredArtifactBody } from './artifactAuthoring.ts'
 
 export const MAX_ARTIFACT_HISTORY_PAGE_SIZE = 50
-const MAX_HISTORY_DOC_BODY_CHARS = MAX_ARTIFACT_BLOCK_CHARS * MAX_AUTHORED_DOCUMENT_BLOCKS
 
 export type ArtifactHistoryBody =
   | { type: 'doc'; title: string; blocks: DocBlock[] }
@@ -56,36 +55,9 @@ function fields(value: Record<string, unknown>, required: string[], optional: st
 
 function parseDocBody(value: unknown): Extract<ArtifactHistoryBody, { type: 'doc' }> | undefined {
   if (!record(value) || !fields(value, ['type', 'title', 'blocks']) || value.type !== 'doc' ||
-    typeof value.title !== 'string' || !value.title.trim() || value.title.length > 240 ||
-    !Array.isArray(value.blocks) || value.blocks.length < 1 || value.blocks.length > MAX_AUTHORED_DOCUMENT_BLOCKS) return undefined
-  let characters = 0
-  const blocks: DocBlock[] = []
-  for (const item of value.blocks) {
-    if (!record(item)) return undefined
-    if (fields(item, ['h']) && typeof item.h === 'string') {
-      characters += item.h.length
-      blocks.push({ h: item.h })
-    } else if (fields(item, ['p']) && typeof item.p === 'string') {
-      characters += item.p.length
-      blocks.push({ p: item.p })
-    } else if (fields(item, ['ul']) && Array.isArray(item.ul) && item.ul.every((line) => typeof line === 'string')) {
-      if ((item.ul as string[]).length > MAX_AUTHORED_DOCUMENT_BLOCKS || (item.ul as string[]).some((line) => line.length > MAX_ARTIFACT_BLOCK_CHARS)) return undefined
-      characters += (item.ul as string[]).reduce((sum, line) => sum + line.length, 0)
-      blocks.push({ ul: [...item.ul] as string[] })
-    } else if (fields(item, ['code']) && Array.isArray(item.code) && item.code.every((line) => typeof line === 'string')) {
-      if ((item.code as string[]).length > MAX_AUTHORED_DOCUMENT_BLOCKS || (item.code as string[]).some((line) => line.length > MAX_ARTIFACT_BLOCK_CHARS)) return undefined
-      characters += (item.code as string[]).reduce((sum, line) => sum + line.length, 0)
-      blocks.push({ code: [...item.code] as string[] })
-    } else if (fields(item, ['email']) && record(item.email) && fields(item.email, ['to', 'subject']) &&
-      typeof item.email.to === 'string' && typeof item.email.subject === 'string') {
-      if (item.email.to.length > MAX_ARTIFACT_BLOCK_CHARS || item.email.subject.length > MAX_ARTIFACT_BLOCK_CHARS) return undefined
-      characters += item.email.to.length + item.email.subject.length
-      blocks.push({ email: { to: item.email.to, subject: item.email.subject } })
-    } else return undefined
-    const text = 'h' in item ? item.h : 'p' in item ? item.p : undefined
-    if (typeof text === 'string' && text.length > MAX_ARTIFACT_BLOCK_CHARS) return undefined
-  }
-  if (characters > MAX_HISTORY_DOC_BODY_CHARS) return undefined
+    typeof value.title !== 'string' || !value.title.trim() || value.title.length > 240) return undefined
+  const blocks = parseDocBlocks(value.blocks)
+  if (!blocks || blocks.length === 0) return undefined
   return { type: 'doc', title: value.title, blocks }
 }
 

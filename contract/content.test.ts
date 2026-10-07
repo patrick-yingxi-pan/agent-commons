@@ -8,6 +8,9 @@ import {
   MAX_AUTHORED_DOCUMENT_SOURCE_CHARS,
   authoredDocument,
   docBlockText,
+  parseDocBlocks,
+  withDocBlockText,
+  type DocBlock,
 } from './content.ts'
 
 test('plain text becomes canonical consent text plus a titled, editable revision-zero document', () => {
@@ -59,4 +62,40 @@ test('an in-budget document with unusually many short paragraphs keeps its compl
   if (authored.body.type !== 'doc') return
   assert.ok(authored.body.blocks.length <= MAX_AUTHORED_DOCUMENT_BLOCKS)
   assert.ok(authored.body.blocks.every((block) => (docBlockText(block)?.length ?? 0) <= MAX_ARTIFACT_BLOCK_CHARS))
+})
+
+test('editing a patchable Document block preserves its exact stable identity', () => {
+  const heading: DocBlock = { h: 'Before', id: 'heading_1' }
+  const paragraph: DocBlock = { p: 'Original prose', id: 'block-2' }
+
+  assert.deepEqual(withDocBlockText(heading, 'After'), { h: 'After', id: 'heading_1' })
+  assert.deepEqual(withDocBlockText(paragraph, 'Revised prose'), { p: 'Revised prose', id: 'block-2' })
+  assert.deepEqual(heading, { h: 'Before', id: 'heading_1' }, 'the caller-owned block stays immutable')
+  assert.deepEqual(paragraph, { p: 'Original prose', id: 'block-2' }, 'the caller-owned block stays immutable')
+})
+
+test('standalone block admission owns identity and leaves title and empty-document policy to callers', () => {
+  assert.deepEqual(parseDocBlocks([]), [])
+  const source: DocBlock[] = [{ p: 'Same prose', id: 'first' }, { p: 'Same prose', id: 'second' }]
+  assert.deepEqual(parseDocBlocks(source), source, 'equal text does not collapse distinct block identities')
+  assert.equal(parseDocBlocks([{ p: 'First', id: 'duplicate' }, { p: 'Second', id: 'duplicate' }]), undefined)
+  assert.equal(parseDocBlocks([{ p: 'Legacy' }, { p: 'Identified', id: 'second' }]), undefined)
+  assert.equal(parseDocBlocks({ blocks: source }), undefined, 'the block parser does not accept a document envelope')
+})
+
+test('non-patchable identified Document blocks remain unchanged', () => {
+  const blocks: DocBlock[] = [
+    { ul: ['one', 'two'], id: 'list-1' },
+    { code: ['const value = 1'], id: 'code-1' },
+    { email: { to: 'team@example.test', subject: 'Update' }, id: 'email-1' },
+  ]
+
+  for (const block of blocks) {
+    assert.strictEqual(withDocBlockText(block, 'ignored'), block)
+  }
+  assert.deepEqual(blocks, [
+    { ul: ['one', 'two'], id: 'list-1' },
+    { code: ['const value = 1'], id: 'code-1' },
+    { email: { to: 'team@example.test', subject: 'Update' }, id: 'email-1' },
+  ])
 })

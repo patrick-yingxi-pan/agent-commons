@@ -131,6 +131,7 @@ For cross-layer seams also read
 | CONTRACT-D110 | data-access | Conversation Find is a case-insensitive literal text projection over current user/assistant messages, with a 256-unit query, 20-hit pages and 320-unit snippets. Full-string case conversion retains source offsets, current message identity and transcript order; no tool, attachment or archived-original payload joins the read. | [`conversationSearch.ts`](conversationSearch.ts) | [`conversationSearch.test.ts`](conversationSearch.test.ts) · [`../server/sessionMessageSearch.test.ts`](../server/sessionMessageSearch.test.ts) | refines ROOT-D1; requires CONTRACT-A1 |
 | CONTRACT-D111 | data-access | Saved-version search is an explicit category with exact artifact-plus-revision identity, history provenance and Trash state. Its shared literal snippet projection preserves Unicode source offsets without regex evaluation, caps output at 320 units and uses the existing 20-hit page contract; historical queries are bounded to 256 units. | [`search.ts`](search.ts) · [`literalSearch.ts`](literalSearch.ts) | [`literalSearch.test.ts`](literalSearch.test.ts) · [`../server/artifactVersionSearch.test.ts`](../server/artifactVersionSearch.test.ts) | requires CONTRACT-D103; refines ROOT-D1 |
 | CONTRACT-D112 | data-access | Artifact body-search locations pair one canonical authored-field path with its exact saved revision. The shared field projection excludes visual metadata and the strict locator contains neither query nor body text; absence means an ordinary resource destination. | [`artifactSearch.ts`](artifactSearch.ts) · [`search.ts`](search.ts) | [`artifactSearch.test.ts`](artifactSearch.test.ts) · [`../server/routes/artifact-body-search.test.ts`](../server/routes/artifact-body-search.test.ts) | requires CONTRACT-D111; requires CONTRACT-D9 |
+| CONTRACT-D113 | data-access | Document snapshots are wholly legacy or wholly identified by unique bounded opaque block IDs. Shared block admission, history and prose edits retain exact IDs across all five variants; Word exports only content under its own limits. Missing identity never implies positional lineage; restore equality includes identity. This is admission, not assignment or structural-editor rollout. | [`content.ts`](content.ts) · [`artifactHistory.ts`](artifactHistory.ts) · [`../server/artifactDocx.ts`](../server/artifactDocx.ts) | [`content.test.ts`](content.test.ts) · [`artifactHistory.test.ts`](artifactHistory.test.ts) · [`../server/artifactHistory.test.ts`](../server/artifactHistory.test.ts) · [`../server/artifactDocx.test.ts`](../server/artifactDocx.test.ts) | requires CONTRACT-D103; refines CONTRACT-D1 |
 | CONTRACT-V1 | verification | New boundary seams extend the cross-layer contract scan. | [`index.ts`](index.ts) | [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | refines ROOT-V1 |
 <!-- context-rules:end -->
 ## Details
@@ -150,8 +151,7 @@ For cross-layer seams also read
   its absence (inherit / complete-set constant / minimal-risk none) or refuse
   it — full statement in
   [`docs/spec/09-design-invariants.md`](../docs/spec/09-design-invariants.md).
-- **Boundary seams are tested.** New cross-component seams extend
-  `tests/contract-boundaries.test.ts`.
+- **Boundary seams are tested.** New cross-component seams extend `tests/contract-boundaries.test.ts`.
 
 ## Verification
 

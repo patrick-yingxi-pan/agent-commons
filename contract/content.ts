@@ -4,12 +4,26 @@
  *  real values; seeded demo and unsupported imported-file previews remain
  *  explicit fixtures. Shared so persistence, consent, and rendering agree. */
 
-export type DocBlock =
+export type DocBlock = (
   | { h: string } // section heading
   | { p: string } // paragraph
   | { ul: string[] } // bullet list
   | { code: string[] } // monospace block (config, headers, signatures)
   | { email: { to: string; subject: string } } // an email's To/Subject header
+) & {
+  /** Stable within one artifact, independent of text and position. Absence is
+   * legacy identity-unknown content, not permission to infer an ID by index.
+   * Saved bodies are either wholly identified or wholly legacy. Rollout of ID
+   * assignment and structural editing is separate from lossless admission. */
+  id?: string
+}
+
+/** Opaque, bounded local identity, safe to carry through a typed block locus.
+ * Validation does not mint identity or establish correspondence with an older
+ * snapshot; the authoritative writer/migration owns those decisions. */
+export function isDocBlockId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value)
+}
 
 export type FigureShape = 'hero' | 'bars' | 'line' | 'funnel'
 
@@ -67,6 +81,71 @@ export const MAX_AUTHORED_DOCUMENT_CHARS = 20_000
 export const MAX_AUTHORED_DOCUMENT_SOURCE_CHARS =
   MAX_AUTHORED_DOCUMENT_CHARS - Math.ceil(MAX_AUTHORED_DOCUMENT_CHARS / MAX_ARTIFACT_BLOCK_CHARS) * 2
 export const MAX_ARTIFACT_EXCERPT_CHARS = 160
+
+function record(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function fields(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {
+  return required.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => required.includes(key) || optional.includes(key))
+}
+
+function boundedDocLines(value: unknown): value is string[] {
+  if (!Array.isArray(value) || value.length > MAX_AUTHORED_DOCUMENT_BLOCKS) return false
+  // Iteration visits holes; Array.every skips them and would admit undefined
+  // lines that change into null when the saved body crosses JSON.
+  for (const line of value) {
+    if (typeof line !== 'string' || line.length > MAX_ARTIFACT_BLOCK_CHARS) return false
+  }
+  return true
+}
+
+/** Closed, detached block admission shared by history and export. Identity is
+ * all-or-none, never inferred. The envelope preserves the historical 100 ×
+ * 2,000-character ceiling; callers own stricter authored/export budgets and
+ * whether an empty block list or a particular title is acceptable. */
+export function parseDocBlocks(value: unknown): DocBlock[] | undefined {
+  if (!Array.isArray(value) || value.length > MAX_AUTHORED_DOCUMENT_BLOCKS) return undefined
+  let characters = 0
+  const blocks: DocBlock[] = []
+  const blockIds = new Set<string>()
+  const identified = record(value[0]) && Object.hasOwn(value[0], 'id')
+  for (const item of value) {
+    if (!record(item)) return undefined
+    if (Object.hasOwn(item, 'id') !== identified) return undefined
+    if (identified) {
+      if (!isDocBlockId(item.id) || blockIds.has(item.id)) return undefined
+      blockIds.add(item.id)
+    }
+    let block: DocBlock
+    if (fields(item, ['h'], ['id']) && typeof item.h === 'string') {
+      characters += item.h.length
+      block = { h: item.h }
+    } else if (fields(item, ['p'], ['id']) && typeof item.p === 'string') {
+      characters += item.p.length
+      block = { p: item.p }
+    } else if (fields(item, ['ul'], ['id']) && boundedDocLines(item.ul)) {
+      characters += item.ul.reduce((sum, line) => sum + line.length, 0)
+      block = { ul: [...item.ul] }
+    } else if (fields(item, ['code'], ['id']) && boundedDocLines(item.code)) {
+      characters += item.code.reduce((sum, line) => sum + line.length, 0)
+      block = { code: [...item.code] }
+    } else if (fields(item, ['email'], ['id']) && record(item.email) && fields(item.email, ['to', 'subject']) &&
+      typeof item.email.to === 'string' && typeof item.email.subject === 'string') {
+      if (item.email.to.length > MAX_ARTIFACT_BLOCK_CHARS || item.email.subject.length > MAX_ARTIFACT_BLOCK_CHARS) return undefined
+      characters += item.email.to.length + item.email.subject.length
+      block = { email: { to: item.email.to, subject: item.email.subject } }
+    } else return undefined
+    const text = docBlockText(block)
+    if (text !== undefined && text.length > MAX_ARTIFACT_BLOCK_CHARS) return undefined
+    if (characters > MAX_ARTIFACT_BLOCK_CHARS * MAX_AUTHORED_DOCUMENT_BLOCKS) return undefined
+    blocks.push(identified ? { id: item.id as string, ...block } : block)
+  }
+  return blocks
+}
 
 export interface AuthoredDocument {
   body: ArtifactContent
@@ -180,7 +259,7 @@ export function docBlockText(block: DocBlock): string | undefined {
  *  unchanged. Paired with `docBlockText` in one module so the reader and the
  *  writer can never disagree about which blocks are addressable. */
 export function withDocBlockText(block: DocBlock, text: string): DocBlock {
-  if ('h' in block) return { h: text }
-  if ('p' in block) return { p: text }
+  if ('h' in block) return { ...block, h: text }
+  if ('p' in block) return { ...block, p: text }
   return block
 }

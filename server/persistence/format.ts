@@ -652,6 +652,15 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     for (const entry of state.artifactBodies) {
       if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string') return false
       const body = entry[1]
+      // Identity-bearing Documents must be valid even before their first edit
+      // creates history. Keep legacy current-body admission unchanged; this is
+      // not an implicit migration or a new bound on old un-identified content.
+      if (body?.type === 'doc' && Array.isArray(body.blocks) && body.blocks.some((block) =>
+        block !== null && typeof block === 'object' && Object.hasOwn(block, 'id'))) {
+        if (body.revision !== undefined && (!Number.isSafeInteger(body.revision) || body.revision < 0)) return false
+        if (!historyBodyWithoutRevision(body)) return false
+        continue
+      }
       if (body?.type !== 'sheet' && body?.type !== 'workbook' && body?.type !== 'slides') continue
       const { revision, ...values } = body
       if (revision !== undefined && (!Number.isSafeInteger(revision) || revision < 0)) return false
