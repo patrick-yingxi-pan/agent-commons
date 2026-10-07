@@ -58,3 +58,26 @@ export async function offerStartupRecovery({ showMessageBox, userDataPath, openP
   }
   return 'quit'
 }
+
+/** A failed start has no usable window to return to. Only a confirmed restore
+ * that owns relaunch may keep this process alive; cancellation, refusal and
+ * reporting failures must still drain it through the ordinary quit boundary. */
+export async function runStartupRecovery({ offerRecovery, restoreBackup, reportFailure, quit }) {
+  let phase = 'offer'
+  let restarting = false
+  try {
+    if (await offerRecovery() === 'restore') {
+      phase = 'restore'
+      const outcome = await restoreBackup()
+      if (outcome?.status !== 'cancelled' && outcome?.status !== 'restarting') {
+        throw new Error('The startup restore returned an unrecognized outcome.')
+      }
+      restarting = outcome?.status === 'restarting'
+    }
+  } catch (error) {
+    await reportFailure({ phase, error })
+  } finally {
+    if (!restarting) quit()
+  }
+  return { status: restarting ? 'restarting' : 'quitting' }
+}

@@ -34,7 +34,7 @@ import { loadDesktopUpdateConfiguration } from './updateConfiguration.mjs'
 import { relaunchAfterUpdateCleanup, runManagedUpdateLifecycle, stageNativeUpdate } from './updateLifecycle.mjs'
 import { confirmManagedRestore, pickManagedBackup, waitForRestoreWorker } from './restoreProtocol.mjs'
 import { runRendererRecovery } from './rendererRecovery.mjs'
-import { offerStartupRecovery, revealRecoveryDirectory } from './startupRecovery.mjs'
+import { offerStartupRecovery, revealRecoveryDirectory, runStartupRecovery } from './startupRecovery.mjs'
 import {
   CREDENTIAL_VAULT_FILE,
   openCredentialVault,
@@ -902,29 +902,27 @@ async function failStartup(error) {
     return
   }
   console.error(error)
-  try {
-    const action = await offerStartupRecovery({
+  await runStartupRecovery({
+    offerRecovery: () => offerStartupRecovery({
       showMessageBox: (options) => dialog.showMessageBox(options),
       userDataPath: app.getPath('userData'),
       openPath: (directory) => shell.openPath(directory),
-    })
-    if (action === 'restore') {
-      try {
-        await restoreFromManagedBackup({ startup: true })
-        return
-      } catch (restoreError) {
-        console.error('[desktop] startup backup restore could not begin.', restoreError)
+    }),
+    restoreBackup: () => restoreFromManagedBackup({ startup: true }),
+    reportFailure: ({ phase, error: recoveryError }) => {
+      if (phase === 'restore') {
+        console.error('[desktop] startup backup restore could not begin.', recoveryError)
         dialog.showErrorBox(
           'Couldn’t restore backup',
           'The selected backup was not restored. Your managed backups remain available.',
         )
+      } else {
+        console.error('[desktop] startup recovery folder could not be shown.', recoveryError)
+        dialog.showErrorBox('Couldn’t open Agent Commons', 'The app could not start, and its backup folder could not be opened.')
       }
-    }
-  } catch (recoveryError) {
-    console.error('[desktop] startup recovery folder could not be shown.', recoveryError)
-    dialog.showErrorBox('Couldn’t open Agent Commons', 'The app could not start, and its backup folder could not be opened.')
-  }
-  app.quit()
+    },
+    quit: () => app.quit(),
+  })
 }
 
 async function stopBackend({ requireExit = false } = {}) {

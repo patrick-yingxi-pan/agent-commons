@@ -189,6 +189,24 @@ changed. The corrected complete verifier passed before commit `1d53e352`:
 4,486 node tests and 527 E2E tests, all five lanes green without retries in
 474.2 seconds. The production build and complete packaged verifier also passed.
 
+### Actual startup restore and cancellation repair (2026-10-06)
+
+The [native recovery review](acceptance/native-restore-2026-10-06.md) now proves
+actual macOS selection/confirmation and Electron-managed automatic relaunch on
+the unsigned arm64 package. The exact baseline Document returned after replacing
+generated damaged SQLite; newer work was absent, the authentication root and
+empty vaults stayed byte-identical, and no additional safety copy appeared.
+
+The manual review found picker cancellation left the failed-start app running
+without a usable window. Startup recovery now quits on picker or confirmation
+cancellation and on failure, while an explicit restarting outcome leaves exit
+to the restore lifecycle. Behavioral and wiring regressions were watched fail;
+both actual cancellation paths now exit cleanly with generated damaged bytes
+unchanged. The complete packaged verifier passed. Populated-vault/token recovery,
+healthy safety-copy behavior and malformed-backup recovery remain covered by
+their separate automated walks, not this narrower manual record. Signing and
+native Intel acceptance remain open; no GitHub CI is used.
+
 ### Damaged-startup restore acceptance (2026-10-06)
 
 The expanded packaged recovery walk uses only generated isolated profiles and

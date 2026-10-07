@@ -304,6 +304,12 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   const startupFailure = main.slice(main.indexOf('async function failStartup'), main.indexOf('async function stopBackend'))
   assert.match(startupFailure, /error instanceof DesktopAuthRootError[^]*app.quit\(\)[^]*return[^]*offerStartupRecovery/,
     'a keychain problem must not invite an unrelated database restore')
+  assert.match(startupFailure, /await runStartupRecovery\(\{/,
+    'startup recovery must own cancellation as well as confirmed restore')
+  assert.match(startupFailure, /offerRecovery: \(\) => offerStartupRecovery\(\{/)
+  assert.match(startupFailure, /restoreBackup: \(\) => restoreFromManagedBackup\(\{ startup: true \}\)/)
+  assert.match(startupFailure, /quit: \(\) => app.quit\(\)/,
+    'cancelled startup restore must not leave a windowless process alive')
 
   const preload = readFileSync(new URL('./preload.cjs', import.meta.url), 'utf8')
   assert.match(preload, /contextBridge\.exposeInMainWorld\('agentCommonsDesktop'/)

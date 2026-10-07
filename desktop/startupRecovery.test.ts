@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { offerStartupRecovery, recoveryDirectory, revealRecoveryDirectory } from './startupRecovery.mjs'
+import { offerStartupRecovery, recoveryDirectory, revealRecoveryDirectory, runStartupRecovery } from './startupRecovery.mjs'
 
 test('recovery access resolves only the shell-owned folder and reports OS refusal generically', async () => {
   const made: string[] = []
@@ -52,4 +52,108 @@ test('startup failure offers native restore without exposing a path or pre-armin
     openPath: async () => { throw new Error('must not open') },
   })
   assert.equal(quit, 'quit')
+})
+
+test('startup recovery quits for non-restore choices and picker or confirmation cancellation', async () => {
+  for (const choice of ['show', 'quit', 'unknown', undefined]) {
+    const events: string[] = []
+    await runStartupRecovery({
+      offerRecovery: async () => { events.push('offer'); return choice },
+      restoreBackup: async () => { events.push('restore'); return { status: 'restarting' } },
+      reportFailure: () => { events.push('report') },
+      quit: () => { events.push('quit') },
+    })
+    assert.deepEqual(events, ['offer', 'quit'], `choice ${String(choice)} must not start restore`)
+  }
+
+  for (const cancelledAt of ['picker', 'confirmation']) {
+    const events: string[] = []
+    await runStartupRecovery({
+      offerRecovery: async () => { events.push('offer'); return 'restore' },
+      restoreBackup: async () => { events.push(cancelledAt); return { status: 'cancelled' } },
+      reportFailure: () => { events.push('report') },
+      quit: () => { events.push('quit') },
+    })
+    assert.deepEqual(events, ['offer', cancelledAt, 'quit'], `${cancelledAt} cancellation must quit the startup process`)
+  }
+})
+
+test('a completed startup restore owns the restart and does not also quit', async () => {
+  const events: string[] = []
+  await runStartupRecovery({
+    offerRecovery: async () => { events.push('offer'); return 'restore' },
+    restoreBackup: async () => { events.push('restore'); return { status: 'restarting' } },
+    reportFailure: () => { events.push('report') },
+    quit: () => { events.push('quit') },
+  })
+  assert.deepEqual(events, ['offer', 'restore'])
+})
+
+test('offer and restore failures are reported by phase and always quit once', async () => {
+  const offerFailure = new Error('dialog failure')
+  const restoreFailure = new Error('restore failure')
+  const scenarios = [
+    {
+      name: 'offer', error: offerFailure,
+      offerRecovery: async () => { throw offerFailure },
+      restoreBackup: async () => { throw new Error('must not restore') },
+      expected: ['report:offer', 'quit'],
+    },
+    {
+      name: 'restore', error: restoreFailure,
+      offerRecovery: async () => 'restore',
+      restoreBackup: async () => { throw restoreFailure },
+      expected: ['report:restore', 'quit'],
+    },
+  ]
+  for (const scenario of scenarios) {
+    const events: string[] = []
+    await runStartupRecovery({
+      offerRecovery: scenario.offerRecovery,
+      restoreBackup: scenario.restoreBackup,
+      reportFailure: ({ phase, error }: any) => {
+        assert.equal(error, scenario.error)
+        events.push(`report:${phase}`)
+      },
+      quit: () => { events.push('quit') },
+    })
+    assert.deepEqual(events, scenario.expected, scenario.name)
+  }
+})
+
+test('quit still runs if startup failure reporting throws', async () => {
+  for (const choice of ['offer', 'restore']) {
+    const events: string[] = []
+    const failure = new Error(`${choice} failed`)
+    await assert.rejects(() => runStartupRecovery({
+        offerRecovery: async () => {
+          if (choice === 'offer') throw failure
+          return 'restore'
+        },
+        restoreBackup: async () => {
+          if (choice === 'restore') throw failure
+          return { status: 'restarting' }
+        },
+        reportFailure: ({ phase }: any) => { events.push(`report:${phase}`); throw new Error('reporting failed') },
+        quit: () => { events.push('quit') },
+      }), /reporting failed/)
+    assert.deepEqual(events, [`report:${choice}`, 'quit'])
+  }
+})
+
+test('unexpected restore results are reported and cannot strand the startup process', async () => {
+  for (const result of [undefined, null, {}, { status: 'unexpected' }]) {
+    const events: string[] = []
+    await runStartupRecovery({
+      offerRecovery: async () => 'restore',
+      restoreBackup: async () => result,
+      reportFailure: ({ phase, error }: any) => {
+        assert.equal(phase, 'restore')
+        assert.ok(error instanceof Error)
+        events.push('report')
+      },
+      quit: () => { events.push('quit') },
+    })
+    assert.deepEqual(events, ['report', 'quit'], `unexpected result ${String(result)}`)
+  }
 })
