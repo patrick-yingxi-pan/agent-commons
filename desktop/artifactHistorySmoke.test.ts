@@ -20,6 +20,14 @@ test('packaged history acceptance exercises real storage, viewer walls, consent 
   assert.match(source, /\.get\('artifactHistory', artifactId\)/)
   assert.match(source, /await close\(run\)/)
   assert.match(source, /await assert\.rejects\(fetch\(`\$\{oldOrigin\}\/api\/v1\/me`/)
+  assert.match(source, /const historySearchMatchPath = `\$\{historyPath\}\/match\/doc\.block\.0\.p`/,
+    'the fixture baseline is a matching first paragraph field')
+  assert.equal([...source.matchAll(/toHaveURL\(`\$\{origin\}\$\{historySearchMatchPath\}`\)/g)].length, 4,
+    'search entry, reload, Back and resumed search retain the matched-field address')
+  assert.match(source, /data-artifact-search-match\]\[data-artifact-search-field="doc\.block\.0\.p"/,
+    'search-derived saved history highlights the exact paragraph')
+  assert.match(source, /await page\.goto\(`\$\{origin\}\/artifacts\/\$\{encodeURIComponent\(artifact\.id\)\}\/history\/0`\)/,
+    'direct revision navigation remains plain and unhighlighted')
   assert.match(source, /await rm\(profile, \{ recursive: true, force: true \}\)/)
   assert.doesNotMatch(source, /_electron|use-mock-keychain|saveState\(|startAttachmentSmokeEndpoint|store\.\w+\(/,
     'the ordinary launcher and shipped APIs are the only product authority')

@@ -27,7 +27,7 @@
  *  Dependency-free and node-tested (src/lib/pane-nav.test.ts) so the mapping
  *  can't silently diverge from the root's. */
 import type { SectionId } from '../types'
-import { artifactHistoryRevision } from './artifactHistoryLocation.ts'
+import { parseArtifactSubLocation } from './artifactSearchLocation.ts'
 
 /** The pane's detail-focus shape (MainSplit's PaneFocusState, structurally). */
 export interface PaneSeed {
@@ -65,6 +65,8 @@ export interface PaneSeed {
   artifactId?: string
   /** Exact retained revision under an artifact; decimal string keeps seed identity uniform. */
   artifactRevision?: string
+  /** Validated body-search target key (`revision/field`). */
+  artifactMatch?: string
   /** A model provider's canonical detail page (UI-19/UI-33). */
   providerId?: string
 }
@@ -74,7 +76,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerSectionId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'artifactRevision', 'providerId'] as const
+export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerSectionId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'artifactRevision', 'artifactMatch', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -140,8 +142,13 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   if (section === 'admin') return { adminUserId: id }
   if (section === 'discussions') return { discussionId: id }
   if (section === 'artifacts') {
-    const revision = subId?.startsWith('history/') ? artifactHistoryRevision(subId.slice('history/'.length)) : undefined
-    return { artifactId: id, ...(revision !== undefined ? { artifactRevision: String(revision) } : {}) }
+    const location = parseArtifactSubLocation(subId)
+    if (!location) return { artifactId: id }
+    return {
+      artifactId: id,
+      ...(location.revision !== undefined ? { artifactRevision: String(location.revision) } : {}),
+      ...(location.match !== undefined ? { artifactMatch: location.match } : {}),
+    }
   }
   if (section === 'models') return { providerId: id }
   return null

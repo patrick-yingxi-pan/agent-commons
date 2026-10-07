@@ -6,7 +6,39 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: complete current Artifact search
+## Current checkpoint: reveal exact Artifact search matches
+
+Current-body search closed the missing-text gap, but opening a result still hid
+matches in later workbook tabs and left long bodies at their beginning. Search
+now carries a revision-pinned authored-field locator through pane navigation,
+Back and canonical current/history URLs. The reading surface selects the exact
+tab, highlights the field and brings it into keyboard focus without editing.
+Show match returns to it after browsing elsewhere. A changed current revision
+or absent field is explained without applying an old position to new content.
+Queries and body text never enter the address; ordinary metadata-only hits keep
+their existing resource door. This does not introduce stable Document block
+identity, new read authority or an external service.
+
+UI-197 records the demonstrated hidden-match defect. Negative checks rejected
+both removed revision fencing and first-tab-only initialization. Acceptance
+requires current and immutable saved bodies, reload/Back, stale/missing targets,
+all authored formats, owner/shared/foreign access, keyboard/viewport checks,
+the complete UI sweep and full local verifier on the final frozen tree. The
+packaged history acceptance helper follows the new search-derived URL; updating
+that helper alone is not fresh native acceptance. Larger Document identity and
+external Contribution execution decisions remain outside this checkpoint.
+
+Adversarial review reproduced a Show match focus failure between equal-shaped
+worksheet tabs: React reused the cell, and the old focus receipt suppressed its
+return. The field-registration funnel now retires that receipt on detach. The
+browser assertion failed before repair. The preliminary verifier was stopped
+before changing the tree; only final, uninterrupted acceptance counts for delivery.
+
+## Completed checkpoint: complete current Artifact search
+
+Commit `aa9db7b2` passed all five local verifier lanes (561 browser tests) and
+the full 135-cell UI sweep with zero violations or skips, then was pushed to
+`main`. Visual review was clean and Ada was left signed in. No GitHub CI was used.
 
 Ordinary search previously matched only Artifact names, sources and short
 excerpts, missing later Document paragraphs and structured body values. It now

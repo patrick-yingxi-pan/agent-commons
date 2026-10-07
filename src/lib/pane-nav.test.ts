@@ -41,6 +41,10 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
   // be a place — including the two whose detail used to be component state.
   assert.deepEqual(seedFor('artifacts', 'a1'), { artifactId: 'a1' }, 'an artifact is addressable (/artifacts/:id)')
   assert.deepEqual(seedFor('artifacts', 'a1', 'history/0'), { artifactId: 'a1', artifactRevision: '0' }, 'a retained version is an addressable artifact sub-page')
+  assert.deepEqual(seedFor('artifacts', 'a1', 'match/0/doc.title'), { artifactId: 'a1', artifactMatch: '0/doc.title' }, 'a current-body match carries its body revision and field')
+  assert.deepEqual(seedFor('artifacts', 'a1', 'history/0/match/doc.title'), { artifactId: 'a1', artifactRevision: '0', artifactMatch: '0/doc.title' }, 'a saved match stays on its exact retained revision')
+  assert.deepEqual(seedFor('artifacts', 'a1', 'history/1/match/doc.title'), { artifactId: 'a1', artifactRevision: '1', artifactMatch: '1/doc.title' })
+  assert.deepEqual(seedFor('artifacts', 'a1', 'match/00/doc.title'), { artifactId: 'a1' }, 'malformed targets are not admitted')
   assert.deepEqual(seedFor('models', 'prov-1'), { providerId: 'prov-1' }, 'a provider is addressable (/models/:id)')
   assert.equal(seedFor('projects'), null, 'no id = no entity detail')
   assert.equal(seedFor('customize', 'x'), null, 'a section with no detail mapping stays unmapped')
@@ -118,4 +122,10 @@ test('an msection seed survives the JSON persistence round-trip', () => {
   const revivedVersionTree = JSON.parse(JSON.stringify(versionTree)) as MainSplitNode
   const versionLeaf = panes(revivedVersionTree).find((p) => p.content.kind === 'msection')
   assert.deepEqual(versionLeaf && versionLeaf.content.kind === 'msection' ? versionLeaf.content.seed : null, { artifactId: 'doc-1', artifactRevision: '0' })
+
+  const matched: MainPaneContent = { kind: 'msection', id: 'artifacts', seed: { artifactId: 'doc-1', artifactMatch: '4/workbook.1.cell.2.3' } }
+  const matchTree = splitPane(pane<MainPaneContent>({ kind: 'msession', id: 'auth-refactor' }), '', 'row', matched)
+  const revivedMatchTree = JSON.parse(JSON.stringify(matchTree)) as MainSplitNode
+  const matchLeaf = panes(revivedMatchTree).find((p) => p.content.kind === 'msection')
+  assert.deepEqual(matchLeaf && matchLeaf.content.kind === 'msection' ? matchLeaf.content.seed : null, matched.seed)
 })

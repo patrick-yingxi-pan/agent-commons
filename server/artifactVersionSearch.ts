@@ -1,5 +1,5 @@
 import { literalSearchSnippet } from '../contract/literalSearch.ts'
-import { findArtifactBodySearchText } from './artifactBodySearch.ts'
+import { findArtifactBodySearchMatch } from './artifactBodySearch.ts'
 import type { ArtifactHistoryVersion } from '../contract/artifactHistory.ts'
 import type { ArtifactContent } from '../contract/content.ts'
 import {
@@ -34,10 +34,10 @@ export function searchArtifactVersions(
     for (const source of ordered) {
       const versions = [...source.versions].sort((a, b) => b.revision - a.revision)
       for (const version of versions) {
-        const matchedText = findArtifactBodySearchText(version.body, query)
-        if (matchedText === undefined) continue
+        const match = findArtifactBodySearchMatch(version.body, query)
+        if (match === undefined) continue
         if (total >= offset && hits.length < SEARCH_PAGE_SIZE) {
-          const subtitle = literalSearchSnippet(matchedText, query)
+          const subtitle = literalSearchSnippet(match.text, query)
           if (subtitle === undefined) throw new Error('Literal Artifact version match lost its snippet.')
           const { body: _body, ...metadata } = version
           hits.push({
@@ -47,6 +47,7 @@ export function searchArtifactVersions(
             subtitle,
             ...metadata,
             trashed: source.trashed,
+            match: { revision: version.revision, field: match.field },
           })
         }
         total += 1

@@ -62,6 +62,7 @@ export type NavLocation =
       /** An artifact open in the gallery (`/artifacts/:id`, UI-19). Absent ≡ null. */
       artifactId?: string | null
       artifactRevision?: string | null
+      artifactMatch?: string | null
       /** A model provider focused in the list (`/models/:id`, UI-19). Absent ≡ null. */
       providerId?: string | null
     }
@@ -109,6 +110,7 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.discussionId ?? null) === (b.discussionId ?? null) &&
       (a.artifactId ?? null) === (b.artifactId ?? null) &&
       (a.artifactRevision ?? null) === (b.artifactRevision ?? null) &&
+      (a.artifactMatch ?? null) === (b.artifactMatch ?? null) &&
       (a.providerId ?? null) === (b.providerId ?? null)
     )
   return false
@@ -172,6 +174,7 @@ const DETAIL_LABEL: {
   discussionId: (id, n) => n.discussion?.[id],
   artifactId: (id, n) => n.artifact?.[id],
   artifactRevision: (id) => `Version ${id}`,
+  artifactMatch: () => undefined,
   providerId: (id, n) => n.provider?.[id],
 }
 

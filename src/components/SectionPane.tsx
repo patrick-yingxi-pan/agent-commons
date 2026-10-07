@@ -195,6 +195,7 @@ export function SectionPane({
         focusDiscussionId={focus.discussionId}
         focusArtifactId={focus.artifactId}
         focusArtifactRevision={focus.artifactRevision}
+        focusArtifactMatch={focus.artifactMatch}
         focusProviderId={focus.providerId}
         railProjectionActive={focused}
         onOpenAgentPage={(id) =>

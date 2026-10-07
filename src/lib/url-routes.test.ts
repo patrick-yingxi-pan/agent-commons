@@ -193,6 +193,29 @@ test('artifact history revisions have canonical encoded addresses and exact revi
   assert.equal(viewForPath('/artifacts/doc/history/1/extra'), null, 'the history route has one revision segment')
 })
 
+test('current and saved Artifact match locators have distinct canonical reload addresses', () => {
+  const current = section({ section: 'artifacts', artifactId: 'doc one', artifactMatch: '7/workbook.2.cell.4.5' })
+  const currentPath = '/artifacts/doc%20one/match/7/workbook.2.cell.4.5'
+  assert.equal(pathForView(current, null), currentPath)
+  assert.deepEqual(viewForPath(currentPath), { loc: current, subview: null })
+
+  const saved = section({ section: 'artifacts', artifactId: 'doc one', artifactRevision: '7', artifactMatch: '7/workbook.2.cell.4.5' })
+  const savedPath = '/artifacts/doc%20one/history/7/match/workbook.2.cell.4.5'
+  assert.equal(pathForView(saved, null), savedPath)
+  assert.deepEqual(viewForPath(savedPath), { loc: saved, subview: null })
+
+  for (const path of [
+    '/artifacts/doc/match/07/doc.title',
+    '/artifacts/doc/match/7/doc.block.00.p',
+    '/artifacts/doc/match/7/doc.title/extra',
+    '/artifacts/doc/history/7/match/doc.block.00.p',
+    '/artifacts/doc/history/7/match/doc.title/extra',
+  ]) assert.equal(viewForPath(path), null, `reject malformed/nonmatching address ${path}`)
+
+  assert.equal(pathForView(section({ section: 'artifacts', artifactId: 'doc', artifactMatch: '07/doc.title' }), null), '/artifacts/doc', 'invalid persisted current targets cannot mint an address')
+  assert.equal(pathForView(section({ section: 'artifacts', artifactId: 'doc', artifactRevision: '7', artifactMatch: '8/doc.title' }), null), '/artifacts/doc/history/7', 'a target for another revision is dropped from the address')
+})
+
 test('a discussion detail round-trips through /discussions/:did', () => {
   const loc = section({ section: 'discussions', discussionId: 'disc-1' })
   const path = pathForView(loc, null)

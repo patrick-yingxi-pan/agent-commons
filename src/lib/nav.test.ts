@@ -34,6 +34,10 @@ test('sameLocation compares page identity, ignoring a session title', () => {
   const artifactVersion = (artifactRevision: string): NavLocation => ({ kind: 'section', section: 'artifacts', projectId: null, scheduleId: null, artifactId: 'doc-1', artifactRevision })
   assert.ok(sameLocation(artifactVersion('0'), artifactVersion('0')))
   assert.ok(!sameLocation(artifactVersion('0'), artifactVersion('1')), 'distinct retained revisions are distinct pages')
+  const artifactMatch = (artifactMatch: string): NavLocation => ({ kind: 'section', section: 'artifacts', projectId: null, scheduleId: null, artifactId: 'doc-1', artifactMatch })
+  assert.ok(sameLocation(artifactMatch('0/doc.title'), artifactMatch('0/doc.title')))
+  assert.ok(!sameLocation(artifactMatch('0/doc.title'), artifactMatch('0/doc.block.0.p')), 'different field targets are distinct navigable identities')
+  assert.ok(!sameLocation(artifactMatch('0/doc.title'), { ...artifactMatch('0/doc.title'), artifactRevision: '0' }), 'current and retained match doors remain distinct')
   assert.ok(!sameLocation(session('s1'), list('projects')))
   // The workspace profile (D21) is a detail under Commons, keyed by name.
   assert.ok(sameLocation(ownerProfile('Ada Lab'), ownerProfile('Ada Lab')))
@@ -134,7 +138,7 @@ test('EVERY detail kind names itself — a back label never says the section for
   // (which the walk reaches first — asserted below), and the
   // console's account roster is grant-walled, so naming it would mean a
   // cross-tenant read from every page in the app.
-  const UNNAMED = ['workItemId', 'contributionId', 'adminUserId'] as const
+  const UNNAMED = ['workItemId', 'contributionId', 'adminUserId', 'artifactMatch'] as const
   for (const key of PANE_SEED_KEYS) {
     const spec = NAMED[key]
     if (!spec) {

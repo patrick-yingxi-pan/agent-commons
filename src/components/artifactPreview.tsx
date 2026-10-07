@@ -42,6 +42,8 @@ import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { identityTitleProps } from '../lib/identityTitle'
 import { WRAPPING_PROSE_CLASS } from '../lib/prose'
 import { shouldReadCurrentArtifactBody } from '../lib/artifactBodyRead.ts'
+import type { ArtifactSearchTarget } from '../../contract/artifactSearch.ts'
+import { ArtifactSearchReveal, useArtifactSearchFields } from './ArtifactSearchReveal.tsx'
 import { BackButton } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SectionAction } from './SectionAction'
@@ -139,25 +141,27 @@ const DOC = {
   full: { title: 'text-lg', gap: 'space-y-3.5', h: 'text-[13px]', p: 'text-[14px]', lead: 'leading-relaxed' },
 } as const
 
-function DocBlockView({ block, size }: { block: DocBlock; size: Size }) {
+function DocBlockView({ block, size, index = 0 }: { block: DocBlock; size: Size; index?: number }) {
   const t = DOC[size]
+  const search = useArtifactSearchFields()
+  const field = `doc.block.${index}`
   if ('email' in block) {
     return (
       <div className={`space-y-0.5 rounded-lg bg-panel-2/50 px-3 py-2 text-ink-soft ${t.p}`}>
-        <div>
+        <div {...search.props(`${field}.email.to`)}>
           <span className="text-ink-faint">To:</span> {block.email.to}
         </div>
-        <div className="truncate">
+        <div {...search.props(`${field}.email.subject`)} className={size === 'thumb' ? 'truncate' : 'whitespace-pre-wrap break-words [overflow-wrap:anywhere]'}>
           <span className="text-ink-faint">Subject:</span> {block.email.subject}
         </div>
       </div>
     )
   }
   if ('h' in block) {
-    return <div className={`${t.h} font-semibold text-ink`}>{block.h}</div>
+    return <div {...search.props(`${field}.h`)} className={`${t.h} font-semibold text-ink`}>{block.h}</div>
   }
   if ('p' in block) {
-    return <p className={`${t.p} ${t.lead} text-ink-soft ${size === 'thumb' ? 'line-clamp-2' : ''}`}>{block.p}</p>
+    return <p {...search.props(`${field}.p`)} className={`${t.p} ${t.lead} text-ink-soft ${size === 'thumb' ? 'line-clamp-2' : ''}`}>{block.p}</p>
   }
   if ('ul' in block) {
     const items = size === 'thumb' ? block.ul.slice(0, 2) : block.ul
@@ -166,7 +170,7 @@ function DocBlockView({ block, size }: { block: DocBlock; size: Size }) {
         {items.map((li, i) => (
           <li key={i} className="flex gap-1.5">
             <span className="mt-[3px] shrink-0 text-accent">•</span>
-            <span className={size === 'thumb' ? 'line-clamp-1' : ''}>{li}</span>
+            <span {...search.props(`${field}.ul.${i}`)} className={size === 'thumb' ? 'line-clamp-1' : ''}>{li}</span>
           </li>
         ))}
       </ul>
@@ -176,7 +180,7 @@ function DocBlockView({ block, size }: { block: DocBlock; size: Size }) {
   return (
     <div className={`overflow-hidden rounded-md bg-panel-2/60 px-2.5 py-1.5 font-mono text-ink ${t.p}`}>
       {block.code.map((ln, i) => (
-        <div key={i} className="truncate">
+        <div key={i} {...search.props(`${field}.code.${i}`)} className={size === 'thumb' ? 'truncate' : 'whitespace-pre-wrap break-words [overflow-wrap:anywhere]'}>
           {ln}
         </div>
       ))}
@@ -245,9 +249,10 @@ function DocView({
 }) {
   const t = DOC[size]
   const blocks = size === 'thumb' ? doc.blocks.slice(0, 2) : doc.blocks
+  const search = useArtifactSearchFields()
   return (
     <div data-wrapping-prose className={`${t.gap} ${WRAPPING_PROSE_CLASS}`}>
-      <div className={`${t.title} font-serif font-semibold leading-snug text-ink ${size === 'thumb' ? 'line-clamp-1' : ''}`}>
+      <div {...search.props('doc.title')} className={`${t.title} font-serif font-semibold leading-snug text-ink ${size === 'thumb' ? 'line-clamp-1' : ''}`}>
         {doc.title}
       </div>
       {blocks.map((b, i) => {
@@ -276,7 +281,7 @@ function DocView({
             // positioned control on top of full-width prose sits on the last word
             // of the first line (UI-2: a control may not cover content).
             <div className="group/block relative pr-7">
-              <DocBlockView block={b} size={size} />
+              <DocBlockView block={b} size={size} index={i} />
               <button
                 onClick={() => edit.onStart(i, current)}
                 title={edit.index !== null ? 'Save or cancel your current block edit first' : 'Edit this block'}
@@ -287,7 +292,7 @@ function DocView({
                 <Pencil size={12} />
               </button>
             </div>
-          : <DocBlockView block={b} size={size} />
+          : <DocBlockView block={b} size={size} index={i} />
         // A keyed Fragment, not a wrapper div: every preview surface renders
         // this body too, and an extra node per block would be DOM noise on all
         // of them for the benefit of the one surface that hosts a gutter.
@@ -559,6 +564,8 @@ export function ArtifactBodyView({
   served,
   artifactId,
   bodyOverride,
+  bodyOverrideRevision,
+  searchTarget,
   edit,
   discuss,
 }: {
@@ -585,6 +592,8 @@ export function ArtifactBodyView({
   served?: { sourceId: string; path: string }
   /** Immutable history preview. Overrides the live cache without writing into it. */
   bodyOverride?: ArtifactHistoryBody
+  bodyOverrideRevision?: number
+  searchTarget?: ArtifactSearchTarget
 }) {
   const content = useArtifactContent(shouldReadCurrentArtifactBody({ hasBodyOverride: bodyOverride !== undefined }))
   const library = content.data
@@ -592,9 +601,13 @@ export function ArtifactBodyView({
   const isImage = kind === 'image'
   // Real text for a served, non-image artifact (enabled-gated; rules of hooks).
   const servedText = useFsText(served?.sourceId ?? '', served?.path ?? '', !!served && !isImage)
+  const reveal = (body: ArtifactContent, revision: number, rendered: ReactNode) => searchTarget
+    ? <ArtifactSearchReveal body={body} revision={revision} target={searchTarget} retained={bodyOverride !== undefined}>{rendered}</ArtifactSearchReveal>
+    : rendered
   if (bodyOverride) {
-    if (bodyOverride.type === 'doc') return <DocView doc={bodyOverride} size={size} />
-    return <StructuredArtifactView body={bodyOverride} size={size} />
+    return reveal(bodyOverride, bodyOverrideRevision ?? -1, bodyOverride.type === 'doc'
+      ? <DocView doc={bodyOverride} size={size} />
+      : <StructuredArtifactView body={bodyOverride} size={size} />)
   }
   // Served real content wins over the authored library.
   if (served) {
@@ -608,12 +621,12 @@ export function ArtifactBodyView({
   if (lib) {
     switch (lib.type) {
       case 'doc':
-        return <DocView doc={lib} size={size} edit={edit} discuss={discuss} />
+        return reveal(lib, lib.revision ?? 0, <DocView doc={lib} size={size} edit={edit} discuss={discuss} />)
       case 'sheet':
       case 'workbook':
-        return <StructuredArtifactView body={lib} size={size} />
+        return reveal(lib, lib.revision ?? 0, <StructuredArtifactView body={lib} size={size} />)
       case 'slides':
-        return <StructuredArtifactView body={lib} size={size} />
+        return reveal(lib, lib.revision ?? 0, <StructuredArtifactView body={lib} size={size} />)
       case 'figure':
         return <FigureView fig={lib} name={name} size={size} />
       default: {
@@ -690,6 +703,7 @@ export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; nam
 export function ArtifactDetailPage({
   artifact,
   addressedRevision,
+  searchTarget,
   onViewCurrent,
   inTrash = false,
   filingHeld = false,
@@ -705,6 +719,7 @@ export function ArtifactDetailPage({
 }: {
   artifact: ArtifactItem
   addressedRevision?: number
+  searchTarget?: ArtifactSearchTarget
   onViewCurrent?: () => void
   inTrash?: boolean
   filingHeld?: boolean
@@ -817,6 +832,7 @@ export function ArtifactDetailPage({
   const historySection = own && artifact.kind !== 'image' && !permanentDeletionHeld && <ArtifactHistorySectionBoundary key={artifact.id}>
     <DeferredArtifactHistorySection Section={Section} artifact={artifact} sourceUserId={sourceUserId}
       addressedRevision={addressedRevision}
+      searchTarget={addressedRevision === undefined ? undefined : searchTarget}
       allowRestore={!inTrash && !lifecycleHeld} restoreBlocked={draftState !== undefined || structuredBusy} />
   </ArtifactHistorySectionBoundary>
 
@@ -968,6 +984,7 @@ export function ArtifactDetailPage({
       <div className="min-w-0">
         <Section
           title="Content"
+          heldOpen={searchTarget !== undefined}
           summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
           actions={<div className="flex flex-wrap items-center gap-1.5">
             {own && editableStructuredBody && <SectionAction
@@ -998,6 +1015,7 @@ export function ArtifactDetailPage({
           </div>}
         >
           {artifactDownload.notice && <InlineOperationStatus {...artifactDownload.notice} />}
+          {searchTarget && draftState && <p role="status" className="mb-3 text-[12px] text-ink-soft">Save or cancel your edit to reveal this search match in the saved body.</p>}
           {documentTargetUnavailable && edit && <DocumentBlockEditor edit={edit} unavailable />}
           {own && structuredDraft ? (
             <StructuredArtifactEditor
@@ -1014,6 +1032,7 @@ export function ArtifactDetailPage({
               kind={artifact.kind}
               name={artifact.name}
               artifactId={artifact.id}
+              searchTarget={draftState ? undefined : searchTarget}
               size="full"
               excerpt={artifact.excerpt}
               edit={edit}

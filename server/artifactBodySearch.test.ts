@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { artifactBodySearchSnippet, findArtifactBodySearchText } from './artifactBodySearch.ts'
+import { artifactBodySearchSnippet, findArtifactBodySearchMatch, findArtifactBodySearchText } from './artifactBodySearch.ts'
 
 test('document search visits title and every literal block field in order', () => {
   const body = {
@@ -72,6 +72,22 @@ test('snippets preserve bounded original Unicode text and full-string lowercase 
 test('body matching returns the original field without flattening or coercing it', () => {
   const body = { type: 'doc' as const, title: `${'x'.repeat(500)}Needle`, blocks: [] }
   assert.equal(findArtifactBodySearchText(body, 'needle'), body.title)
+  assert.deepEqual(findArtifactBodySearchMatch(body, 'needle'), { text: body.title, field: 'doc.title' })
+  assert.deepEqual(findArtifactBodySearchMatch({ type: 'sheet', columns: ['Name'], rows: [['needle']] }, 'needle'), {
+    text: 'needle', field: 'sheet.cell.0.0',
+  })
   assert.equal(findArtifactBodySearchText({ type: 'doc', title: 'no match', blocks: [] }, 'needle'), undefined)
   assert.ok(artifactBodySearchSnippet(body, 'needle')?.includes('Needle'))
+})
+
+test('body match locators cover authored field paths for Sheets, workbooks, and Slides', () => {
+  assert.deepEqual(findArtifactBodySearchMatch({ type: 'sheet', columns: ['A'], rows: [['x']], note: 'needle' }, 'needle'), {
+    text: 'needle', field: 'sheet.note',
+  })
+  assert.deepEqual(findArtifactBodySearchMatch({ type: 'workbook', sheets: [
+    { id: 'tab-secret', name: 'Tab', columns: ['A'], rows: [['needle']], note: 'later' },
+  ] }, 'needle'), { text: 'needle', field: 'workbook.0.cell.0.0' })
+  assert.deepEqual(findArtifactBodySearchMatch({ type: 'slides', slides: [
+    { title: 'Slide', bullets: ['opening', 'needle'] },
+  ] }, 'needle'), { text: 'needle', field: 'slides.0.bullet.1' })
 })

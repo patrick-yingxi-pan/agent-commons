@@ -684,6 +684,7 @@ import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
 import { bootstrapPrompt } from '../lib/connectorInstall'
 import { ArtifactDetailPage, KIND_ICON, KIND_LABEL } from './artifactPreview'
 import { artifactHistoryRevision } from '../lib/artifactHistoryLocation.ts'
+import { parseArtifactSearchTarget } from '../../contract/artifactSearch.ts'
 import { heldArtifactCreation } from '../controller/artifactCreationMutations'
 import { InlineOperationStatus } from './InlineOperationStatus'
 import { useTrashedArtifacts } from '../api/artifactLifecycle'
@@ -787,6 +788,7 @@ export function SectionView({
   focusDiscussionId = null,
   focusArtifactId = null,
   focusArtifactRevision = null,
+  focusArtifactMatch = null,
   focusProviderId = null,
   railProjectionActive = false,
   onOpenAgentPage,
@@ -862,6 +864,7 @@ export function SectionView({
    *  rail row and a pasted link land on the same thing); null = the gallery. */
   focusArtifactId?: string | null
   focusArtifactRevision?: string | null
+  focusArtifactMatch?: string | null
   /** A provider expanded in the Models list (UI-19); null = the plain list. */
   focusProviderId?: string | null
   /** True only for the focused split pane. Rail commands must never be
@@ -888,6 +891,7 @@ export function SectionView({
         collectionSectionId={focusCollectionSectionId}
         artifactId={focusArtifactId}
         artifactRevision={focusArtifactRevision}
+        artifactMatch={focusArtifactMatch}
         onBack={onBack}
         onOpenArtifactTrash={onOpenArtifactTrash}
         backTo={backTo}
@@ -7581,6 +7585,7 @@ function ArtifactsSection({
   collectionSectionId,
   artifactId,
   artifactRevision,
+  artifactMatch,
   onBack,
   onOpenArtifactTrash,
   backTo,
@@ -7589,6 +7594,7 @@ function ArtifactsSection({
   collectionSectionId: string | null
   artifactId: string | null
   artifactRevision: string | null
+  artifactMatch: string | null
   onBack: () => void
   onOpenArtifactTrash?: () => void
   backTo: NavLocation | null
@@ -7666,9 +7672,10 @@ function ArtifactsSection({
         <ArtifactDetailPage
           // Current and exact saved revisions are separate page identities;
           // per-page selection cannot leak across artifacts or revision URLs.
-          key={`${openArtifact.id}:${artifactRevision ?? 'current'}`}
+          key={`${openArtifact.id}:${artifactRevision ?? 'current'}:${artifactMatch ?? ''}`}
           artifact={openArtifact}
           addressedRevision={artifactHistoryRevision(artifactRevision)}
+          searchTarget={parseArtifactSearchTarget(artifactMatch)}
           onViewCurrent={() => rel.navigate('artifacts', openArtifact.id)}
           inTrash={inTrash}
           filingHeld={rel.mutation.pendingKeys.length > 0}

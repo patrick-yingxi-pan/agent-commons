@@ -3,8 +3,7 @@
 
 ## Scope
 
-Framework-free types and reducers imported verbatim by UI and server. The
-always-on map is [`AGENTS.md`](../AGENTS.md).
+Framework-free types and reducers imported verbatim by UI and server; boot map: [`AGENTS.md`](../AGENTS.md).
 
 ## Read path
 
@@ -131,6 +130,7 @@ For cross-layer seams also read
 | CONTRACT-D109 | data-access | Explicit scanned-PDF OCR uses a detached, path-free PDF byte snapshot (≤8 MiB), admits at most 100 pages, renders every page sequentially at ≤2,000 px per edge with an explicit 400M aggregate-pixel ceiling, and returns only a complete page-labeled UTF-8 result ≤64 KiB or a closed status. The macOS authenticated XPC service uses CoreGraphics and Vision revision 3; a single-job, 120-second host deadline owns cancellation/timeout. This bounds app-controlled input, output, dimensions and work, not every parser-internal allocation. No HTTP/MCP/provider/storage authority is added; this is separate from ordinary text-only PDF attachment projection. Bounded unsigned arm64 native/package acceptance is recorded under PORT-28; signed/Intel and broader corpus gates remain. | [`pdfOcr.mjs`](pdfOcr.mjs) · [`pdfOcr.d.mts`](pdfOcr.d.mts) | [`pdf-ocr.test.ts`](pdf-ocr.test.ts) · [`../src/api/desktop-pdf-ocr.test.ts`](../src/api/desktop-pdf-ocr.test.ts) · [`../tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | refines ROOT-D1; requires CONTRACT-A1 |
 | CONTRACT-D110 | data-access | Conversation Find is a case-insensitive literal text projection over current user/assistant messages, with a 256-unit query, 20-hit pages and 320-unit snippets. Full-string case conversion retains source offsets, current message identity and transcript order; no tool, attachment or archived-original payload joins the read. | [`conversationSearch.ts`](conversationSearch.ts) | [`conversationSearch.test.ts`](conversationSearch.test.ts) · [`../server/sessionMessageSearch.test.ts`](../server/sessionMessageSearch.test.ts) | refines ROOT-D1; requires CONTRACT-A1 |
 | CONTRACT-D111 | data-access | Saved-version search is an explicit category with exact artifact-plus-revision identity, history provenance and Trash state. Its shared literal snippet projection preserves Unicode source offsets without regex evaluation, caps output at 320 units and uses the existing 20-hit page contract; historical queries are bounded to 256 units. | [`search.ts`](search.ts) · [`literalSearch.ts`](literalSearch.ts) | [`literalSearch.test.ts`](literalSearch.test.ts) · [`../server/artifactVersionSearch.test.ts`](../server/artifactVersionSearch.test.ts) | requires CONTRACT-D103; refines ROOT-D1 |
+| CONTRACT-D112 | data-access | Artifact body-search locations pair one canonical authored-field path with its exact saved revision. The shared field projection excludes visual metadata and the strict locator contains neither query nor body text; absence means an ordinary resource destination. | [`artifactSearch.ts`](artifactSearch.ts) · [`search.ts`](search.ts) | [`artifactSearch.test.ts`](artifactSearch.test.ts) · [`../server/routes/artifact-body-search.test.ts`](../server/routes/artifact-body-search.test.ts) | requires CONTRACT-D111; requires CONTRACT-D9 |
 | CONTRACT-V1 | verification | New boundary seams extend the cross-layer contract scan. | [`index.ts`](index.ts) | [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | refines ROOT-V1 |
 <!-- context-rules:end -->
 ## Details

@@ -54,6 +54,7 @@ test('historical Artifact text is opt-in and a hit exposes metadata plus a bound
   assert.deepEqual(group.hits[0], {
     type: 'artifactVersion', id: artifact.id, title: artifact.name,
     subtitle: oldText, revision: 0, savedAt: null, reason: 'baseline', trashed: false,
+    match: { revision: 0, field: 'doc.block.0.p' },
   })
   assert.equal(JSON.stringify(explicit.json).includes('current-only-'), false)
   assert.equal(Object.hasOwn(group.hits[0], 'body'), false)

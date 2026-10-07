@@ -53,6 +53,8 @@ import { SECTION_SUBVIEWS } from './subviews.ts'
 import { isOwnerProfileSectionId, isProjectSectionId, isScheduleSectionId } from './compositeSections.ts'
 import { isCollectionSectionHost } from './collectionSections.ts'
 import { artifactHistoryRevision } from './artifactHistoryLocation.ts'
+import { artifactSubLocationKey } from './artifactSearchLocation.ts'
+import { parseArtifactSearchTarget } from '../../contract/artifactSearch.ts'
 
 /** A parsed address: the page plus the section sub-view (which nav history
  *  ignores but the address must carry — GitHub's tabs are URLs). */
@@ -102,7 +104,12 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.artifactId) {
     const base = `/artifacts/${encodeURIComponent(loc.artifactId)}`
     const revision = artifactHistoryRevision(loc.artifactRevision)
-    return revision === undefined ? base : `${base}/history/${revision}`
+    if (loc.artifactRevision != null && revision === undefined) return base
+    const subId = artifactSubLocationKey({
+      ...(revision !== undefined ? { revision } : {}),
+      ...(loc.artifactMatch ? { match: loc.artifactMatch } : {}),
+    })
+    return subId ? `${base}/${subId}` : revision === undefined ? base : `${base}/history/${revision}`
   }
   if (loc.providerId) return `/models/${encodeURIComponent(loc.providerId)}`
   if (loc.adminUserId) return `/admin/users/${encodeURIComponent(loc.adminUserId)}`
@@ -152,6 +159,19 @@ export function viewForPath(pathname: string): RoutedView | null {
   if (section === 'artifacts' && segs.length === 4 && segs[1] && segs[2] === 'history') {
     const revision = artifactHistoryRevision(segs[3])
     return revision === undefined ? null : { loc: { ...base, artifactId: segs[1], artifactRevision: String(revision) }, subview: null }
+  }
+  if (section === 'artifacts' && segs.length === 5 && segs[1] && segs[2] === 'match') {
+    const targetKey = `${segs[3]}/${segs[4]}`
+    const target = parseArtifactSearchTarget(targetKey)
+    return target ? { loc: { ...base, artifactId: segs[1], artifactMatch: targetKey }, subview: null } : null
+  }
+  if (section === 'artifacts' && segs.length === 6 && segs[1] && segs[2] === 'history' && segs[4] === 'match') {
+    const revision = artifactHistoryRevision(segs[3])
+    const targetKey = `${segs[3]}/${segs[5]}`
+    const target = parseArtifactSearchTarget(targetKey)
+    return revision !== undefined && target?.revision === revision
+      ? { loc: { ...base, artifactId: segs[1], artifactRevision: String(revision), artifactMatch: targetKey }, subview: null }
+      : null
   }
   // The one deeper form: /projects/:id/work/:itemId — a work item's own page
   // (the issue-page analog; nested because the item is project-scoped by nature).

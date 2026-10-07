@@ -16,6 +16,7 @@ test('artifact version search visits only literal saved text fields and returns 
   assert.deepEqual(result.hits[0], {
     type: 'artifactVersion', id: 'artifact-a', title: 'Notes.md', subtitle: 'Résumé',
     revision: 0, savedAt: null, reason: 'baseline', trashed: false,
+    match: { revision: 0, field: 'doc.block.0.email.subject' },
   })
   assert.equal(Object.hasOwn(result.hits[0]!, 'body'), false)
 })
@@ -30,6 +31,11 @@ test('artifact version search handles sheets, workbooks, slides, and ignores arb
   assert.equal(result.total, 3)
   assert.deepEqual(result.hits.map((hit) => [hit.revision, hit.subtitle]), [
     [2, 'Needle in bullet'], [1, 'Tab Needle'], [0, 'Needle in cell'],
+  ])
+  assert.deepEqual(result.hits.map((hit) => hit.match), [
+    { revision: 2, field: 'slides.0.bullet.0' },
+    { revision: 1, field: 'workbook.0.name' },
+    { revision: 0, field: 'sheet.cell.0.0' },
   ])
 })
 
@@ -56,7 +62,7 @@ test('artifact version search counts all matches but retains only the requested 
 test('artifact version snippets are constructed only inside the requested page window', () => {
   const source = readFileSync(new URL('./artifactVersionSearch.ts', import.meta.url), 'utf8')
   const pageGate = source.indexOf('if (total >= offset && hits.length < SEARCH_PAGE_SIZE) {')
-  const snippetCall = source.indexOf('literalSearchSnippet(matchedText, query)')
+  const snippetCall = source.indexOf('literalSearchSnippet(match.text, query)')
   assert.ok(pageGate >= 0, 'the source retains the existing page-membership gate')
   assert.ok(snippetCall > pageGate, 'snippet construction must stay after the page gate')
 })

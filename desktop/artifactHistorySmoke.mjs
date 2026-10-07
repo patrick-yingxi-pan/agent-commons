@@ -99,6 +99,7 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
     const artifact = await createDocument(page, artifactName, baseline)
     await editDocument(page, artifact.id, edited)
     const historyPath = `/artifacts/${encodeURIComponent(artifact.id)}/history/0`
+    const historySearchMatchPath = `${historyPath}/match/doc.block.0.p`
     const restorePath = `/api/v1/artifacts/${encodeURIComponent(artifact.id)}/history/0/restore`
     const originalVersion = await readVersion(page, artifact.id, 0)
     const editedVersion = await readVersion(page, artifact.id, 1)
@@ -127,17 +128,20 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
     try {
       await expect(hit).toHaveAttribute('data-search-active', 'true')
       await input.press('Enter')
-      await expect(page).toHaveURL(new RegExp(`/artifacts/${encodeURIComponent(artifact.id)}/history/0$`))
+      await expect(page).toHaveURL(`${origin}${historySearchMatchPath}`)
       await expect(page.getByRole('heading', { name: `${artifactName} · Version 0`, exact: true })).toBeVisible()
       const detail = historyPage(page, artifact.id)
+      await expect(detail.locator('[data-artifact-search-reveal="ready"]')).toBeVisible()
+      await expect(detail.locator('[data-artifact-search-match][data-artifact-search-field="doc.block.0.p"]')).toHaveCount(1)
       await expect(detail.locator('[data-artifact-history-body]')).toContainText(baseline)
       await expect(detail.locator('[data-artifact-history-body]')).not.toContainText(edited)
       await expect(detail.getByRole('button', { name: 'Compare with current', exact: true })).toBeVisible()
       assert.deepEqual(mutations, [], 'opening the exact saved revision performs no Artifact mutation')
       assert.deepEqual(currentLibraryReads, [], 'saved preview does not read the current-content library')
       await page.reload()
-      await expect(page).toHaveURL(new RegExp(`/artifacts/${encodeURIComponent(artifact.id)}/history/0$`))
+      await expect(page).toHaveURL(`${origin}${historySearchMatchPath}`)
       await expect(detail.locator('[data-artifact-history-body]')).toContainText(baseline)
+      await expect(detail.locator('[data-artifact-search-match][data-artifact-search-field="doc.block.0.p"]')).toHaveCount(1)
       assert.deepEqual(currentLibraryReads, [], 'direct revision reload remains on retained content without a current-library read')
       await page.screenshot({ path: join(evidenceDirectory, 'owner-exact-revision-reload.png') })
 
@@ -161,8 +165,9 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
       await expect(page).toHaveURL(new RegExp(`/artifacts/${encodeURIComponent(artifact.id)}$`))
       await expect(historyPage(page, artifact.id).locator('[data-resource-section="Content"]')).toContainText(edited)
       await page.goBack()
-      await expect(page).toHaveURL(new RegExp(`/artifacts/${encodeURIComponent(artifact.id)}/history/0$`))
+      await expect(page).toHaveURL(`${origin}${historySearchMatchPath}`)
       await expect(historyPage(page, artifact.id).locator('[data-artifact-history-body]')).toContainText(baseline)
+      await expect(historyPage(page, artifact.id).locator('[data-artifact-search-match][data-artifact-search-field="doc.block.0.p"]')).toHaveCount(1)
       assert.deepEqual(mutations, [], 'current/back navigation remains read-only')
 
       stage = 'unavailable-revision-no-fallback'
@@ -297,8 +302,9 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
     await expect(resumedHit).toContainText('Version 0 · Baseline')
     await page.screenshot({ path: join(evidenceDirectory, 'owner-search-after-relaunch.png') })
     await resumedHit.click()
-    await expect(page).toHaveURL(new RegExp(`/artifacts/${encodeURIComponent(artifact.id)}/history/0$`))
+    await expect(page).toHaveURL(`${origin}${historySearchMatchPath}`)
     await expect(historyPage(page, artifact.id).locator('[data-artifact-history-body]')).toContainText(baseline)
+    await expect(historyPage(page, artifact.id).locator('[data-artifact-search-match][data-artifact-search-field="doc.block.0.p"]')).toHaveCount(1)
     const replay = await page.evaluate(async ({ restorePath, key, body }) => {
       const response = await fetch(restorePath, {
         method: 'POST', headers: { 'content-type': 'application/json', 'idempotency-key': key },

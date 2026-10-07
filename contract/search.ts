@@ -10,6 +10,7 @@
  *  a fixed type order, capped per group with a true total. */
 
 import type { ArtifactHistoryVersionMetadata } from './artifactHistory.ts'
+import type { ArtifactSearchTarget } from './artifactSearch.ts'
 
 export const SEARCH_HIT_TYPES = [
   'session', 'project', 'artifact', 'schedule', 'agent', 'prompt', 'model', 'context',
@@ -51,10 +52,12 @@ export type ArtifactVersionSearchHit = SearchHitBase & ArtifactHistoryVersionMet
   type: 'artifactVersion'
   /** id is the exact artifact id; revision is part of the result identity. */
   trashed: boolean
+  match?: ArtifactSearchTarget
 }
 
 export type SearchHit =
-  | (SearchHitBase & { type: Exclude<SearchHitType, 'artifactVersion'> })
+  | (SearchHitBase & { type: 'artifact'; match?: ArtifactSearchTarget })
+  | (SearchHitBase & { type: Exclude<SearchHitType, 'artifactVersion' | 'artifact'> })
   | ArtifactVersionSearchHit
 
 export interface SearchGroup {

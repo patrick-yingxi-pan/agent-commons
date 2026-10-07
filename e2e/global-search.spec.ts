@@ -75,7 +75,7 @@ test('global search pages a real result set and opens the exact far-page artifac
   const targetHit = ((await lastPage.json()) as SearchResponse).groups[0]!.hits[4]!
   const target = artifacts.find((artifact) => artifact.id === targetHit.id)!
   await page.locator(`[data-search-result="artifact-${target.id}"]`).click()
-  await expect(page).toHaveURL(new RegExp(`/artifacts/${target.id}$`))
+  await expect(page).toHaveURL(new RegExp(`/artifacts/${target.id}/match/0/doc.title$`))
   await expect(page.getByRole('heading', { name: target.name, exact: true })).toBeVisible()
 })
 
@@ -106,7 +106,7 @@ test('keyboard search scrolls an offscreen active result and Enter opens its can
     return bounds.top >= container.top && bounds.bottom <= container.bottom
   })).toBe(true)
   await input.press('Enter')
-  await expect(page).toHaveURL(new RegExp(`/artifacts/${target.id}$`))
+  await expect(page).toHaveURL(new RegExp(`/artifacts/${target.id}/match/0/doc.title$`))
   await expect(page.getByRole('heading', { name: target.name, exact: true })).toBeVisible()
 })
 
@@ -231,7 +231,7 @@ test('search follows owner, shared-reader, and foreign-tenant artifact visibilit
     await input.fill(q)
     await expect(reader.page.locator(`[data-search-result="artifact-${artifact.id}"]`)).toBeVisible()
     await reader.page.locator(`[data-search-result="artifact-${artifact.id}"]`).click()
-    await expect(reader.page).toHaveURL(new RegExp(`/artifacts/${artifact.id}$`))
+    await expect(reader.page).toHaveURL(new RegExp(`/artifacts/${artifact.id}/match/0/doc.title$`))
     await expect(reader.page.getByRole('heading', { name: artifact.name, exact: true })).toBeVisible()
 
     input = await openSearch(foreign.page)

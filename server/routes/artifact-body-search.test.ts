@@ -22,7 +22,7 @@ const search = (query: string, offset = 0, tenant = owner) => {
 }
 
 function hits(response: { json: any }) {
-  return response.json.groups[0].hits as Array<{ id: string; title: string; subtitle: string }>
+  return response.json.groups[0].hits as Array<{ id: string; title: string; subtitle: string; match?: { revision: number; field: string } }>
 }
 
 test('ordinary Artifact search matches later Document blocks and every structured body field', async () => {
@@ -45,18 +45,19 @@ test('ordinary Artifact search matches later Document blocks and every structure
   })
 
   const cases = [
-    [`body-doc-${stamp}`, document.id],
-    [`body-sheet-cell-${stamp}`, sheet.id],
-    [`body-sheet-note-${stamp}`, sheet.id],
-    [`body-workbook-cell-${stamp}`, workbook.id],
-    [`body-workbook-note-${stamp}`, workbook.id],
-    [`body-slide-title-${stamp}`, slides.id],
-    [`body-slide-bullet-${stamp}`, slides.id],
+    [`body-doc-${stamp}`, document.id, 'doc.block.1.p'],
+    [`body-sheet-cell-${stamp}`, sheet.id, 'sheet.cell.0.1'],
+    [`body-sheet-note-${stamp}`, sheet.id, 'sheet.note'],
+    [`body-workbook-cell-${stamp}`, workbook.id, 'workbook.1.cell.0.1'],
+    [`body-workbook-note-${stamp}`, workbook.id, 'workbook.1.note'],
+    [`body-slide-title-${stamp}`, slides.id, 'slides.1.title'],
+    [`body-slide-bullet-${stamp}`, slides.id, 'slides.1.bullet.0'],
   ] as const
-  for (const [query, expectedId] of cases) {
+  for (const [query, expectedId, expectedField] of cases) {
     const response = await search(query)
     assert.equal(response.status, 200)
-    assert.ok(hits(response).some((hit) => hit.id === expectedId), `${query} should locate its exact current Artifact`)
+    assert.ok(hits(response).some((hit) => hit.id === expectedId &&
+      hit.match?.revision === 0 && hit.match.field === expectedField), `${query} should locate exact current field ${expectedField}`)
   }
 })
 
@@ -68,6 +69,7 @@ test('current-body match snippets stay bounded and retain the original matching 
   const response = await search(query)
   const hit = hits(response).find((candidate) => candidate.id === artifact.id)
   assert.ok(hit, 'a match near the end of a long current body remains findable')
+  assert.deepEqual(hit.match, { revision: 0, field: 'doc.block.0.p' })
   assert.ok(hit.subtitle.length <= 320, 'body previews are bounded')
   assert.ok(hit.subtitle.includes(query), 'the bounded preview preserves the matched text')
 })
@@ -105,7 +107,8 @@ test('ordinary body search tracks edits and excludes history-only and trashed co
   assert.equal(edited.status, 200)
 
   const currentResult = await search(current)
-  assert.ok(hits(currentResult).some((hit) => hit.id === artifact.id))
+  assert.ok(hits(currentResult).some((hit) => hit.id === artifact.id &&
+    hit.match?.revision === 1 && hit.match.field === 'doc.block.1.p'), 'current locator follows the exact edited body revision and field')
   const oldOrdinary = await search(historical)
   assert.equal(oldOrdinary.json.groups[0].total, 0, 'old-only text is not included in ordinary search')
   const explicitHistory = await call('GET', `/search?${new URLSearchParams({ q: historical, type: 'artifactVersion' })}`, undefined, headers(owner))

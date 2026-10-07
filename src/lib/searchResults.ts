@@ -1,4 +1,5 @@
 import type { SearchHit, SearchHitType, SearchPage, SearchResponse } from '../../contract/search.ts'
+import { artifactSearchTargetKey } from '../../contract/artifactSearch.ts'
 import type { SectionId } from '../types.ts'
 import { OWNER_SECTION } from './paneNav.ts'
 
@@ -22,10 +23,24 @@ export function searchHitDestination(hit: SearchHit): SearchDestination | undefi
     case 'session': return { kind: 'session', id: hit.id }
     case 'project':
     case 'sharedProject': return { kind: 'section', section: 'projects', id: hit.id }
-    case 'artifact': return { kind: 'section', section: 'artifacts', id: hit.id }
-    case 'artifactVersion': return Number.isSafeInteger(hit.revision) && hit.revision >= 0
-      ? { kind: 'section', section: 'artifacts', id: hit.id, subId: `history/${hit.revision}` }
-      : undefined
+    case 'artifact': {
+      let subId: string | undefined
+      if (hit.match) {
+        try { subId = `match/${artifactSearchTargetKey(hit.match)}` } catch { /* open the artifact without an invalid locator */ }
+      }
+      return { kind: 'section', section: 'artifacts', id: hit.id, ...(subId ? { subId } : {}) }
+    }
+    case 'artifactVersion': {
+      if (!Number.isSafeInteger(hit.revision) || hit.revision < 0) return undefined
+      let subId = `history/${hit.revision}`
+      if (hit.match) {
+        try {
+          artifactSearchTargetKey(hit.match)
+          if (hit.match.revision === hit.revision) subId += `/match/${hit.match.field}`
+        } catch { /* preserve the exact version destination without a malformed locator */ }
+      }
+      return { kind: 'section', section: 'artifacts', id: hit.id, subId }
+    }
     case 'schedule': return { kind: 'section', section: 'scheduled', id: hit.id }
     case 'agent':
     case 'publishedAgent': return { kind: 'section', section: 'agents', id: hit.id }

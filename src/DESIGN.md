@@ -831,6 +831,14 @@ door returns to the live resource. Pure identity locks live beside
 `artifactHistoryLocation.ts`, `paneNav.ts`, `nav.ts` and `urlRoutes.ts`;
 `e2e/artifact-version-search.spec.ts` verifies the rendered journey.
 
+Body-search arrivals additionally address a field within an exact revision:
+`/artifacts/:id/match/:revision/:field` for current content and
+`/artifacts/:id/history/:revision/match/:field` for retained content. This is a
+reproducible reading location, not permanent block identity or an ordinary
+transient discussion flash. Query and body text stay out of the URL. A current
+revision mismatch explains the stale result instead of reusing its position;
+the field projection and renderer share UI-197's read-only reveal funnel.
+
 ## Navigation history — an in-page door carries its origin
 
 (Owner directive 2026-07-17, spec ADAPT-18.) Every page opened by

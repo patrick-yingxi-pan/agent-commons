@@ -108,7 +108,8 @@ import {
 } from '../../contract/artifactHistory.ts'
 import { prepareArtifactHistoryAppend, type StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
 import { searchArtifactVersions } from '../artifactVersionSearch.ts'
-import { artifactBodySearchSnippet } from '../artifactBodySearch.ts'
+import { findArtifactBodySearchMatch } from '../artifactBodySearch.ts'
+import { literalSearchSnippet } from '../../contract/literalSearch.ts'
 import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS } from '../../contract/search.ts'
 import type { ArtifactDeletionPreview, ArtifactDeletionRequest, ArtifactDeletionResult } from '../../contract/artifactDeletion.ts'
 import { parseArtifactRetirements, type ArtifactRetirement, type StoredArtifactDeletionReceipt } from '../artifactDeletion.ts'
@@ -8341,11 +8342,14 @@ export const store = {
     const artifacts = !page || page.type === 'artifact' ? this.listArtifacts(tenantId) : []
     const currentBodies = needle && artifacts.length ? this.artifactContent(tenantId) : {}
     const artifactHits = artifacts.flatMap((artifact): SearchHit[] => {
-      const snippet = artifactBodySearchSnippet(currentBodies[artifact.id], needle)
+      const body = currentBodies[artifact.id]
+      const bodyMatch = findArtifactBodySearchMatch(body, needle)
+      const snippet = bodyMatch ? literalSearchSnippet(bodyMatch.text, needle) : undefined
       if (snippet === undefined && !hit(artifact.name, artifact.source, artifact.excerpt)) return []
       return [{
         type: 'artifact', id: artifact.id, title: artifact.name,
         subtitle: snippet ?? `${artifact.meta} · ${artifact.source}`,
+        ...(bodyMatch && body ? { match: { revision: body.revision ?? 0, field: bodyMatch.field } } : {}),
       }]
     })
 

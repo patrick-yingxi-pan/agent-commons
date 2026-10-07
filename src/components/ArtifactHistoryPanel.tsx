@@ -22,6 +22,7 @@ import { artifactHistoryNextCursor, flattenArtifactHistoryPages, mergeArtifactHi
 import { accountGeneration } from '../api/account.ts'
 import { ArtifactHistoryComparison } from './ArtifactHistoryComparison.tsx'
 import { resolveResourceUnavailable } from '../api/resourceRead.ts'
+import type { ArtifactSearchTarget } from '../../contract/artifactSearch.ts'
 
 interface Props {
   artifactId: string
@@ -31,6 +32,7 @@ interface Props {
   allowRestore: boolean
   restoreBlocked?: boolean
   addressedRevision?: number
+  searchTarget?: ArtifactSearchTarget
 }
 
 interface RestoreReview {
@@ -56,6 +58,7 @@ export default function ArtifactHistoryPanel({
   allowRestore,
   restoreBlocked = false,
   addressedRevision,
+  searchTarget,
 }: Props) {
   const latestQuery = useArtifactHistory(artifactId)
   const [olderCursor, setOlderCursor] = useState<number | undefined>()
@@ -270,7 +273,7 @@ export default function ArtifactHistoryPanel({
                   : comparisonQuery.status !== 'success' || selectedQuery.status !== 'success' ? <p role="status" className="text-[12px] text-ink-soft">Loading version comparison…</p>
                     : comparisonVersion && <ArtifactHistoryComparison key={`${artifactId}:${comparisonVersion.revision}:${selectedVersion.revision}`}
                       current={comparisonVersion} selected={selectedVersion} />}
-              </div> : <ArtifactBodyView kind={artifactKind} name={artifactName} size="full" bodyOverride={selectedVersion.body} />}
+              </div> : <ArtifactBodyView kind={artifactKind} name={artifactName} size="full" bodyOverride={selectedVersion.body} bodyOverrideRevision={selectedVersion.revision} searchTarget={searchTarget} />}
             </div>
           ) : null}
         </section>

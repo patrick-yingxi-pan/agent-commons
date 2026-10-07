@@ -39,6 +39,23 @@ test('artifact version search identity and destination include the exact revisio
   })
 })
 
+test('search body matches carry only validated field locators to current and exact saved destinations', () => {
+  const current = { type: 'artifact' as const, id: 'doc-1', title: 'Draft', subtitle: 'preview', match: { revision: 3, field: 'workbook.2.cell.4.5' } }
+  assert.deepEqual(searchHitDestination(current), {
+    kind: 'section', section: 'artifacts', id: 'doc-1', subId: 'match/3/workbook.2.cell.4.5',
+  })
+  const saved = { type: 'artifactVersion' as const, id: 'doc-1', title: 'Draft', subtitle: 'preview', revision: 3, savedAt: null, reason: 'edit' as const, trashed: false, match: current.match }
+  assert.deepEqual(searchHitDestination(saved), {
+    kind: 'section', section: 'artifacts', id: 'doc-1', subId: 'history/3/match/workbook.2.cell.4.5',
+  })
+  assert.deepEqual(searchHitDestination({ ...current, match: { revision: 3, field: 'doc.block.00.p' } }), {
+    kind: 'section', section: 'artifacts', id: 'doc-1',
+  }, 'malformed locators do not enter the nav seed')
+  assert.deepEqual(searchHitDestination({ ...saved, match: { revision: 2, field: 'doc.title' } }), {
+    kind: 'section', section: 'artifacts', id: 'doc-1', subId: 'history/3',
+  }, 'a saved match cannot point at a different revision')
+})
+
 test('artifact version destinations refuse malformed revisions', () => {
   for (const revision of [-1, Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
     const hit = { type: 'artifactVersion', id: 'doc-1', title: 'Draft', subtitle: '', revision, savedAt: null, reason: 'baseline', trashed: false } as const
