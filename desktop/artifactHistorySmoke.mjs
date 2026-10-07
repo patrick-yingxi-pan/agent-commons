@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
+import { prepareArtifactSearchSmoke, verifyArtifactSearchSmoke, verifyStaleArtifactSearchSmoke, readSqliteSearchBodies } from './artifactSearchSmoke.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const TIMEOUT_MS = 30_000
@@ -105,6 +106,10 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
     const editedVersion = await readVersion(page, artifact.id, 1)
     assert.equal(JSON.stringify(originalVersion.version.body).includes(baseline), true)
     assert.equal(JSON.stringify(editedVersion.version.body).includes(edited), true)
+
+    stage = 'current-body-search-reveal'
+    const searchFixtures = await prepareArtifactSearchSmoke({ page, request, stamp })
+    await verifyArtifactSearchSmoke({ page, origin, request, fixtures: searchFixtures, evidenceDirectory, phase: 'before-relaunch' })
 
     stage = 'current-search-and-explicit-saved-search'
     const input = await openSearch(page, origin, query)
@@ -270,6 +275,9 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
     }
 
     stage = 'sqlite-and-ordinary-relaunch'
+    await verifyStaleArtifactSearchSmoke({ page, origin, artifactId: artifact.id, oldRevision: 1,
+      expectedText: baseline, evidenceDirectory, phase: 'before-relaunch' })
+    const searchBodiesBeforeQuit = readSqliteSearchBodies(profile, searchFixtures)
     const historyBeforeQuit = readSqliteHistory(profile, artifact.id)
     assert.deepEqual(historyBeforeQuit.map(({ revision }) => revision), [0, 1, 2])
     assert.deepEqual(historyBeforeQuit.map(({ revision, body }) => ({ revision, body })), [
@@ -284,11 +292,19 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
       'the packaged service exits before the independent relaunch')
     assert.deepEqual(readSqliteHistory(profile, artifact.id), historyBeforeQuit,
       'the exact retained revisions are committed in SQLite before relaunch')
+    assert.deepEqual(readSqliteSearchBodies(profile, searchFixtures), searchBodiesBeforeQuit,
+      'the exact current search bodies are committed before relaunch')
 
     run = await launch(executable, profile)
     ;({ page, origin } = run)
     await page.setViewportSize({ width: 1280, height: 800 })
     assert.equal((await request(page, '/me')).user.id, owner.user.id, 'ordinary relaunch preserves the signed-in owner')
+    stage = 'current-body-search-after-relaunch'
+    await verifyArtifactSearchSmoke({ page, origin, request, fixtures: searchFixtures, evidenceDirectory, phase: 'after-relaunch' })
+    await verifyStaleArtifactSearchSmoke({ page, origin, artifactId: artifact.id, oldRevision: 1,
+      expectedText: baseline, evidenceDirectory, phase: 'after-relaunch' })
+    assert.deepEqual(readSqliteSearchBodies(profile, searchFixtures), searchBodiesBeforeQuit,
+      'ordinary signed-in relaunch preserves exact current search bodies without rewrites')
     await page.goto(`${origin}/artifacts/${encodeURIComponent(artifact.id)}/history/0`)
     await expect(page).toHaveURL(new RegExp(`/artifacts/${encodeURIComponent(artifact.id)}/history/0$`))
     await expect(historyPage(page, artifact.id).locator('[data-artifact-history-body]')).toContainText(baseline)
@@ -334,9 +350,12 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
       foreignAccountHistoryHidden: true, confirmedRestoreCurrentRevision: 2,
       retainedRevisions: finalSqliteHistory.map(({ revision, reason, restoredFromRevision }) => ({ revision, reason, restoredFromRevision })),
       sameKeyRestoreReplayAddedNoRevision: true,
+      currentSearchMatches: searchFixtures.map(({ id, label, field }) => ({ artifactId: id, format: label, revision: 0, field })),
+      currentSearchReloadBackAndFocus: true, currentSearchSqliteRelaunch: true,
+      currentSearchMadeNoArtifactWritesOrHistoryReads: true, staleCurrentLocatorSelectedNothing: true,
       scope: 'Ordinary packaged unsigned host-architecture app, generated isolated profile/accounts, real SQLite, no provider/model/service. Not signed/notarized, Intel, or paid-provider acceptance.',
     }, null, 2)}\n`, { mode: 0o600 })
-    console.log('[desktop-artifact-history-smoke] explicit saved-version search · exact revision reload/back · shared/foreign privacy · read-only compare/cancel · confirmed restore · real SQLite + signed-in full relaunch + exact receipt replay')
+    console.log('[desktop-artifact-history-smoke] four-format current search/reveal/focus · stale locator refusal · explicit saved-version search · exact revision reload/back · shared/foreign privacy · read-only compare/cancel · confirmed restore · real SQLite + signed-in full relaunch + exact receipt replay')
     console.log(`[desktop-artifact-history-smoke] evidence ${evidenceDirectory}`)
   } catch (error) {
     if (run && evidenceDirectory) await run.page.screenshot({ path: join(evidenceDirectory, 'failure.png') }).catch(() => {})

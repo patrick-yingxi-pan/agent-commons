@@ -6,7 +6,45 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: reveal exact Artifact search matches
+## Current checkpoint: packaged current and saved search workflow
+
+The browser checkpoint is complete at `c5637ea9`: all five local verifier lanes
+passed, including 564 browser tests; the responsive sweep covered 135/135 cells
+with zero violations or skips. That does not establish the new reading locations
+in the built Electron renderer or after a real process restart.
+
+The existing ordinary Artifact-history acceptance now also creates exact
+Document, Sheet, workbook and Slides bodies through the packaged API. Rendered
+current search must reveal the actual field, select a later worksheet, restore
+keyboard focus after visiting an equal-shaped tab, and preserve its location
+through reload and Back. Current navigation must neither mutate Artifacts nor
+read private history. Exact SQLite bodies and signed-in relaunch are checked
+before repeating the four-format journey. Restoring the existing history fixture
+also makes its old current locator stale; both launches must explain that state
+without highlighting a substitute. The existing saved-search, access-wall,
+comparison, cancelled/confirmed restore and receipt-replay checks remain.
+
+Acceptance requires a newly built host-architecture package, a disposable ASAR
+negative mutation that the rendered current-search assertion rejects, screenshot
+review, the complete packaged smoke and a final frozen-tree local verifier.
+The added helper is excluded from shipped code and reuses the existing real
+profile/authentication lifecycle. No provider call or user document is involved.
+Unsigned arm64 acceptance cannot close signing/notarization, native Intel,
+real-service or release-hosting gates. Document identity and external Contribution
+execution remain separate product decisions.
+
+The focused ordinary packaged journey passed on unsigned arm64. A copied ASAR
+with current-search locators removed then failed at the exact rendered Document
+match URL, while the original package hash stayed unchanged. The first negative
+copy failed before that assertion because its framework symlinks were rewritten;
+preserving those links repaired only the disposable copy harness. All five new
+source/packaging locks were watched fail against removed guarantees, then passed
+after restoration. The focused receipt binds ASAR SHA-256
+`47255cb0f1bb513d94c438640c99538f68753f72317b97832067b3474b1e9ddd`.
+Final delivery still requires the complete packaged smoke and local verifier on
+the final frozen tree; focused evidence alone does not replace either gate.
+
+## Completed checkpoint: reveal exact Artifact search matches
 
 Current-body search closed the missing-text gap, but opening a result still hid
 matches in later workbook tabs and left long bodies at their beginning. Search
