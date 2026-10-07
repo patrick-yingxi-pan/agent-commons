@@ -40,6 +40,7 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
   // UI-19: the rail lists a content section's ROWS, so every listed kind has to
   // be a place — including the two whose detail used to be component state.
   assert.deepEqual(seedFor('artifacts', 'a1'), { artifactId: 'a1' }, 'an artifact is addressable (/artifacts/:id)')
+  assert.deepEqual(seedFor('artifacts', 'a1', 'history/0'), { artifactId: 'a1', artifactRevision: '0' }, 'a retained version is an addressable artifact sub-page')
   assert.deepEqual(seedFor('models', 'prov-1'), { providerId: 'prov-1' }, 'a provider is addressable (/models/:id)')
   assert.equal(seedFor('projects'), null, 'no id = no entity detail')
   assert.equal(seedFor('customize', 'x'), null, 'a section with no detail mapping stays unmapped')
@@ -111,4 +112,10 @@ test('an msection seed survives the JSON persistence round-trip', () => {
   const revived = JSON.parse(JSON.stringify(tree)) as MainSplitNode
   const leaf = panes(revived).find((p) => p.content.kind === 'msection')
   assert.deepEqual(leaf && leaf.content.kind === 'msection' ? leaf.content.seed : null, { ownerName: 'nova' })
+
+  const versioned: MainPaneContent = { kind: 'msection', id: 'artifacts', seed: { artifactId: 'doc-1', artifactRevision: '0' } }
+  const versionTree = splitPane(pane<MainPaneContent>({ kind: 'msession', id: 'auth-refactor' }), '', 'row', versioned)
+  const revivedVersionTree = JSON.parse(JSON.stringify(versionTree)) as MainSplitNode
+  const versionLeaf = panes(revivedVersionTree).find((p) => p.content.kind === 'msection')
+  assert.deepEqual(versionLeaf && versionLeaf.content.kind === 'msection' ? versionLeaf.content.seed : null, { artifactId: 'doc-1', artifactRevision: '0' })
 })

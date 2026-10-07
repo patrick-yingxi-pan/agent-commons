@@ -59,8 +59,8 @@ The [Folder](../docs/acceptance/native-folder-2026-10-05.md) and [Git](../docs/a
 
 ## Verification
 
-Profile tests cover mode and real macOS ACL refusal without repair, absent ACLs,
-deny-only and owner-only ACLs, inherited grants, failed inspection, identity
+Profile tests use private temporary executables and cover real macOS mode/ACL
+refusal without repair, absent, deny-only and owner-only ACLs, inherited grants, failed inspection, identity
 changes and broad-path refusal. Packaged refusal acceptance uses only generated
 profiles; its excluded inspector harness fixtures the early error-dialog response,
 not admission, file access or exit. Ordinary startup/relaunch separately preserves

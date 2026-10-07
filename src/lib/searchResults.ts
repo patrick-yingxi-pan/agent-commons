@@ -18,6 +18,9 @@ export function searchHitDestination(hit: SearchHit): SearchDestination | undefi
     case 'project':
     case 'sharedProject': return { kind: 'section', section: 'projects', id: hit.id }
     case 'artifact': return { kind: 'section', section: 'artifacts', id: hit.id }
+    case 'artifactVersion': return Number.isSafeInteger(hit.revision) && hit.revision >= 0
+      ? { kind: 'section', section: 'artifacts', id: hit.id, subId: `history/${hit.revision}` }
+      : undefined
     case 'schedule': return { kind: 'section', section: 'scheduled', id: hit.id }
     case 'agent':
     case 'publishedAgent': return { kind: 'section', section: 'agents', id: hit.id }
@@ -27,6 +30,18 @@ export function searchHitDestination(hit: SearchHit): SearchDestination | undefi
     case 'owner': return { kind: 'section', section: OWNER_SECTION, id: hit.id }
     case 'openWork': return hit.ref ? { kind: 'section', section: 'projects', id: hit.ref, subId: hit.id } : undefined
   }
+}
+
+export function searchHitKey(hit: SearchHit): string {
+  return hit.type === 'artifactVersion' ? `${hit.type}-${hit.id}-${hit.revision}` : `${hit.type}-${hit.id}`
+}
+
+export function searchHitVersionLabel(hit: SearchHit): string | undefined {
+  if (hit.type !== 'artifactVersion') return undefined
+  const reason = hit.reason === 'restore' ? `Restored from version ${hit.restoredFromRevision}`
+    : hit.reason === 'baseline' ? 'Baseline' : 'Edited'
+  const time = hit.savedAt ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(hit.savedAt)) : 'time unknown'
+  return `Version ${hit.revision} · ${reason} · ${time}${hit.trashed ? ' · In Trash' : ''}`
 }
 
 /** A late answer must match all of the currently requested coordinates. */

@@ -23,6 +23,7 @@ import { dispatch } from '../http/dispatch.ts'
 import { deriveApiTools, familyFor, runApiTool, API_TOOL_PREFIX } from './apiTools.ts'
 import { TOOL_NAMES } from './tools.ts'
 import { toolActivityDecisionId } from '../toolActivityDecisionIdentity.ts'
+import { SEARCH_HIT_TYPES } from '../../contract/search.ts'
 
 // ── 1. Derivation ────────────────────────────────────────────────────────────
 
@@ -33,10 +34,7 @@ test('every product route is a generated model tool or a route-declared intrinsi
   assert.equal(definitions.length, expected.length, 'tool count = the route-owned in-session projection, exactly')
   assert.equal(byName.size, definitions.length, 'names are unique')
   const search = definitions.find((definition) => definition.name === 'api__get_search')!
-  assert.deepEqual(search.input_schema.properties.query.properties.type.enum, [
-    'session', 'project', 'artifact', 'schedule', 'agent', 'prompt', 'model', 'context',
-    'owner', 'sharedProject', 'publishedAgent', 'openWork',
-  ])
+  assert.deepEqual(search.input_schema.properties.query.properties.type.enum, [...SEARCH_HIT_TYPES])
   assert.equal(search.input_schema.properties.query.properties.offset.type, 'string')
   for (const d of definitions) {
     assert.ok(d.name.startsWith(API_TOOL_PREFIX), 'generated tools wear the api__ namespace')

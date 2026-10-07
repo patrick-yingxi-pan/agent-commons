@@ -9,9 +9,11 @@
  *  ranking (D17's directory posture — mechanism, not curation); groups come in
  *  a fixed type order, capped per group with a true total. */
 
+import type { ArtifactHistoryVersionMetadata } from './artifactHistory.ts'
+
 export const SEARCH_HIT_TYPES = [
   'session', 'project', 'artifact', 'schedule', 'agent', 'prompt', 'model', 'context',
-  'owner', 'sharedProject', 'publishedAgent', 'openWork',
+  'owner', 'sharedProject', 'publishedAgent', 'openWork', 'artifactVersion',
 ] as const
 
 export type SearchHitType = typeof SEARCH_HIT_TYPES[number]
@@ -22,6 +24,8 @@ export interface SearchPage {
 }
 /** Fixed page size for category browsing; overview groups retain their smaller cap. */
 export const SEARCH_PAGE_SIZE = 20
+/** Historical content is searched only by an explicit artifactVersion category. */
+export const MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS = 256
 
 /** Parse strict URL query values. `undefined` means overview mode; `null` means invalid. */
 export function parseSearchPage(type?: string, offset?: string): SearchPage | null | undefined {
@@ -34,8 +38,7 @@ export function parseSearchPage(type?: string, offset?: string): SearchPage | nu
   return { type: type as SearchHitType, offset: parsed }
 }
 
-export interface SearchHit {
-  type: SearchHitType
+interface SearchHitBase {
   id: string
   title: string
   subtitle: string
@@ -43,6 +46,16 @@ export interface SearchHit {
    * Other types may carry descriptive context here, not navigation identity. */
   ref?: string
 }
+
+export type ArtifactVersionSearchHit = SearchHitBase & ArtifactHistoryVersionMetadata & {
+  type: 'artifactVersion'
+  /** id is the exact artifact id; revision is part of the result identity. */
+  trashed: boolean
+}
+
+export type SearchHit =
+  | (SearchHitBase & { type: Exclude<SearchHitType, 'artifactVersion'> })
+  | ArtifactVersionSearchHit
 
 export interface SearchGroup {
   type: SearchHitType

@@ -12,6 +12,27 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 
+/** Node's test-runner worker count, derived from the one authoritative `npm
+ * test` script. Keep it bounded: too many concurrent suites contend for the
+ * same local profile and external helper resources, while an unbounded setting
+ * can make a verification run less reliable on larger hosts. */
+export function suiteConcurrency(pkgPath = 'package.json') {
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+  const script = pkg?.scripts?.test
+  if (typeof script !== 'string') throw new Error('missing string `test` script in package.json')
+  const options = [...script.matchAll(/(?:^|\s)(--test-concurrency[^\s]*)/g)].map((m) => m[1])
+  if (options.length !== 1) {
+    throw new Error(`expected exactly one --test-concurrency option in the \`test\` script; found ${options.length}`)
+  }
+  const match = options[0].match(/^--test-concurrency=(\d+)$/)
+  if (!match) throw new Error(`malformed --test-concurrency option in the \`test\` script: ${options[0]}`)
+  const count = Number(match[1])
+  if (!Number.isSafeInteger(count) || count < 1 || count > 16) {
+    throw new Error(`--test-concurrency must be a positive safe integer no greater than 16; got ${match[1]}`)
+  }
+  return count
+}
+
 /** The roots `npm test` globs — read OUT OF the script that globs them.
  *
  *  Since the suites moved next to the code they lock, the set of roots is

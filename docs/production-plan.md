@@ -6,9 +6,36 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: conversational Project sharing
+## Current checkpoint: explicit saved-version search
 
-The next core-workflow checkpoint closes the missing named `share_project`
+Ordinary search remains current-only. An explicit Search saved versions mode
+finds literal text in the owner's retained Document, Sheet, workbook and Slides
+bodies, including Trash. Queries are bounded to 256 UTF-16 units, pages to 20
+hits and snippets to 320 units. No additional persistent index or external
+service is introduced. Each result identifies its exact saved revision and
+opens a canonical read-only history address, never a substituted current body.
+Current-resource navigation, reload and Back preserve that distinction.
+Comparison and separately confirmed CAS restore reuse the existing history
+workflow; a restore from an exact-version address acknowledges the new current
+revision without changing which saved revision the URL names.
+
+Acceptance requires owner/shared/foreign and deletion tests, explicit-mode and
+literal-match negative locks, exact-address navigation, paging and recovery,
+five-viewport/accessibility review, the complete UI sweep and the full local
+verifier on a frozen tree. Document stable-block identity and real external
+Contribution execution remain separate pending decisions. Signing/notarization,
+hosting, native Intel and authorized real-provider evidence remain release gates.
+
+The first complete local verifier passed all five lanes and 559 browser tests.
+Post-pass review found an unnecessary current-content library read on exact
+revision pages; the UI sweep was stopped before repair. Shared read admission
+now suppresses live reads on saved-body surfaces. A source lock failed before
+repair, and the rendered walk counts network requests across opening, reload
+and comparison. Final acceptance must rerun the full verifier and UI sweep.
+
+## Completed checkpoint: conversational Project sharing
+
+This core-workflow checkpoint closed the missing named `share_project`
 proposal tool over the existing sharing capability. The generic API door already
 exposes this operation; no new route or sharing authority is introduced. An
 explicit shared/private boolean and exact, unambiguous owned created-Project
@@ -26,12 +53,11 @@ Existing Agent tool grants are preserved rather than widened on upgrade; new
 full-catalog Agents include `share_project`, and existing Agents may explicitly
 select it through their normal configuration.
 
-Acceptance requires strict-input and authority locks, model-to-route consent
-and replay checks, Session-transport coverage, five-viewport/accessibility
-browser review, the separate complete UI sweep, and the full local verifier on
-an unchanged tree. Document stable-block identity and real external Contribution
-execution remain separate pending decisions; signing/notarization, hosting,
-native Intel and authorized real-provider evidence remain release gates.
+Strict-input and authority locks, model-to-route consent and replay checks,
+Session-transport coverage, and five-viewport/accessibility review passed.
+The final local verifier passed all five lanes including 555 browser tests;
+the separate complete UI sweep passed 135/135 cells with no violations or skips.
+Commit `2f234212` was pushed to `main`, with Ada signed in on the consent preview.
 
 ## Completed checkpoint: artifact history comparison
 
@@ -2567,6 +2593,22 @@ version gate rather than silently reused for a future upgrade. Any dependency
 upgrade requires a deliberate notice and bundle-budget review.
 
 ## Open verification follow-ups
+
+The saved-version-search checkpoint reproduced native profile admission timeout
+under the Node runner's default 16-worker load, with or without browser lanes.
+Test-only diagnostics captured `ETIMEDOUT`, `SIGTERM` and no helper output at
+the unchanged five-second boundary. All 15 profile checks passed in isolation.
+Moving its compiled executable out of the shared development path removed an
+independent fixture-isolation problem but did not cure the loaded timeout.
+The identical complete Node suite at four workers passed all 4,595 tests, with
+the formerly failing admission taking 871ms. Local npm tests now declare four
+workers and the complete verifier derives the same setting from that one script;
+strict parser/wiring tests preserve full suite coverage. Real ACL inspection,
+production deadlines, assertions and zero automatic retries are unchanged.
+This supports bounding verifier contention, not a claim about the precise OS
+delay or every native startup environment. Keep helper outcome diagnostics for
+recurrence. Failed verifier browser lanes were deliberately interrupted; only
+a subsequent complete frozen-tree run counts as checkpoint acceptance.
 
 The release-feed checkpoint observed one first-attempt timeout in
 `e2e/mcp-tool-execution.spec.ts` (long external labels): after Enter, neither

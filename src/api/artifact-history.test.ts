@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import { refreshAccount } from './account.ts'
 import { API_BASE } from './client.ts'
 import { keys, paths } from './keys.ts'
@@ -57,4 +58,13 @@ test('history reads use the bounded metadata path and restore validates the new-
   assert.equal(calls[1]?.key, 'history-restore-key')
   assert.equal(calls[1]?.source, 'session:history-api-user')
   assert.equal(peek<ArtifactContentLibrary>(keys.artifactContent), undefined, 'history receipt never merges its possibly old body into current cache')
+})
+
+test('the version query hook validates its entry coordinates and revalidates on mount', () => {
+  const source = readFileSync(new URL('./artifactHistory.ts', import.meta.url), 'utf8')
+  const match = source.match(/export function useArtifactHistoryVersion\([\s\S]*?\n\}/)
+  assert.ok(match, 'the artifact-version query hook exists')
+  assert.match(match[0], /paths\.artifactHistoryVersion\(artifactId, revision!\)/, 'the fetcher reads the selected exact revision')
+  assert.match(match[0], /Boolean\(artifactId\) && revision !== undefined,\s*true\)/,
+    'missing identity or revision disables entry; true requests fresh data on mount')
 })

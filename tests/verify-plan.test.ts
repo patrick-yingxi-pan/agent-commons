@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
-import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
+import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteConcurrency, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
 
 test('full verification can retain first-failure browser traces without enabling retries', () => {
   const config = stripComments(readFileSync(join(ROOT, 'playwright.config.ts'), 'utf8'))
@@ -49,7 +49,7 @@ test('coverage mismatch emits the E2E lane tail and exits nonzero', () => {
     for (const file of ['verify.mjs', 'verifyPlan.mjs', 'hostSpeed.mjs']) {
       writeFileSync(join(tmp, 'scripts', file), file === 'verify.mjs' ? runnerSource : readFileSync(join(ROOT, 'scripts', file)))
     }
-    writeFileSync(join(tmp, 'package.json'), JSON.stringify({ scripts: { test: 'node --test "tests/**/*.test.ts"' } }))
+    writeFileSync(join(tmp, 'package.json'), JSON.stringify({ scripts: { test: 'node --test --test-concurrency=4 "tests/**/*.test.ts"' } }))
     // The fake runner deliberately reports no passing tests for a manifest that
     // declares one. This exercises the real verifier process and its exit code,
     // without booting a browser or touching the repository's .data cache.
@@ -169,6 +169,51 @@ test('the sweep runs every node suite the `npm test` glob does', () => {
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
+})
+
+test('Node test concurrency comes from one valid bounded npm test option', () => {
+  const script = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).scripts.test
+  assert.match(script, /node --test --test-concurrency=4 /, 'npm test owns the authoritative worker count')
+  assert.equal(suiteConcurrency(join(ROOT, 'package.json')), 4)
+
+  const tmp = mkdtempSync(join(tmpdir(), 'verify-concurrency-'))
+  const pkgPath = join(tmp, 'package.json')
+  const writeScript = (testScript: string | undefined) => {
+    writeFileSync(pkgPath, JSON.stringify({ scripts: testScript === undefined ? {} : { test: testScript } }))
+  }
+  try {
+    for (const invalid of [
+      undefined,
+      'node --test "tests/**/*.test.ts"',
+      'node --test --test-concurrency=4 --test-concurrency=3 "tests/**/*.test.ts"',
+      'node --test --test-concurrency "tests/**/*.test.ts"',
+      'node --test --test-concurrency= "tests/**/*.test.ts"',
+      'node --test --test-concurrency=bad "tests/**/*.test.ts"',
+      'node --test --test-concurrency=0 "tests/**/*.test.ts"',
+      'node --test --test-concurrency=-1 "tests/**/*.test.ts"',
+      'node --test --test-concurrency=17 "tests/**/*.test.ts"',
+    ]) {
+      writeScript(invalid)
+      assert.throws(() => suiteConcurrency(pkgPath), /test-concurrency|test` script/, String(invalid))
+    }
+    for (const [count, expected] of [['1', 1], ['4', 4], ['16', 16]] as const) {
+      writeScript(`node --test --test-concurrency=${count} "tests/**/*.test.ts"`)
+      assert.equal(suiteConcurrency(pkgPath), expected)
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test('verification keeps complete suite coverage and uses the npm test concurrency', () => {
+  const runner = stripComments(readFileSync(join(ROOT, 'scripts', 'verify.mjs'), 'utf8'))
+  assert.match(runner, /const SUITE = suiteFiles\(\)/, 'the planned node suite list is unchanged')
+  assert.match(runner, /const NODE_TEST_CONCURRENCY = suiteConcurrency\(\)/)
+  assert.match(
+    runner,
+    /args: \['--test', `--test-concurrency=\$\{NODE_TEST_CONCURRENCY\}`, \.\.\.SUITE\]/,
+    'the verifier passes the npm-owned concurrency without changing the suite manifest',
+  )
 })
 
 test('the shard groups PARTITION the spec files — every one, exactly once', () => {

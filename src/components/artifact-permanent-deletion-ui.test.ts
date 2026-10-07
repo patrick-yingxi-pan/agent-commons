@@ -31,7 +31,7 @@ test('recovery is admitted before deletion, Trash detail disables competing rest
   assert.match(page, /if \(inTrash \|\| lifecycleHeld \|\| permanentDeletionHeld\) return/)
   assert.match(page, /disabled=\{!identity \|\| historyRestoreHeld \|\| permanentDeletionHeld\}/)
   assert.match(page, /own && inTrash && !lifecycleHeld && identity/)
-  assert.match(page, /useArtifactContent\(!inTrash && !lifecycleHeld\)/)
+  assert.match(page, /useArtifactContent\(shouldReadCurrentArtifactBody\(\{ addressedRevision, inTrash, lifecycleHeld \}\)\)/)
   const notices = read('./ShellMutationNotices.tsx')
   assert.match(notices, /<ArtifactPermanentDeletionMutationNotice \/>/)
   const controller = read('../controller/artifactPermanentDeletionMutations.ts')

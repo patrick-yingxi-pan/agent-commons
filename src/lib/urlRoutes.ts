@@ -52,6 +52,7 @@ import { OWNER_SECTION } from './paneNav.ts'
 import { SECTION_SUBVIEWS } from './subviews.ts'
 import { isOwnerProfileSectionId, isProjectSectionId, isScheduleSectionId } from './compositeSections.ts'
 import { isCollectionSectionHost } from './collectionSections.ts'
+import { artifactHistoryRevision } from './artifactHistoryLocation.ts'
 
 /** A parsed address: the page plus the section sub-view (which nav history
  *  ignores but the address must carry — GitHub's tabs are URLs). */
@@ -98,7 +99,11 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   if (loc.scheduleId) return `/scheduled/${encodeURIComponent(loc.scheduleId)}`
   if (loc.contextId) return `/contexts/${encodeURIComponent(loc.contextId)}`
   if (loc.discussionId) return `/discussions/${encodeURIComponent(loc.discussionId)}`
-  if (loc.artifactId) return `/artifacts/${encodeURIComponent(loc.artifactId)}`
+  if (loc.artifactId) {
+    const base = `/artifacts/${encodeURIComponent(loc.artifactId)}`
+    const revision = artifactHistoryRevision(loc.artifactRevision)
+    return revision === undefined ? base : `${base}/history/${revision}`
+  }
   if (loc.providerId) return `/models/${encodeURIComponent(loc.providerId)}`
   if (loc.adminUserId) return `/admin/users/${encodeURIComponent(loc.adminUserId)}`
   return subview ? `/${loc.section}/${encodeURIComponent(subview)}` : `/${loc.section}`
@@ -144,6 +149,10 @@ export function viewForPath(pathname: string): RoutedView | null {
   const section = segs[0]
   const base = { kind: 'section' as const, section, projectId: null, scheduleId: null, ownerName: null }
   if (segs.length === 1) return { loc: base, subview: null }
+  if (section === 'artifacts' && segs.length === 4 && segs[1] && segs[2] === 'history') {
+    const revision = artifactHistoryRevision(segs[3])
+    return revision === undefined ? null : { loc: { ...base, artifactId: segs[1], artifactRevision: String(revision) }, subview: null }
+  }
   // The one deeper form: /projects/:id/work/:itemId — a work item's own page
   // (the issue-page analog; nested because the item is project-scoped by nature).
   if (section === 'projects' && segs.length === 4 && segs[2] === 'work' && segs[3]) {

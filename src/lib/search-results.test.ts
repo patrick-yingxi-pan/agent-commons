@@ -2,21 +2,24 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { SEARCH_HIT_TYPES, type SearchHitType, type SearchResponse } from '../../contract/search.ts'
-import { searchHitDestination, searchResponseMatches } from './searchResults.ts'
+import { searchHitDestination, searchHitKey, searchHitVersionLabel, searchResponseMatches } from './searchResults.ts'
 import { locOfSeed, seedFor } from './paneNav.ts'
 import { pathForView } from './urlRoutes.ts'
 
 test('every search hit preserves its exact resource identity through the canonical navigation bridge', () => {
   const paths: Record<SearchHitType, string> = {
     session: '/s/id%2Fone', project: '/projects/id%2Fone', sharedProject: '/projects/id%2Fone',
-    artifact: '/artifacts/id%2Fone', schedule: '/scheduled/id%2Fone',
+    artifact: '/artifacts/id%2Fone', artifactVersion: '/artifacts/id%2Fone/history/4', schedule: '/scheduled/id%2Fone',
     agent: '/agents/id%2Fone', publishedAgent: '/agents/id%2Fone', prompt: '/agents/prompts/id%2Fone',
     model: '/models/id%2Fone', context: '/contexts/id%2Fone', owner: '/u/id%2Fone',
     openWork: '/projects/parent%2Ftwo/work/id%2Fone',
   }
   assert.deepEqual(Object.keys(paths).sort(), [...SEARCH_HIT_TYPES].sort(), 'enumerate the real contract, not a hand-picked subset')
   for (const type of SEARCH_HIT_TYPES) {
-    const destination = searchHitDestination({ type, id: 'id/one', title: 'Name is not identity', subtitle: '', ref: 'parent/two' })!
+    const hit = type === 'artifactVersion'
+      ? { type, id: 'id/one', title: 'Name is not identity', subtitle: '', revision: 4, savedAt: '2026-10-06T12:00:00.000Z', reason: 'edit' as const, trashed: false }
+      : { type, id: 'id/one', title: 'Name is not identity', subtitle: '', ref: 'parent/two' }
+    const destination = searchHitDestination(hit)!
     assert.ok(destination, type)
     const path = destination.kind === 'session'
       ? pathForView({ kind: 'session', sessionId: destination.id, title: '' }, null)
@@ -24,6 +27,29 @@ test('every search hit preserves its exact resource identity through the canonic
     assert.equal(path, paths[type], type)
   }
   assert.equal(searchHitDestination({ type: 'openWork', id: 'unknown', title: '', subtitle: '' }), undefined, 'missing parent must not guess a collection destination')
+})
+
+test('artifact version search identity and destination include the exact revision, including zero', () => {
+  const zero = { type: 'artifactVersion', id: 'doc/one', title: 'Draft', subtitle: '', revision: 0, savedAt: null, reason: 'baseline' as const, trashed: true }
+  const next = { ...zero, revision: 1, reason: 'edit' as const, savedAt: '2026-10-06T12:00:00.000Z' }
+  assert.equal(searchHitKey(zero), 'artifactVersion-doc/one-0')
+  assert.notEqual(searchHitKey(zero), searchHitKey(next), 'two retained revisions are distinct result rows')
+  assert.deepEqual(searchHitDestination(zero), {
+    kind: 'section', section: 'artifacts', id: 'doc/one', subId: 'history/0',
+  })
+})
+
+test('artifact version destinations refuse malformed revisions', () => {
+  for (const revision of [-1, Number.NaN, Number.POSITIVE_INFINITY, 1.5]) {
+    const hit = { type: 'artifactVersion', id: 'doc-1', title: 'Draft', subtitle: '', revision, savedAt: null, reason: 'baseline', trashed: false } as const
+    assert.equal(searchHitDestination(hit), undefined, `refuse revision ${String(revision)}`)
+  }
+})
+
+test('artifact version labels carry revision, reason, saved date, and Trash state', () => {
+  const hit = { type: 'artifactVersion', id: 'doc-1', title: 'Draft', subtitle: '', revision: 7, savedAt: '2026-10-06T12:00:00.000Z', reason: 'edit' as const, trashed: true }
+  const expectedTime = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(hit.savedAt))
+  assert.equal(searchHitVersionLabel(hit), `Version 7 · Edited · ${expectedTime} · In Trash`)
 })
 
 test('search response matching pins normalized query, category and exact page offset', () => {

@@ -19,7 +19,8 @@ test('canonical Artifact history is owner-only, lazy, bounded, and previews an i
   assert.match(panel, /data-artifact-history-version=\{version\.revision\}/)
   assert.match(panel, /data-artifact-history-body/)
   assert.match(panel, /bodyOverride=\{selectedVersion\.body\}/)
-  assert.match(page, /useArtifactContent\(!bodyOverride\)/, 'a history preview does not fetch the live current body')
+  assert.match(page, /useArtifactContent\(shouldReadCurrentArtifactBody\(\{ hasBodyOverride: bodyOverride !== undefined \}\)\)/,
+    'a history preview does not fetch the live current body')
   assert.match(panel, /data-artifact-history-reload="true"/)
   assert.match(panel, /Retry history load/)
   assert.match(panel, /Retry version load/)
@@ -60,7 +61,7 @@ test('history comparisons pin two exact versions and cannot restore a stale or u
   assert.match(panel, /disabled=\{blocked \|\| currentRevision === undefined \|\| !comparisonReady\}/)
   assert.match(panel, /if \(!comparisonReady\)/, 'confirmation rechecks the comparison, not only the button state')
   assert.match(panel, /setSelectedRevision\(version\.revision\); setComparisonRevision\(undefined\)/)
-  assert.match(panel, /outcome === 'applied'[\s\S]*?setComparisonRevision\(undefined\)[\s\S]*?setSelectedRevision\(expected \+ 1\)/, 'a successful restore returns to the new current version preview')
+  assert.match(panel, /outcome === 'applied'[\s\S]*?setComparisonRevision\(undefined\)[\s\S]*?setSelectedRevision\(addressedRevision \?\? expected \+ 1\)/, 'normal history selects the new current version; an exact revision address retains its identity')
   assert.match(panel, /Refresh comparison/)
   assert.match(panel, /Retry comparison/)
   assert.match(comparison, /compareArtifactHistoryBodies\(current\.body, selected\.body\)/)
@@ -75,4 +76,19 @@ test('history comparisons pin two exact versions and cannot restore a stale or u
   assert.match(diff, /side\.text !== undefined/)
   assert.match(diff, /Empty value\./)
   assert.match(diff, /whitespace-pre-wrap/)
+})
+
+test('exact revision pages preserve identity, report missing versions, and acknowledge explicit restores', () => {
+  const panel = read('./ArtifactHistoryPanel.tsx')
+  const page = read('./artifactPreview.tsx')
+  assert.match(panel, /useState<number \| undefined>\(addressedRevision\)/)
+  assert.match(panel, /data-artifact-version-unavailable="true"/)
+  assert.match(panel, /Current content has not been substituted/)
+  assert.match(panel, /data-artifact-history-restored="true"/)
+  assert.match(panel, /setRestoredRevision\(expected \+ 1\)/)
+  assert.match(page, /data-artifact-addressed-revision=\{addressedRevision\}/)
+  assert.match(page, /useArtifactContent\(shouldReadCurrentArtifactBody\(\{ addressedRevision, inTrash, lifecycleHeld \}\)\)/,
+    'an exact saved-version page never admits the current-content library read')
+  assert.match(page, /View current artifact/)
+  assert.match(read('./ArtifactHistorySection.tsx'), /addressedRevision=\{addressedRevision\}/)
 })

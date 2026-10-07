@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { call, callRaw } from './testkit/http.ts'
 import { MCP_PROTOCOL_VERSION, toolNameFor } from './mcp.ts'
 import { store } from './store/index.ts'
+import { SEARCH_HIT_TYPES } from '../contract/search.ts'
 
 let seq = 0
 const rpc = async (method: string, params?: unknown, headers?: Record<string, string>) =>
@@ -66,10 +67,7 @@ test('tools/list: generated from the route table, with path params as required s
   assert.ok(byName.has('get_capabilities'))
   assert.ok(byName.has('post_sessions'))
   const search = byName.get('get_search')
-  assert.deepEqual(search.inputSchema.properties.query.properties.type.enum, [
-    'session', 'project', 'artifact', 'schedule', 'agent', 'prompt', 'model', 'context',
-    'owner', 'sharedProject', 'publishedAgent', 'openWork',
-  ])
+  assert.deepEqual(search.inputSchema.properties.query.properties.type.enum, [...SEARCH_HIT_TYPES])
   assert.equal(search.inputSchema.properties.query.properties.offset.type, 'string')
   assert.equal(search.inputSchema.properties.query.additionalProperties, false)
   const bySession = byName.get('get_sessions_by_id')

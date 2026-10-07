@@ -11,6 +11,10 @@ procedure so the always-loaded map stays small.
   [`tests/CLAUDE.md`](../tests/CLAUDE.md).
 - Run `npm run typecheck` and `node --test` before declaring a code change done.
   Use `npm run verify` for the complete static/build/E2E sweep.
+- Prefer `npm test` for the complete Node suite: it bounds concurrency to four
+  workers. The full verifier derives the same setting from that script without
+  reducing the suite manifest. This avoids observed native-helper timeouts under
+  16-worker contention without raising production deadlines or adding retries.
 - Run `npm run ui:sweep` separately from the full verifier: its isolated
   5193/5194 stack overlaps the verifier's second browser shard. Never enable
   server reuse to mask this collision; wait for the first command to finish.

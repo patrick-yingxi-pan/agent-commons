@@ -106,6 +106,7 @@ Read [`../http/CLAUDE.md`](../http/CLAUDE.md) for registration/dispatch rules,
 | ROUTES-D87 | data-access | Artifact Trash list and lifecycle reads are owner-only; lifecycle GET/PATCH honor the optional first-party account-source precondition before returning truth or mutating, while source-free MCP remains compatible. PATCH requires a strict target plus exact revision, admits only the store's immediate one-step retry, and returns current artifact/lifecycle truth without generic cached replay. Every product route derives matching HTTP, in-session, and MCP access. Direct readers get body-free Artifact invalidation; nested-only readers get a tenant-targeted `social-access.changed` without the Artifact id, while foreign tenants learn nothing. | [`index.ts`](index.ts) · [`../store/index.ts`](../store/index.ts) · [`../../contract/artifactLifecycle.ts`](../../contract/artifactLifecycle.ts) · [`../../contract/events.ts`](../../contract/events.ts) | [`artifact-lifecycle.test.ts`](artifact-lifecycle.test.ts) · [`artifact-trash-visibility.test.ts`](artifact-trash-visibility.test.ts) · [`../mcp-parity.test.ts`](../mcp-parity.test.ts) | refines ROUTES-D1; requires STORE-D84; requires CONTRACT-D98 |
 | ROUTES-D88 | data-access | The public context browse catalog follows the persisted initial-world choice: clean stores return no development connector/MCP/repository candidates; demo fixtures remain available to demo snapshots. User setup rows and real external MCP connections stay on their tenant-scoped route projections. | [`index.ts`](index.ts) · [`../contextCatalog.ts`](../contextCatalog.ts) · [`../store/index.ts`](../store/index.ts) | [`saved-contexts.test.ts`](saved-contexts.test.ts) · [`../contextCatalog.test.ts`](../contextCatalog.test.ts) · [`../persistence/initial-world.test.ts`](../persistence/initial-world.test.ts) | refines ROUTES-D1; requires CONTRACT-D101; requires SERVER-D9 |
 | ROUTES-D89 | data-access | Conversation text search reuses the existence-hiding session read wall, strictly parses one bounded query and optional offset, and projects only current user/assistant content. Route-owned query metadata keeps HTTP, remote MCP and in-session access semantically aligned; tools, attachments and archived originals are excluded. | [`index.ts`](index.ts) · [`../sessionMessageSearch.ts`](../sessionMessageSearch.ts) | [`conversation-search.test.ts`](conversation-search.test.ts) · [`../sessionMessageSearch.test.ts`](../sessionMessageSearch.test.ts) · [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | refines ROUTES-D1; requires CONTRACT-D110 |
+| ROUTES-D90 | data-access | Artifact-version search is opt-in through the existing route-owned search category, never part of ordinary results. Its bounded literal query sees only owner-authorized retained bodies, including Trash, and returns metadata plus a snippet rather than full bodies. HTTP and MCP project the same query schema and authority. | [`index.ts`](index.ts) · [`../artifactVersionSearch.ts`](../artifactVersionSearch.ts) | [`artifact-version-search.test.ts`](artifact-version-search.test.ts) · [`../artifactVersionSearch.test.ts`](../artifactVersionSearch.test.ts) · [`../../tests/access-surface-parity.test.ts`](../../tests/access-surface-parity.test.ts) | requires CONTRACT-D111; refines ROUTES-D1 |
 | ROUTES-V1 | verification | Each resource suite drives the real router/store through the shared HTTP testkit. | [`../testkit/http.ts`](../testkit/http.ts) | [`sessions.test.ts`](sessions.test.ts) · [`schedules.test.ts`](schedules.test.ts) | refines SERVER-V1 |
 <!-- context-rules:end -->
 
@@ -140,12 +141,8 @@ it still distinguishes.
 
 ## The ratio is the argument for splitting this file
 
-77 suites point at one 3,591-line module. That is not a property of routing —
-it is what a monolith looks like once its locks are colocated, and the suite
-names already enumerate the seams a split would cut along (sessions, turns,
-messages, providers, schedules, dispatch, fs, workspace, agents, audit,
-directory, proxy, reservations, saved-contexts, system-prompts, worker-agents,
-commission, relations/commons, a2a, social). Splitting `buildRouter()` into
+The colocated resource suites expose the seams of this routing monolith.
+Splitting `buildRouter()` into
 per-resource `register*(r)` modules is the natural next refactor; when it
 happens, each suite here already sits next to the module it will belong to.
 Until then, don't take the flat listing as a sign that new endpoints should keep

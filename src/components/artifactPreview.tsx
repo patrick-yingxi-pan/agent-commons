@@ -41,6 +41,7 @@ import { usePopoverShift } from '../lib/usePopoverShift'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import { identityTitleProps } from '../lib/identityTitle'
 import { WRAPPING_PROSE_CLASS } from '../lib/prose'
+import { shouldReadCurrentArtifactBody } from '../lib/artifactBodyRead.ts'
 import { BackButton } from './BackButton'
 import type { NavLocation } from '../lib/nav'
 import { SectionAction } from './SectionAction'
@@ -585,7 +586,7 @@ export function ArtifactBodyView({
   /** Immutable history preview. Overrides the live cache without writing into it. */
   bodyOverride?: ArtifactHistoryBody
 }) {
-  const content = useArtifactContent(!bodyOverride)
+  const content = useArtifactContent(shouldReadCurrentArtifactBody({ hasBodyOverride: bodyOverride !== undefined }))
   const library = content.data
   const lib = artifactId ? library?.[artifactId] : library?.[name]
   const isImage = kind === 'image'
@@ -659,7 +660,7 @@ function ServedImage({ url, name, size }: { url: string; name: string; size: Siz
  *  miniature of the file's real content. It is deliberately not the canonical
  *  Artifacts index preview (UI-31). */
 export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; name: string; excerpt?: string }) {
-  const content = useArtifactContent().data?.[name]
+  const content = useArtifactContent(shouldReadCurrentArtifactBody()).data?.[name]
   const isFigure = (content?.type === 'figure' && content.shape === 'hero') || (!content && kind === 'image')
   // Hero images fill the tile edge-to-edge; everything else sits on "paper".
   if (isFigure) {
@@ -688,6 +689,8 @@ export function ArtifactThumb({ kind, name, excerpt }: { kind: ArtifactKind; nam
  *  unfiled without leaving its page. */
 export function ArtifactDetailPage({
   artifact,
+  addressedRevision,
+  onViewCurrent,
   inTrash = false,
   filingHeld = false,
   projects,
@@ -701,6 +704,8 @@ export function ArtifactDetailPage({
   Section,
 }: {
   artifact: ArtifactItem
+  addressedRevision?: number
+  onViewCurrent?: () => void
   inTrash?: boolean
   filingHeld?: boolean
   projects: { id: string; name: string }[]
@@ -750,10 +755,10 @@ export function ArtifactDetailPage({
   const saving = draftState?.held ?? false
   const editingStructured = structuredDraft !== undefined
   useArtifactLifecycleStatus()
-  const lifecycleHeld = heldArtifactLifecycle(artifact.id)
+  const lifecycleHeld = Boolean(heldArtifactLifecycle(artifact.id))
   const historyRestoreHeld = useArtifactHistoryRestoreHeld(artifact.id)
   const permanentDeletionHeld = useArtifactPermanentDeletionHeld(artifact.id)
-  const artifactContent = useArtifactContent(!inTrash && !lifecycleHeld)
+  const artifactContent = useArtifactContent(shouldReadCurrentArtifactBody({ addressedRevision, inTrash, lifecycleHeld }))
   const structuredMutation = useStructuredArtifactMutationStatus()
   const structuredBody = artifactContent.data?.[artifact.id]
   const draftBlock = structuredBody?.type === 'doc' && editing !== null ? structuredBody.blocks[editing] : undefined
@@ -811,8 +816,26 @@ export function ArtifactDetailPage({
   }
   const historySection = own && artifact.kind !== 'image' && !permanentDeletionHeld && <ArtifactHistorySectionBoundary key={artifact.id}>
     <DeferredArtifactHistorySection Section={Section} artifact={artifact} sourceUserId={sourceUserId}
+      addressedRevision={addressedRevision}
       allowRestore={!inTrash && !lifecycleHeld} restoreBlocked={draftState !== undefined || structuredBusy} />
   </ArtifactHistorySectionBoundary>
+
+  if (addressedRevision !== undefined) return <div data-artifact-page={artifact.id} data-artifact-addressed-revision={addressedRevision} className="mx-auto w-full max-w-3xl">
+    <header className={PAGE_HEADER_CLASS}>
+      <div className="flex min-w-0 items-start gap-3">
+        <BackButton to={backTo ?? { kind: 'section', section: 'artifacts', projectId: null, scheduleId: null, artifactId: artifact.id }} onBack={onBack} />
+        <div className="min-w-0 flex-1">
+          <h1 className={`${PAGE_TITLE_CLASS} break-words [overflow-wrap:anywhere]`}>{artifact.name} · Version {addressedRevision}</h1>
+          <p className="mt-1 text-[12px] text-ink-soft">Read-only saved version{inTrash ? ' · Artifact is in Trash' : ''}</p>
+          {onViewCurrent && <button type="button" className={`${INLINE_ACTION_CLASS} mt-2`} onClick={onViewCurrent}>View current artifact</button>}
+        </div>
+      </div>
+    </header>
+    {!own ? <p role="status" className="text-[13px] text-ink-soft">Saved versions are available only to the artifact owner.</p>
+      : permanentDeletionHeld ? <p role="status" className="text-[13px] text-ink-soft">Saved versions are unavailable while permanent deletion awaits confirmation.</p>
+        : artifact.kind === 'image' ? <p role="status" className="text-[13px] text-ink-soft">This artifact has no retained body versions.</p>
+          : historySection}
+  </div>
 
   // The same canonical identity becomes a recovery surface. No retained body,
   // download, sharing or edit controls confer authority while access is suspended

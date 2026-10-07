@@ -21,6 +21,7 @@ import { isArtifactHistoryRestoreHeld } from '../controller/artifactBodyOperatio
 import { artifactHistoryNextCursor, flattenArtifactHistoryPages, mergeArtifactHistoryPage } from '../api/artifactHistoryPages.ts'
 import { accountGeneration } from '../api/account.ts'
 import { ArtifactHistoryComparison } from './ArtifactHistoryComparison.tsx'
+import { resolveResourceUnavailable } from '../api/resourceRead.ts'
 
 interface Props {
   artifactId: string
@@ -29,6 +30,7 @@ interface Props {
   sourceUserId: string | null
   allowRestore: boolean
   restoreBlocked?: boolean
+  addressedRevision?: number
 }
 
 interface RestoreReview {
@@ -53,16 +55,18 @@ export default function ArtifactHistoryPanel({
   sourceUserId,
   allowRestore,
   restoreBlocked = false,
+  addressedRevision,
 }: Props) {
   const latestQuery = useArtifactHistory(artifactId)
   const [olderCursor, setOlderCursor] = useState<number | undefined>()
   const olderQuery = useArtifactHistory(artifactId, olderCursor, olderCursor !== undefined)
   const [pages, setPages] = useState<ArtifactHistoryPage[]>([])
-  const [selectedRevision, setSelectedRevision] = useState<number>()
+  const [selectedRevision, setSelectedRevision] = useState<number | undefined>(addressedRevision)
   const [comparisonRevision, setComparisonRevision] = useState<number>()
   const [knownCurrentRevision, setKnownCurrentRevision] = useState<number>()
   const [review, setReview] = useState<RestoreReview | null>(null)
   const [notice, setNotice] = useState('')
+  const [restoredRevision, setRestoredRevision] = useState<number>()
   const restoreStatus = useArtifactHistoryRestoreStatus()
   const restoreHeld = isArtifactHistoryRestoreHeld(artifactId)
   const blocked = restoreBlocked || restoreHeld || restoreStatus.busy || Boolean(restoreStatus.error)
@@ -77,12 +81,13 @@ export default function ArtifactHistoryPanel({
 
   useEffect(() => {
     setPages([])
-    setSelectedRevision(undefined)
+    setSelectedRevision(addressedRevision)
     setComparisonRevision(undefined)
     setKnownCurrentRevision(undefined)
     setReview(null)
     setNotice('')
-  }, [artifactId, sourceUserId])
+    setRestoredRevision(undefined)
+  }, [artifactId, sourceUserId, addressedRevision])
 
   useEffect(() => {
     if (latestQuery.data) setPages((existing) => mergeArtifactHistoryPage(existing, latestQuery.data!, true))
@@ -112,8 +117,9 @@ export default function ArtifactHistoryPanel({
   const reload = (message = '') => {
     setKnownCurrentRevision(newestKnownRevision)
     setNotice(message)
+    setRestoredRevision(undefined)
     setPages([])
-    setSelectedRevision(undefined)
+    setSelectedRevision(addressedRevision)
     setComparisonRevision(undefined)
     setOlderCursor(undefined)
     invalidateArtifactHistory(artifactId)
@@ -144,14 +150,16 @@ export default function ArtifactHistoryPanel({
     const expected = review.expectedRevision
     const submittedScope = { ...scope.current, generation: accountGeneration() }
     setReview(null)
+    setRestoredRevision(undefined)
     const outcome = await enqueueArtifactHistoryRestore(artifactId, target, expected, sourceUserId)
     if (!mounted.current || scope.current.artifactId !== submittedScope.artifactId ||
       scope.current.sourceUserId !== submittedScope.sourceUserId || accountGeneration() !== submittedScope.generation) return
     if (outcome === 'applied') {
       setNotice('')
+      setRestoredRevision(expected + 1)
       setKnownCurrentRevision(Math.max(newestKnownRevision, expected + 1))
       setComparisonRevision(undefined)
-      setSelectedRevision(expected + 1)
+      setSelectedRevision(addressedRevision ?? expected + 1)
       invalidateArtifactHistory(artifactId)
     } else if (outcome === 'discarded') {
       const failure = takeDismissedArtifactHistoryRestoreFailure(artifactId)
@@ -166,14 +174,15 @@ export default function ArtifactHistoryPanel({
   return (
     <div className="space-y-3" data-artifact-history={artifactId} data-artifact-history-current-revision={currentRevision}>
       <p className="text-[12px] leading-relaxed text-ink-soft">History begins with the earliest retained baseline; changes before history was captured are not available. Saved versions are read-only, and opening history does not change the current content.</p>
+      {addressedRevision !== undefined && restoredRevision !== undefined && <p role="status" data-artifact-history-restored="true" className="text-[12px] text-ink-soft">Restored version {addressedRevision} as current version {restoredRevision}. You are still viewing saved version {addressedRevision}.</p>}
       {notice && <div className="space-y-2" data-artifact-history-notice="true"><InlineOperationStatus tone="alert" message={notice} /><button type="button" data-artifact-history-reload="true" className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`} onClick={() => reload()}>Reload history</button></div>}
       {latestQuery.status === 'error' && !latestQuery.data ? (
         <InlineOperationStatus tone="alert" message="Couldn’t load version history." action={{ label: 'Retry history load', onClick: reload }} />
       ) : latestQuery.status === 'loading' && !latestQuery.data ? (
         <p role="status" className="text-[12px] text-ink-faint">Loading saved versions…</p>
-      ) : versions.length === 0 ? (
+      ) : versions.length === 0 && addressedRevision === undefined ? (
         <p className="rounded-lg border border-line bg-panel-2/50 p-3 text-[12px] text-ink-faint">No earlier versions have been recorded. Your current content will be retained when it changes.</p>
-      ) : (
+      ) : addressedRevision === undefined ? (
         <>
           <div className={LEDGER_LIST_CLASS} aria-label="Saved artifact versions">
             {versions.map((version) => {
@@ -204,12 +213,14 @@ export default function ArtifactHistoryPanel({
           {olderQuery.status === 'error' && <p role="alert" className="text-[12px] text-danger">Couldn’t load older versions. Try again.</p>}
           {latestQuery.status === 'error' && latestQuery.data && <InlineOperationStatus tone="alert" message="Couldn’t refresh current history." action={{ label: 'Reload history', onClick: reload }} />}
         </>
-      )}
+      ) : latestQuery.status === 'error' ? <InlineOperationStatus tone="alert" message="Couldn’t refresh current history." action={{ label: 'Reload history', onClick: reload }} /> : null}
 
       {selectedRevision !== undefined && (
         <section className="rounded-lg border border-line bg-panel-2/40 p-3" aria-label={`Version ${selectedRevision} preview`}>
           {selectedQuery.status === 'error' && !selectedVersion ? (
-            <InlineOperationStatus tone="alert" message={`Couldn’t load revision ${selectedRevision}.`} action={{ label: 'Retry version load', onClick: retrySelected }} />
+            resolveResourceUnavailable([selectedQuery], { notFoundIsMissing: true }) === 'missing'
+              ? <p role="status" data-artifact-version-unavailable="true" className="text-[12px] text-ink-soft">Version {selectedRevision} is not available from this account or was not retained. Current content has not been substituted.</p>
+              : <InlineOperationStatus tone="alert" message={`Couldn’t load revision ${selectedRevision}.`} action={{ label: 'Retry version load', onClick: retrySelected }} />
           ) : selectedQuery.status === 'loading' && !selectedVersion ? (
             <p role="status" className="text-[12px] text-ink-faint">Loading version {selectedRevision}…</p>
           ) : selectedVersion ? (

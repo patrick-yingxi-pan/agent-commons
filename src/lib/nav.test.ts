@@ -31,6 +31,9 @@ test('sameLocation compares page identity, ignoring a session title', () => {
   assert.ok(sameLocation(projectDetail('p1'), projectDetail('p1')))
   assert.ok(!sameLocation(projectDetail('p1'), projectDetail('p2')))
   assert.ok(!sameLocation(projectDetail('p1'), list('projects')), 'the list and a detail are different pages')
+  const artifactVersion = (artifactRevision: string): NavLocation => ({ kind: 'section', section: 'artifacts', projectId: null, scheduleId: null, artifactId: 'doc-1', artifactRevision })
+  assert.ok(sameLocation(artifactVersion('0'), artifactVersion('0')))
+  assert.ok(!sameLocation(artifactVersion('0'), artifactVersion('1')), 'distinct retained revisions are distinct pages')
   assert.ok(!sameLocation(session('s1'), list('projects')))
   // The workspace profile (D21) is a detail under Commons, keyed by name.
   assert.ok(sameLocation(ownerProfile('Ada Lab'), ownerProfile('Ada Lab')))
@@ -84,6 +87,11 @@ test('resolveBackLabel names the destination', () => {
   assert.equal(resolveBackLabel(routineDetail('r1'), { schedule: { r1: 'Daily news briefing' } }), 'Daily news briefing')
   assert.equal(resolveBackLabel(list('scheduled')), SECTION_LABELS.scheduled, 'a bare section uses its list name')
   assert.equal(resolveBackLabel(ownerProfile('Ada Lab')), 'Ada Lab', 'a workspace profile is its own label (D21)')
+  assert.equal(
+    resolveBackLabel({ kind: 'section', section: 'artifacts', projectId: null, scheduleId: null, artifactId: 'doc-1', artifactRevision: '7' }, { artifact: { 'doc-1': 'Launch brief' } }),
+    'Launch brief · Version 7',
+    'a version page names both its artifact and exact retained revision',
+  )
 })
 
 test('resolveBackLabel falls back gracefully when a name is missing', () => {
@@ -118,6 +126,7 @@ test('EVERY detail kind names itself — a back label never says the section for
     contextId: { section: 'contexts', names: { context: { x: 'acme/insights' } }, want: 'acme/insights' },
     discussionId: { section: 'discussions', names: { discussion: { x: 'Is the retention cut…' } }, want: 'Is the retention cut…' },
     artifactId: { section: 'artifacts', names: { artifact: { x: 'Launch brief' } }, want: 'Launch brief' },
+    artifactRevision: { section: 'artifacts', names: {}, want: 'Version 7', id: '7' },
     providerId: { section: 'models', names: { provider: { x: 'Together' } }, want: 'Together' },
   }
   // The two deliberate abstentions, each with its reason in DETAIL_LABEL: a
@@ -138,6 +147,7 @@ test('EVERY detail kind names itself — a back label never says the section for
     assert.equal(
       resolveBackLabel(to, {}),
       key === 'ownerName' ? 'x'
+      : key === 'artifactRevision' ? 'Version 7'
       : key === 'projectSectionId' || key === 'scheduleSectionId' || key === 'ownerSectionId' ? spec.want
       : SECTION_LABELS[spec.section],
       `${key} degrades to its section when unnamed`,

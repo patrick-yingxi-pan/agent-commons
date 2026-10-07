@@ -822,6 +822,15 @@ for transient acts such as creating an artifact; the artifact itself is the
 place. Locked structurally by `src/lib/artifact-page.test.ts` and in the DOM by
 `e2e/social-sharing.spec.ts`.
 
+Saved Artifact revisions are distinct read-only places:
+`/artifacts/:id/history/:revision` preserves revision zero, survives reload and
+Back, and reports an unavailable version rather than substituting current
+content. A separately confirmed restore creates a new current version without
+changing the revision named by that address. The explicit View current artifact
+door returns to the live resource. Pure identity locks live beside
+`artifactHistoryLocation.ts`, `paneNav.ts`, `nav.ts` and `urlRoutes.ts`;
+`e2e/artifact-version-search.spec.ts` verifies the rendered journey.
+
 ## Navigation history — an in-page door carries its origin
 
 (Owner directive 2026-07-17, spec ADAPT-18.) Every page opened by

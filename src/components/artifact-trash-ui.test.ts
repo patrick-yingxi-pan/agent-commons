@@ -7,7 +7,7 @@ const read = (file: string) => readFileSync(new URL(file, import.meta.url), 'utf
 test('Artifact Trash is one owner-only canonical lifecycle and shared recovery projection', () => {
   const page = read('./artifactPreview.tsx')
   assert.match(page, /if \(inTrash \|\| lifecycleHeld \|\| permanentDeletionHeld\) return/)
-  assert.match(page, /useArtifactContent\(!inTrash && !lifecycleHeld\)/)
+  assert.match(page, /useArtifactContent\(shouldReadCurrentArtifactBody\(\{ addressedRevision, inTrash, lifecycleHeld \}\)\)/)
   assert.match(page, /own && !lifecycleHeld && <button/)
   assert.match(page, /<ConfirmDialog title="Move artifact to Trash\?"/)
   assert.match(page, /enqueueArtifactLifecycle\(trashReview\.artifact, 'trashed', trashReview\.sourceUserId\)/)

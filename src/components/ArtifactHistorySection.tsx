@@ -21,17 +21,19 @@ export default function ArtifactHistorySection({
   sourceUserId,
   allowRestore,
   restoreBlocked,
+  addressedRevision,
 }: {
   Section: MainPageSectionComponent
   artifact: ArtifactItem
   sourceUserId: string | null
   allowRestore: boolean
   restoreBlocked?: boolean
+  addressedRevision?: number
 }) {
   const [opened, setOpened] = useState(false)
-  return <Section title="History" summary="Saved versions">
-    {!opened
+  return <Section title="History" summary="Saved versions" heldOpen={addressedRevision !== undefined} persist={addressedRevision === undefined}>
+    {!opened && addressedRevision === undefined
       ? <button type="button" className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`} onClick={() => setOpened(true)}>Load history</button>
-      : <Suspense fallback={<p role="status" className="text-[12px] text-ink-faint">Loading history…</p>}><Panel artifactId={artifact.id} artifactName={artifact.name} artifactKind={artifact.kind as ArtifactKind} sourceUserId={sourceUserId} allowRestore={allowRestore} restoreBlocked={restoreBlocked} /></Suspense>}
+      : <Suspense fallback={<p role="status" className="text-[12px] text-ink-faint">Loading history…</p>}><Panel artifactId={artifact.id} artifactName={artifact.name} artifactKind={artifact.kind as ArtifactKind} sourceUserId={sourceUserId} allowRestore={allowRestore} restoreBlocked={restoreBlocked} addressedRevision={addressedRevision} /></Suspense>}
   </Section>
 }

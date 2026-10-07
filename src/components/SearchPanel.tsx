@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, FileText, Globe, ListChecks, MessageSquare, Search, X, type LucideIcon } from 'lucide-react'
-import { SEARCH_PAGE_SIZE, type SearchHitType, type SearchPage } from '../../contract/index.ts'
+import { ArrowRight, FileText, Globe, History, ListChecks, MessageSquare, Search, X, type LucideIcon } from 'lucide-react'
+import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS, SEARCH_PAGE_SIZE, type SearchHitType, type SearchPage } from '../../contract/index.ts'
 import type { Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -8,7 +8,7 @@ import { SCRIM_CLASS } from '../lib/scrim'
 import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { useBoundedDialog } from '../lib/useBoundedDialog'
 import { retryGlobalSearch, useGlobalSearch } from '../api'
-import { searchHitDestination, searchResponseMatches, searchResultSubtitleClass } from '../lib/searchResults'
+import { searchHitDestination, searchHitKey, searchHitVersionLabel, searchResponseMatches, searchResultSubtitleClass } from '../lib/searchResults'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 
 /** Icon per server hit type. Section-shaped types reuse the section's own icon
@@ -17,6 +17,7 @@ const HIT_ICON: Record<SearchHitType, LucideIcon> = {
   session: MessageSquare,
   project: SECTION_META.projects.Icon,
   artifact: SECTION_META.artifacts.Icon,
+  artifactVersion: History,
   schedule: SECTION_META.scheduled.Icon,
   agent: SECTION_META.agents.Icon,
   prompt: FileText,
@@ -32,6 +33,7 @@ interface Result {
   key: string
   title: string
   subtitle: string
+  versionLabel?: string
   Icon: LucideIcon
   run: () => void
 }
@@ -63,17 +65,20 @@ export function SearchPanel({
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
   const [page, setPage] = useState<SearchPage | undefined>()
+  const searchingVersions = page?.type === 'artifactVersion'
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   // Debounced server query — one request per typing pause, cached per query.
   const [debouncedQ, setDebouncedQ] = useState('')
+  const queryTooLong = searchingVersions && q.trim().length > MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 160)
     return () => clearTimeout(t)
   }, [q])
-  const server = useGlobalSearch(debouncedQ, page)
+  const blockedVersionQuery = queryTooLong || (searchingVersions && debouncedQ.length > MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS)
+  const server = useGlobalSearch(blockedVersionQuery ? '' : debouncedQ, blockedVersionQuery ? undefined : page)
 
   // Focus the search input on open, trap Tab within the palette, close on
   // Escape, restore focus on close.
@@ -84,7 +89,7 @@ export function SearchPanel({
   // The server echoes the (lowercased) query it answered — mismatch means the
   // answer for what's typed is still in flight, so "no matches" would be a lie.
   const currentQuery = debouncedQ.toLowerCase() === needle.toLowerCase()
-  const settled = currentQuery && server.status === 'success' && searchResponseMatches(server.data, needle, page)
+  const settled = !queryTooLong && currentQuery && server.status === 'success' && searchResponseMatches(server.data, needle, page)
   const failed = currentQuery && server.status === 'error'
   const pageGroup = settled && page ? server.data?.groups[0] : undefined
   const changePage = useCallback((next: SearchPage | undefined) => {
@@ -117,7 +122,7 @@ export function SearchPanel({
     }))
 
     // Empty query → a tidy "jump to" default over the shell + recent threads.
-    if (needle === '') {
+    if (needle === '' && !searchingVersions) {
       const recent: Result[] = sessions.slice(0, 5).map((c) => ({
         key: `c-${c.id}`,
         title: c.title,
@@ -139,9 +144,10 @@ export function SearchPanel({
         const destination = searchHitDestination(h)
         if (!destination) return []
         return [{
-          key: `${h.type}-${h.id}`,
+          key: searchHitKey(h),
           title: h.title,
           subtitle: h.subtitle,
+          versionLabel: searchHitVersionLabel(h),
           Icon: HIT_ICON[h.type],
           run: () => {
             if (destination.kind === 'session') onSelectSession(destination.id)
@@ -156,7 +162,7 @@ export function SearchPanel({
     }))
 
     return [...serverGroups, { label: 'Pages', items: pageResults }].filter((g) => g.items.length > 0)
-  }, [needle, sessions, server.data, settled, page, changePage, onSelectSession, onOpenSection, onClose])
+  }, [needle, sessions, server.data, settled, page, searchingVersions, changePage, onSelectSession, onOpenSection, onClose])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
@@ -209,25 +215,28 @@ export function SearchPanel({
           <input
             ref={inputRef}
             value={q}
-            onChange={(e) => { setQ(e.target.value); setPage(undefined); setActive(0) }}
+            onChange={(e) => { setQ(e.target.value); setPage(searchingVersions ? { type: 'artifactVersion', offset: 0 } : undefined); setActive(0) }}
             onKeyDown={onKeyDown}
             aria-label="Search everything"
             aria-describedby="search-help"
-            placeholder="Search everything — sessions, projects, agents, people…"
+            placeholder={searchingVersions ? 'Find text in your saved artifact versions…' : 'Search everything — sessions, projects, agents, people…'}
+            maxLength={searchingVersions ? MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS : undefined}
             className="min-w-0 flex-1 bg-transparent py-3 text-[15px] text-ink outline-none placeholder:text-ink-faint"
           />
           <button type="button" aria-label="Close search" onClick={onClose} className="shrink-0 rounded-md p-1 text-ink-faint hover:bg-panel-2"><X size={16} /></button>
         </div>
-        {page && <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3.5 py-2">
-          <button type="button" className={INLINE_ACTION_CLASS} onClick={() => changePage(undefined)}>All categories</button>
-          <span className="text-[11px] text-ink-faint">Results reflect current access; changes may shift pages.</span>
-        </div>}
-        {needle && !settled && <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 px-3.5 py-2 text-[12px] text-ink-soft">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3.5 py-2">
+          {page && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => changePage(undefined)}>{searchingVersions ? 'Current resources' : 'All categories'}</button>}
+          {!searchingVersions && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => changePage({ type: 'artifactVersion', offset: 0 })}>Search saved versions</button>}
+          <span className="text-[11px] text-ink-faint">{searchingVersions ? 'Only your retained artifact versions, including Trash. Opening a result changes nothing.' : page ? 'Results reflect current access; changes may shift pages.' : 'Saved versions are searched separately.'}</span>
+        </div>
+        {queryTooLong && <p role="status" className="px-3.5 py-2 text-[12px] text-ink-soft">Shorten your query to {MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS} characters to search saved versions.</p>}
+        {needle && !queryTooLong && !settled && <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 px-3.5 py-2 text-[12px] text-ink-soft">
           <span>{failed ? 'Search is unavailable right now.' : 'Searching…'}</span>
           {failed && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => retryGlobalSearch(debouncedQ, page)}>Retry search</button>}
         </div>}
         <div ref={resultsRef} data-search-results className={`${BOUNDED_DIALOG_BODY_CLASS} py-1.5`}>
-          {flat.length === 0 && settled ? (
+          {searchingVersions && !needle ? <p className="px-4 py-10 text-center text-[13px] text-ink-faint">Type to search your saved artifact versions.</p> : flat.length === 0 && settled ? (
             <div role="status" className="break-words px-4 py-10 text-center text-[13px] text-ink-faint [overflow-wrap:anywhere]">
               {page ? 'No matches on this page. Go back to review current results.' : <>No matches for “{needle}”.</>}
             </div>
@@ -260,7 +269,8 @@ export function SearchPanel({
                       />
                       <span className="min-w-0 flex-1">
                         <span title={r.title} className="block truncate text-[13px] font-medium text-ink">{r.title}</span>
-                        <span title={r.subtitle} className={`block truncate text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.subtitle}</span>
+                        {r.versionLabel && <span className={`block break-words text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.versionLabel}</span>}
+                        <span title={r.subtitle} className={`${r.versionLabel ? 'line-clamp-3 break-words [overflow-wrap:anywhere]' : 'block truncate'} text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.subtitle}</span>
                       </span>
                     </button>
                   )

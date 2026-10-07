@@ -1,16 +1,29 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import { lstat, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile, chmod } from 'node:fs/promises'
 import { tmpdir, homedir, userInfo } from 'node:os'
 import { dirname, join, parse } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
-import { closeSync, fstatSync, lstatSync, openSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { DesktopUserDataError, ensureDesktopUserDataDirectory as ensureDesktopUserDataDirectoryWithDefaultAcl } from './userDataDirectory.mjs'
+import { closeSync, fstatSync, lstatSync, mkdtempSync, openSync, rmSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { desktopProfileAclHelperPath, inspectDarwinProfileAcl } from './profileAcl.mjs'
 import { buildDesktopProfileHelper } from './profileHelperBuild.mjs'
 
-const helper = process.platform === 'darwin' ? buildDesktopProfileHelper() : undefined
+const helperDirectory = process.platform === 'darwin'
+  ? mkdtempSync(join(tmpdir(), 'agent-commons-profile-acl-test-'))
+  : undefined
+if (helperDirectory) after(() => rmSync(helperDirectory, { recursive: true, force: true }))
+const helper = helperDirectory
+  ? buildDesktopProfileHelper({ outputPath: join(helperDirectory, 'profile-acl') })
+  : undefined
+
+function ensureDesktopUserDataDirectory(path: string, options: Parameters<typeof ensureDesktopUserDataDirectoryWithDefaultAcl>[1] = {}) {
+  return ensureDesktopUserDataDirectoryWithDefaultAcl(path, {
+    inspectAcl: fd => inspectDarwinProfileAcl(fd, { helperPath: helper }),
+    ...options,
+  })
+}
 
 const posix = process.platform !== 'win32'
 async function fixture(work: (root: string) => Promise<void>) {
@@ -21,7 +34,16 @@ async function fixture(work: (root: string) => Promise<void>) {
 test('a missing profile is private; a permissive owned profile refuses without changing contents or permissions', { skip: !posix }, async () => {
   await fixture(async root => {
     const profile = join(root, 'profile')
-    await ensureDesktopUserDataDirectory(profile)
+    let inspection
+    try {
+      ensureDesktopUserDataDirectory(profile, { inspectAcl: fd => inspectDarwinProfileAcl(fd, { helperPath: helper, run: (...args) => {
+        const result = spawnSync(...args)
+        inspection = { code: result.error?.code, status: result.status, signal: result.signal, stdout: result.stdout, stderr: result.stderr }
+        return result
+      } }) })
+    } catch (error) {
+      assert.fail(`${error.message}\nNative ACL inspection outcome: ${JSON.stringify(inspection)}`)
+    }
     assert.equal((await stat(profile)).mode & 0o7777, 0o700)
     const sentinel = join(profile, 'saved-work')
     await writeFile(sentinel, 'Keep the exact saved work.')

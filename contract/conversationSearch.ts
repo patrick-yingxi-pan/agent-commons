@@ -1,3 +1,5 @@
+import { literalSearchSnippet } from './literalSearch.ts'
+
 /** Bounded text search over the current readable transcript of one conversation. */
 export const MAX_CONVERSATION_SEARCH_QUERY_CHARS = 256
 export const CONVERSATION_SEARCH_PAGE_SIZE = 20
@@ -35,37 +37,6 @@ export function parseConversationSearchQuery(q: string | undefined, offset: stri
   return { query, offset: parsed }
 }
 
-function sourceSpanForLowerRange(content: string, lowerStart: number, lowerEnd: number): { start: number; end: number } {
-  let lowerAt = 0
-  let sourceAt = 0
-  let sourceStart: number | undefined
-  for (const character of content) {
-    // Lowercasing a full string can change values contextually (Greek final
-    // sigma), but its UTF-16 width remains the sum of per-codepoint widths.
-    const lowerWidth = character.toLowerCase().length
-    const nextLowerAt = lowerAt + lowerWidth
-    if (sourceStart === undefined && lowerAt < lowerEnd && nextLowerAt > lowerStart) sourceStart = sourceAt
-    if (sourceStart !== undefined && nextLowerAt >= lowerEnd) return { start: sourceStart, end: sourceAt + character.length }
-    lowerAt += lowerWidth
-    sourceAt += character.length
-  }
-  return { start: sourceAt, end: sourceAt }
-}
-
-function snippetFor(content: string, matchAt: number, matchEnd: number): string {
-  const max = CONVERSATION_SEARCH_SNIPPET_CHARS
-  if (content.length <= max) return content
-  // Reserve space for both possible ellipses. Usually the full match fits;
-  // Unicode expansion can exceed the original query width, so a longer source
-  // match retains its beginning instead of moving the snippet past it.
-  const window = max - 2
-  const matchLength = matchEnd - matchAt
-  const before = Math.max(0, Math.min(80, Math.floor((window - matchLength) / 2)))
-  const left = Math.max(0, Math.min(matchAt - before, content.length - window))
-  const right = Math.min(content.length, left + window)
-  return `${left > 0 ? '…' : ''}${content.slice(left, right)}${right < content.length ? '…' : ''}`
-}
-
 /** Search only current user/assistant content, preserving transcript order. */
 export function searchConversationMessages(
   messages: readonly ConversationSearchMessage[],
@@ -80,11 +51,12 @@ export function searchConversationMessages(
     const lowerAt = message.content.toLowerCase().indexOf(query)
     if (lowerAt < 0) continue
     if (total >= offset && hits.length < CONVERSATION_SEARCH_PAGE_SIZE) {
-      const span = sourceSpanForLowerRange(message.content, lowerAt, lowerAt + query.length)
+      const snippet = literalSearchSnippet(message.content, query, CONVERSATION_SEARCH_SNIPPET_CHARS)
+      if (snippet === undefined) continue
       hits.push({
         messageId: message.id,
         role: message.role,
-        snippet: snippetFor(message.content, span.start, span.end),
+        snippet,
       })
     }
     total += 1

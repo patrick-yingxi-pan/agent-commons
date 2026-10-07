@@ -48,3 +48,12 @@ test('macOS ACL helper is copied beside the application and excluded with its bu
   assert.match(devSource, /buildDesktopNativeRuntime\(\)/)
   assert.equal(ignoreFromPackage('/desktop/nativeBuild.mjs'), true)
 })
+
+test('user-data tests compile and inspect a private ACL helper instead of the shared development binary', () => {
+  const userDataTest = readFileSync(new URL('./userDataDirectory.test.ts', import.meta.url), 'utf8')
+  assert.match(userDataTest, /mkdtempSync\(join\(tmpdir\(\), 'agent-commons-profile-acl-test-'\)\)/)
+  assert.match(userDataTest, /buildDesktopProfileHelper\(\{ outputPath: join\(helperDirectory, 'profile-acl'\) \}\)/)
+  assert.match(userDataTest, /function ensureDesktopUserDataDirectory\(path:[\s\S]*?ensureDesktopUserDataDirectoryWithDefaultAcl\(path, \{\s*inspectAcl: fd => inspectDarwinProfileAcl\(fd, \{ helperPath: helper \}\),\s*\.\.\.options,/)
+  assert.match(userDataTest, /rmSync\(helperDirectory, \{ recursive: true, force: true \}\)/)
+  assert.match(userDataTest, /inspectDarwinProfileAcl\(fd, \{ helperPath: helper, run:/)
+})

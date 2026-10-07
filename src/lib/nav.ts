@@ -61,6 +61,7 @@ export type NavLocation =
       discussionId?: string | null
       /** An artifact open in the gallery (`/artifacts/:id`, UI-19). Absent ≡ null. */
       artifactId?: string | null
+      artifactRevision?: string | null
       /** A model provider focused in the list (`/models/:id`, UI-19). Absent ≡ null. */
       providerId?: string | null
     }
@@ -107,6 +108,7 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.adminUserId ?? null) === (b.adminUserId ?? null) &&
       (a.discussionId ?? null) === (b.discussionId ?? null) &&
       (a.artifactId ?? null) === (b.artifactId ?? null) &&
+      (a.artifactRevision ?? null) === (b.artifactRevision ?? null) &&
       (a.providerId ?? null) === (b.providerId ?? null)
     )
   return false
@@ -169,6 +171,7 @@ const DETAIL_LABEL: {
   adminUserId: () => undefined,
   discussionId: (id, n) => n.discussion?.[id],
   artifactId: (id, n) => n.artifact?.[id],
+  artifactRevision: (id) => `Version ${id}`,
   providerId: (id, n) => n.provider?.[id],
 }
 
@@ -183,6 +186,8 @@ const DETAIL_LABEL: {
 export function resolveBackLabel(to: NavLocation | null, names: BackLabelNames = {}): string {
   if (!to) return 'Back'
   if (to.kind === 'session') return to.title || 'Back'
+  if (to.artifactId && to.artifactRevision !== undefined && to.artifactRevision !== null)
+    return `${names.artifact?.[to.artifactId] ?? 'Artifact'} · Version ${to.artifactRevision}`
   for (const key of PANE_SEED_KEYS) {
     const id = to[key]
     if (!id) continue

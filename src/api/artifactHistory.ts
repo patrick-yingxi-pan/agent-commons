@@ -29,7 +29,7 @@ export function useArtifactHistory(artifactId: string, beforeRevision?: number, 
   const key = `${artifactHistoryKey(artifactId)}:${beforeRevision ?? 'newest'}`
   return useQuery(key, async () => requirePage(
     await apiGet<unknown>(paths.artifactHistory(artifactId, beforeRevision)), artifactId,
-  ), Boolean(artifactId) && enabled)
+  ), Boolean(artifactId) && enabled, true)
 }
 
 export function useArtifactHistoryVersion(
@@ -39,7 +39,7 @@ export function useArtifactHistoryVersion(
   const key = `${artifactHistoryKey(artifactId)}:version:${revision ?? 'none'}`
   return useQuery(key, async () => requireVersion(
     await apiGet<unknown>(paths.artifactHistoryVersion(artifactId, revision!)), artifactId, revision!,
-  ), Boolean(artifactId) && revision !== undefined)
+  ), Boolean(artifactId) && revision !== undefined, true)
 }
 
 export async function readArtifactHistory(artifactId: string, beforeRevision?: number): Promise<ArtifactHistoryPage> {

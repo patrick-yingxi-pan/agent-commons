@@ -72,13 +72,14 @@ import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { e2ePartition, envCount, specFiles, specGroups, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
+import { e2ePartition, envCount, specFiles, specGroups, suiteConcurrency, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
 import { resolvedFactor, shardCount } from './hostSpeed.mjs'
 
 /** The plan — which suites, which specs, how they split. Its own module so a
  *  node test can hold it: these decide the sweep's COVERAGE, and this file
  *  cannot be imported to check them (it spawns children at import time). */
 const SUITE = suiteFiles()
+const NODE_TEST_CONCURRENCY = suiteConcurrency()
 const SPECS = specFiles()
 const PARTITION = e2ePartition(process.env, SPECS)
 
@@ -122,7 +123,7 @@ const lanes = [
     name: 'checks',
     steps: [
       { cmd: 'npm', args: ['run', 'typecheck'] },
-      { cmd: 'node', args: ['--test', ...SUITE] },
+      { cmd: 'node', args: ['--test', `--test-concurrency=${NODE_TEST_CONCURRENCY}`, ...SUITE] },
       { cmd: 'npm', args: ['run', 'build'] },
     ],
   },

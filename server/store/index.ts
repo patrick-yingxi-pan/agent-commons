@@ -107,6 +107,8 @@ import {
   historyBodyWithoutRevision,
 } from '../../contract/artifactHistory.ts'
 import { prepareArtifactHistoryAppend, type StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
+import { searchArtifactVersions } from '../artifactVersionSearch.ts'
+import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS } from '../../contract/search.ts'
 import type { ArtifactDeletionPreview, ArtifactDeletionRequest, ArtifactDeletionResult } from '../../contract/artifactDeletion.ts'
 import { parseArtifactRetirements, type ArtifactRetirement, type StoredArtifactDeletionReceipt } from '../artifactDeletion.ts'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
@@ -1215,10 +1217,12 @@ function artifactBodyOf(artifactId: string): ArtifactContent | undefined {
 }
 /** Private retention resolver: only metadata/Trash projection may bypass the
  * ordinary read wall. Export/edit/model paths must use artifactBodyOf instead. */
-function retainedArtifactBody(artifactId: string): ArtifactContent | undefined {
+function retainedArtifactBody(artifactId: string, knownBaseArtifact?: ArtifactItem): ArtifactContent | undefined {
   const stored = artifactBodies.get(artifactId)
   if (stored) return stored
-  const a = baseArtifacts().find((candidate) => candidate.id === artifactId)
+  const a = knownBaseArtifact?.id === artifactId
+    ? knownBaseArtifact
+    : baseArtifacts().find((candidate) => candidate.id === artifactId)
   return a ? ARTIFACT_CONTENT[a.name] : undefined
 }
 
@@ -8278,6 +8282,9 @@ export const store = {
    *  you; your registry vs the published directory), so nothing appears twice. */
   searchAll(tenantId: string, q?: string, page?: SearchPage): SearchResponse {
     const needle = (q ?? '').trim().toLowerCase()
+    if (page?.type === 'artifactVersion' && (q ?? '').trim().length > MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS) {
+      throw new ValidationError(`Artifact version search queries are limited to ${MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS} characters.`)
+    }
     if (!needle && !page) return { query: '', groups: [] }
     const hit = (...fields: (string | undefined)[]) => !!needle && fields.some((f) => f?.toLowerCase().includes(needle))
     const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
@@ -8286,6 +8293,27 @@ export const store = {
         ? [{ type, label, total: hits.length, hits: hits.slice(page.offset, page.offset + SEARCH_PAGE_SIZE) }]
         : []
       return hits.length ? [{ type, label, total: hits.length, hits: hits.slice(0, SEARCH_GROUP_CAP) }] : []
+    }
+
+    if (page?.type === 'artifactVersion') {
+      const seedArtifacts = baseArtifacts()
+      const rows: Array<{ row: ArtifactItem; knownBaseArtifact?: ArtifactItem }> = [
+        ...graph.extraArtifacts.map((row) => ({ row })),
+        ...seedArtifacts.map((row) => ({ row, knownBaseArtifact: row })),
+      ]
+      const sources = rows.flatMap(({ row, knownBaseArtifact }) => {
+        const artifact = projectArtifactMetadata(row, artifactMetadata.get(row.id))
+        const body = retainedArtifactBody(row.id, knownBaseArtifact)
+        if (!artifact || !body || !this.artifactOwnedBy(artifact, tenantId) || !historyBodyWithoutRevision(body)) return []
+        return [{
+          id: artifact.id,
+          name: artifact.name,
+          trashed: artifactIsTrashed(artifact.id),
+          versions: artifactHistory.get(artifact.id) ?? [],
+        }]
+      })
+      const historical = searchArtifactVersions(sources, q ?? '', page.offset)
+      return { query: needle, page, groups: [historical] }
     }
 
     // 'Your projects' = seeds + created rows the caller owns; a FOREIGN shared row

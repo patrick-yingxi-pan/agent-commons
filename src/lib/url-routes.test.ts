@@ -182,6 +182,17 @@ test('a saved context detail round-trips through /contexts/:id', () => {
   assert.deepEqual(viewForPath('/contexts/connector'), { loc: section({ section: 'contexts', contextId: 'connector' }), subview: null })
 })
 
+test('artifact history revisions have canonical encoded addresses and exact revision parsing', () => {
+  const loc = section({ section: 'artifacts', artifactId: 'doc one/two', artifactRevision: '0' })
+  const path = pathForView(loc, null)
+  assert.equal(path, '/artifacts/doc%20one%2Ftwo/history/0')
+  assert.deepEqual(viewForPath(path), { loc, subview: null })
+  assert.equal(viewForPath('/artifacts/doc/history/01'), null, 'leading-zero revisions are not canonical')
+  assert.equal(viewForPath('/artifacts/doc/history/-1'), null, 'negative revisions are invalid')
+  assert.equal(viewForPath('/artifacts/doc/history/9007199254740992'), null, 'unsafe revisions are invalid')
+  assert.equal(viewForPath('/artifacts/doc/history/1/extra'), null, 'the history route has one revision segment')
+})
+
 test('a discussion detail round-trips through /discussions/:did', () => {
   const loc = section({ section: 'discussions', discussionId: 'disc-1' })
   const path = pathForView(loc, null)
