@@ -254,11 +254,14 @@ test('the controller resurfaces the held proposal at every reconcile entry — t
 
 test('the consent card reads persisted history and submits one acknowledged decision (C29)', () => {
   const card = stripComments(read(join(ROOT, 'src', 'components', 'RelationActionCard.tsx')))
-  assert.match(card, /resolved\?\.\[key\] === 'confirmed'/, 'the persisted confirm wins over graph state')
-  assert.match(card, /resolved\?\.\[key\] === 'skipped'/, 'the persisted skip renders too')
+  assert.match(card, /relationConsentVerdict\(\s*resolved\?\.\[key\],\s*held !== null,/,
+    'the shared verdict funnel gives persisted confirm and skip priority over graph state')
+  assert.match(card, /const isDone = verdict === 'confirmed'/)
+  assert.match(card, /const isSkipped = verdict === 'skipped'/)
   assert.match(card, /enqueueRelationActionDecision\(\{ tenantId, sessionId, messageId, operation, verdict \}\)/,
     'effect and verdict travel through one acknowledgement-owned decision')
-  assert.match(card, /const isDone =\s*!held &&/,
+  const verdict = stripComments(read(join(ROOT, 'src', 'lib', 'relationConsent.ts')))
+  assert.match(verdict, /if \(held\) return 'pending'/,
     'ambient history cannot clear an uncertain local decision before acknowledgement')
   assert.match(card, /disabled=\{held !== null \|\| !tenantId\}/,
     'Confirm and Not now cannot race while either decision is held')

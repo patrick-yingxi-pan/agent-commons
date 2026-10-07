@@ -447,3 +447,60 @@ test('keyed Not now executes no effect, while an effect conflict leaves the prop
   assert.equal(carrier?.relationsResolved, undefined, 'a refused effect cannot manufacture a terminal verdict')
   assert.equal(carrier?.relationDecisionIds, undefined, 'nor can it mint a replay receipt')
 })
+
+test('E2E: share_project proposes through the model, waits for consent, and supports decline, sharing, reversal, and replay', async () => {
+  const projectId = 'p-model-share-project'
+  const projectName = 'Model Share Project'
+  store.applyRelationOp({
+    kind: 'create-project', projectId, projectName, projectDescription: 'A project created for the model round trip.',
+  })
+  const session = store.createSession('share project intent')
+  const proposalFor = async (text: string) => {
+    const response = await callRaw('POST', `/sessions/${session.id}/messages`, { text })
+    assert.equal(response.status, 200)
+    assert.match(response.body, /"kind":"share-project"/, 'the mock model called share_project through tool_use')
+    const current = (await call('GET', `/sessions/${session.id}`)).json.messages ?? []
+    const carrier = [...current].reverse().find((message: { relationActions?: RelationOp[] }) =>
+      message.relationActions?.some((op) => op.kind === 'share-project'))
+    assert.ok(carrier, 'the tool call became a persisted consent proposal')
+    const operation = carrier.relationActions.find((op: RelationOp) => op.kind === 'share-project') as Extract<RelationOp, { kind: 'share-project' }>
+    assert.equal(operation.projectId, projectId, 'the created project id from the route context is targeted')
+    return { carrier, key: opKey(operation), operation }
+  }
+  const decide = (proposal: { carrier: { id: string }; key: string }, verdict: 'confirmed' | 'skipped', logicalKey: string, headers?: Record<string, string>) =>
+    call('POST', `/sessions/${session.id}/messages/${proposal.carrier.id}/relations`,
+      { key: proposal.key, verdict }, { ...headers, 'idempotency-key': logicalKey })
+
+  assert.equal(store.listProjects('tenant-beta').some((project) => project.id === projectId), false, 'private project is initially invisible')
+
+  const declined = await proposalFor(`Share the project "${projectName}".`)
+  assert.equal(declined.operation.shared, true)
+  assert.equal(store.listProjects('tenant-beta').some((project) => project.id === projectId), false, 'proposal alone does not publish the project')
+  const skipped = await decide(declined, 'skipped', 'model-share-decline')
+  assert.equal(skipped.status, 200)
+  assert.equal(store.listProjects('tenant-beta').some((project) => project.id === projectId), false, 'declining leaves it private')
+
+  const sharing = await proposalFor(`Share the project "${projectName}"!`)
+  assert.equal(sharing.operation.shared, true)
+  const beforeForeign = store.listProjects('tenant-beta').some((project) => project.id === projectId)
+  assert.equal(beforeForeign, false, 'it remains private while awaiting approval')
+  const foreign = await decide(sharing, 'confirmed', 'model-share-foreign', {
+    'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta',
+  })
+  assert.ok([403, 404].includes(foreign.status), 'a foreign tenant cannot confirm an owner proposal')
+  assert.equal(store.listProjects('tenant-beta').some((project) => project.id === projectId), false, 'foreign confirmation has no effect')
+
+  const confirmed = await decide(sharing, 'confirmed', 'model-share-confirm')
+  assert.equal(confirmed.status, 200)
+  assert.equal(store.listProjects('tenant-beta').some((project) => project.id === projectId), true, 'confirmed sharing publishes the project')
+  const replay = await decide(sharing, 'confirmed', 'model-share-confirm')
+  assert.equal(replay.status, confirmed.status)
+  assert.deepEqual(replay.json, confirmed.json)
+
+  const privateAgain = await proposalFor(`Make the ${projectName} project private.`)
+  assert.equal(privateAgain.operation.shared, false)
+  assert.equal(store.listProjects('tenant-beta').some((project) => project.id === projectId), true, 'reversal also waits for consent')
+  const unshared = await decide(privateAgain, 'confirmed', 'model-share-private')
+  assert.equal(unshared.status, 200)
+  assert.equal(store.listProjects('tenant-beta').some((project) => project.id === projectId), false, 'confirmed reversal hides the project again')
+})

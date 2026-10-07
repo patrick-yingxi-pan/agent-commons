@@ -564,9 +564,9 @@ export function describeOp(op: RelationOp): OpDescription {
     case 'share-project':
       return {
         text: op.shared
-          ? `Share **${op.projectName}** with other tenants`
-          : `Make **${op.projectName}** private again`,
-        done: op.shared ? `Shared ${op.projectName}` : `Made ${op.projectName} private`,
+          ? `Share **${op.projectName}** with everyone on Agent Commons. Others can discover this Project and contribute their own agents; private conversations and context stay private.`
+          : `Stop sharing **${op.projectName}** with the Commons. Public discovery and cross-account contributions stop; existing audience grants and their permissions stay unchanged.`,
+        done: op.shared ? `Shared ${op.projectName}` : `Stopped public sharing of ${op.projectName}`,
         section: 'projects',
         projectId: op.projectId,
         relationId: 'project-shared',

@@ -777,6 +777,68 @@ test('the tool-use loop over the mailbox: declared tools → relayed calls → e
   })
 })
 
+test('Session relay declares share_project and turns a call for a created Project into a pending consent proposal', async () => {
+  const p = await mintSessionProvider('Relay project sharing')
+  const projectName = `Relay share ${(Date.now()).toString(36)}`
+  const created = await call('POST', '/projects', {
+    name: projectName,
+    description: 'A created Project for the Session relay share proposal.',
+  })
+  assert.equal(created.status, 201)
+  const projectId = created.json.project.id as string
+  const { sessionId } = await sessionWithTools(p.id, ['share_project'])
+
+  // The real creation route's commons projection marks only this created,
+  // caller-owned Project shareable for the relay tool context.
+  const before = await call('GET', '/projects')
+  assert.equal(before.status, 200)
+  const listed = before.json.find((project: { id: string }) => project.id === projectId)
+  assert.ok(listed)
+  assert.equal(listed.own, true)
+  assert.notEqual(listed.shared, true)
+
+  await withEnv({ RELAY_POLL_MS: '2000', RELAY_TIMEOUT_MS: '5000' }, async () => {
+    const parked = call('GET', '/relay/poll', undefined, auth(p.secret))
+    await sleep(10)
+    const send = callRaw('POST', `/sessions/${sessionId}/messages`, { text: `Share the ${projectName} Project.` })
+    const round1 = await parked
+    assert.equal(round1.status, 200)
+    const declaration = round1.json.prompt.tools.find((tool: { name: string }) => tool.name === 'share_project')
+    assert.ok(declaration, 'the granted share_project tool is declared to the Session provider')
+    assert.deepEqual(declaration.inputSchema.required, ['project', 'shared'])
+    assert.equal(declaration.inputSchema.properties.project.type, 'string')
+    assert.equal(declaration.inputSchema.properties.shared.type, 'boolean')
+
+    const relayed = await call(
+      'POST',
+      '/relay/reply',
+      { entryId: round1.json.entryId, toolCalls: [{ name: 'share_project', input: { project: projectId, shared: true } }] },
+      auth(p.secret),
+    )
+    assert.equal(relayed.status, 200)
+    const round2 = await call('GET', '/relay/poll', undefined, auth(p.secret))
+    assert.equal(round2.status, 200)
+    const result = (round2.json.prompt.messages as Array<Record<string, any>>).find((message) => message.toolResults)?.toolResults[0]
+    assert.ok(result)
+    assert.match(result.content, /Proposed sharing .* awaiting confirmation/i)
+    assert.notEqual((await call('GET', '/projects')).json.find((project: { id: string }) => project.id === projectId)?.shared, true,
+      'the relayed call creates only a proposal and does not change Project visibility')
+
+    await call('POST', '/relay/reply', { entryId: round2.json.entryId, completion: 'The share proposal is ready for your confirmation.' }, auth(p.secret))
+    const fs = frames((await send).body)
+    const relations = fs.find((frame) => frame.type === 'message.relations')
+    assert.ok(relations, 'the turn carries a consent-gated relation proposal')
+    assert.deepEqual(relations!.relationActions, [{
+      kind: 'share-project',
+      projectId,
+      projectName,
+      shared: true,
+    }])
+    assert.notEqual((await call('GET', '/projects')).json.find((project: { id: string }) => project.id === projectId)?.shared, true,
+      'finishing the model turn still leaves the Project private until the owner confirms')
+  })
+})
+
 test('the relay path enforces the shared batch ceiling and marks excess results as errors', async () => {
   const p = await mintSessionProvider('Bounded tool batch')
   const { sessionId } = await sessionWithTools(p.id, ['create_project', 'save_artifact'])

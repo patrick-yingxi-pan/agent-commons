@@ -28,6 +28,7 @@ const PHRASES: Record<string, string> = {
   set_artifact_source: 'Note that insights-onepager.md derives from the brand-kit/ folder',
   refile_artifact: 'Move query-perf.sheet into the Growth experiments project',
   set_project_instructions: 'Set the instructions for Growth experiments: lead with the metric, then the mechanism',
+  share_project: 'Share the project "Launch Plan"',
 }
 
 test('every relation/escalation tool in the catalog is reachable by a free-typed phrase', () => {
@@ -114,6 +115,32 @@ test('scheduled artifact intents use explicit format words, never filename suffi
   const titleVerb = matchIntents('Have the “Save a sheet nightly” schedule save a digest each run').at(0)
   assert.equal(titleVerb?.input.artifactKind, 'doc')
   assert.equal(titleVerb?.input.artifact, 'digest')
+})
+
+test('project sharing intents preserve explicit targets and strict public/private direction', () => {
+  const cases = [
+    ['Share the project "R&D: Launch!".', 'R&D: Launch!', true],
+    ['Unshare the project “North Star, Q4?”.', 'North Star, Q4?', false],
+    ['Share the Launch Plan project', 'Launch Plan', true],
+    ['Make the Launch Plan project private', 'Launch Plan', false],
+  ] as const
+  for (const [phrase, project, shared] of cases) {
+    const call = matchIntents(phrase).at(0)
+    assert.equal(call?.name, 'share_project', phrase)
+    assert.deepEqual(call?.input, { project, shared }, phrase)
+    assert.equal(matchIntents(phrase).length, 1, 'one explicit request yields one tool call')
+  }
+})
+
+test('negated or merely discussed sharing language does not create a proposal intent', () => {
+  for (const phrase of [
+    'Do not share the project "Launch Plan".',
+    'I do not want to make the Launch Plan project private.',
+    'Should we share the Launch Plan project?',
+    'The Launch Plan project is shared already.',
+  ]) {
+    assert.deepEqual(matchIntents(phrase), [], phrase)
+  }
 })
 
 test('the structured routine fixture supplies body only through the dedicated tool', () => {

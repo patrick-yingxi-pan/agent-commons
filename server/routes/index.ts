@@ -4797,6 +4797,7 @@ export function buildRouter(): Router {
       // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
       // Shared by BOTH transports — a relayed tool call resolves against the same
       // registries a dial-out one does.
+      const createdProjectIds = new Set(store.relationGraph(tenantId).extraProjects.map((project) => project.id))
       const commons = {
         // isDefault rides along so create_agent can pre-select the caller's
         // default-else-first binding when the model names none — the same
@@ -4817,6 +4818,7 @@ export function buildRouter(): Router {
           instructions: p.instructions,
           own: p.own,
           shared: p.shared,
+          shareable: createdProjectIds.has(p.id),
         })),
         // These semantic aliases propose filing/source writes. Read-only
         // grants remain discoverable through GET /artifacts, not write targets.

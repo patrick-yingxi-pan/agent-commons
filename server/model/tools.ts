@@ -62,6 +62,8 @@ export interface ToolContext {
       own?: boolean
       /** Whether a non-owner may collaborate on the project. */
       shared?: boolean
+      /** Server-asserted eligibility for changing Project sharing (created rows only). */
+      shareable?: boolean
     }[]
     /** Live artifacts — saved-out extras first, then seeds. */
     artifacts?: { id: string; name: string }[]
@@ -287,6 +289,35 @@ const TOOLS: ToolSpec[] = [
   },
 
   // ── Relation-op tools — one per RelationOp kind ─────────────────────────────
+  {
+    name: 'share_project',
+    description: 'Propose sharing an owned, created Project with everyone on Agent Commons, or stopping that public sharing. Sharing makes its public Project page discoverable and accepts other people\'s agents; private conversations and context remain private. Stopping public sharing leaves independent audience grants unchanged. Requires the exact Project id or unambiguous full name and an explicit shared boolean. Nothing changes until the owner confirms.',
+    properties: {
+      project: { type: 'string', description: 'Exact Project id or full name. Partial or ambiguous names are refused.' },
+      shared: { type: 'boolean', description: 'Required: true to share the Project publicly, false to stop public sharing without changing audience grants. Never inferred or defaulted.' },
+    },
+    required: ['project', 'shared'],
+    build: (input, ctx) => {
+      if (typeof input.shared !== 'boolean') {
+        return { summary: 'shared must be an explicit boolean (true or false) — proposed nothing.' }
+      }
+      const target = str(input.project).trim()
+      const projects = ctx.commons?.projects ?? []
+      // Privacy-changing proposals never use the ordinary substring convenience.
+      // Resolve across the complete visible catalog BEFORE checking authority so
+      // an ineligible exact match cannot redirect to a similarly named owned row.
+      const byId = projects.find((project) => project.id === target)
+      const matches = byId ? [byId] : projects.filter((project) => project.name.toLowerCase() === target.toLowerCase())
+      const project = target && matches.length === 1 ? matches[0] : undefined
+      if (!project || project.own !== true || project.shareable !== true) {
+        return { summary: 'No unique owned, shareable Project matches that exact id or full name — proposed nothing. Check the Project and use its exact id if names repeat.' }
+      }
+      return {
+        relationOps: [{ kind: 'share-project', projectId: project.id, projectName: project.name, shared: input.shared }],
+        summary: `Proposed ${input.shared ? 'sharing' : 'stopping public sharing of'} ${project.name}; awaiting confirmation.`,
+      }
+    },
+  },
   {
     name: 'file_session',
     description: 'File (move) the current session into an existing project, or remove it from its project. Edits the session ↔ project relation.',

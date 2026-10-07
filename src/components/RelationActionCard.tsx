@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { describeOp, opKey, relationContentPreview, type RelationContentPreview, type RelationOp } from '../data/relations'
 import { useRelations } from '../controller/useRelations'
-import { useMe } from '../api'
+import { useMe, useSession } from '../api'
 import {
   enqueueRelationActionDecision,
   heldRelationActionDecisionIntent,
@@ -32,6 +32,7 @@ import { SOFT_BUTTON_CLASS } from '../lib/button'
 import { SECTION_LABELS } from '../lib/nav'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { renderRich } from '../lib/rich'
+import { relationConsentVerdict } from '../lib/relationConsent.ts'
 import { TextDiff } from './TextDiff'
 import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 
@@ -88,9 +89,10 @@ export function RelationActionCard({
     instructionsForProject,
   } = useRelations()
   const tenantId = useMe().data?.tenant.id
+  const canDecide = useSession(sessionId).data?.own === true
   const decisionMutation = useRelationActionDecisionStatus()
   const decide = (operation: RelationOp, verdict: 'confirmed' | 'skipped') => {
-    if (!tenantId) return
+    if (!tenantId || !canDecide) return
     void enqueueRelationActionDecision({ tenantId, sessionId, messageId, operation, verdict })
   }
 
@@ -99,7 +101,7 @@ export function RelationActionCard({
       <div className="flex items-center gap-1.5 border-b border-line px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
         <Sparkles size={13} className="text-accent" />
         Proposed changes
-        <span className="font-normal normal-case tracking-normal text-ink-faint">· approve to apply</span>
+        <span className="font-normal normal-case tracking-normal text-ink-faint">· {canDecide ? 'approve to apply' : 'owner approval required'}</span>
       </div>
 
       <div className="divide-y divide-line">
@@ -114,15 +116,15 @@ export function RelationActionCard({
             ? decisionMutation.error
             : null
           // The persisted verdict (the record of what the user resolved) wins over
-          // the graph derivation (the current relation): a confirmed edit stays
-          // confirmed after reloads AND after later ops move the relation on.
-          const isDone =
-            !held && (
-              resolved?.[key] === 'confirmed' ||
-              (standing && isStandingApproved(key)) ||
-              appliedInGraph(op) === true
-            )
-          const isSkipped = !held && !isDone && resolved?.[key] === 'skipped'
+          // the graph derivation (the current relation): both Confirm and Not now
+          // keep their meaning after reloads and later, independent decisions.
+          const verdict = relationConsentVerdict(
+            resolved?.[key],
+            held !== null,
+            (standing && isStandingApproved(key)) || appliedInGraph(op) === true,
+          )
+          const isDone = verdict === 'confirmed'
+          const isSkipped = verdict === 'skipped'
           const cadence = 'cadence' in op ? op.cadence : ''
           // S2 — for a content-bearing op (description / instructions / prompt / agent /
           // project body), the actual text being written, so consent isn't given blind.
@@ -134,6 +136,8 @@ export function RelationActionCard({
               className="flex flex-col gap-2 px-3 py-2.5"
               data-relation-action-key={key}
               data-relation-action-decision={held ? 'held' : 'ready'}
+              data-relation-action-owner={canDecide ? 'true' : 'false'}
+              data-relation-action-verdict={verdict}
               aria-busy={held ? 'true' : undefined}
             >
               <div className="flex items-start gap-2.5">
@@ -171,7 +175,7 @@ export function RelationActionCard({
               {preview && !isDone && !isSkipped && <ProposedBody preview={preview} />}
 
               {/* The confirmation controls — the prompt itself. */}
-              {!isDone && !isSkipped && (
+              {!isDone && !isSkipped && canDecide && (
                 <div className="flex items-center gap-2 pl-[34px]">
                   <button
                     onClick={() => decide(op, 'confirmed')}
@@ -190,6 +194,10 @@ export function RelationActionCard({
                     {held?.verdict === 'skipped' ? 'Recording…' : 'Not now'}
                   </button>
                 </div>
+              )}
+
+              {!isDone && !isSkipped && !canDecide && (
+                <div className="pl-[34px] text-[11px] text-ink-faint">Only the conversation owner can approve or decline this change.</div>
               )}
 
               {decisionFailure && <div className="pl-[34px] text-[11px] text-danger-strong">{decisionFailure}</div>}

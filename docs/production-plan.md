@@ -6,7 +6,34 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: artifact history comparison
+## Current checkpoint: conversational Project sharing
+
+The next core-workflow checkpoint closes the missing named `share_project`
+proposal tool over the existing sharing capability. The generic API door already
+exposes this operation; no new route or sharing authority is introduced. An
+explicit shared/private boolean and exact, unambiguous owned created-Project
+target produce the normal consent card, which names public discovery and
+contribution consequences without exposing private conversations or context.
+Endpoint and Session transports share the tool and confirmation funnel.
+The shared-reader browser walk caught an existing relation-card mismatch: Confirm
+was visible to readers although the server denied it. All relation cards now
+derive visible and callable consent from exact conversation ownership, retaining
+readable proposal/history text. UI-193 records this demonstrated defect and lock.
+Screenshot review also caught graph state overriding a previous Not now decision
+after a later proposal was approved. UI-194 centralizes history precedence in a
+pure verdict function, with a truth-table lock watched fail before repair.
+Existing Agent tool grants are preserved rather than widened on upgrade; new
+full-catalog Agents include `share_project`, and existing Agents may explicitly
+select it through their normal configuration.
+
+Acceptance requires strict-input and authority locks, model-to-route consent
+and replay checks, Session-transport coverage, five-viewport/accessibility
+browser review, the separate complete UI sweep, and the full local verifier on
+an unchanged tree. Document stable-block identity and real external Contribution
+execution remain separate pending decisions; signing/notarization, hosting,
+native Intel and authorized real-provider evidence remain release gates.
+
+## Completed checkpoint: artifact history comparison
 
 Owners can compare a retained version against the exact current saved revision
 before deciding to restore it. The read-only comparison shows literal Document,
@@ -31,7 +58,11 @@ The first full verifier found one source-scan collision in an inert test string
 (4,561/4,562 Node checks passed); the fixture was changed without weakening the
 no-native-dialog rule, and the browser lanes were deliberately interrupted.
 Follow-up review also keeps observed newer-revision evidence after leaving
-comparison or changing selection. The final complete verifier remains required.
+comparison or changing selection. The final complete local verifier passed all
+five lanes, including 554 browser tests; the final UI sweep passed 135/135 cells
+with no violations or skips. Commit `f5012e14` was pushed to `main` after review,
+with Ada signed in on the comparison preview. This evidence supersedes the
+interrupted preliminary runs above.
 
 ## Completed checkpoint: conversation Find
 

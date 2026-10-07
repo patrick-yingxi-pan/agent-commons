@@ -4,6 +4,16 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { read, stripComments, ROOT } from '../../tests/helpers/source.ts'
 
+test('every relation proposal uses exact conversation ownership for visible and callable consent', () => {
+  const card = stripComments(read(join(ROOT, 'src', 'components', 'RelationActionCard.tsx')))
+  assert.ok(card.includes('const canDecide = useSession(sessionId).data?.own === true'))
+  assert.ok(card.includes('if (!tenantId || !canDecide) return'))
+  assert.ok(card.includes('{!isDone && !isSkipped && canDecide && ('))
+  assert.ok(card.includes('{!isDone && !isSkipped && !canDecide && ('))
+  assert.ok(card.includes("data-relation-action-owner={canDecide ? 'true' : 'false'}"))
+  assert.ok(card.includes('Only the conversation owner can approve or decline this change.'))
+})
+
 test('relation mutation recovery has one shared shell surface and honest initiators', () => {
   const shell = stripComments(read(join(ROOT, 'src', 'components', 'ShellMutationNotices.tsx')))
   const primitive = stripComments(read(join(ROOT, 'src', 'components', 'InlineOperationStatus.tsx')))
@@ -38,8 +48,9 @@ test('relation proposal consent is one exact shell-owned decision with addressed
   assert.match(card, /useRelationActionDecisionStatus\(\)/)
   assert.match(card, /heldRelationActionDecisionIntent\(sessionId, messageId, key\)/)
   assert.match(card, /enqueueRelationActionDecision\(\{ tenantId, sessionId, messageId, operation, verdict \}\)/)
-  assert.match(card, /const isDone =\s*!held &&/,
-    'ambient graph or verdict state cannot hide an uncertain local consent decision')
+  assert.match(card, /relationConsentVerdict\(\s*resolved\?\.\[key\],\s*held !== null,/,
+    'one pure verdict funnel keeps recorded history authoritative and held receipt recovery pending')
+  assert.match(card, /data-relation-action-verdict=\{verdict\}/)
   assert.match(card, /data-relation-action-decision=\{held \? 'held' : 'ready'\}/)
   assert.match(card, /data-relation-action-key=\{key\}/,
     'the row retains one content-independent rendered identity after its applied copy changes')

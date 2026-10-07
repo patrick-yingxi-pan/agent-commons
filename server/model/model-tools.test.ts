@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { TOOL_DEFINITIONS, TOOL_NAMES, executeTool, type ToolContext } from './tools.ts'
-import { MAX_AUTHORED_DOCUMENT_CHARS, authoredDocument, type RelationOp } from '../../contract/index.ts'
+import { MAX_AUTHORED_DOCUMENT_CHARS, authoredDocument, describeOp, type RelationOp } from '../../contract/index.ts'
 
 const ctx: ToolContext = { session: { id: 'auth-refactor', title: 'Refactor auth middleware' } }
 
@@ -16,9 +16,9 @@ test('TOOL_DEFINITIONS: every tool has a name, description, and object input_sch
     assert.equal(t.input_schema.type, 'object')
     assert.ok(Array.isArray(t.input_schema.required))
   }
-  // The 3 escalations + 13 relation-op kinds (incl. the D26 description) + Agent
-  // Commons CRUD tools (incl. hand-off + the D13 commission-cap setter).
-  assert.equal(TOOL_NAMES.length, 23)
+  // The 3 escalations + 14 relation-op kinds (incl. D26) + Agent Commons CRUD
+  // tools (incl. hand-off, commission cap, and consent-gated project sharing).
+  assert.equal(TOOL_NAMES.length, 24)
 })
 
 test('save_artifact advertises a document-or-structured-body union', () => {
@@ -232,6 +232,101 @@ test('an unknown tool degrades gracefully (no throw, no effect)', () => {
   assert.equal(e.relationOps, undefined)
   assert.equal(e.escalation, undefined)
   assert.match(e.summary, /unknown/i)
+})
+
+test('share_project requires an explicit boolean and advertises the exact schema', () => {
+  const definition = TOOL_DEFINITIONS.find((tool) => tool.name === 'share_project')
+  assert.ok(definition)
+  assert.deepEqual(definition.input_schema.required, ['project', 'shared'])
+  assert.equal(definition.input_schema.properties.project.type, 'string')
+  assert.equal(definition.input_schema.properties.shared.type, 'boolean')
+  assert.equal(Object.hasOwn(definition.input_schema.properties.shared, 'default'), false)
+  assert.equal(TOOL_NAMES.length, 24)
+
+  const live: ToolContext = {
+    session: ctx.session,
+    commons: {
+      providers: [], systemPrompts: [], agents: [], commissions: [],
+      projects: [{ id: 'p-owned-share', name: 'Launch Plan', own: true, shareable: true, shared: false }],
+    },
+  }
+  for (const input of [
+    { project: 'p-owned-share' },
+    { project: 'p-owned-share', shared: 'true' },
+    { project: 'p-owned-share', shared: 'false' },
+    { project: 'p-owned-share', shared: 1 },
+    { project: 'p-owned-share', shared: null },
+  ]) {
+    const effect = executeTool('share_project', input, live)
+    assert.equal(effect.relationOps, undefined, `malformed input ${JSON.stringify(input)} proposed nothing`)
+    assert.match(effect.summary, /proposed nothing/i)
+  }
+})
+
+test('share_project resolves only an exact owned and explicitly shareable project', () => {
+  const live: ToolContext = {
+    session: ctx.session,
+    commons: {
+      providers: [], systemPrompts: [], agents: [], commissions: [],
+      projects: [
+        { id: 'p-own', name: 'Launch Plan', own: true, shareable: true, shared: false },
+        { id: 'p-foreign', name: 'Foreign Plan', own: false, shareable: true, shared: false },
+        { id: 'p-no-share', name: 'Not Shareable', own: true, shareable: false, shared: false },
+      ],
+    },
+  }
+  for (const target of ['p-own', 'launch plan']) {
+    const effect = executeTool('share_project', { project: target, shared: true }, live)
+    assert.equal(effect.relationOps?.length, 1, target)
+    assert.deepEqual(effect.relationOps?.[0], {
+      kind: 'share-project', projectId: 'p-own', projectName: 'Launch Plan', shared: true,
+    })
+  }
+  for (const input of [
+    { project: 'Launch', shared: true }, // no substring fallback
+    { project: 'Missing Project', shared: true },
+    { project: 'Foreign Plan', shared: true },
+    { project: 'Not Shareable', shared: true },
+  ]) {
+    const effect = executeTool('share_project', input, live)
+    assert.equal(effect.relationOps, undefined, JSON.stringify(input))
+    assert.match(effect.summary, /proposed nothing/i)
+  }
+  const privateAgain = executeTool('share_project', { project: 'p-own', shared: false }, live)
+  assert.deepEqual(privateAgain.relationOps?.[0], {
+    kind: 'share-project', projectId: 'p-own', projectName: 'Launch Plan', shared: false,
+  })
+})
+
+test('share_project refuses ambiguous names and metadata-free seed or legacy targets', () => {
+  const live: ToolContext = {
+    session: ctx.session,
+    commons: {
+      providers: [], systemPrompts: [], agents: [], commissions: [],
+      projects: [
+        { id: 'p-one', name: 'Roadmap', own: true, shareable: true },
+        { id: 'p-two', name: 'ROADMAP', own: true, shareable: true },
+        { id: 'p-seed', name: 'Seed Project' },
+      ],
+    },
+  }
+  for (const project of ['Roadmap', 'Seed Project', 'Insights dashboard']) {
+    const effect = executeTool('share_project', { project, shared: true }, live)
+    assert.equal(effect.relationOps, undefined, project)
+    assert.match(effect.summary, /proposed nothing/i)
+  }
+  const absent = executeTool('share_project', { project: 'Insights dashboard', shared: true }, ctx)
+  assert.equal(absent.relationOps, undefined, 'seed fallback cannot create sharing authority')
+})
+
+test('share-project consent copy states the public and private consequences', () => {
+  const shared = describeOp({ kind: 'share-project', projectId: 'p-share-copy', projectName: 'Launch Plan', shared: true })
+  assert.equal(shared.text, 'Share **Launch Plan** with everyone on Agent Commons. Others can discover this Project and contribute their own agents; private conversations and context stay private.')
+  assert.equal(shared.done, 'Shared Launch Plan')
+
+  const privateAgain = describeOp({ kind: 'share-project', projectId: 'p-share-copy', projectName: 'Launch Plan', shared: false })
+  assert.equal(privateAgain.text, 'Stop sharing **Launch Plan** with the Commons. Public discovery and cross-account contributions stop; existing audience grants and their permissions stay unchanged.')
+  assert.equal(privateAgain.done, 'Stopped public sharing of Launch Plan')
 })
 
 // ── Agent Commons CRUD tools (D6/D9/D10/D7) — resolve the model's named provider /

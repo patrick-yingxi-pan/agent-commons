@@ -22,6 +22,17 @@ function matchKeywords(text: string): ToolCall[] {
   const calls: ToolCall[] = []
   const grab = (re: RegExp): string | undefined => text.match(re)?.[1]?.trim()
 
+  // Sharing changes visibility: the development fixture accepts only a whole
+  // imperative with an explicit named target, never a question, negation, or
+  // passing mention. Quoted names preserve punctuation as data. Real providers
+  // choose the same declared tool themselves; no route-side keyword shortcut.
+  const share = text.trim().match(/^(?:please\s+)?(share|unshare)\s+(?:the\s+)?project\s+["“]([^"”]+)["”][.!]?$/i)
+    ?? text.trim().match(/^(?:please\s+)?(share|unshare)\s+(?:the\s+)?([^"“”\n]+?)\s+project[.!]?$/i)
+  if (share) return [{ name: 'share_project', input: { project: share[2].trim(), shared: share[1].toLowerCase() === 'share' } }]
+  const privateProject = text.trim().match(/^(?:please\s+)?make\s+(?:the\s+)?project\s+["“]([^"”]+)["”]\s+private(?:\s+again)?[.!]?$/i)
+    ?? text.trim().match(/^(?:please\s+)?make\s+(?:the\s+)?([^"“”\n]+?)\s+project\s+private(?:\s+again)?[.!]?$/i)
+  if (privateProject) return [{ name: 'share_project', input: { project: privateProject[1].trim(), shared: false } }]
+
   const project = grab(/\b(?:project|under|into)\s+(?:the\s+)?["“]?([A-Za-z0-9 ][A-Za-z0-9 -]*?)["”]?(?:\s+project)?(?:[.,!]|$)/i)
   const hasSchedule = /\bschedul/.test(t)
 
