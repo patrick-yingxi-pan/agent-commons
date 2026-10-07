@@ -74,7 +74,10 @@ test('a failed compaction stays held across navigation and same-key Retry keeps 
   const summary = page.getByRole('button', { name: /Conversation summary/ })
   await expect(summary).toBeVisible({ timeout: ms(20_000) })
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeEnabled()
-  await expect(page.locator('[data-turn]')).toHaveCount(4, { timeout: ms(10_000) })
+  // The current summary is also an addressable turn; only four original tail
+  // messages remain outside it after compaction.
+  await expect(page.locator('[data-turn]').filter({ has: summary })).toHaveCount(1)
+  await expect(page.locator('[data-turn]').filter({ hasNot: summary })).toHaveCount(4, { timeout: ms(10_000) })
 
   await summary.click()
   await expect(summary).toHaveAttribute('aria-expanded', 'true')

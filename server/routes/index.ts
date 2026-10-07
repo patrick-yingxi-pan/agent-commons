@@ -13,6 +13,8 @@ import { updateArtifactContent } from './artifactContent.ts'
 import { registerArtifactHistoryRoutes } from './artifactHistory.ts'
 import { parseArtifactDeletionRequest } from '../../contract/artifactDeletion.ts'
 import { SEARCH_HIT_TYPES, parseSearchPage } from '../../contract/search.ts'
+import { MAX_CONVERSATION_SEARCH_QUERY_CHARS } from '../../contract/conversationSearch.ts'
+import { parseConversationSearchQuery, searchSessionMessages } from '../sessionMessageSearch.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
   ApplyOpRequest,
@@ -4275,6 +4277,22 @@ export function buildRouter(): Router {
       ...(live ? { activeTurnId: live.id } : {}),
     })
   })
+  r.get('/sessions/:id/search', ({ req, res, params, url }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const session = store.getSession(params.id)
+    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    const queries = url.searchParams.getAll('q')
+    const offsets = url.searchParams.getAll('offset')
+    if (queries.length !== 1 || offsets.length > 1) {
+      return sendError(res, 'bad_request', 'Conversation search requires exactly one q and at most one offset parameter.')
+    }
+    const page = parseConversationSearchQuery(queries[0], offsets[0])
+    if (!page) return sendError(res, 'bad_request', `q must be at most ${MAX_CONVERSATION_SEARCH_QUERY_CHARS} characters and offset a nonnegative safe integer.`)
+    sendJson(res, searchSessionMessages(session, page.query, page.offset))
+  }, { kind: 'product', session: 'tool', query: {
+    q: { type: 'string', minLength: 0, maxLength: MAX_CONVERSATION_SEARCH_QUERY_CHARS, description: 'Literal substring to find in current user and assistant message content.' },
+    offset: { type: 'string', pattern: '^(0|[1-9][0-9]*)$', description: 'Zero-based result offset.' },
+  } })
   // The recoverable detail behind a compaction marker. This new browser door is
   // bounded from birth (always a Page<Message>, default 40). The legacy full
   // session read remains unchanged for API/MCP compatibility (ADAPT-24).

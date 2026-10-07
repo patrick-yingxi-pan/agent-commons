@@ -82,6 +82,10 @@ export const keys = {
   ownerProfile: (name?: string) => (name ? `owner-profile:${name}` : 'owner-profile'),
   /** Global search (D22) — keyed per query; no-arg = the family prefix. */
   search: (q?: string, page?: SearchPage) => q === undefined ? 'search' : `search:${JSON.stringify([q, page?.type ?? null, page?.offset ?? 0])}`,
+  conversationSearch: (id?: string, q?: string, offset = 0) => {
+    const family = id === undefined ? 'conversation-search' : `conversation-search:${JSON.stringify(id)}`
+    return q === undefined ? family : `${family}:${JSON.stringify([q, offset])}`
+  },
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
@@ -280,6 +284,7 @@ export const paths = {
   ownerProfile: (name: string) => `/directory/owners/${encodePathSegment(name)}`,
   /** Global search (D22): typed grouped hits across everything the caller can see. */
   search: (q: string, page?: SearchPage) => `/search?q=${encodePathSegment(q)}${page ? `&type=${encodePathSegment(page.type)}&offset=${page.offset}` : ''}`,
+  conversationSearch: (id: string, q: string, offset = 0) => `/sessions/${encodePathSegment(id)}/search?q=${encodePathSegment(q)}&offset=${offset}`,
   /** The A2A edge (docs/a2a-integration.md, D20). `a2aAgentCard` is a public GET a
    *  foreign agent (or a curious human) can open; `agentImportCard` is the outbound
    *  fetch-a-remote-card mint. */

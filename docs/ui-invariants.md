@@ -294,6 +294,8 @@ dialog ever ships without one, extract a `DIALOG_SURFACE` funnel the same way.
 
 | UI-189 | **Selected search metadata uses an ink seat tested on its selection tint.** Secondary result text switches from neutral faint ink to the paired accent-strong seat while selected; every result type uses that same projection. | `src/lib/searchResults.ts`; `src/components/SearchPanel.tsx` | `src/lib/contrast.test.ts` (presets, both modes and sampled customization extremes); `src/lib/search-results.test.ts`; `e2e/global-search.spec.ts` | The search viewport walk failed WCAG AA at 320×700: faint secondary text measured 4.38:1 on the selection tint. Restoring the old pairing also failed the pure contrast lock before the corrected browser matrix. |
 
+| UI-190 | **Derived conversation-search reads heal on transcript changes and disappear when access changes.** Family keys use the query cache's own delimiter convention; a session-scoped invalidation reaches every query/page without crossing similarly named sessions, and a grant change evicts old snippets before rereading authority. | `src/api/keys.ts`; `src/api/events.ts`; `src/lib/conversationSearch.ts` | `src/api/conversation-search.test.ts` (actual cache eviction, not just source presence); `src/components/conversation-search-ui.test.ts`; `e2e/conversation-search.spec.ts` | The 2026-10-07 adversarial review found a doubled delimiter that silently defeated session and grant refreshes. The cache-behavior lock failed with the original prefix before repair; rendered `data-conversation-search-result` rows prove live arrivals and revocation. |
+
 ## The ratchet procedure
 
 When a UI escape is confirmed (by a user report or a `/ui-review` sweep):

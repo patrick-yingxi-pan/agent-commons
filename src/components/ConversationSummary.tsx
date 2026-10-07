@@ -1,17 +1,21 @@
 import { motion } from 'framer-motion'
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Message } from '../types'
 import { retryCompactedMessages, useCompactedMessages } from '../api/compactedMessages'
 import { COMPACTED_MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
 import { renderRich } from '../lib/rich'
 import { Spinner } from './Spinner'
+import { FOCUS_FLASH_CLASS, useFocusFlash, usePendingFocus } from '../lib/focusContext'
 
 /** Rare, recovery-oriented conversation state. It is a separate lazy chunk so
  * ordinary first-load conversations do not pay for archive paging and block
  * Markdown; the summary marker remains the synchronous switch in MessageRow. */
 export default function ConversationSummary({ message, sessionId }: { message: Message; sessionId: string }) {
   const [expanded, setExpanded] = useState(false)
+  const rowRef = useRef<HTMLDivElement>(null)
+  const { pending } = usePendingFocus()
+  const flash = useFocusFlash(pending?.messageId === message.id, rowRef, () => setExpanded(true))
   const [cursors, setCursors] = useState<Array<string | undefined>>([undefined])
   const pageIndex = cursors.length - 1
   const cursor = cursors[pageIndex]
@@ -21,7 +25,7 @@ export default function ConversationSummary({ message, sessionId }: { message: M
   const end = start + (archive.data?.items.length ?? 0) - 1
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.28 }} className="px-4 py-2">
+    <motion.div ref={rowRef} data-turn={message.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.28 }} className={`px-4 py-2 ${flash ? FOCUS_FLASH_CLASS : ''}`}>
       <div className="mx-auto w-full max-w-3xl rounded-xl border border-line bg-panel-2/30">
         <button
           type="button"

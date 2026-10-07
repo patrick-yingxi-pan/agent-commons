@@ -10,7 +10,7 @@
  *  for floating chrome. Must render under RelationsProvider (it reads
  *  useRelations). */
 import type { ReactNode } from 'react'
-import { CalendarClock, Folder } from 'lucide-react'
+import { CalendarClock, Folder, Search } from 'lucide-react'
 import type { Session } from '../types'
 import type { NavLocation } from '../lib/nav'
 import { useRelations } from '../controller/useRelations'
@@ -35,6 +35,7 @@ export function SessionTitleBar({
   onOpenProject,
   onOpenSchedule,
   onSelectRun,
+  onFind,
 }: {
   session: TitleBarSession
   /** Narrow tier: the in-flow rail toggle, rendered at the bar's left. */
@@ -48,6 +49,7 @@ export function SessionTitleBar({
    *  run-history click-down at the bar's right (UI-15: a switcher is chrome,
    *  never a pane). Selecting a run opens its session in place. */
   onSelectRun?: (sessionId: string) => void
+  onFind?: () => void
 }) {
   const { projectForSessionId } = useRelations()
   // A scheduled run's session belongs to its routine, not a project — the server
@@ -101,6 +103,8 @@ export function SessionTitleBar({
         <RunHistoryMenu taskId={runOf.taskId} activeRunSessionId={session.id} onSelectRun={onSelectRun} />
       )}
       {session.own && <SessionShareButton sessionId={session.id} />}
+      {onFind && <button type="button" onClick={onFind} aria-label="Find in conversation" title="Find in conversation"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-soft transition hover:bg-panel-2 hover:text-ink"><Search size={16} /></button>}
     </div>
   )
 }

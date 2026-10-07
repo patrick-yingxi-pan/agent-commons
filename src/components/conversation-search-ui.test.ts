@@ -1,0 +1,36 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { join } from 'node:path'
+import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
+const source = (name: string) => stripComments(read(join(ROOT, `src/components/${name}.tsx`)))
+
+test('every saved conversation Find shares a deferred pane-scoped exact-turn door', () => {
+  const pane = source('ConversationPane')
+  assert.match(pane, /onFind=\{!isDraft && row/)
+  assert.match(pane, /searchSession === sessionId && <DeferredConversationSearch key=\{sessionId\}/)
+  assert.match(pane, /onSelect=\{\(messageId\) => nav\.onFocusHere\(\{ messageId \}\)\}/)
+  const deferred = source('DeferredConversationSearch')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ConversationSearch\.tsx'\)/)
+  assert.match(deferred, /getDerivedStateFromError/)
+  assert.match(deferred, /Copy any unsent text before reloading/)
+  assert.match(deferred, /Loading conversation search…/)
+  const view = source('ConversationView')
+  assert.match(view, /conversationFocusState\(focusedTurn, live\.messages, history\)/)
+  assert.match(view, /Retry finding message/)
+  assert.match(view, /Cancel finding/)
+  assert.match(view, /This message is no longer in the current conversation/)
+  const summary = source('ConversationSummary')
+  assert.match(summary, /useFocusFlash\(pending\?\.messageId === message\.id, rowRef, \(\) => setExpanded\(true\)\)/)
+  assert.match(summary, /data-turn=\{message\.id\}/)
+})
+
+test('Find uses one bounded keyboard-accessible dialog and refuses stale answers', () => {
+  const search = source('ConversationSearch')
+  for (const name of ['BOUNDED_DIALOG_LAYER_CLASS', 'BOUNDED_DIALOG_PANEL_CLASS', 'BOUNDED_DIALOG_BODY_CLASS', 'DIALOG_SURFACE_CLASS', 'useBoundedDialog', 'useFocusTrap']) assert.ok(search.includes(name), name)
+  assert.match(search, /conversationSearchMatches\(server\.data, needle, offset\)/)
+  assert.match(search, /const hits = settled \? server\.data!\.hits : \[\]/)
+  assert.match(search, /event\.nativeEvent\.isComposing/)
+  assert.match(search, /data-conversation-search-result=\{hit\.messageId\}/)
+  assert.match(search, /scrollIntoView\(\{ block: 'nearest' \}\)/)
+  assert.match(search, /role="dialog" aria-modal="true" aria-label="Find in conversation"/)
+})

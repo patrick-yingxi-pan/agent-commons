@@ -1,10 +1,45 @@
 # Desktop preview plan
 
-Reviewed 2026-10-06. The standing goal remains production readiness for Agent
+Reviewed 2026-10-07. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
+
+## Current checkpoint: conversation Find
+
+After the verified paged-resource-search checkpoint, the next core gap was
+finding text in older conversation history. Browser Find cannot see unloaded
+messages. Conversation-scoped Find now uses a permission-checked paged read,
+bounded snippets and exact-message navigation through the existing history
+window. Shared readers use the same door; unavailable history has explicit
+Retry/cancel and a removed or compacted target has a terminal explanation.
+Current summaries are searchable; archived originals, attachments and tool
+payloads are not. Global resource search remains title/preview based for sessions.
+
+The checkpoint's delivery gates are the complete local verifier, UI sweep,
+five-viewport/accessibility conversation-search browser walks, and signed-in
+preview review. This is product-workflow progress, not a release-readiness claim;
+signed/notarized distribution, Intel and real external-provider acceptance gates
+remain. No GitHub CI is required or dispatched. The query/page guard was watched
+fail when its page comparison was removed; the backend role lock likewise
+received an intentional negative check. Unicode snippet behavior has dedicated
+regression cases.
+
+Adversarial review also found and corrected a doubled cache-family delimiter;
+the actual cache eviction regression failed before repair. Open-dialog browser
+checks cover new saved turns and revoked sharing. The initial broad Node run
+observed a five-second native profile ACL helper timeout (4,549/4,550 passed);
+its isolated 15-test suite passed, and no concurrent helper builder was found.
+The fail-closed production check and deadline remain unchanged. Delivery still
+requires the complete local verifier on the final revision.
+
+The first full verifier passed static/build checks and 546 of 548 browser tests.
+Two browser assertions needed alignment with the rendered structure: the
+revocation alert includes its Retry button, and a current summary now has its
+own addressable turn alongside the four retained originals. The strengthened
+checks assert the alert/retry separately and distinguish summary from tail;
+no production behavior, deadline or retry policy was relaxed.
 
 ## Decisions in force
 

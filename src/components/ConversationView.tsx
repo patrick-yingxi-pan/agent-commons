@@ -27,6 +27,8 @@ import { useAgents, useMe, useProviders, useSessions } from '../api'
 import { MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
 import { usePendingFocus } from '../lib/focusContext'
 import { messageWindow } from '../lib/messageWindow'
+import { conversationFocusState } from '../lib/conversationSearch'
+import { InlineOperationStatus } from './InlineOperationStatus'
 import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
 import type { AddedContext, PanelFocus, UsageModelRef } from '../types'
@@ -142,7 +144,9 @@ export function ConversationView({
   // target row's own `useFocusFlash` does the scrolling; this only stands the
   // default landing down. Read at RENDER — `useFocusFlash` consumes the target
   // in a child effect, which runs before this parent one.
-  const focusedTurn = usePendingFocus().pending?.messageId
+  const pendingFocus = usePendingFocus()
+  const focusedTurn = pendingFocus.pending?.messageId
+  const focusState = conversationFocusState(focusedTurn, live.messages, history)
   const window = useMemo(
     () => messageWindow(live.messages, windowAnchor, MESSAGE_PAGE_SIZE),
     [live.messages, windowAnchor],
@@ -264,6 +268,14 @@ export function ConversationView({
 
   return (
     <>
+      {focusState !== 'none' && focusState !== 'ready' && <InlineOperationStatus
+        tone={focusState === 'loading' ? 'status' : 'alert'}
+        message={focusState === 'loading' ? 'Finding message in earlier history…'
+          : focusState === 'error' ? 'Couldn’t load the selected message.'
+            : 'This message is no longer in the current conversation. It may have been compacted or removed.'}
+        action={{ label: focusState === 'loading' ? 'Cancel finding' : 'Dismiss', onClick: pendingFocus.consume }}
+        secondaryAction={focusState === 'error' && onLoadEarlier ? { label: 'Retry finding message', onClick: () => { void onLoadEarlier() } } : undefined}
+      />}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {live.messages.length === 0 && !typing && empty !== undefined ? (
           empty

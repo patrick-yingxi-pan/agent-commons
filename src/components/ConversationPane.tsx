@@ -10,6 +10,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { SessionTitleBar } from './SessionTitleBar'
 import { ConversationView } from './ConversationView'
+import { DeferredConversationSearch } from './DeferredConversationSearch'
 import { EmptyState } from './EmptyState'
 import { AtomicResourcePage } from './ResourcePage'
 import type { MainPaneNav, PaneBackOut } from './MainSplit'
@@ -49,6 +50,7 @@ export function ConversationPane({
   const row =
     (useSessions().data ?? []).find((s) => s.id === sessionId) ?? peek<Session>(keys.session(sessionId))
   const isDraft = sessionId === DRAFT_ID
+  const [searchSession, setSearchSession] = useState<string | null>(null)
   const canControlTurn = isDraft || row?.own === true
   const providersQ = useProviders()
   const providers = providersQ.data ?? []
@@ -178,7 +180,11 @@ export function ConversationPane({
         // sibling run retargets THIS pane in place — the same session door as
         // every navigation.
         onSelectRun={nav.onOpenSession}
+        onFind={!isDraft && row ? () => setSearchSession(sessionId) : undefined}
       />
+      {searchSession === sessionId && <DeferredConversationSearch key={sessionId}
+        sessionId={sessionId} onClose={() => setSearchSession(null)}
+        onSelect={(messageId) => nav.onFocusHere({ messageId })} />}
       <ConversationView
         sessionId={sessionId}
         onOpenSession={nav.onOpenSession}

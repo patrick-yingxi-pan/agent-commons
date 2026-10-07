@@ -100,6 +100,7 @@ function route(e: ServerEvent): void {
       // No-op unless some view has read this session (then it refetches).
       invalidate(keys.session(e.session.id))
       invalidatePrefix(keys.sessionCompactedMessages(e.session.id))
+      invalidatePrefix(keys.conversationSearch(e.session.id))
       // The usage snapshot is session-resolved (its context capacity + model ref
       // come from the session's provider/model pick, which this event may have
       // changed — a cross-client pick, a cascade clearing it) — keep the gauge's
@@ -119,6 +120,7 @@ function route(e: ServerEvent): void {
     // is idempotent): refresh the lists, drop the by-id caches, and tell the
     // split controller so every pane hosting it collapses (live prune).
     case 'session.removed':
+      evictPrefix(keys.conversationSearch(e.session.id))
       invalidate(keys.sessions)
       invalidate(keys.session(e.session.id))
       // Deletion also removes the canonical session→Project join. Re-read the
@@ -342,6 +344,7 @@ function route(e: ServerEvent): void {
       invalidatePrefix(keys.search())
       break
     case 'grant.changed':
+      if (e.subject.kind === 'session') evictPrefix(keys.conversationSearch(e.subject.id))
       invalidatePrefix(keys.grants())
       invalidate(keys.projects) // seed rows enter/leave the shared-with-me band
       invalidate(keys.relations) // created rows ride the graph's extraProjects
