@@ -63,7 +63,11 @@ Discussion-as-Context (CTX-DISC-1) is a real, read-checked saved-reference
 boundary, not a model or seeded-content fixture. The saved snapshot follows the
 destination conversation's sharing, survives later source revocation, and is
 not fetched live when rendered; draft references capture only on first send.
-Its implementation is present; full acceptance remains pending.
+Its browser matrix and ordinary unsigned arm64 packaged workflow are accepted:
+confirmed Attach, exact local-model input, explicit Refresh, destination-only
+sharing, source deletion, signed-in SQLite relaunch and detach. The model peer
+is a deterministic loopback fixture; paid-provider and signed/Intel release
+acceptance remain separate gates.
 
 Served cloud and mapped-runner text files and top-level folders now use actual
 bounded saved copies, not fixture bodies or automatic per-turn source reads.

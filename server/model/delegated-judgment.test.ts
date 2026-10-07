@@ -39,6 +39,7 @@ let baseURL = ''
 let mode: 'success' | 'invalid' | 'tool-block' | 'truncated' | 'http-error' | 'hang' = 'success'
 let providerUsage: unknown = { input_tokens: 17, output_tokens: 29 }
 const requests: Array<{ body: any; attempt: number }> = []
+let onRequestAccepted: (() => void) | undefined
 
 function listen(serverToRead: Server): string {
   const address = serverToRead.address()
@@ -59,6 +60,8 @@ before(async () => {
     const raw = Buffer.concat(chunks).toString('utf8')
     const body = raw ? JSON.parse(raw) : undefined
     requests.push({ body, attempt: requests.length + 1 })
+    onRequestAccepted?.()
+    onRequestAccepted = undefined
     if (mode === 'hang') return
     if (mode === 'http-error') {
       res.writeHead(503, { 'content-type': 'application/json' })
@@ -214,16 +217,40 @@ test('invalid or oversized frozen inputs fail before provider I/O', async () => 
 
 test('provider timeout is classified as transport uncertainty and does not retry', async () => {
   const previousTimeout = process.env.DELEGATED_JUDGMENT_TIMEOUT_MS
+  const originalTimeout = AbortSignal.timeout
+  const deadline = new AbortController()
+  const timeoutDurations: number[] = []
   process.env.DELEGATED_JUDGMENT_TIMEOUT_MS = '25'
+  AbortSignal.timeout = (milliseconds) => {
+    timeoutDurations.push(milliseconds)
+    return deadline.signal
+  }
+  let acceptRequest!: () => void
+  const requestAccepted = new Promise<void>((resolve) => { acceptRequest = resolve })
+  onRequestAccepted = acceptRequest
   try {
     requests.length = 0
     mode = 'hang'
-    await assert.rejects(
-      generateDelegatedJudgment(judgment, provider('delegated-timeout'), () => {}),
-      DelegatedJudgmentTransportError,
-    )
+    const pending = generateDelegatedJudgment(judgment, provider('delegated-timeout'), () => {})
+    const settledEarly = pending.then(() => false, () => false)
+    // Inject timeout only after the local server has fully received the request
+    // body. This excludes connection setup scheduling from the timeout behavior.
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    const admitted = await Promise.race([
+      requestAccepted.then(() => true),
+      settledEarly,
+      new Promise<boolean>((resolve) => { watchdog = setTimeout(() => resolve(false), 1_000) }),
+    ])
+    if (watchdog) clearTimeout(watchdog)
+    assert.equal(admitted, true, 'request must reach the fixture before timeout injection')
+    assert.deepEqual(timeoutDurations, [25])
+    deadline.abort(new DOMException('The operation timed out', 'TimeoutError'))
+    await assert.rejects(pending, DelegatedJudgmentTransportError)
     assert.equal(requests.length, 1)
   } finally {
+    onRequestAccepted = undefined
+    deadline.abort(new DOMException('The operation timed out', 'TimeoutError'))
+    AbortSignal.timeout = originalTimeout
     if (previousTimeout === undefined) delete process.env.DELEGATED_JUDGMENT_TIMEOUT_MS
     else process.env.DELEGATED_JUDGMENT_TIMEOUT_MS = previousTimeout
   }

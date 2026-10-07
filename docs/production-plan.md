@@ -276,6 +276,49 @@ the final delivery gate; GitHub Actions is not used. Signed/Intel releases,
 public update hosting and authorized real-provider/external-effect acceptance
 remain separate prerequisites, not claims made by this saved-copy workflow.
 
+### Packaged Discussion saved-copy closure (2026-10-06)
+
+CTX-DISC-1 now has ordinary packaged-process evidence for the complete saved-copy
+workflow, not only browser and route-level locks. The excluded
+`desktop/discussionContextSmoke.mjs` sets up generated accounts and resources
+through the shipped HTTP API, then uses rendered confirmation, Attach, Refresh,
+send and detach controls. Its independent transcript oracle checks exact Unicode,
+line breaks, author names, timestamps and reply relationships on the actual model
+wire. The single provider conformance probe is accounted for separately from four
+conversation requests; Attach, Refresh and relaunch do not dispatch model work.
+
+Source edits leave the saved copy unchanged until explicit Refresh. A separate
+real account sees the copy through destination-only sharing while the private
+source remains 404, with no owner controls. Deleting the generated source branch
+does not remove the destination copy. A full native-process exit leaves the exact
+snapshot in SQLite; ordinary relaunch preserves sign-in, replies and the saved
+open-panel preference before another exact saved-copy send. Detach removes new
+attachment input while retaining earlier replies. No effect-bearing SessionContext
+is created. The network assertion covers per-Discussion detail requests; the
+explicit picker's participating-Discussion list remains its normal projection.
+
+The focused unsigned arm64 walk passed on runtime ASAR
+`892b8db100f67c2630c410c416b18d116916ed8459389c430777fc7dd095c620`.
+A disposable copy with model `post_count` forced to zero failed the exact-wire
+assertion (`0` versus `2`), while saved data and reply text still matched. The new
+package-exclusion and awaited-smoke wiring locks also failed before implementation.
+Per-run screenshots and hash-bound receipts live under the ignored
+`.data/desktop-discussion-smoke/` directory; no test helper ships. The complete
+local and packaged verifiers remain mandatory before landing; no GitHub Actions,
+paid provider, signed/notarized or Intel acceptance is implied by this checkpoint.
+
+The complete packaged verifier passed. The first full local verifier passed all
+527 browser tests but exposed an existing 25 ms timeout-test race: the delegated
+judgment fixture sometimes received no request before connection setup expired.
+That test and its identical Contribution review counterpart now assert the exact
+configured deadline and inject a timeout only after full request-body admission,
+with a bounded admission watchdog and early-settlement failure. Both reject an
+intentional production deadline mutation from 25 to 26 ms. Runtime deadlines,
+retry policy and application behavior are unchanged. The repaired revision passed
+all five local verification lanes, including all 527 browser tests. Post-test
+review additionally pins the reader's source 404 after destination sharing, not
+only before it; the final revision remains subject to the complete pre-push gate.
+
 ### Local image to editable Document (2026-10-06 UTC)
 
 PORT-26 now completes the approved bounded macOS workflow. Extract image text

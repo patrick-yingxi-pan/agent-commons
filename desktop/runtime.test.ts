@@ -630,3 +630,15 @@ test('packaged delegated judgment smoke locks rendered authority and crash recov
   assert.doesNotMatch(driver, /_electron|use-mock-keychain|saveState\(|store\.runDelegatedModelJudgment/,
     'packaged delegated judgment uses ordinary launches, the shipped API, and no injected store')
 })
+
+test('packaged Discussion Context smoke is excluded from the shipped app', () => {
+  assert.equal(ignoreFromPackage('/desktop/discussionContextSmoke.mjs'), true)
+})
+
+test('ordinary packaged smoke awaits Discussion Context acceptance with the shared launch lifecycle', () => {
+  const smoke = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
+  assert.ok(
+    smoke.includes('await smokePackagedDiscussionContext({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })'),
+    'ordinary and extracted-release smoke must await packaged Discussion Context acceptance',
+  )
+})
