@@ -8,7 +8,7 @@ import { SCRIM_CLASS } from '../lib/scrim'
 import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { useBoundedDialog } from '../lib/useBoundedDialog'
 import { retryGlobalSearch, useGlobalSearch } from '../api'
-import { searchHitDestination, searchHitKey, searchHitVersionLabel, searchResponseMatches, searchResultSubtitleClass } from '../lib/searchResults'
+import { searchHitDestination, searchHitKey, searchHitVersionLabel, searchResponseMatches, searchResultSubtitleClass, searchResultHasTextPreview } from '../lib/searchResults'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 
 /** Icon per server hit type. Section-shaped types reuse the section's own icon
@@ -34,6 +34,7 @@ interface Result {
   title: string
   subtitle: string
   versionLabel?: string
+  textPreview?: boolean
   Icon: LucideIcon
   run: () => void
 }
@@ -148,6 +149,7 @@ export function SearchPanel({
           title: h.title,
           subtitle: h.subtitle,
           versionLabel: searchHitVersionLabel(h),
+          textPreview: searchResultHasTextPreview(h.type),
           Icon: HIT_ICON[h.type],
           run: () => {
             if (destination.kind === 'session') onSelectSession(destination.id)
@@ -270,7 +272,7 @@ export function SearchPanel({
                       <span className="min-w-0 flex-1">
                         <span title={r.title} className="block truncate text-[13px] font-medium text-ink">{r.title}</span>
                         {r.versionLabel && <span className={`block break-words text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.versionLabel}</span>}
-                        <span title={r.subtitle} className={`${r.versionLabel ? 'line-clamp-3 break-words [overflow-wrap:anywhere]' : 'block truncate'} text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.subtitle}</span>
+                        <span title={r.subtitle} className={`${r.textPreview ? 'line-clamp-3 break-words [overflow-wrap:anywhere]' : 'block truncate'} text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.subtitle}</span>
                       </span>
                     </button>
                   )

@@ -1,4 +1,5 @@
 import { literalSearchSnippet } from '../contract/literalSearch.ts'
+import { findArtifactBodySearchText } from './artifactBodySearch.ts'
 import type { ArtifactHistoryVersion } from '../contract/artifactHistory.ts'
 import type { ArtifactContent } from '../contract/content.ts'
 import {
@@ -13,52 +14,6 @@ export interface ArtifactVersionSearchSource {
   name: string
   trashed: boolean
   versions: readonly ArtifactHistoryVersion[]
-}
-
-function* bodyText(body: ArtifactContent): Generator<unknown> {
-  switch (body.type) {
-    case 'doc':
-      yield body.title
-      for (const block of body.blocks) {
-        if ('h' in block) yield block.h
-        else if ('p' in block) yield block.p
-        else if ('ul' in block) yield* block.ul
-        else if ('code' in block) yield* block.code
-        else {
-          yield block.email.to
-          yield block.email.subject
-        }
-      }
-      return
-    case 'sheet':
-      yield* body.columns
-      for (const row of body.rows) yield* row
-      if (body.note !== undefined) yield body.note
-      return
-    case 'workbook':
-      for (const sheet of body.sheets) {
-        yield sheet.name
-        yield* sheet.columns
-        for (const row of sheet.rows) yield* row
-        if (sheet.note !== undefined) yield sheet.note
-      }
-      return
-    case 'slides':
-      for (const slide of body.slides) {
-        yield slide.title
-        yield* slide.bullets
-      }
-      return
-    case 'figure':
-      return
-  }
-}
-
-function matchingText(body: ArtifactContent, query: string): string | undefined {
-  for (const text of bodyText(body)) {
-    if (typeof text === 'string' && text.toLowerCase().includes(query)) return text
-  }
-  return undefined
 }
 
 /** Build an owner-authorized history search page without retaining all matches. */
@@ -79,7 +34,7 @@ export function searchArtifactVersions(
     for (const source of ordered) {
       const versions = [...source.versions].sort((a, b) => b.revision - a.revision)
       for (const version of versions) {
-        const matchedText = matchingText(version.body, query)
+        const matchedText = findArtifactBodySearchText(version.body, query)
         if (matchedText === undefined) continue
         if (total >= offset && hits.length < SEARCH_PAGE_SIZE) {
           const subtitle = literalSearchSnippet(matchedText, query)

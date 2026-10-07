@@ -16,6 +16,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { keys, paths } from './keys.ts'
+import { evictPrefix, peek, setData } from './cache.ts'
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -63,4 +64,26 @@ test('the ambient events that change the commons refetch open profiles and searc
     assert.match(block, /invalidatePrefix\(keys\.ownerProfile\(\)\)/, `${label} refetches open profiles`)
     assert.match(block, /invalidatePrefix\(keys\.search\(\)\)/, `${label} refetches open searches`)
   }
+})
+
+test('body and access changes refresh every current and saved-version search page', () => {
+  const cases = src('./events.ts').split(/case '/)
+  for (const type of ['artifact.changed', 'grant.changed', 'social-access.changed']) {
+    const block = cases.find((candidate) => candidate.startsWith(`${type}':`))
+    assert.ok(block, `${type} is handled`)
+    const method = type === 'grant.changed' ? 'evictPrefix' : 'invalidatePrefix'
+    assert.ok(block.includes(`${method}(keys.search())`), `${type} refreshes all search categories and pages`)
+  }
+})
+
+test('grant-change eviction removes every cached search variant without crossing other families', () => {
+  const variants = [keys.search('private'), keys.search('private', { type: 'artifact', offset: 20 }),
+    keys.search('private', { type: 'artifactVersion', offset: 0 }), keys.search('other')]
+  for (const key of variants) setData(key, 'private snippet')
+  const neighbour = 'search-neighbour:private'
+  setData(neighbour, 'independent')
+  evictPrefix(keys.search())
+  for (const key of variants) assert.equal(peek(key), undefined, key)
+  assert.equal(peek(neighbour), 'independent')
+  evictPrefix('search-neighbour')
 })

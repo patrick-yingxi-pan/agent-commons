@@ -108,6 +108,7 @@ import {
 } from '../../contract/artifactHistory.ts'
 import { prepareArtifactHistoryAppend, type StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
 import { searchArtifactVersions } from '../artifactVersionSearch.ts'
+import { artifactBodySearchSnippet } from '../artifactBodySearch.ts'
 import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS } from '../../contract/search.ts'
 import type { ArtifactDeletionPreview, ArtifactDeletionRequest, ArtifactDeletionResult } from '../../contract/artifactDeletion.ts'
 import { parseArtifactRetirements, type ArtifactRetirement, type StoredArtifactDeletionReceipt } from '../artifactDeletion.ts'
@@ -8334,6 +8335,20 @@ export const store = {
       return o.status === 'open' && !!p && (p.shared === true || rowVisibleTo(p, tenantId))
     })
 
+    // Search the exact current readable body, not the deliberately abbreviated
+    // collection excerpt. Historical/Trash bodies keep their explicit owner-only
+    // door above; names and compatibility aliases never resolve a body here.
+    const artifacts = !page || page.type === 'artifact' ? this.listArtifacts(tenantId) : []
+    const currentBodies = needle && artifacts.length ? this.artifactContent(tenantId) : {}
+    const artifactHits = artifacts.flatMap((artifact): SearchHit[] => {
+      const snippet = artifactBodySearchSnippet(currentBodies[artifact.id], needle)
+      if (snippet === undefined && !hit(artifact.name, artifact.source, artifact.excerpt)) return []
+      return [{
+        type: 'artifact', id: artifact.id, title: artifact.name,
+        subtitle: snippet ?? `${artifact.meta} · ${artifact.source}`,
+      }]
+    })
+
     return {
       query: needle,
       ...(page ? { page } : {}),
@@ -8344,9 +8359,7 @@ export const store = {
         ...group('project', 'Your projects', ownProjects
           .filter((p) => hit(p.name, p.description))
           .map((p): SearchHit => ({ type: 'project', id: p.id, title: p.name, subtitle: p.description }))),
-        ...group('artifact', 'Artifacts', this.listArtifacts(tenantId)
-          .filter((a) => hit(a.name, a.source, a.excerpt))
-          .map((a): SearchHit => ({ type: 'artifact', id: a.id, title: a.name, subtitle: `${a.meta} · ${a.source}` }))),
+        ...group('artifact', 'Artifacts', artifactHits),
         ...group('schedule', 'Scheduled', this.listSchedules(tenantId)
           .filter((s) => hit(s.name, s.subtitle, s.cadence))
           .map((s): SearchHit => ({ type: 'schedule', id: s.id, title: s.name, subtitle: s.subtitle }))),

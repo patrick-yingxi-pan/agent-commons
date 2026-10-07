@@ -345,6 +345,9 @@ function route(e: ServerEvent): void {
       break
     case 'grant.changed':
       if (e.subject.kind === 'session') evictPrefix(keys.conversationSearch(e.subject.id))
+      // Every search category/page can contain this subject or its derived
+      // content. Retire old snippets before rechecking the changed read wall.
+      evictPrefix(keys.search())
       invalidatePrefix(keys.grants())
       invalidate(keys.projects) // seed rows enter/leave the shared-with-me band
       invalidate(keys.relations) // created rows ride the graph's extraProjects

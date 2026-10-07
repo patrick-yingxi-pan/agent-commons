@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { SEARCH_HIT_TYPES, type SearchHitType, type SearchResponse } from '../../contract/search.ts'
-import { searchHitDestination, searchHitKey, searchHitVersionLabel, searchResponseMatches } from './searchResults.ts'
+import { searchHitDestination, searchHitKey, searchHitVersionLabel, searchResponseMatches, searchResultHasTextPreview } from './searchResults.ts'
 import { locOfSeed, seedFor } from './paneNav.ts'
 import { pathForView } from './urlRoutes.ts'
 
@@ -63,6 +63,15 @@ test('search response matching pins normalized query, category and exact page of
   assert.equal(searchResponseMatches(page, 'needle'), false)
   assert.equal(searchResponseMatches(page, 'needle', { type: 'context', offset: 20 }), false)
   assert.equal(searchResponseMatches(page, 'needle', { type: 'artifact', offset: 0 }), false)
+})
+
+test('current and historical Artifact results use the same wrapped text-preview role', () => {
+  for (const type of SEARCH_HIT_TYPES) {
+    assert.equal(searchResultHasTextPreview(type), type === 'artifact' || type === 'artifactVersion', type)
+  }
+  const panel = readFileSync(new URL('../components/SearchPanel.tsx', import.meta.url), 'utf8')
+  assert.match(panel, /textPreview: searchResultHasTextPreview\(h.type\)/)
+  assert.match(panel, /r.textPreview \? 'line-clamp-3 break-words \[overflow-wrap:anywhere\]'/)
 })
 
 test('the palette binds exact destinations and current response matching to its rendered result rows', () => {

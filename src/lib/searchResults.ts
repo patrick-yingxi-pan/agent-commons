@@ -1,10 +1,15 @@
-import type { SearchHit, SearchPage, SearchResponse } from '../../contract/search.ts'
+import type { SearchHit, SearchHitType, SearchPage, SearchResponse } from '../../contract/search.ts'
 import type { SectionId } from '../types.ts'
 import { OWNER_SECTION } from './paneNav.ts'
 
 /** Faint neutral ink is not guaranteed to read on a chromatic selection tint. */
 export function searchResultSubtitleClass(active: boolean): string {
   return active ? 'text-accent-strong' : 'text-ink-faint'
+}
+
+/** Current and historical Artifact hits carry readable body context. */
+export function searchResultHasTextPreview(type: SearchHitType): boolean {
+  return type === 'artifact' || type === 'artifactVersion'
 }
 
 export type SearchDestination =

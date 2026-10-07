@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { searchArtifactVersions } from './artifactVersionSearch.ts'
 
@@ -50,6 +51,14 @@ test('artifact version search counts all matches but retains only the requested 
   assert.equal(emptyQuery.total, 0)
   assert.deepEqual(emptyQuery.hits, [])
   assert.deepEqual([...first.hits, ...second.hits].map((hit) => hit.revision), Array.from({ length: 40 }, (_, i) => 44 - i))
+})
+
+test('artifact version snippets are constructed only inside the requested page window', () => {
+  const source = readFileSync(new URL('./artifactVersionSearch.ts', import.meta.url), 'utf8')
+  const pageGate = source.indexOf('if (total >= offset && hits.length < SEARCH_PAGE_SIZE) {')
+  const snippetCall = source.indexOf('literalSearchSnippet(matchedText, query)')
+  assert.ok(pageGate >= 0, 'the source retains the existing page-membership gate')
+  assert.ok(snippetCall > pageGate, 'snippet construction must stay after the page gate')
 })
 
 test('artifact version search rejects a trimmed query over its contract bound', () => {

@@ -6,7 +6,34 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: packaged saved-version workflow
+## Current checkpoint: complete current Artifact search
+
+Ordinary search previously matched only Artifact names, sources and short
+excerpts, missing later Document paragraphs and structured body values. It now
+searches each currently readable Document, Sheet, workbook and Slides body
+through the same literal text projection used by saved-version search. Results
+retain exact current identities, category order and complete paging, with a
+bounded matching snippet shown in a three-line wrapped preview. No persistent
+index, new route, authority or external service is introduced.
+
+Current body reads reuse the canonical tenant/grant projection; foreign,
+revoked and trashed bodies stay absent. History remains a separate owner-only
+mode. HTTP regression tests reproduced the missing later-body matches before
+implementation, and a source lock rejected the old preview wiring. Acceptance
+covers later fields in every authored format, exact IDs, bounded Unicode
+snippets, paging, edits, revocation, five-viewport owner/shared/foreign browser
+walks, the complete UI sweep and the full local verifier on the final frozen
+tree. The two pending product policy questions below remain outside this scope.
+
+The first browser run exposed a missing global-search refresh on grant changes:
+an already-open shared-reader result retained its snippet after revocation.
+The common event handler now evicts every cached search query/category/page
+before rechecking access (UI-196), locked by the failing browser assertion,
+event wiring and actual cache-family eviction tests. Review also preserves
+lazy historical snippet construction: off-page matches count without building
+their previews. A duplicate Search-button test selector was corrected.
+
+## Completed checkpoint: packaged saved-version workflow
 
 The browser search/history checkpoint is complete. Prior packaged attachment
 acceptance covered history restoration and API reads after relaunch, but not
@@ -26,6 +53,7 @@ to capture results before opening a hit. The complete packaged desktop smoke
 then passed, and all eight final history screenshots plus the matching ASAR
 digest receipt were reviewed without findings. The complete local verifier
 passed all five lanes, including all 559 browser tests, without retries.
+Commit `61d6b229` was pushed to `main`.
 This is unsigned host-architecture workflow evidence, not signing/notarization,
 native Intel or real-provider acceptance. The complete local verifier remains
 mandatory before pushing. The Document identity and external Contribution
