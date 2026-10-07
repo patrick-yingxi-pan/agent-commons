@@ -21,6 +21,7 @@ import { smokePackagedImageOcr } from './imageOcrSmoke.mjs'
 import { smokePackagedPdfOcr } from './pdfOcrSmoke.mjs'
 import { smokePackagedContributionReview } from './contributionReviewSmoke.mjs'
 import { smokePackagedDiscussionContext } from './discussionContextSmoke.mjs'
+import { smokePackagedArtifactHistory } from './artifactHistorySmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
@@ -542,6 +543,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   // neither reuse that profile nor compete with its single-instance lock.
   await smokePackagedContributionReview({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedDiscussionContext({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
+  await smokePackagedArtifactHistory({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedAttachments({ executable })
   await smokePackagedMcpCredentials({ executable })
   await smokePackagedMcpSchema({ executable })

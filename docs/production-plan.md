@@ -6,7 +6,32 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: explicit saved-version search
+## Current checkpoint: packaged saved-version workflow
+
+The browser search/history checkpoint is complete. Prior packaged attachment
+acceptance covered history restoration and API reads after relaunch, but not
+explicit saved-version search or canonical revision pages in the built
+renderer. The new acceptance uses an ordinary isolated desktop launch with real
+OS-backed authentication and SQLite, generated accounts and authored content,
+and no model/provider call or main-process injection. It proves owner search,
+exact revision reload/comparison, inert Cancel, current-page navigation, shared
+and foreign privacy, explicit restore, and signed-in full relaunch with exact
+history and replay receipts. Its helper remains excluded from shipped code.
+The focused packaged journey passed on unsigned arm64. A disposable copied
+ASAR with saved-version query results disabled failed at the rendered exact
+revision search result; the real package was untouched. All three helper locks
+were watched fail against missing wiring/exclusion or weakened SQLite read-only
+admission, then restored. Review corrected the post-relaunch search screenshot
+to capture results before opening a hit. The complete packaged desktop smoke
+then passed, and all eight final history screenshots plus the matching ASAR
+digest receipt were reviewed without findings. The complete local verifier
+passed all five lanes, including all 559 browser tests, without retries.
+This is unsigned host-architecture workflow evidence, not signing/notarization,
+native Intel or real-provider acceptance. The complete local verifier remains
+mandatory before pushing. The Document identity and external Contribution
+execution policy questions remain pending and outside this checkpoint.
+
+## Completed checkpoint: explicit saved-version search
 
 Ordinary search remains current-only. An explicit Search saved versions mode
 finds literal text in the owner's retained Document, Sheet, workbook and Slides
@@ -31,7 +56,11 @@ Post-pass review found an unnecessary current-content library read on exact
 revision pages; the UI sweep was stopped before repair. Shared read admission
 now suppresses live reads on saved-body surfaces. A source lock failed before
 repair, and the rendered walk counts network requests across opening, reload
-and comparison. Final acceptance must rerun the full verifier and UI sweep.
+and comparison. The corrected frozen tree passed all five verifier lanes and
+559 browser tests; the final UI sweep passed 135/135 cells with zero violations
+or skips. All five screenshot columns and ten explicit search/comparison views
+were reviewed without findings. Commit `4f0927fd` was pushed to `main`, leaving
+Ada signed in on the exact-version preview. This supersedes the preliminary run.
 
 ## Completed checkpoint: conversational Project sharing
 
