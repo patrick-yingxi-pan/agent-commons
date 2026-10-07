@@ -169,8 +169,8 @@ import { ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MAX_DISCUSSION_POSTS, MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, ENVELOPE_HARNESSES, EFFECT_ENVELOPE_LINE_MAX as MAX_ENVELOPE_LINES, EFFECT_ENVELOPE_CARDINALITY_MAX as MAX_ENVELOPE_CARDINALITY, CONTRIBUTION_FIELD_MAX as MAX_CONTRIBUTION_FIELD_CHARS, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, NOTIFICATION_CAP } from '../../contract/index.ts'
-import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, ENVELOPE_HARNESSES, EFFECT_ENVELOPE_LINE_MAX as MAX_ENVELOPE_LINES, EFFECT_ENVELOPE_CARDINALITY_MAX as MAX_ENVELOPE_CARDINALITY, CONTRIBUTION_FIELD_MAX as MAX_CONTRIBUTION_FIELD_CHARS, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, SEARCH_PAGE_SIZE, NOTIFICATION_CAP } from '../../contract/index.ts'
+import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchPage, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
@@ -8276,13 +8276,17 @@ export const store = {
    *  come in a fixed order, capped at SEARCH_GROUP_CAP with a true `total`; the
    *  private/commons split mirrors the pages' own bands (your projects vs shared-with-
    *  you; your registry vs the published directory), so nothing appears twice. */
-  searchAll(tenantId: string, q?: string): SearchResponse {
+  searchAll(tenantId: string, q?: string, page?: SearchPage): SearchResponse {
     const needle = (q ?? '').trim().toLowerCase()
-    if (!needle) return { query: '', groups: [] }
-    const hit = (...fields: (string | undefined)[]) => fields.some((f) => f?.toLowerCase().includes(needle))
+    if (!needle && !page) return { query: '', groups: [] }
+    const hit = (...fields: (string | undefined)[]) => !!needle && fields.some((f) => f?.toLowerCase().includes(needle))
     const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`
-    const group = (type: SearchHit['type'], label: string, hits: SearchHit[]): SearchGroup[] =>
-      hits.length ? [{ type, label, total: hits.length, hits: hits.slice(0, SEARCH_GROUP_CAP) }] : []
+    const group = (type: SearchHit['type'], label: string, hits: SearchHit[]): SearchGroup[] => {
+      if (page) return type === page.type
+        ? [{ type, label, total: hits.length, hits: hits.slice(page.offset, page.offset + SEARCH_PAGE_SIZE) }]
+        : []
+      return hits.length ? [{ type, label, total: hits.length, hits: hits.slice(0, SEARCH_GROUP_CAP) }] : []
+    }
 
     // 'Your projects' = seeds + created rows the caller owns; a FOREIGN shared row
     // (the Projects list's "Shared with you" band) surfaces via the directory group
@@ -8304,6 +8308,7 @@ export const store = {
 
     return {
       query: needle,
+      ...(page ? { page } : {}),
       groups: [
         ...group('session', 'Sessions', this.listSessions(tenantId)
           .filter((s) => hit(s.title, s.preview))
@@ -8312,7 +8317,7 @@ export const store = {
           .filter((p) => hit(p.name, p.description))
           .map((p): SearchHit => ({ type: 'project', id: p.id, title: p.name, subtitle: p.description }))),
         ...group('artifact', 'Artifacts', this.listArtifacts(tenantId)
-          .filter((a) => hit(a.name, a.source))
+          .filter((a) => hit(a.name, a.source, a.excerpt))
           .map((a): SearchHit => ({ type: 'artifact', id: a.id, title: a.name, subtitle: `${a.meta} · ${a.source}` }))),
         ...group('schedule', 'Scheduled', this.listSchedules(tenantId)
           .filter((s) => hit(s.name, s.subtitle, s.cadence))

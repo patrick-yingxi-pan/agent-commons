@@ -65,12 +65,32 @@ test('tools/list: generated from the route table, with path params as required s
   const byName = new Map(tools.map((t) => [t.name, t]))
   assert.ok(byName.has('get_capabilities'))
   assert.ok(byName.has('post_sessions'))
+  const search = byName.get('get_search')
+  assert.deepEqual(search.inputSchema.properties.query.properties.type.enum, [
+    'session', 'project', 'artifact', 'schedule', 'agent', 'prompt', 'model', 'context',
+    'owner', 'sharedProject', 'publishedAgent', 'openWork',
+  ])
+  assert.equal(search.inputSchema.properties.query.properties.offset.type, 'string')
+  assert.equal(search.inputSchema.properties.query.additionalProperties, false)
   const bySession = byName.get('get_sessions_by_id')
   assert.ok(bySession, 'a :id route becomes a by_id tool')
   assert.deepEqual(bySession.inputSchema.required, ['id'])
   assert.equal(bySession.inputSchema.properties.id.type, 'string')
   assert.ok(!byName.has('get_events'), 'the endless SSE stream is a route-declared transport form')
   assert.ok(!byName.has('post_mcp'), 'the endpoint does not expose itself')
+})
+
+test('generated MCP search tool executes category paging through the same route', async () => {
+  const tenant = `tenant-mcp-search-page-${++seq}`
+  const needle = `mcppage-${seq}`
+  for (let i = 0; i < 23; i += 1) {
+    store.createAgent({ label: `Agent ${needle} ${i}`, systemPrompt: 'x', tools: [], instructions: '' }, tenant)
+  }
+  const result = await toolCall('get_search', { query: { q: needle, type: 'agent', offset: '20' } }, { 'x-tenant-id': tenant })
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.body.page, { type: 'agent', offset: 20 })
+  assert.equal(result.body.groups[0].total, 23)
+  assert.equal(result.body.groups[0].hits.length, 3)
 })
 
 test('tools/call: mutation retry identities are bounded and invalid values fail at the MCP protocol door', async () => {

@@ -250,7 +250,10 @@ test('a persisted assistant turn is stamped with its driving Agent (D16 per-turn
 
 test('a completed turn counts an `ok` generation outcome (route → /metrics wiring, F6 PD31)', async () => {
   const before = store.generationOutcomes().ok
-  const s = store.createSession('outcome wiring')
-  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello', ephemeral: true })
+  const tenant = `tenant-generation-outcome-${Date.now().toString(36)}`
+  const s = store.createSession('outcome wiring', tenant)
+  const { status, body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello', ephemeral: true }, { 'x-tenant-id': tenant })
+  assert.equal(status, 200)
+  assert.match(body, /"type":"message\.end"/)
   assert.equal(store.generationOutcomes().ok, before + 1, 'the route records the turn outcome the model reported')
 })

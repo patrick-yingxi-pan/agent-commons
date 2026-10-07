@@ -38,6 +38,7 @@ import type {
   OwnerProfile,
   ProjectDirectoryEntry,
   SearchResponse,
+  SearchPage,
   WatchState,
   CapabilityEffect,
   ArtifactContentLibrary,
@@ -414,10 +415,14 @@ export function useOwnerProfile(name: string): QueryState<OwnerProfile> {
 
 /** Global search (D22): typed grouped hits across everything the caller can see —
  *  private workspace + the commons. Keyed per query; empty query answers no groups. */
-export function useGlobalSearch(q: string): QueryState<SearchResponse> {
+export function useGlobalSearch(q: string, page?: SearchPage): QueryState<SearchResponse> {
   // Revalidate on mount (SWR): search composes EVERY read (D22) — a cached answer
   // from before an entity changed would otherwise be served forever.
-  return useQuery(keys.search(q), () => apiGet<SearchResponse>(paths.search(q)), true, true)
+  return useQuery(keys.search(q, page), () => apiGet<SearchResponse>(paths.search(q, page)), true, true)
+}
+
+export function retryGlobalSearch(q: string, page?: SearchPage): void {
+  invalidate(keys.search(q, page))
 }
 
 /** A runner's authoritative effect log (the server's projection of it). Updates

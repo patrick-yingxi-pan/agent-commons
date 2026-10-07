@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
+import { artifactCreationId } from '../artifactCreationIdentity.ts'
 
 const A = 'tenant-srch-A'
 const B = 'tenant-srch-B'
@@ -85,6 +86,70 @@ test('groups are capped with a true total; hits beyond the cap are counted, not 
   const agents = groupOf(found, 'agent')
   assert.equal(agents.hits.length, 5, 'capped at SEARCH_GROUP_CAP')
   assert.equal(agents.total, 7, 'the total is honest')
+})
+
+test('category paging returns live 20-hit slices, true totals, and stable empty groups', async () => {
+  const needle = `pages-${(n += 1)}`
+  const createdIds: string[] = []
+  for (let i = 0; i < 45; i += 1) {
+    createdIds.push(store.createAgent({ label: `Agent ${needle} ${i}`, systemPrompt: 'x', tools: [], instructions: '' }, A).id)
+  }
+  const expectedIds = store.listAgents(A).filter((agent) => agent.label.includes(needle)).map((agent) => agent.id)
+  assert.equal(expectedIds.length, 45)
+  assert.deepEqual(new Set(expectedIds), new Set(createdIds), 'expected IDs come from the live reader projection')
+  const page = async (offset: number) => call('GET', `/search?q=${needle}&type=agent&offset=${offset}`, undefined, { 'x-tenant-id': A })
+  const first = await page(0)
+  const second = await page(20)
+  const last = await page(40)
+  const beyond = await page(60)
+  const foreign = await call('GET', `/search?q=${needle}&type=agent&offset=0`, undefined, { 'x-tenant-id': B })
+  const allPageIds = [first, second, last].flatMap((response) => response.json.groups[0].hits.map((hit: any) => hit.id))
+  assert.deepEqual(allPageIds, expectedIds, 'page concatenation preserves actual store reader order and exhausts the category')
+  assert.equal(new Set(allPageIds).size, allPageIds.length, 'pages are disjoint')
+  assert.deepEqual(foreign.json.groups[0].hits, [], 'another tenant receives no private page rows')
+  assert.equal(foreign.json.groups[0].total, 0)
+  for (const [response, length, offset] of [[first, 20, 0], [second, 20, 20], [last, 5, 40], [beyond, 0, 60]] as const) {
+    assert.equal(response.status, 200)
+    assert.deepEqual(response.json.page, { type: 'agent', offset })
+    assert.equal(response.json.groups.length, 1, 'paged category stays present, including beyond its end')
+    assert.equal(response.json.groups[0].label, 'Your agents')
+    assert.equal(response.json.groups[0].total, 45)
+    assert.equal(response.json.groups[0].hits.length, length)
+  }
+  const empty = await call('GET', '/search?type=agent', undefined, { 'x-tenant-id': B })
+  assert.deepEqual(empty.json.groups, [{ type: 'agent', label: 'Your agents', total: 0, hits: [] }])
+  assert.deepEqual(empty.json.page, { type: 'agent', offset: 0 })
+})
+
+test('search page inputs reject absent type, malformed offsets, unsupported types, and duplicates', async () => {
+  for (const query of [
+    '?offset=0', '?type=agent&offset=', '?type=agent&offset=-1', '?type=agent&offset=1.5',
+    '?type=agent&offset=1e2', '?type=agent&offset=9007199254740992', '?type=missing',
+    '?type=agent&type=agent', '?type=agent&offset=0&offset=1', '?q=x&q=y',
+  ]) {
+    const response = await call('GET', `/search${query}`, undefined, { 'x-tenant-id': A })
+    assert.equal(response.status, 400, query)
+  }
+})
+
+test('artifact body excerpts are searchable and category pages recheck current visibility', async () => {
+  const excerptNeedle = `bodyexcerpt-${(n += 1)}`
+  const artifactId = artifactCreationId(A, `search-excerpt-${n}`)
+  store.createArtifact({ name: `Notes ${n}.md`, kind: 'doc', body: `A body contains ${excerptNeedle} only.` }, A, artifactId)
+  const artifactSearch = await call('GET', `/search?q=${excerptNeedle}&type=artifact`, undefined, { 'x-tenant-id': A })
+  assert.ok(artifactSearch.json.groups[0].hits.some((hit: any) => hit.id === artifactId), 'the reader-projected excerpt participates in matching')
+  const foreignArtifactSearch = await call('GET', `/search?q=${excerptNeedle}&type=artifact`, undefined, { 'x-tenant-id': B })
+  assert.equal(foreignArtifactSearch.json.groups[0].total, 0, 'a private body excerpt does not cross the tenant wall')
+
+  const projectId = `p-live-page-${n}`
+  const liveNeedle = `livepage-${n}`
+  store.applyRelationOp({ kind: 'create-project', projectId, projectName: `Visible ${liveNeedle}`, projectDescription: '' }, A)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Visible ${liveNeedle}`, shared: true }, A)
+  const visible = await call('GET', `/search?q=${liveNeedle}&type=sharedProject`, undefined, { 'x-tenant-id': B })
+  assert.equal(visible.json.groups[0].total, 1)
+  store.applyRelationOp({ kind: 'share-project', projectId, projectName: `Visible ${liveNeedle}`, shared: false }, A)
+  const revoked = await call('GET', `/search?q=${liveNeedle}&type=sharedProject`, undefined, { 'x-tenant-id': B })
+  assert.equal(revoked.json.groups[0].total, 0, 'each page composes current authorized reads')
 })
 
 test('an empty (or whitespace) query answers no groups', async () => {

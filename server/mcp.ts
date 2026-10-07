@@ -84,7 +84,7 @@ function toolDefinition(t: ApiOperation) {
   properties.query = {
     type: 'object',
     description: 'Optional query-string parameters.',
-    additionalProperties: { type: ['string', 'number', 'boolean'] },
+    ...(t.query ? { properties: t.query, additionalProperties: false } : { additionalProperties: { type: ['string', 'number', 'boolean'] } }),
   }
   if (t.method !== 'GET') {
     properties.idempotencyKey = {

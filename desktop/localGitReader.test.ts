@@ -7,10 +7,10 @@ import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { bundledGitDirectory } from './bundledGit.mjs'
 import { createLocalGitReader, parseGitIndexEntries, localGitCommandEnvironment } from './localGitReader.mjs'
-import { buildGitFileHelper } from './gitFileBuild.mjs'
+import { buildGitFileTestHelper } from './gitFileTestFixture.mjs'
 import { readGitFile } from './gitFileRead.mjs'
 
-const fileExecutable = process.platform === 'darwin' ? buildGitFileHelper() : null
+const fileExecutable = buildGitFileTestHelper()
 const gitExecutable = process.platform === 'darwin' ? join(bundledGitDirectory({ packaged: false }), 'git') : ''
 
 const oid = 'a'.repeat(40)

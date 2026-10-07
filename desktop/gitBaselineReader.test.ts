@@ -7,14 +7,14 @@ import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import { MAX_GIT_SNAPSHOT_FILE_BYTES } from '../contract/localGitSnapshot.mjs'
 import { bundledGitDirectory } from './bundledGit.mjs'
-import { buildGitFileHelper } from './gitFileBuild.mjs'
+import { buildGitFileTestHelper } from './gitFileTestFixture.mjs'
 import { withLocalGitBaseline, parseGitTree } from './gitBaselineReader.mjs'
 import { createLocalGitReader, localGitCommandEnvironment, runLocalGit } from './localGitReader.mjs'
 
 const GIT_EXECUTABLE = process.platform === 'darwin'
   ? join(bundledGitDirectory({ packaged: false }), 'git')
   : undefined
-const FILE_EXECUTABLE = process.platform === 'darwin' ? buildGitFileHelper() : undefined
+const FILE_EXECUTABLE = buildGitFileTestHelper()
 const AVAILABLE = !!GIT_EXECUTABLE && !!FILE_EXECUTABLE && existsSync(GIT_EXECUTABLE) && existsSync(FILE_EXECUTABLE)
 
 function git(root: string, args: string[], input?: Uint8Array): Buffer {

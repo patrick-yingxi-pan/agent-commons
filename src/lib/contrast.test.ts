@@ -26,6 +26,7 @@ import { ROOT, read, filesUnder, stripComments } from '../../tests/helpers/sourc
 import { PALETTES, PALETTE_TOKENS, THEME_AXIS_GROUPS, deriveThemeTokens, type ThemeRecipe } from './theme.ts'
 import { SOLID_BUTTON_CLASS, DANGER_BUTTON_CLASS } from './button.ts'
 import { CHECKBOX_BOX_ON_CLASS } from './checkbox.ts'
+import { searchResultSubtitleClass } from './searchResults.ts'
 
 const CSS = read(join(ROOT, 'src', 'index.css'))
 
@@ -250,6 +251,8 @@ test('UI-20: sampled customization extremes preserve the contrast contract', () 
     for (const mode of MODES) {
       const t = deref({ ...BASE, ...(mode === 'dark' ? DARK : {}), ...deriveThemeTokens(recipe, mode) })
       const pairs = [
+        [`--color-${searchResultSubtitleClass(true).replace('text-', '')}`, '--color-accent-tint', 4.5],
+        [`--color-${searchResultSubtitleClass(false).replace('text-', '')}`, '--color-surface', 4.5],
         ['--color-ink', '--color-canvas', 4.5],
         ['--color-ink-soft', '--color-canvas', 4.5],
         ['--color-ink-soft', '--color-panel-2', 4.5],

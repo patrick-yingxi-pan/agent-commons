@@ -85,7 +85,11 @@ export function deriveApiTools(catalog: ApiOperation[]): DerivedApiTools {
     const name = `${API_TOOL_PREFIX}${op.name}`
     const properties: Record<string, unknown> = {}
     for (const p of op.params) properties[p] = { type: 'string', description: `Path parameter :${p} (a concrete id).` }
-    properties.query = { type: 'object', description: 'Optional query-string parameters.', additionalProperties: { type: ['string', 'number', 'boolean'] } }
+    properties.query = {
+      type: 'object',
+      description: 'Optional query-string parameters.',
+      ...(op.query ? { properties: op.query, additionalProperties: false } : { additionalProperties: { type: ['string', 'number', 'boolean'] } }),
+    }
     if (op.method !== 'GET') {
       const example = API_BODY_EXAMPLES.get(`${op.method} ${op.pattern}`)
       properties.body = {

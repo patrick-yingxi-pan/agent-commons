@@ -27,6 +27,8 @@ export type RouteAccess =
       capability?: string
       session?: 'tool' | 'intrinsic'
       reason?: string
+      /** Route-owned query parameter schema, projected into generated API doors. */
+      query?: Record<string, unknown>
     }
   | {
       kind: 'form'

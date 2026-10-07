@@ -32,6 +32,12 @@ test('every product route is a generated model tool or a route-declared intrinsi
   const expected = catalog.filter((op) => op.access.kind === 'product' && op.access.session !== 'intrinsic')
   assert.equal(definitions.length, expected.length, 'tool count = the route-owned in-session projection, exactly')
   assert.equal(byName.size, definitions.length, 'names are unique')
+  const search = definitions.find((definition) => definition.name === 'api__get_search')!
+  assert.deepEqual(search.input_schema.properties.query.properties.type.enum, [
+    'session', 'project', 'artifact', 'schedule', 'agent', 'prompt', 'model', 'context',
+    'owner', 'sharedProject', 'publishedAgent', 'openWork',
+  ])
+  assert.equal(search.input_schema.properties.query.properties.offset.type, 'string')
   for (const d of definitions) {
     assert.ok(d.name.startsWith(API_TOOL_PREFIX), 'generated tools wear the api__ namespace')
     assert.ok(!(TOOL_NAMES as string[]).includes(d.name), 'and collide with no curated tool')

@@ -12,6 +12,7 @@ import { serveSessionTurn } from './sessionTurnStream.ts'
 import { updateArtifactContent } from './artifactContent.ts'
 import { registerArtifactHistoryRoutes } from './artifactHistory.ts'
 import { parseArtifactDeletionRequest } from '../../contract/artifactDeletion.ts'
+import { SEARCH_HIT_TYPES, parseSearchPage } from '../../contract/search.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
   ApplyOpRequest,
@@ -2179,8 +2180,18 @@ export function buildRouter(): Router {
   // workspace + the commons — composed exclusively from the same per-tenant reads
   // the pages use (search is a window, never a wall-breach). Empty q ⇒ no groups.
   r.get('/search', ({ req, res, url }) => {
-    sendJson(res, store.searchAll(store.identity(req.headers).tenant.id, url.searchParams.get('q') ?? undefined))
-  })
+    const types = url.searchParams.getAll('type')
+    const offsets = url.searchParams.getAll('offset')
+    const queries = url.searchParams.getAll('q')
+    if (types.length > 1 || offsets.length > 1 || queries.length > 1) return sendError(res, 'bad_request', 'Search accepts at most one q, type, and offset parameter.')
+    const page = parseSearchPage(types[0], offsets[0])
+    if (page === null) return sendError(res, 'bad_request', 'A valid category type is required for a nonnegative integer offset.')
+    sendJson(res, store.searchAll(store.identity(req.headers).tenant.id, queries[0], page))
+  }, { kind: 'product', session: 'tool', query: {
+    q: { type: 'string', description: 'Substring to match across visible workspace content.' },
+    type: { type: 'string', enum: SEARCH_HIT_TYPES, description: 'Search one result category to page through its matches.' },
+    offset: { type: 'string', pattern: '^(0|[1-9][0-9]*)$', description: 'Zero-based category offset; requires type.' },
+  } })
 
   // ── The Agent tool catalog ───────────────────────────────────────────────────
   // The names `server/model/tools.ts` declares — what an Agent's explicit tool grant

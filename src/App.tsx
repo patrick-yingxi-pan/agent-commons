@@ -761,11 +761,7 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
         <DeferredSearchPanel
           sessions={sessions}
           onSelectSession={openSession}
-          onOpenSection={openSection}
-          onOpenProject={openProject}
-          onOpenSchedule={openSchedule}
-          onOpenOwner={openOwner}
-          onOpenAgentPage={openAgentPage}
+          onOpenSection={navigateToSection}
           onClose={() => setSearchOpen(false)}
         />
       )}

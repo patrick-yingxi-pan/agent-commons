@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import { bundledGitDirectory } from './bundledGit.mjs'
-import { buildGitFileHelper } from './gitFileBuild.mjs'
+import { buildGitFileTestHelper } from './gitFileTestFixture.mjs'
 import { listGitPackIndexes, readGitFile, readGitFileRange } from './gitFileRead.mjs'
 import { localGitCommandEnvironment, runLocalGit } from './localGitReader.mjs'
 import { inspectLocalFolderRoot } from './localFolderReader.mjs'
@@ -16,7 +16,7 @@ import { withGitObjectReader } from './gitObjectReader.mjs'
 const GIT_EXECUTABLE = process.platform === 'darwin'
   ? join(bundledGitDirectory({ packaged: false }), 'git')
   : undefined
-const FILE_EXECUTABLE = process.platform === 'darwin' ? buildGitFileHelper() : undefined
+const FILE_EXECUTABLE = buildGitFileTestHelper()
 const ACTUAL_GIT_AVAILABLE = !!GIT_EXECUTABLE && !!FILE_EXECUTABLE && existsSync(GIT_EXECUTABLE) && existsSync(FILE_EXECUTABLE)
 const MAX_OBJECT_BYTES = 1024 * 1024
 

@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { FileText, Globe, ListChecks, MessageSquare, Search, type LucideIcon } from 'lucide-react'
-import type { SearchHit, SearchHitType } from '../../contract/index.ts'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowRight, FileText, Globe, ListChecks, MessageSquare, Search, X, type LucideIcon } from 'lucide-react'
+import { SEARCH_PAGE_SIZE, type SearchHitType, type SearchPage } from '../../contract/index.ts'
 import type { Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { SCRIM_CLASS } from '../lib/scrim'
-import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
-import { useGlobalSearch } from '../api'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { useBoundedDialog } from '../lib/useBoundedDialog'
+import { retryGlobalSearch, useGlobalSearch } from '../api'
+import { searchHitDestination, searchResponseMatches, searchResultSubtitleClass } from '../lib/searchResults'
+import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 
 /** Icon per server hit type. Section-shaped types reuse the section's own icon
  *  (one cue per concept); the commons types get their public-face cues. */
@@ -50,26 +53,19 @@ export function SearchPanel({
   sessions,
   onSelectSession,
   onOpenSection,
-  onOpenProject,
-  onOpenSchedule,
-  onOpenOwner,
-  onOpenAgentPage,
   onClose,
 }: {
   sessions: Session[]
   onSelectSession: (id: string) => void
-  onOpenSection: (s: SectionId) => void
-  onOpenProject: (id: string) => void
-  onOpenSchedule: (id: string) => void
-  onOpenOwner: (name: string) => void
-  /** A published definition's own page (COMMONS-26) — the publishedAgent hit's door. */
-  onOpenAgentPage: (agentId: string) => void
+  onOpenSection: (s: SectionId, id?: string, subId?: string) => void
   onClose: () => void
 }) {
   const [q, setQ] = useState('')
   const [active, setActive] = useState(0)
+  const [page, setPage] = useState<SearchPage | undefined>()
   const dialogRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
 
   // Debounced server query — one request per typing pause, cached per query.
   const [debouncedQ, setDebouncedQ] = useState('')
@@ -77,16 +73,25 @@ export function SearchPanel({
     const t = setTimeout(() => setDebouncedQ(q.trim()), 160)
     return () => clearTimeout(t)
   }, [q])
-  const server = useGlobalSearch(debouncedQ)
+  const server = useGlobalSearch(debouncedQ, page)
 
   // Focus the search input on open, trap Tab within the palette, close on
   // Escape, restore focus on close.
   useFocusTrap(dialogRef, onClose, { initialFocus: inputRef })
+  useBoundedDialog(dialogRef)
 
   const needle = q.trim()
   // The server echoes the (lowercased) query it answered — mismatch means the
   // answer for what's typed is still in flight, so "no matches" would be a lie.
-  const settled = needle === '' || server.data?.query === needle.toLowerCase()
+  const currentQuery = debouncedQ.toLowerCase() === needle.toLowerCase()
+  const settled = currentQuery && server.status === 'success' && searchResponseMatches(server.data, needle, page)
+  const failed = currentQuery && server.status === 'error'
+  const pageGroup = settled && page ? server.data?.groups[0] : undefined
+  const changePage = useCallback((next: SearchPage | undefined) => {
+    setPage(next)
+    setActive(0)
+    inputRef.current?.focus()
+  }, [])
 
   const groups = useMemo<Group[]>(() => {
     const goSession = (id: string) => () => {
@@ -98,7 +103,7 @@ export function SearchPanel({
       onClose()
     }
 
-    const pageResults: Result[] = SECTION_ORDER.filter(
+    const pageResults: Result[] = (page ? [] : SECTION_ORDER).filter(
       (id) =>
         needle === '' ||
         SECTION_META[id].label.toLowerCase().includes(needle.toLowerCase()) ||
@@ -127,55 +132,31 @@ export function SearchPanel({
     }
 
     // Typed query → the server's grouped hits, each a DEEP LINK to its entity.
-    const door = (hit: SearchHit): (() => void) => {
-      const go = (fn: () => void) => () => {
-        fn()
-        onClose()
-      }
-      switch (hit.type) {
-        case 'session':
-          return go(() => onSelectSession(hit.id))
-        case 'project':
-        case 'sharedProject':
-          // One page serves owner and visitor alike (COMMONS-13) — same door.
-          return go(() => onOpenProject(hit.id))
-        case 'schedule':
-          return go(() => onOpenSchedule(hit.id))
-        case 'owner':
-          return go(() => onOpenOwner(hit.id))
-        case 'publishedAgent':
-          // The definition's OWN page (COMMONS-26) — the canonical door, like every
-          // other hit landing on its entity's page.
-          return go(() => onOpenAgentPage(hit.id))
-        case 'openWork':
-          // The backlog lives on the project page — `ref` carries the projectId.
-          return go(() => (hit.ref ? onOpenProject(hit.ref) : onOpenSection('projects')))
-        case 'artifact':
-          return go(() => onOpenSection('artifacts'))
-        case 'model':
-          return go(() => onOpenSection('models'))
-        case 'context':
-          return go(() => onOpenSection('contexts'))
-        case 'agent':
-        case 'prompt':
-          return go(() => onOpenSection('agents'))
-      }
-    }
-
-    const serverGroups: Group[] = (server.data?.groups ?? []).map((g) => ({
+    const serverGroups: Group[] = (settled ? server.data?.groups ?? [] : []).map((g) => ({
       // The cap is honest: when more matched than shown, the header says so.
-      label: g.total > g.hits.length ? `${g.label} · ${g.hits.length} of ${g.total}` : g.label,
-      items: g.hits.map((h) => ({
-        key: `${h.type}-${h.id}`,
-        title: h.title,
-        subtitle: h.subtitle,
-        Icon: HIT_ICON[h.type],
-        run: door(h),
-      })),
+      label: !page && g.total > g.hits.length ? `${g.label} · ${g.hits.length} of ${g.total}` : g.label,
+      items: [...g.hits.flatMap((h): Result[] => {
+        const destination = searchHitDestination(h)
+        if (!destination) return []
+        return [{
+          key: `${h.type}-${h.id}`,
+          title: h.title,
+          subtitle: h.subtitle,
+          Icon: HIT_ICON[h.type],
+          run: () => {
+            if (destination.kind === 'session') onSelectSession(destination.id)
+            else onOpenSection(destination.section, destination.id, destination.subId)
+            onClose()
+          },
+        }]
+      }), ...(!page && g.total > g.hits.length ? [{
+        key: `more-${g.type}`, title: `Show all ${g.label}`, subtitle: `${g.total} matches`, Icon: ArrowRight,
+        run: () => changePage({ type: g.type, offset: 0 }),
+      }] : [])],
     }))
 
     return [...serverGroups, { label: 'Pages', items: pageResults }].filter((g) => g.items.length > 0)
-  }, [needle, sessions, server.data, onSelectSession, onOpenSection, onOpenProject, onOpenSchedule, onOpenOwner, onOpenAgentPage, onClose])
+  }, [needle, sessions, server.data, settled, page, changePage, onSelectSession, onOpenSection, onClose])
 
   const flat = useMemo(() => groups.flatMap((g) => g.items), [groups])
 
@@ -185,6 +166,10 @@ export function SearchPanel({
   useEffect(() => {
     setActive((a) => (a >= flat.length || a < 0 ? 0 : a))
   }, [flat.length])
+
+  useEffect(() => {
+    resultsRef.current?.querySelector('[data-search-active="true"]')?.scrollIntoView({ block: 'nearest' })
+  }, [active, flat])
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'ArrowDown') {
@@ -206,7 +191,7 @@ export function SearchPanel({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[12dvh] short:pt-[6dvh]"
+      className={BOUNDED_DIALOG_LAYER_CLASS}
       onMouseDown={onClose}
       role="dialog"
       aria-modal="true"
@@ -215,36 +200,36 @@ export function SearchPanel({
       <div className={`${SCRIM_CLASS} backdrop-blur-[1px]`} />
       <div
         ref={dialogRef}
+        data-bounded-dialog="search"
         onMouseDown={(e) => e.stopPropagation()}
-        className={`relative flex max-h-[68dvh] w-[580px] max-w-full flex-col ${DIALOG_SURFACE_CLASS} short:max-h-[85dvh]`}
+        className={`w-[580px] ${BOUNDED_DIALOG_PANEL_CLASS} ${DIALOG_SURFACE_CLASS}`}
       >
         <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-3.5">
           <Search size={17} className="shrink-0 text-ink-faint" />
           <input
             ref={inputRef}
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => { setQ(e.target.value); setPage(undefined); setActive(0) }}
             onKeyDown={onKeyDown}
+            aria-label="Search everything"
+            aria-describedby="search-help"
             placeholder="Search everything — sessions, projects, agents, people…"
-            className="flex-1 bg-transparent py-3 text-[15px] text-ink outline-none placeholder:text-ink-faint"
+            className="min-w-0 flex-1 bg-transparent py-3 text-[15px] text-ink outline-none placeholder:text-ink-faint"
           />
-          <kbd className="shrink-0 rounded border border-line-strong bg-panel-2 px-1.5 py-0.5 text-[10px] font-medium text-ink-faint">
-            esc
-          </kbd>
+          <button type="button" aria-label="Close search" onClick={onClose} className="shrink-0 rounded-md p-1 text-ink-faint hover:bg-panel-2"><X size={16} /></button>
         </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto py-1.5">
-          {flat.length === 0 ? (
-            <div className="px-4 py-10 text-center text-[13px] text-ink-faint">
-              {settled ? (
-                <>No matches for “{needle}”.</>
-              ) : server.error ? (
-                // A failed fetch would otherwise read "Searching…" forever for this
-                // query (an errored key refetches on the next palette open).
-                'Search is unavailable right now — try again.'
-              ) : (
-                'Searching…'
-              )}
+        {page && <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3.5 py-2">
+          <button type="button" className={INLINE_ACTION_CLASS} onClick={() => changePage(undefined)}>All categories</button>
+          <span className="text-[11px] text-ink-faint">Results reflect current access; changes may shift pages.</span>
+        </div>}
+        {needle && !settled && <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 px-3.5 py-2 text-[12px] text-ink-soft">
+          <span>{failed ? 'Search is unavailable right now.' : 'Searching…'}</span>
+          {failed && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => retryGlobalSearch(debouncedQ, page)}>Retry search</button>}
+        </div>}
+        <div ref={resultsRef} data-search-results className={`${BOUNDED_DIALOG_BODY_CLASS} py-1.5`}>
+          {flat.length === 0 && settled ? (
+            <div role="status" className="break-words px-4 py-10 text-center text-[13px] text-ink-faint [overflow-wrap:anywhere]">
+              {page ? 'No matches on this page. Go back to review current results.' : <>No matches for “{needle}”.</>}
             </div>
           ) : (
             groups.map((g) => (
@@ -259,6 +244,10 @@ export function SearchPanel({
                   return (
                     <button
                       key={r.key}
+                      type="button"
+                      aria-label={r.key.startsWith('more-') ? r.title : undefined}
+                      data-search-result={r.key}
+                      data-search-active={isActive}
                       onMouseMove={() => setActive(here)}
                       onClick={r.run}
                       className={`flex w-full items-center gap-3 px-3.5 py-2 text-left transition ${
@@ -270,8 +259,8 @@ export function SearchPanel({
                         className={`shrink-0 ${isActive ? 'text-accent-strong' : 'text-ink-faint'}`}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] font-medium text-ink">{r.title}</span>
-                        <span className="block truncate text-[11px] text-ink-faint">{r.subtitle}</span>
+                        <span title={r.title} className="block truncate text-[13px] font-medium text-ink">{r.title}</span>
+                        <span title={r.subtitle} className={`block truncate text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.subtitle}</span>
                       </span>
                     </button>
                   )
@@ -280,8 +269,12 @@ export function SearchPanel({
             ))
           )}
         </div>
-
-        <div className="flex shrink-0 items-center gap-3 border-t border-line bg-panel px-3.5 py-1.5 text-[11px] text-ink-faint">
+        {page && <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-line px-3.5 py-2">
+          <button type="button" className={INLINE_ACTION_CLASS} disabled={page.offset === 0} onClick={() => changePage({ ...page, offset: Math.max(0, page.offset - SEARCH_PAGE_SIZE) })}>Previous page</button>
+          <span role="status" className="text-[11px] text-ink-soft">{pageGroup ? `${pageGroup.hits.length ? page.offset + 1 : 0}–${pageGroup.hits.length ? page.offset + pageGroup.hits.length : 0} of ${pageGroup.total}` : '…'}</span>
+          <button type="button" className={INLINE_ACTION_CLASS} disabled={!pageGroup || page.offset + SEARCH_PAGE_SIZE >= pageGroup.total} onClick={() => changePage({ ...page, offset: page.offset + SEARCH_PAGE_SIZE })}>Next page</button>
+        </div>}
+        <div id="search-help" className="flex shrink-0 flex-wrap items-center gap-3 border-t border-line bg-panel px-3.5 py-1.5 text-[11px] text-ink-faint">
           <span className="flex items-center gap-1">
             <Kbd>↑</Kbd>
             <Kbd>↓</Kbd>
@@ -291,8 +284,9 @@ export function SearchPanel({
             <Kbd>↵</Kbd>
             open
           </span>
-          <span className="ml-auto">{flat.length} result{flat.length === 1 ? '' : 's'}</span>
+          <span className="ml-auto">esc close</span>
         </div>
+        <span className="sr-only" role="status">{flat[active] ? `Selected ${flat[active].title}` : ''}</span>
       </div>
     </div>
   )

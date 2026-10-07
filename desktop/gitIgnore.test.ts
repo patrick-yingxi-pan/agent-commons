@@ -6,13 +6,13 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { test } from 'node:test'
 import { bundledGitDirectory, bundledGitProbeEnvironment } from './bundledGit.mjs'
-import { buildGitFileHelper } from './gitFileBuild.mjs'
+import { buildGitFileTestHelper } from './gitFileTestFixture.mjs'
 import { readGitIgnoredPaths } from './gitIgnore.mjs'
 import { readGitFile } from './gitFileRead.mjs'
 import { runLocalGit } from './localGitReader.mjs'
 
 const GIT = process.platform === 'darwin' ? join(bundledGitDirectory({ packaged: false }), 'git') : undefined
-const FILE = process.platform === 'darwin' ? buildGitFileHelper() : undefined
+const FILE = buildGitFileTestHelper()
 const AVAILABLE = !!GIT && !!FILE && existsSync(GIT) && existsSync(FILE)
 
 function git(root: string, args: string[], input?: Uint8Array): Buffer {

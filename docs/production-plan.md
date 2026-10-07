@@ -119,6 +119,53 @@ language support are OS-dependent, not a promise of universal recognition.
 
 ## Progress and next milestones
 
+### Complete resource-search navigation (2026-10-06)
+
+The next core-workflow audit found that global search exposed only five matches
+per category without continuation and dropped several selected resource IDs at
+navigation. COMMONS-15 now keeps the small overview while offering fixed-size
+category pages and exact canonical doors, including work items and prompts.
+Each page reuses current authorized reads; live changes may shift offsets and
+the UI says so. Artifact excerpts join the existing metadata/prose search;
+full conversation transcripts and saved-version indexing are separate work.
+
+The shared result mapper and response-coordinate guard prevent generic landings
+and stale-query activation. Keyboard selection scrolls into view, read failure
+has explicit Retry even beside local Pages, and the loaded palette now uses the
+same viewport-bounded dialog as its deferred loading state. No index, persisted
+search history, external connection or new write authority is introduced.
+Acceptance covers exact paged IDs, HTTP/MCP parity, current access, canonical
+resource doors, query races and five-viewport accessibility/layout. The complete
+local verifier and responsive sweep remain the pre-push gates; no GitHub CI is
+used. Contribution execution still awaits its separate design decision, and
+the signed/notarized, hosting, Intel and paid-provider gates remain open.
+
+The first focused browser run exposed 4.38:1 selected-result secondary text;
+UI-189 now pairs that text with its tested chromatic seat across both modes,
+presets and sampled customization extremes. Both browser and intentional pure
+contrast regressions failed before repair. The first full Node run found an
+existing message-metrics test exhausting the shared demo tenant's five-hour
+budget (HTTP 429). That test now owns a fresh usage partition and proves a 200
+plus terminal message before checking the counter; production limits and test
+timeouts/retries are unchanged.
+
+The responsive sweep completed all 135 cells with no violations or skips;
+focused search/browser coverage passed 11 tests and the full Node suite passed
+4,531 tests. Post-test review tightened the keyboard destination's heading
+assertion to use the actual selected title, rather than an undefined name. The
+final complete local verifier must include that strengthened assertion before
+landing. The signed-in preview demonstrated a formerly hidden sixth artifact
+opening its exact page and retained Ada plus the six-account stack.
+
+The first complete verifier passed all four browser lanes but exposed a native
+Git fixture collision: six concurrent suites compiled to the same development
+helper path, while the failed reader suite passed alone. Each now builds an
+identical helper into its own temporary directory with suite-owned cleanup;
+the helper fixture is excluded from packaging. A source lock failed on all six
+shared builds before migration. No production Git authority, reader behavior,
+deadline or retry policy changed. The search race test also now proves its
+response is held before attempting Enter.
+
 ### Literal Sheet range paste (2026-10-06)
 
 ADAPT-40 adds bounded table paste to the shared creation and editing fields.

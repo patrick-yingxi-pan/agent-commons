@@ -68,6 +68,7 @@ export function ignoreFromPackage(path) {
       'desktop/packager.config.mjs',
       'desktop/profileHelperBuild.mjs',
       'desktop/gitFileBuild.mjs',
+      'desktop/gitFileTestFixture.mjs',
       'desktop/ocrHelperBuild.mjs',
       'desktop/imageOcrFixture.mjs',
       'desktop/imageOcrSmoke.mjs',

@@ -30,6 +30,8 @@ export interface ApiOperation {
    * by-id projections) may share one capability without pretending their HTTP
    * shapes are identical. Absent for form-only operations. */
   capability?: string
+  /** Query parameters documented by the route itself, when it has a narrow schema. */
+  query?: Record<string, unknown>
 }
 
 const snake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).replace(/-/g, '_')
@@ -51,6 +53,7 @@ export function catalogOf(router: Router): ApiOperation[] {
     pattern,
     name: toolNameFor(method, pattern),
     access,
+    ...(access.kind === 'product' && access.query ? { query: access.query } : {}),
     ...(access.kind === 'product' ? { capability: access.capability ?? `${method} ${pattern}` } : {}),
     params: pattern
       .split('/')

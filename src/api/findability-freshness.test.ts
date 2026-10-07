@@ -15,15 +15,27 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { keys } from './keys.ts'
+import { keys, paths } from './keys.ts'
 
 const src = (rel: string): string => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
 test('the key families follow the prefix convention invalidatePrefix depends on', () => {
   assert.equal(keys.search(), 'search', 'no-arg = the family prefix (the directory-keys convention)')
-  assert.equal(keys.search('q1'), 'search:q1')
+  assert.equal(keys.search('q1'), 'search:["q1",null,0]')
   assert.equal(keys.ownerProfile(), 'owner-profile')
   assert.equal(keys.ownerProfile('Ada Lab'), 'owner-profile:Ada Lab')
+})
+
+test('search page keys cannot alias other queries, categories or offsets and share one invalidation family', () => {
+  const variants = [
+    keys.search(''), keys.search('q'), keys.search('q', { type: 'artifact', offset: 0 }),
+    keys.search('q', { type: 'artifact', offset: 20 }), keys.search('q', { type: 'agent', offset: 0 }),
+    keys.search('q:artifact:20'), keys.search('["q","artifact",20]'),
+  ]
+  assert.equal(new Set(variants).size, variants.length)
+  assert.ok(variants.every(key => key.startsWith(`${keys.search()}:`)))
+  assert.equal(paths.search('one & two', { type: 'artifact', offset: 20 }), '/search?q=one%20%26%20two&type=artifact&offset=20')
+  assert.equal(paths.search('one'), '/search?q=one')
 })
 
 test('both findability hooks revalidate on mount (SWR), and the cache honors force', () => {

@@ -1,7 +1,7 @@
 /** Cache keys + API paths, defined once so a query and the event that invalidates
  *  it can't drift. `keys.*` index the client cache; `paths.*` are the URLs under
  *  `API_BASE`. Both grow per resource as reads migrate. */
-import type { Connector } from '../../contract/index.ts'
+import type { Connector, SearchPage } from '../../contract/index.ts'
 
 /** One shared encoder keeps every declared path builder byte-equivalent. */
 const encodePathSegment = encodeURIComponent
@@ -81,7 +81,7 @@ export const keys = {
    *  the family prefix for `invalidatePrefix` (the directory-keys convention). */
   ownerProfile: (name?: string) => (name ? `owner-profile:${name}` : 'owner-profile'),
   /** Global search (D22) — keyed per query; no-arg = the family prefix. */
-  search: (q?: string) => (q ? `search:${q}` : 'search'),
+  search: (q?: string, page?: SearchPage) => q === undefined ? 'search' : `search:${JSON.stringify([q, page?.type ?? null, page?.offset ?? 0])}`,
   runners: 'agents',
   runnerEffects: (id: string) => `runner-effects:${id}`,
   resourceStatus: (key: string) => `resource:${key}`,
@@ -279,7 +279,7 @@ export const paths = {
   /** The workspace profile (D21) — the display name IS the public handle. */
   ownerProfile: (name: string) => `/directory/owners/${encodePathSegment(name)}`,
   /** Global search (D22): typed grouped hits across everything the caller can see. */
-  search: (q: string) => `/search?q=${encodePathSegment(q)}`,
+  search: (q: string, page?: SearchPage) => `/search?q=${encodePathSegment(q)}${page ? `&type=${encodePathSegment(page.type)}&offset=${page.offset}` : ''}`,
   /** The A2A edge (docs/a2a-integration.md, D20). `a2aAgentCard` is a public GET a
    *  foreign agent (or a curious human) can open; `agentImportCard` is the outbound
    *  fetch-a-remote-card mint. */
