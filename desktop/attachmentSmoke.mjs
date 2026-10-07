@@ -14,6 +14,7 @@ import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 import { bitmapFixture, iconFixture } from '../tests/helpers/bitmapFixture.mjs'
 import { svgFixture } from '../tests/helpers/svgFixture.mjs'
 import { runArtifactImageImportSmoke } from './artifactImageImportSmoke.mjs'
+import { runArtifactPdfOcrSmoke } from './artifactPdfOcrSmoke.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
 import { smokePackagedLocalGit } from './localGitSmoke.mjs'
@@ -482,8 +483,11 @@ export async function smokePackagedAttachments({ executable }) {
     const importedImage = await runArtifactImageImportSmoke({
       page, app: run.app, origin, fixtureRoot, openArtifactImportDialog,
     })
+    const importedPdfOcr = await runArtifactPdfOcrSmoke({
+      page, app: run.app, origin, fixtureRoot, openArtifactImportDialog,
+    })
 
-    await Promise.all([...importedDocuments.map(({ path }) => rm(path)), rm(importedPresentation.path), ...importedSheets.map(({ path }) => rm(path)), rm(importedImage.path)])
+    await Promise.all([...importedDocuments.map(({ path }) => rm(path)), rm(importedPresentation.path), ...importedSheets.map(({ path }) => rm(path)), rm(importedImage.path), rm(importedPdfOcr.path)])
     console.log('[desktop-artifact-import-smoke] real native reader + IPC · text/PDF/DOCX review · explicit adoption · saved document bodies')
 
     // Markdown export is a renderer download, not a native bridge. Create a real
@@ -1079,6 +1083,17 @@ export async function smokePackagedAttachments({ executable }) {
     assert.deepEqual(restoredImageOcrBody, importedImage.body, 'full packaged relaunch retains corrected OCR-derived document after the PNG source is removed')
     await expect(page.getByText('Cobalt garden 427 — verified', { exact: true })).toBeVisible()
     console.log('[desktop-artifact-image-import-smoke] exact corrected OCR document survives full relaunch without source PNG')
+    await page.goto(`${origin}/artifacts/${encodeURIComponent(importedPdfOcr.id)}`)
+    await expect(page.getByRole('heading', { name: importedPdfOcr.name, exact: true })).toBeVisible()
+    const restoredPdfOcrBody = await page.evaluate(async (id) => {
+      const response = await fetch('/api/v1/artifact-content')
+      if (!response.ok) throw new Error('Restored PDF OCR artifact read failed.')
+      return (await response.json())[id]
+    }, importedPdfOcr.id)
+    assert.deepEqual(restoredPdfOcrBody, importedPdfOcr.body, 'full packaged relaunch retains corrected PDF OCR document after its source PDF is removed')
+    await expect(page.getByText('Scan Alpine 427', { exact: false })).toBeVisible()
+    await expect(page.getByText('Scan Bravo 813', { exact: false })).toBeVisible()
+    console.log('[desktop-artifact-pdf-ocr-smoke] exact corrected two-page OCR document survives full relaunch without source PDF')
     await page.goto(`${origin}${sessionPath}`)
     await inspectPair(page, ids)
     await expect(page.locator('[data-turn]').filter({ hasText: 'native-first-body' })).toBeVisible()

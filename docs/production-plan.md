@@ -119,6 +119,78 @@ language support are OS-dependent, not a promise of universal recognition.
 
 ## Progress and next milestones
 
+### Sandboxed scanned-PDF review (2026-10-06)
+
+The owner approved a separately sandboxed macOS service and continued independent
+core work. Explicit single-PDF selection now feeds a byte-only broker and an
+authenticated App Sandbox XPC service. Only the service links the native
+CoreGraphics/Vision decoder; it has no user-file or network entitlement. The
+Document form keeps recognized text in a read-only candidate until explicit
+adoption, correction and ordinary Create. Limits are 8 MiB input, 100 pages, a
+2,000-pixel rendered edge, 64 KiB whole text, one job and a 120-second deadline.
+The existing 19,980-character source limit refuses larger candidates without
+clipping. Every admitted page is processed sequentially, including blank pages.
+
+The isolated browser bridge-fixture workflow now passes all 22 focused artifact
+import journeys, covering PDF/image OCR, ordinary text/PDF/DOCX imports,
+presentation/workbook imports and recovery. PDF idle, pending, review and refusal
+states pass exclusion-free accessibility and containment checks at all five
+canonical viewports, with both native OCR capabilities represented. The general
+UI sweep passed 135/135 cells with no violations or skips. These establish
+renderer behavior only, not native confinement or a release-ready PDF engine.
+The initial browser run exposed two test defects (a rounded rather than exact
+source-limit expectation and attempting an account switch behind a modal); both
+were corrected without retries or wider timing budgets. Native picker payload
+coverage also watched the incorrect byte-field mapping fail before repair.
+
+The service validates its own sealed identity and authenticates the fixed broker
+identifier and Developer ID team; local ad-hoc builds instead pin the exact
+standalone transport signature. The broker validates its nested service before
+connecting. The service exits on broker loss even with an uncooperative decoder,
+and has an independent deadline. Real generated-file/loopback denial, forced
+cancellation, wrong-peer rejection and tampered-seal tests passed; the denial
+assertion was watched fail with a test-only unsandboxed service. Page bitmap
+budgets do not claim to bound every internal decoder allocation.
+
+The unsigned arm64 packaged OCR phases passed with actual two-page image-only
+PDFs, blank/protected/over-page-limit refusals, exact review/adoption/correction,
+and saved Document content after source-absent relaunch. Initial packaging
+failures exposed the actual codesign requirement prefix and Packager hook path;
+both are now covered by locks. Native picker answers are fixtures, not manual
+OS-dialog evidence. Developer ID/notarization, Intel execution and broader OCR
+corpus acceptance remain release gates. The complete `npm run desktop:verify`
+passed, including the independent recovery repair below. The complete local
+`npm run verify` remains the mandatory pre-push gate, without retries or GitHub
+CI reliance. Ordinary PDF attachment/import stays explicitly text-only.
+
+The first complete verifier passed all four browser lanes and 4,485 of 4,486
+node tests. Its sole failure was the suite-path lint treating a quoted expected
+renderer import as a path relative to the cross-layer test itself. That assertion
+now uses the same exact import regex shape as the surrounding source locks;
+neither the path lint nor its exceptions, product behavior, timing or retries
+changed. The final complete verifier must run again before landing.
+
+### Damaged-startup restore acceptance (2026-10-06)
+
+The expanded packaged recovery walk uses only generated isolated profiles and
+explicit dialog fixtures. It found a real gap: a valid portable backup could
+not repair an unreadable SQLite database because restore tried to open the
+damaged destination first. Recovery now stages and read-back-validates a new
+SQLite database privately, retains the existing main file without an absent-path
+crash window, separates old sidecars and atomically publishes the replacement.
+Final-path read-back and durable rollback prevent false success. Orphan sidecars
+without a main database remain a fail-closed manual-recovery case.
+
+The new regression was watched fail against the old direct-open path. Focused
+locks prove malformed input, staging failure and final-read-back failure preserve
+the original bytes, including removal of replacement-created WAL/SHM files before
+rollback. The real packaged damaged-startup walk now passes: exact chosen
+Document/Sheet/Slides/conversation state, no fresh safety copy, unchanged device
+authentication root and provider vault, and a still-usable pre-damage personal
+token. Dialog answers, relaunch spawning and that walk's mock keychain are
+explicit test fixtures, not manual OS-dialog or OS-encryption evidence. Separate
+ordinary packaged launches still prove OS-backed credential/auth persistence.
+
 ### Changed-line Git review (2026-10-06 UTC)
 
 PORT-27 turns the existing read-only Git capture into line-numbered changed

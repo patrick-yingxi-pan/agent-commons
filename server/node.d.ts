@@ -87,8 +87,10 @@ declare module 'node:fs' {
   export function lstatSync(path: string): Stats
   export function fstatSync(fd: number): Stats
   export function realpathSync(path: string): string
-  export function openSync(path: string, flags: number): number
+  export function openSync(path: string, flags: string | number): number
   export function closeSync(fd: number): void
+  export function fsyncSync(fd: number): void
+  export function linkSync(existingPath: string, newPath: string): void
   export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number): number
   export const constants: { O_RDONLY: number; O_NOFOLLOW?: number; O_NONBLOCK?: number }
   export function readdirSync(path: string): string[]
@@ -102,6 +104,7 @@ declare module 'node:fs' {
   }
   export function opendirSync(path: string): Dir
   export function chmodSync(path: string, mode: number): void
+  export function mkdtempSync(prefix: string): string
   export function writeFileSync(path: string, data: string, options?: { mode?: number }): void
   export function renameSync(oldPath: string, newPath: string): void
   export function mkdirSync(path: string, options?: { recursive?: boolean; mode?: number }): void

@@ -1,8 +1,9 @@
 /** Packaged managed-restore acceptance over an exclusively owned throwaway profile.
- * Dialog answers and the relaunch spawn are test fixtures. The rendered controls,
- * trusted IPC, safety backup, backend shutdown, ASAR utility worker, SQLite restore,
- * and subsequent independent application process are real. This phase does not
- * replace ordinary smoke's OS-backed storage or manual native-dialog acceptance.
+ * Dialog answers and the relaunch spawn are test fixtures, including the startup
+ * recovery prompt. The rendered controls, trusted IPC, backend shutdown, ASAR
+ * utility worker, SQLite replacement, and subsequent independent application
+ * process are real. Dialog answers are not OS-dialog evidence, and Chromium's
+ * mock keychain does not establish OS-backed encryption behavior.
  */
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
@@ -15,14 +16,15 @@ import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { desktopBackupName } from './dataProtocol.mjs'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
-import { exactLoopbackOrigin } from './runtime.mjs'
+import { exactLoopbackOrigin, findAvailableLoopbackPort } from './runtime.mjs'
+import { createProcess, installStartupFixture, stopChild, waitForInspectorUrl } from './startupSmokeInspector.mjs'
 
 const TIMEOUT_MS = 40_000
 const TRACE = '[desktop-restore-fixture] '
 
 async function launch(executable, userDataPath) {
   const app = await _electron.launch({
-    executablePath: executable, args: [`--user-data-dir=${userDataPath}`],
+    executablePath: executable, args: [`--user-data-dir=${userDataPath}`, '--use-mock-keychain'],
     chromiumSandbox: true, timeout: TIMEOUT_MS,
   })
   let output = ''
@@ -46,6 +48,63 @@ async function launch(executable, userDataPath) {
   } catch (error) {
     await app.close().catch(() => {})
     throw error
+  }
+}
+
+async function launchDamagedStartup(executable, userDataPath, selectedPath) {
+  const inspectorPort = await findAvailableLoopbackPort()
+  const run = createProcess(executable, [
+    `--inspect-brk=${inspectorPort}`,
+    `--user-data-dir=${userDataPath}`,
+    '--use-mock-keychain',
+  ])
+  // Subscribe before the inspector resumes the main module. A fast startup
+  // recovery can finish before this helper returns to its caller.
+  const closed = new Promise((resolve, reject) => {
+    run.child.once('close', (code, signal) => resolve({ code, signal }))
+    run.child.once('error', reject)
+  })
+  closed.catch(() => {})
+  let inspector
+  try {
+    const expression = `(() => {
+      const moduleApi = process.getBuiltinModule('module')
+      const electron = moduleApi.createRequire(process.resourcesPath + '/app.asar/package.json')('electron')
+      if (electron.app.isReady()) throw new Error('Startup already reached ready')
+      const state = { selectedPath: ${JSON.stringify(selectedPath)}, calls: [], errors: [], relaunches: 0, exitCode: null }
+      electron.dialog.showMessageBox = async (...args) => {
+        const options = args.at(-1)
+        state.calls.push({ kind: 'message', options })
+        if (options.title === 'Couldn’t open Agent Commons') return { response: 0 }
+        if (options.title === 'Restore Agent Commons?') return { response: 1 }
+        throw new Error('Unexpected startup-restore fixture message box')
+      }
+      electron.dialog.showOpenDialog = async (...args) => {
+        const options = args.at(-1)
+        state.calls.push({ kind: 'picker', options })
+        if (options.title !== 'Restore Agent Commons from backup') throw new Error('Unexpected startup-restore fixture picker')
+        return { canceled: false, filePaths: [state.selectedPath] }
+      }
+      electron.dialog.showErrorBox = (title, content) => { state.errors.push({ title, content }) }
+      electron.app.relaunch = () => { state.relaunches += 1 }
+      const exit = electron.app.exit.bind(electron.app)
+      electron.app.exit = code => {
+        state.exitCode = Number.isInteger(code) ? code : 0
+        process.getBuiltinModule('fs').writeSync(2, ${JSON.stringify(TRACE)} + JSON.stringify(state) + '\\n')
+        exit(code)
+      }
+      return true
+    })()`
+    inspector = await installStartupFixture(await waitForInspectorUrl(run), expression)
+    // No later assertion needs Inspector. Closing it before startup recovery
+    // reaches app.exit also prevents Node's inspector from holding the process.
+    inspector.close()
+    inspector = undefined
+    return { ...run, userDataPath, closed }
+  } catch (error) {
+    inspector?.close()
+    await stopChild(run.child)
+    throw new Error(`Could not start the damaged-profile restore fixture.\n${run.output()}`, { cause: error })
   }
 }
 
@@ -182,6 +241,45 @@ async function restoreAndExit(run, fileName, expectedExitCode) {
   }
 }
 
+async function startupRestoreAndExit(run, fileName) {
+  const child = run.child
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Damaged-startup recovery did not exit.\n${run.output()}`)), TIMEOUT_MS)
+  })
+  try {
+    assert.deepEqual(await Promise.race([run.closed, timeout]), { code: 0, signal: null })
+    const traceLine = run.output().split('\n').find(line => line.startsWith(TRACE))
+    assert.ok(traceLine, `the startup restore reached its restart boundary.\n${run.output()}`)
+    const trace = JSON.parse(traceLine.slice(TRACE.length))
+    assert.equal(trace.calls.length, 3)
+    const [startup, picker, confirmation] = trace.calls
+    assert.equal(startup.kind, 'message')
+    assert.equal(startup.options.title, 'Couldn’t open Agent Commons')
+    assert.deepEqual(startup.options.buttons, ['Restore from backup…', 'Show backups', 'Quit'])
+    assert.equal(startup.options.defaultId, 1, 'Show backups remains the startup default')
+    assert.equal(startup.options.cancelId, 2, 'closing the startup prompt remains Quit')
+    assert.match(startup.options.detail, /local data was left unchanged/)
+    assert.equal(picker.kind, 'picker')
+    assert.equal(picker.options.title, 'Restore Agent Commons from backup')
+    assert.equal(picker.options.defaultPath, join(run.userDataPath, 'snapshots'))
+    assert.deepEqual(picker.options.properties, ['openFile', 'dontAddToRecent'])
+    assert.equal(confirmation.kind, 'message')
+    assert.equal(confirmation.options.title, 'Restore Agent Commons?')
+    assert.equal(confirmation.options.message, `Restore “${fileName}”?`)
+    assert.deepEqual(confirmation.options.buttons, ['Cancel', 'Restore and restart'])
+    assert.equal(confirmation.options.defaultId, 0)
+    assert.equal(confirmation.options.cancelId, 0)
+    assert.match(confirmation.options.detail, /cannot create a fresh safety backup/)
+    assert.equal(trace.relaunches, 1, 'startup restore requested exactly one independent restart')
+    assert.equal(trace.exitCode, 0)
+    assert.deepEqual(trace.errors, [])
+  } finally {
+    clearTimeout(timer)
+    await stopChild(child)
+  }
+}
+
 async function newSafetyCopy(directory, before, expectedWorkspace) {
   const added = (await readdir(directory)).filter(name => !before.has(name))
   assert.equal(added.length, 1, 'restore creates exactly one fresh safety backup')
@@ -202,6 +300,7 @@ export async function smokePackagedRestore({ executable = packagedExecutable() }
   const userDataPath = await realpath(await mkdtemp(join(tmpdir(), 'agent-commons-native-restore-')))
   const directory = join(userDataPath, 'snapshots')
   let run
+  let startupRun
   let endpoint
   try {
     endpoint = await startAttachmentSmokeEndpoint()
@@ -300,7 +399,37 @@ export async function smokePackagedRestore({ executable = packagedExecutable() }
     assert.equal(await readFile(join(userDataPath, AUTH_ROOT_FILE), 'utf8'), encryptedRoot)
     assert.equal(await readFile(vaultPath, 'utf8'), encryptedVault)
     console.log('[desktop-restore-smoke] rendered controls · picker/confirmation cancellation · real safety backup + backend stop + ASAR restore worker · exact document/sheet/slides/conversation recovery · usable safety copy · malformed backup refusal · independent relaunch · unchanged pre-backup provider vault + device auth root + personal token')
+
+    // Corrupt only this generated profile after the app has closed cleanly. The
+    // startup prompt and restore picker/confirmation are injected test answers;
+    // this validates the real startup recovery and restore path, not OS dialogs.
+    await run.app.close()
+    run = null
+    await Promise.all(['store.db-wal', 'store.db-shm'].map(name =>
+      rm(join(userDataPath, name), { force: true }),
+    ))
+    await writeFile(join(userDataPath, 'store.db'), Buffer.from('damaged startup recovery fixture'))
+    const beforeStartupRestore = new Set(await readdir(directory))
+    startupRun = await launchDamagedStartup(executable, userDataPath, selected.path)
+    await startupRestoreAndExit(startupRun, selected.fileName)
+    startupRun = null
+    assert.deepEqual(new Set(await readdir(directory)), beforeStartupRestore,
+      'startup recovery discloses and follows the no-fresh-safety-copy path')
+    run = await launch(executable, userDataPath)
+    assert.deepEqual(await readWorkspace(run.page), baseline,
+      'damaged-startup recovery restores the exact selected backup body')
+    assert.equal(await readFile(join(userDataPath, AUTH_ROOT_FILE), 'utf8'), encryptedRoot,
+      'damaged-startup recovery leaves the device auth root byte-for-byte unchanged')
+    assert.equal(await readFile(vaultPath, 'utf8'), encryptedVault,
+      'damaged-startup recovery leaves the credential vault byte-for-byte unchanged')
+    const startupToken = await fetch(`${run.origin}/api/v1/me`, {
+      headers: { authorization: `Bearer ${token.token}` },
+    })
+    assert.equal(startupToken.status, 200, 'the pre-damage personal token remains usable')
+    assert.equal((await startupToken.json()).user.id, baseline.userId)
+    console.log('[desktop-restore-smoke] damaged SQLite startup restored the exact selected backup and preserved auth root, vault, and token under the mock keychain; dialog answers were fixtures, not OS-dialog or OS-encryption evidence')
   } finally {
+    await stopChild(startupRun?.child)
     await run?.app.close().catch(() => {})
     await endpoint?.close()
     await rm(userDataPath, { recursive: true, force: true })

@@ -60,6 +60,7 @@ export function ignoreFromPackage(path) {
     normalized.startsWith('desktop/bin/') ||
     normalized === 'desktop/entitlements.mac.plist' ||
     normalized === 'desktop/entitlements.git.plist' ||
+    normalized === 'desktop/entitlements.pdf-ocr.plist' ||
     [
       'desktop/dev.mjs',
       'desktop/icons.mjs',
@@ -70,6 +71,10 @@ export function ignoreFromPackage(path) {
       'desktop/ocrHelperBuild.mjs',
       'desktop/imageOcrFixture.mjs',
       'desktop/imageOcrSmoke.mjs',
+      'desktop/pdfOcrHelperBuild.mjs',
+      'desktop/pdfOcrFixture.mjs',
+      'desktop/pdfOcrSmoke.mjs',
+      'desktop/artifactPdfOcrSmoke.mjs',
       'desktop/nativeBuild.mjs',
       'desktop/bundledGitBuild.mjs',
       'desktop/bundledGitSmoke.mjs',
@@ -82,6 +87,7 @@ export function ignoreFromPackage(path) {
       'desktop/smoke.mjs',
       'desktop/smokePaths.mjs',
       'desktop/profileAdmissionSmoke.mjs',
+      'desktop/startupSmokeInspector.mjs',
       'desktop/mcpCredentialSmoke.mjs',
       'desktop/mcpSchemaSmoke.mjs',
       'desktop/attachmentSmoke.mjs',

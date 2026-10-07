@@ -7,6 +7,7 @@
 import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { backendKind, selectBackend, type BackendKind } from './index.ts'
+import { restoreDamagedSqlite } from './sqliteRestore.ts'
 import { dataFile, databaseFile } from './persist.ts'
 import {
   exportBackendSnapshot,
@@ -122,7 +123,16 @@ export function restoreSnapshot(name = 'backup'): { from: string; to: string } {
   // Validate before selecting the backend: opening SQLite creates the DB file,
   // and a malformed import must not touch live storage at all.
   const state = readPortableSnapshot(from)
-  const selected = selectBackend()
+  let selected: ReturnType<typeof selectBackend>
+  try {
+    selected = selectBackend()
+  } catch (error) {
+    if (backendKind() !== 'sqlite') throw error
+    // A valid portable backup is already fully parsed and checked. Do not
+    // discard the existing database: prove the replacement separately first.
+    restoreDamagedSqlite(to, state)
+    return { from, to }
+  }
   try {
     restoreBackendState(selected, state)
   } finally {

@@ -2,6 +2,7 @@ import { lstat } from 'node:fs/promises'
 import { buildDesktopProfileHelper } from './profileHelperBuild.mjs'
 import { buildGitFileHelper } from './gitFileBuild.mjs'
 import { buildImageOcrHelper } from './ocrHelperBuild.mjs'
+import { buildPdfOcrHelper } from './pdfOcrHelperBuild.mjs'
 import { buildBundledGit } from './bundledGitBuild.mjs'
 import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs'
 import { fileURLToPath } from 'node:url'
@@ -13,7 +14,8 @@ export async function buildDesktopNativeRuntime({ targetPlatform = process.platf
   const profileHelper = buildDesktopProfileHelper({ targetPlatform, targetArch })
   const gitFileHelper = buildGitFileHelper({ targetPlatform, targetArch })
   const imageOcrHelper = buildImageOcrHelper({ targetPlatform, targetArch })
-  if (targetPlatform !== 'darwin') return { profileHelper, gitFileHelper, imageOcrHelper, gitDirectory: null }
+  const pdfOcrHelper = buildPdfOcrHelper({ targetPlatform, targetArch })
+  if (targetPlatform !== 'darwin') return { profileHelper, gitFileHelper, imageOcrHelper, pdfOcrHelper, gitDirectory: null }
 
   const gitDirectory = bundledGitDirectory({ packaged: false, targetPlatform, targetArch })
   let existingBundle = true
@@ -29,7 +31,7 @@ export async function buildDesktopNativeRuntime({ targetPlatform = process.platf
     await buildBundledGit({ targetPlatform, targetArch })
     await verifyBundledGitDirectory(gitDirectory, { targetArch, execute: true })
   }
-  return { profileHelper, gitFileHelper, imageOcrHelper, gitDirectory }
+  return { profileHelper, gitFileHelper, imageOcrHelper, pdfOcrHelper, gitDirectory }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await buildDesktopNativeRuntime()

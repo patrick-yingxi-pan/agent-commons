@@ -5,7 +5,7 @@ import { ignoreFromPackage } from './packager.config.mjs'
 
 function checkWiring(packageSource, smokeSource) {
   assert.ok(packageSource.includes('buildImageOcrHelper({ targetPlatform, targetArch })'))
-  assert.ok(packageSource.includes('extraResource: [profileHelperPath, gitDirectory, gitFileHelperPath, imageOcrHelperPath].filter(Boolean)'))
+  assert.ok(packageSource.includes('extraResource: [profileHelperPath, gitDirectory, gitFileHelperPath, imageOcrHelperPath, pdfOcrBrokerBundlePath].filter(Boolean)'))
   assert.ok(packageSource.includes("if (!existsSync(ocrPath)) throw new Error('The packaged macOS image OCR helper is missing.')"))
   assert.ok(packageSource.indexOf('buildImageOcrHelper({') < packageSource.indexOf('await packager('))
   assert.ok(smokeSource.includes('await smokePackagedImageOcr({ executable })'))

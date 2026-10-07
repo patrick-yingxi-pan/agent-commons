@@ -105,18 +105,21 @@ export function createNativeContextPicker({
 
   return {
     async pickFiles(owner, accept = 'any') {
-      if (accept !== 'any' && accept !== 'image' && accept !== 'single-image') return rejected('invalid-request')
+      if (!['any', 'image', 'single-image', 'single-pdf'].includes(accept)) return rejected('invalid-request')
       const imageOnly = accept === 'image' || accept === 'single-image'
+      const pdfOnly = accept === 'single-pdf'
+      const single = accept === 'single-image' || pdfOnly
       try {
         const result = await showOpenDialog(owner, {
-          title: imageOnly ? 'Add photos' : 'Add files',
-          properties: accept === 'single-image' ? ['openFile'] : ['openFile', 'multiSelections'],
+          title: pdfOnly ? 'Extract PDF text' : imageOnly ? 'Add photos' : 'Add files',
+          properties: single ? ['openFile'] : ['openFile', 'multiSelections'],
           ...(imageOnly
             ? { filters: [{ name: 'Images', extensions: [...IMAGE_MIME.keys()].map((extension) => extension.slice(1)) }] }
-            : {}),
+            : pdfOnly ? { filters: [{ name: 'PDF documents', extensions: ['pdf'] }] } : {}),
         })
         if (result.canceled || result.filePaths.length === 0) return { status: 'cancelled' }
-        if (accept === 'single-image' && result.filePaths.length > 1) return rejected('invalid-request')
+        if (single && result.filePaths.length > 1) return rejected('invalid-request')
+        if (pdfOnly && !isPdfFileName(basename(result.filePaths[0]))) return rejected('invalid-request')
         if (result.filePaths.length > MAX_PICKED_FILES) return rejected('too-many-files')
 
         const selected = []

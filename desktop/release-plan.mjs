@@ -65,6 +65,20 @@ function signingOptions({ identity, keychain, entitlementsPath }) {
     // exceptions. Renderer and GPU helpers already resolve to this same JIT
     // profile; every generic binary avoids osx-sign's broad device defaults.
     optionsForFile(filePath) {
+      const pdfOcrBundle = '/Contents/Helpers/Agent Commons PDF OCR.app'
+      const pdfOcrService = `${pdfOcrBundle}/Contents/XPCServices/com.agentcommons.desktop.pdf-ocr.service.xpc`
+      if (filePath.includes(pdfOcrService)) {
+        return { entitlements: join(dirname(entitlementsPath), 'entitlements.pdf-ocr.plist') }
+      }
+      if (filePath.endsWith('/Contents/Helpers/Agent Commons PDF OCR.app/Contents/MacOS/agent-commons-pdf-ocr')) {
+        return {
+          entitlements: join(dirname(entitlementsPath), 'entitlements.git.plist'),
+          additionalArguments: ['--identifier', 'com.agentcommons.desktop.pdf-ocr.broker'],
+        }
+      }
+      if (filePath.includes(pdfOcrBundle)) {
+        return { entitlements: join(dirname(entitlementsPath), 'entitlements.git.plist') }
+      }
       if (filePath.endsWith('/Contents/Resources/agent-commons-git/git')) {
         return { entitlements: join(dirname(entitlementsPath), 'entitlements.git.plist') }
       }

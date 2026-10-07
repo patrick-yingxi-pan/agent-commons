@@ -12,10 +12,14 @@ export function ArtifactDocumentImport({ intake, hasContent, disabled, onUse }: 
   const previewId = useId()
   const previewRef = useRef<HTMLTextAreaElement>(null)
   const { state } = intake
+  const alternatives = [
+    ...(intake.imageTextAvailable ? [{ label: 'Extract image text', onClick: intake.pickImage }] : []),
+    ...(intake.pdfTextAvailable ? [{ label: 'Extract PDF text', onClick: intake.pickPdf }] : []),
+  ]
   return <ArtifactImportReview intake={intake} label="Import document text"
-    description={`Start from one text, PDF, or Word (.docx) file. Text only: formatting, images, and page layout are not preserved. ${intake.imageTextAvailable ? 'Or extract text from one image on this Mac, with no image upload or provider charge.' : 'Image text extraction requires the macOS app.'} Nothing is saved until you create the document.`}
-    alternatePick={intake.imageTextAvailable ? { label: 'Extract image text', onClick: intake.pickImage } : undefined}
-    readingCopy={intake.selectionMode === 'image-text' ? 'Reading the image and recognizing text on this Mac… Your draft is unchanged.' : undefined}
+    description={`Start from one text, PDF, or Word (.docx) file. Text only: formatting, images, and page layout are not preserved. ${intake.imageTextAvailable ? 'Or extract text from one image on this Mac, with no image upload or provider charge.' : 'Image text extraction requires the macOS app.'} ${intake.pdfTextAvailable ? 'Extract PDF text also recognizes scanned pages: up to 8 MB and 100 pages, with no upload or provider call.' : ''} Nothing is saved until you create the document.`}
+    alternatePicks={alternatives}
+    readingCopy={intake.selectionMode === 'image-text' ? 'Reading the image and recognizing text on this Mac… Your draft is unchanged.' : intake.selectionMode === 'pdf-text' ? 'Reading the PDF and recognizing text on this Mac… Your draft is unchanged.' : undefined}
     summary={state.status === 'ready' ? `Review imported text. ${state.text.length.toLocaleString()} characters; your draft is unchanged.` : ''}
     adoptionCopy={hasContent ? 'Using this text replaces the current content.' : 'Using this text fills the document content.'}
     useLabel={hasContent ? 'Replace content with imported text' : 'Use imported text'}

@@ -36,7 +36,7 @@ test('macOS ACL helper is copied beside the application and excluded with its bu
 
   const packageSource = readFileSync(new URL('./package.mjs', import.meta.url), 'utf8')
   assert.match(packageSource, /buildDesktopProfileHelper\(\{ targetPlatform, targetArch \}\)/)
-  assert.match(packageSource, /extraResource: \[profileHelperPath, gitDirectory, gitFileHelperPath, imageOcrHelperPath\]\.filter\(Boolean\)/)
+  assert.match(packageSource, /extraResource: \[profileHelperPath, gitDirectory, gitFileHelperPath, imageOcrHelperPath, pdfOcrBrokerBundlePath\]\.filter\(Boolean\)/)
   assert.ok(packageSource.indexOf('buildDesktopProfileHelper(') < packageSource.indexOf('await packager('))
   assert.equal(ignoreFromPackage('/desktop/userDataDirectory.mjs'), false)
   assert.equal(packagerConfig.asar, true)

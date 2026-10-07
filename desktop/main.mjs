@@ -7,6 +7,7 @@ import contextChannels from './context-channels.cjs'
 import localFolderChannels from './local-folder-channels.cjs'
 import localGitChannels from './local-git-channels.cjs'
 import imageOcrChannels from './image-ocr-channels.cjs'
+import pdfOcrChannels from './pdf-ocr-channels.cjs'
 import dataChannels from './data-channels.cjs'
 import { AUTH_ROOT_FILE, DesktopAuthRootError, loadDesktopAuthSecret } from './authRoot.mjs'
 import { DesktopUserDataError, ensureDesktopUserDataDirectory } from './userDataDirectory.mjs'
@@ -20,6 +21,8 @@ import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs
 import { gitFileExecutable } from './gitFileRead.mjs'
 import { createImageOcrHost } from './imageOcrHost.mjs'
 import { imageOcrExecutable } from './imageOcr.mjs'
+import { createPdfOcrHost } from './pdfOcrHost.mjs'
+import { pdfOcrExecutable } from './pdfOcr.mjs'
 import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
@@ -74,6 +77,7 @@ let localFolderHost = null
 let localGitStore = null
 let localGitHost = null
 let imageOcrHost = null
+let pdfOcrHost = null
 let localFolderCookieGeneration = 0
 let quitting = false
 let quitAfterBackend = false
@@ -86,6 +90,7 @@ function beginShutdown() {
   localFolderStore?.shutdown()
   localGitStore?.shutdown()
   imageOcrHost?.dispose()
+  pdfOcrHost?.dispose()
 }
 let updateInProgress = false
 let desktopUpdater = null
@@ -191,6 +196,7 @@ async function startDesktop() {
   installLocalFolderIpc()
   installLocalGitIpc()
   installImageOcrIpc()
+  installPdfOcrIpc()
   installDataIpc()
   await createMainWindow(rendererUrl, trustedOrigin)
   assertCurrentBackend(backendHandle)
@@ -523,9 +529,9 @@ function assertTrustedDesktopCaller(event, message) {
   }
 }
 
-function assertTrustedImageOcrCaller(event) {
-  assertTrustedDesktopCaller(event, 'Image text recognition is not available from this page.')
-  if (event.senderFrame !== event.sender.mainFrame) throw new Error('Image text recognition is not available from this page.')
+function assertTrustedOcrCaller(event) {
+  assertTrustedDesktopCaller(event, 'Text recognition is not available from this page.')
+  if (event.senderFrame !== event.sender.mainFrame) throw new Error('Text recognition is not available from this page.')
 }
 
 function installCredentialIpc() {
@@ -732,11 +738,23 @@ function installImageOcrIpc() {
   imageOcrHost = createImageOcrHost({
     targetPlatform: process.platform,
     executable: imageOcrExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, targetPlatform: process.platform }),
-    assertCaller: assertTrustedImageOcrCaller,
+    assertCaller: assertTrustedOcrCaller,
     isClosing: () => quitting || !backendReady || !mainWindow || mainWindow.isDestroyed(),
   })
   ipcMain.handle(imageOcrChannels.recognize, (event, ...args) => imageOcrHost?.recognize(event, ...args) ?? { status: 'unavailable' })
   ipcMain.handle(imageOcrChannels.cancel, (event, ...args) => imageOcrHost?.cancel(event, ...args) ?? false)
+}
+
+function installPdfOcrIpc() {
+  if (process.platform !== 'darwin') return
+  pdfOcrHost = createPdfOcrHost({
+    targetPlatform: process.platform,
+    executable: pdfOcrExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath, targetPlatform: process.platform }),
+    assertCaller: assertTrustedOcrCaller,
+    isClosing: () => quitting || !backendReady || !mainWindow || mainWindow.isDestroyed(),
+  })
+  ipcMain.handle(pdfOcrChannels.recognize, (event, ...args) => pdfOcrHost?.recognize(event, ...args) ?? { status: 'unavailable' })
+  ipcMain.handle(pdfOcrChannels.cancel, (event, ...args) => pdfOcrHost?.cancel(event, ...args) ?? false)
 }
 
 function pipeLines(stream, onLine) {
@@ -820,6 +838,7 @@ async function createMainWindow(url, origin) {
   win.webContents.on('will-redirect', guardNavigation)
   win.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
     if (isMainFrame) imageOcrHost?.cancelSender(contents)
+    if (isMainFrame) pdfOcrHost?.cancelSender(contents)
   })
   win.webContents.setWindowOpenHandler(({ url: candidate }) => {
     if (isTrustedAppUrl(candidate, origin)) void win.loadURL(candidate)
@@ -828,6 +847,7 @@ async function createMainWindow(url, origin) {
   })
   win.webContents.on('render-process-gone', (_event, details) => {
     imageOcrHost?.cancelSender(contents)
+    pdfOcrHost?.cancelSender(contents)
     if (!initialLoadComplete || quitting || rendererRecoveryInProgress || win.isDestroyed() || mainWindow !== win) return
     console.error(`[desktop] renderer exited: ${details.reason}`)
     const currentUrl = win.webContents.getURL()
@@ -861,6 +881,7 @@ async function createMainWindow(url, origin) {
   win.once('ready-to-show', () => win.show())
   win.on('closed', () => {
     imageOcrHost?.cancelSender(contents)
+    pdfOcrHost?.cancelSender(contents)
     if (mainWindow === win) mainWindow = null
   })
 

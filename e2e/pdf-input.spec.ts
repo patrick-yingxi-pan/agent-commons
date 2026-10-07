@@ -111,7 +111,7 @@ test('unreadable PDFs have explicit outcomes and readable responsive previews', 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport)
     await page.getByRole('button', { name: 'empty.pdf', exact: true }).click()
-    await expect(preview).toContainText('OCR is not available')
+    await expect(preview).toContainText('this import does not perform OCR')
     await expect.poll(() => preview.locator('[data-document-import]').evaluate((element) => {
       const box = element.getBoundingClientRect()
       return box.left >= 0 && box.right <= innerWidth + 1 && box.top >= 0 && box.bottom <= innerHeight + 1

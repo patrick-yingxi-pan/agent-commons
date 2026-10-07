@@ -33,10 +33,10 @@ function assertInOrder(source, parts, message) {
 function assertImageOcrWiring(main, preload) {
   for (const channel of Object.values(imageOcrChannels)) assert.ok(preload.includes(channel))
   assert.match(preload, /process\.platform === 'darwin' \? \{ imageOcr: Object\.freeze/)
-  assert.match(main, /assertTrustedDesktopCaller\(event, 'Image text recognition[^]*event\.senderFrame !== event\.sender\.mainFrame/)
+  assert.match(main, /assertTrustedDesktopCaller\(event, 'Text recognition[^]*event\.senderFrame !== event\.sender\.mainFrame/)
   assert.match(main, /function installImageOcrIpc\(\) \{\s*if \(process\.platform !== 'darwin'\) return/)
   assert.match(main, /imageOcrExecutable\(\{ packaged: app\.isPackaged, resourcesPath: process\.resourcesPath/)
-  assert.match(main, /assertCaller: assertTrustedImageOcrCaller/)
+  assert.match(main, /assertCaller: assertTrustedOcrCaller/)
   assert.match(main, /ipcMain\.handle\(imageOcrChannels\.recognize/)
   assert.match(main, /ipcMain\.handle\(imageOcrChannels\.cancel/)
   assert.match(main, /'did-start-navigation'[^]*if \(isMainFrame\) imageOcrHost\?\.cancelSender/)
@@ -50,7 +50,7 @@ test('image OCR is main-frame-only, explicit and disposed with its native window
   const main = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
   const preload = readFileSync(new URL('./preload.cjs', import.meta.url), 'utf8')
   assertImageOcrWiring(main, preload)
-  const mutated = main.replace('assertCaller: assertTrustedImageOcrCaller', 'assertCaller: () => {}')
+  const mutated = main.replaceAll('assertCaller: assertTrustedOcrCaller', 'assertCaller: () => {}')
   assert.notEqual(mutated, main)
   assert.throws(() => assertImageOcrWiring(mutated, preload), assert.AssertionError)
 })
@@ -417,6 +417,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/userDataDirectory.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/profileAcl.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/profileAdmissionSmoke.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/startupSmokeInspector.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/nativeRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/backendRecovery.mjs'), false)
   assert.equal(ignoreFromPackage('/desktop/rendererRecovery.mjs'), false)
@@ -435,6 +436,21 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'ordinary packaged smoke awaits the independent restore acceptance phase',
   )
   assert.equal(ignoreFromPackage('/desktop/restoreSmoke.mjs'), true)
+  const restoreSmoke = readFileSync(new URL('./restoreSmoke.mjs', import.meta.url), 'utf8')
+  const startupInspector = readFileSync(new URL('./startupSmokeInspector.mjs', import.meta.url), 'utf8')
+  assert.match(restoreSmoke, /installStartupFixture\(await waitForInspectorUrl\(run\), expression\)/)
+  const damagedStartupLauncher = restoreSmoke.slice(
+    restoreSmoke.indexOf('async function launchDamagedStartup'),
+    restoreSmoke.indexOf('async function post('),
+  )
+  assert.ok(damagedStartupLauncher.indexOf("run.child.once('close'") < damagedStartupLauncher.indexOf('installStartupFixture('),
+    'the damaged-startup smoke subscribes to process completion before releasing the inspector pause')
+  assert.ok(damagedStartupLauncher.indexOf('inspector.close()') < damagedStartupLauncher.indexOf('return { ...run, userDataPath, closed }'),
+    'the startup fixture disconnects the inspector before the app reaches its exit boundary')
+  assert.match(restoreSmoke, /Promise\.race\(\[run\.closed, timeout\]\)/)
+  assert.doesNotMatch(restoreSmoke, /startupDialogFixtureSource|NODE_OPTIONS/)
+  assert.match(startupInspector, /Debugger\.paused/)
+  assert.match(startupInspector, /Break on start/)
   assert.match(smoke, /getByPlaceholder\('Paste API key'/)
   assert.match(smoke, /Connect a model to begin/)
   assert.match(smoke, /first-run model handoff/)

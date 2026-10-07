@@ -8,7 +8,7 @@ type Controls = Pick<ReturnType<typeof useArtifactFileImport>, 'state' | 'picker
 
 /** Same local-review ceremony for every artifact format; only the source
  * explanation and nature of the read-only preview vary. */
-export function ArtifactImportReview({ intake, label, description, summary, adoptionCopy, useLabel, disabled, onUse, previewRef, children, alternatePick, readingCopy = 'Reading selected file… Your draft is unchanged.' }: {
+export function ArtifactImportReview({ intake, label, description, summary, adoptionCopy, useLabel, disabled, onUse, previewRef, children, alternatePicks = [], readingCopy = 'Reading selected file… Your draft is unchanged.' }: {
   intake: Controls
   label: string
   description: string
@@ -19,7 +19,7 @@ export function ArtifactImportReview({ intake, label, description, summary, adop
   onUse: () => void
   previewRef: RefObject<HTMLElement | null>
   children: ReactNode
-  alternatePick?: { label: string; onClick: () => void }
+  alternatePicks?: { label: string; onClick: () => void }[]
   readingCopy?: string
 }) {
   const helpId = useId()
@@ -40,7 +40,7 @@ export function ArtifactImportReview({ intake, label, description, summary, adop
     <UiHostLoadNotice state={intake.picker} label="file access" />
     {intake.picker.status === 'ready' && !intake.reviewing && <div className="flex flex-wrap gap-2">
       <button ref={importButtonRef} type="button" className={IMPORT_BUTTON_CLASS} disabled={disabled} aria-describedby={helpId} onClick={intake.pick}>Import file</button>
-      {alternatePick && <button type="button" className={IMPORT_BUTTON_CLASS} disabled={disabled} aria-describedby={helpId} onClick={alternatePick.onClick}>{alternatePick.label}</button>}
+      {alternatePicks.map((action) => <button key={action.label} type="button" className={IMPORT_BUTTON_CLASS} disabled={disabled} aria-describedby={helpId} onClick={action.onClick}>{action.label}</button>)}
     </div>}
     {state.status === 'reading' && <div className="flex flex-wrap items-center gap-2">
       <p role="status" className="text-[12px] text-ink-soft">{readingCopy}</p>

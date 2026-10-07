@@ -5,6 +5,7 @@ import { MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../../contract/pdfI
 import { MAX_DOCX_FILE_BYTES } from '../../contract/docxImport.mjs'
 import { MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../../contract/xlsxImport.mjs'
 import { MAX_PPTX_FILE_BYTES, MAX_PPTX_SELECTION_BYTES } from '../../contract/pptxImport.mjs'
+import { PDF_OCR_MAX_INPUT_BYTES } from '../../contract/pdfOcr.mjs'
 import { pickUiHostFiles, pickUiHostFolder, readDroppedFiles, uiHostSupportsPicker } from './uiHostFs.ts'
 import { imageFixture } from '../../tests/helpers/imageFixture.mjs'
 import { bitmapFixture, iconFixture } from '../../tests/helpers/bitmapFixture.mjs'
@@ -30,6 +31,53 @@ test('OCR intake is single-image and rejects extra/unsupported selections before
   assert.equal(result.length, 2)
   assert.ok(result.every(entry => entry.imageInput === undefined && entry.imageOriginal === undefined))
   assert.deepEqual(calls, ['single-image'])
+})
+
+test('PDF OCR picker requests one PDF and retains only its validated selected bytes', async () => {
+  const selectedPdf = new TextEncoder().encode('%PDF-1.7\nselected bytes')
+  const calls: unknown[] = []
+  let files = [{ name: 'scan.pdf', kind: 'file' as const, sizeBytes: selectedPdf.length, pdfBytes: selectedPdf, text: 'forged' }]
+  const scope: DesktopBridgeScope = { agentCommonsDesktop: { context: {
+    pickFiles: async (accept) => { calls.push(accept); return { status: 'selected', files } },
+    pickFolder: async () => ({ status: 'cancelled' }),
+  } } }
+  const [picked] = await pickUiHostFiles('pdf-text', scope)
+  assert.deepEqual(calls, ['single-pdf'])
+  assert.deepEqual(picked.pdfOcrInput, selectedPdf)
+  assert.notEqual(picked.pdfOcrInput, selectedPdf)
+  assert.equal(picked.text, undefined)
+  assert.equal(picked.documentImport, undefined)
+  assert.equal(picked.pdfOcrFailure, undefined)
+
+  files = [{ name: 'large.pdf', kind: 'file', sizeBytes: PDF_OCR_MAX_INPUT_BYTES + 1, pdfBytes: undefined }] as unknown as typeof files
+  const [tooLarge] = await pickUiHostFiles('pdf-text', scope)
+  assert.equal(tooLarge.pdfOcrInput, undefined)
+  assert.equal(tooLarge.pdfOcrFailure, 'too-large')
+  for (const [pdfFailure, expected] of [
+    ['file-too-large', 'too-large'], ['selection-limit', 'too-large'], ['text-limit', 'too-large'],
+    ['page-limit', 'page-limit'], ['protected', 'protected'], ['timeout', 'timeout'],
+    ['unavailable', 'unavailable'], ['invalid', 'invalid'],
+  ] as const) {
+    files = [{ name: 'failed.pdf', kind: 'file', sizeBytes: 1, pdfFailure }] as unknown as typeof files
+    const [failure] = await pickUiHostFiles('pdf-text', scope)
+    assert.equal(failure.pdfOcrFailure, expected, `${pdfFailure} maps to a bounded OCR outcome`)
+    assert.equal(failure.pdfOcrInput, undefined)
+  }
+  files = [{ name: 'forged.pdf', kind: 'file', sizeBytes: 20, pdfBytes: new TextEncoder().encode('not a PDF') }] as unknown as typeof files
+  const [invalid] = await pickUiHostFiles('pdf-text', scope)
+  assert.equal(invalid.pdfOcrInput, undefined)
+  assert.equal(invalid.pdfOcrFailure, 'invalid')
+  files = [{ name: 'notes.txt', kind: 'file', sizeBytes: 20, get pdfBytes() { assert.fail('unsupported file bytes must not be inspected') } }] as unknown as typeof files
+  const [unsupported] = await pickUiHostFiles('pdf-text', scope)
+  assert.equal(unsupported.pdfOcrInput, undefined)
+})
+
+test('browser builds expose no PDF OCR chooser and retain no PDF bytes', async () => {
+  const previous = globalThis.document
+  globalThis.document = { createElement: () => { assert.fail('without the native OCR capability no PDF picker is offered or opened') } } as unknown as Document
+  try {
+    assert.deepEqual(await pickUiHostFiles('pdf-text', {}), [])
+  } finally { globalThis.document = previous }
 })
 
 test('document-only selections reject multiple or unsupported files before reading bytes', async () => {

@@ -40,8 +40,29 @@ const imageOcrChannels = Object.freeze({
   recognize: 'agent-commons:image-ocr:recognize',
   cancel: 'agent-commons:image-ocr:cancel',
 })
+const pdfOcrChannels = Object.freeze({
+  recognize: 'agent-commons:pdf-ocr:recognize',
+  cancel: 'agent-commons:pdf-ocr:cancel',
+})
 const MCP_CREDENTIAL_CAPABILITY = 'mcp-provision-v1'
 const IMAGE_OCR_FAILURES = new Set(['no-text', 'invalid', 'too-large', 'unavailable', 'busy', 'cancelled', 'timeout'])
+const PDF_OCR_FAILURES = new Set(['invalid', 'too-large', 'page-limit', 'protected', 'unavailable', 'busy', 'cancelled', 'timeout'])
+
+function safePdfOcrResult(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'unavailable' }
+  const keys = Object.keys(value).sort().join(',')
+  if (keys === 'status' && PDF_OCR_FAILURES.has(value.status)) return { status: value.status }
+  if (!Number.isSafeInteger(value.pages) || value.pages < 1 || value.pages > 100 ||
+      !Number.isSafeInteger(value.textPages) || value.textPages < 0 || value.textPages > value.pages) return { status: 'unavailable' }
+  if (keys === 'pages,status,textPages' && value.status === 'no-text' && value.textPages === 0) {
+    return { status: 'no-text', pages: value.pages, textPages: 0 }
+  }
+  if (keys === 'pages,status,text,textPages' && value.status === 'ready' && value.textPages > 0 &&
+      safeImageOcrResult({ status: 'ready', text: value.text }).status === 'ready') {
+    return { status: 'ready', text: value.text, pages: value.pages, textPages: value.textPages }
+  }
+  return { status: 'unavailable' }
+}
 
 function safeImageOcrResult(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { status: 'unavailable' }
@@ -54,7 +75,7 @@ function safeImageOcrResult(value) {
   return { status: 'unavailable' }
 }
 
-async function invokeImageOcr(channel, ...args) {
+async function invokeOcr(channel, ...args) {
   try { return await ipcRenderer.invoke(channel, ...args) }
   catch { return undefined }
 }
@@ -109,9 +130,15 @@ const bridge = {
   }),
   ...(process.platform === 'darwin' ? { imageOcr: Object.freeze({
     recognize: async (operationId, png) => safeImageOcrResult(
-      await invokeImageOcr(imageOcrChannels.recognize, operationId, png),
+      await invokeOcr(imageOcrChannels.recognize, operationId, png),
     ),
-    cancel: async (operationId) => (await invokeImageOcr(imageOcrChannels.cancel, operationId)) === true,
+    cancel: async (operationId) => (await invokeOcr(imageOcrChannels.cancel, operationId)) === true,
+  }) } : {}),
+  ...(process.platform === 'darwin' ? { pdfOcr: Object.freeze({
+    recognize: async (operationId, pdf) => safePdfOcrResult(
+      await invokeOcr(pdfOcrChannels.recognize, operationId, pdf),
+    ),
+    cancel: async (operationId) => (await invokeOcr(pdfOcrChannels.cancel, operationId)) === true,
   }) } : {}),
 }
 if (process.argv.includes('--agent-commons-secure-credentials')) {

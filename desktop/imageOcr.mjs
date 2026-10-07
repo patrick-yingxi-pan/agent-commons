@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
-import { isAbsolute, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createBoundedOcrRunner } from './ocrRunner.mjs'
 import {
   IMAGE_OCR_CAPACITY,
   IMAGE_OCR_MAX_OUTPUT_BYTES,
@@ -47,8 +48,7 @@ export function parseImageOcrOutput(bytes) {
 /** Byte-only engine: no file access, persistence, model call or automatic
  * extraction. The host's explicit review workflow supplies normalized image
  * bytes; adopting editable text and saving are separate renderer actions.
- * Packaged hosts must supply imageOcrExecutable({ packaged: true, resourcesPath }).
- * Cancellation settles promptly, but retains capacity until the process closes. */
+ * Packaged hosts must supply imageOcrExecutable({ packaged: true, resourcesPath }). */
 export function createImageOcrRunner({
   executable = imageOcrExecutable(),
   targetPlatform = process.platform,
@@ -56,77 +56,13 @@ export function createImageOcrRunner({
   setTimer = setTimeout,
   clearTimer = clearTimeout,
 } = {}) {
-  const active = new Set()
-  let disposed = false
-
-  function recognize(bytes, { signal } = {}) {
-    if (disposed || signal?.aborted) return Promise.resolve({ status: 'cancelled' })
-    if (targetPlatform !== 'darwin' || typeof executable !== 'string' || !isAbsolute(executable)) {
-      return Promise.resolve({ status: 'unavailable' })
-    }
-    if (active.size >= IMAGE_OCR_CAPACITY) return Promise.resolve({ status: 'busy' })
-    const input = snapshotInput(bytes)
-    if (!Buffer.isBuffer(input)) return Promise.resolve(input)
-
-    return new Promise((resolve) => {
-      let child
-      try {
-        child = spawnProcess(executable, [], {
-          cwd: '/', env: { LC_ALL: 'C' }, stdio: ['pipe', 'pipe', 'ignore'], windowsHide: true,
-        })
-      } catch {
-        resolve({ status: 'unavailable' })
-        return
-      }
-      let settled = false
-      let outputBytes = 0
-      const chunks = []
-      const settle = (result) => {
-        if (settled) return
-        settled = true
-        clearTimer(timer)
-        signal?.removeEventListener('abort', onAbort)
-        chunks.length = 0
-        resolve(result)
-      }
-      const stop = (status) => {
-        if (settled) return
-        settle({ status })
-        // No shell or child-process tree is involved. Retain the slot until
-        // close, even if kill reports a failure or the caller has gone away.
-        try { child.kill('SIGKILL') } catch { /* process close owns release */ }
-      }
-      const onAbort = () => stop('cancelled')
-      const job = { stop }
-      active.add(job)
-      const timer = setTimer(() => stop('timeout'), IMAGE_OCR_TIMEOUT_MS)
-      child.once('error', () => stop('unavailable'))
-      child.stdin.on('error', () => stop('unavailable'))
-      child.stdout.on('error', () => stop('unavailable'))
-      child.stdout.on('data', (chunk) => {
-        if (settled) return
-        outputBytes += chunk.length
-        if (outputBytes > IMAGE_OCR_MAX_OUTPUT_BYTES) { stop('unavailable'); return }
-        chunks.push(Buffer.from(chunk))
-      })
-      child.once('close', (code, childSignal) => {
-        active.delete(job)
-        if (settled) return
-        settle(code === 0 && !childSignal ? parseImageOcrOutput(Buffer.concat(chunks, outputBytes)) : { status: 'unavailable' })
-      })
-      signal?.addEventListener('abort', onAbort, { once: true })
-      if (signal?.aborted || disposed) onAbort()
-      if (!settled) {
-        try { child.stdin.end(input) } catch { stop('unavailable') }
-      }
-    })
-  }
-
-  return {
-    recognize,
-    dispose() {
-      disposed = true
-      for (const job of active) job.stop('cancelled')
-    },
-  }
+  const runner = createBoundedOcrRunner({
+    executable, targetPlatform, spawnProcess, setTimer, clearTimer,
+    timeoutMs: IMAGE_OCR_TIMEOUT_MS,
+    capacity: IMAGE_OCR_CAPACITY,
+    maxOutputBytes: IMAGE_OCR_MAX_OUTPUT_BYTES,
+    prepareInput: snapshotInput,
+    parseOutput: parseImageOcrOutput,
+  })
+  return { recognize: runner.run, dispose: runner.dispose }
 }

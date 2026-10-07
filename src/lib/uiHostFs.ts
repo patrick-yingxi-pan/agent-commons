@@ -10,10 +10,11 @@ import type { Artifact, ArtifactKind } from '../types'
 import type { DesktopBridgeScope, DesktopContextPickerRejection } from '../api/desktopCredentials'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../../contract/localTextFile.mjs'
 import { snapshotFolderFiles } from '../../contract/localFolderSnapshotBuilder.mjs'
-import { isPdfFileName, MAX_PDF_SELECTION_BYTES, pdfImportFailure } from '../../contract/pdfImport.mjs'
+import { isPdfFileName, MAX_PDF_SELECTION_BYTES, pdfImportFailure, type PdfImportStatus } from '../../contract/pdfImport.mjs'
 import { isDocxFileName, MAX_DOCX_SELECTION_BYTES, docxImportFailure } from '../../contract/docxImport.mjs'
 import { isXlsxFileName, MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES, xlsxImportFailure } from '../../contract/xlsxImport.mjs'
 import { isPptxFileName, MAX_PPTX_SELECTION_BYTES, pptxImportFailure } from '../../contract/pptxImport.mjs'
+import { PDF_OCR_MAX_INPUT_BYTES, snapshotPdfOcrInput, type PdfOcrFailureStatus } from '../../contract/pdfOcr.mjs'
 import type { DocumentImportOutcome } from '../../contract/documentImport.mjs'
 import { importPdf } from './pdfImport.ts'
 import { importDocx } from './docxImport.ts'
@@ -50,6 +51,9 @@ export interface UiHostFile {
   /** Exact selected source bytes, transient until the normalized asset upload. */
   imageOriginal?: ImageOriginal
   image?: ImageAssetRef
+  /** Selected PDF bytes, transient and only populated for explicit local OCR. */
+  pdfOcrInput?: Uint8Array
+  pdfOcrFailure?: Exclude<PdfOcrFailureStatus, 'busy' | 'cancelled'>
 }
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
@@ -74,10 +78,10 @@ export function uiHostKind(name: string): ArtifactKind {
 
 const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
 const isImportableImage = (name: string) => IMPORTABLE_IMAGE_EXTS.has(extOf(name))
-type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides' | 'sheet' | 'image-text'
+type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides' | 'sheet' | 'image-text' | 'pdf-text'
 function rejectedArtifactSelection(files: readonly { name: string }[], accept: UiHostFileAccept): boolean {
   if (accept === 'any' || accept === 'image') return false
-  const matches = accept === 'image-text' ? isImportableImage : accept === 'document' ? isArtifactDocumentFileName : accept === 'slides' ? isPptxFileName : isArtifactSheetFileName
+  const matches = accept === 'image-text' ? isImportableImage : accept === 'pdf-text' ? isPdfFileName : accept === 'document' ? isArtifactDocumentFileName : accept === 'slides' ? isPptxFileName : isArtifactSheetFileName
   return files.length !== 1 || !matches(files[0].name)
 }
 
@@ -121,6 +125,14 @@ const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_
 // checks do not. Keep that policy on one path as supported formats expand.
 const PRESENTATION_READER = { ...PPTX_DOCUMENT_READER, read: importPresentation }
 const WORKBOOK_READER = { matches: isXlsxFileName, maxBytes: MAX_XLSX_FILE_BYTES, failure: xlsxImportFailure, read: importWorkbook }
+
+function pdfOcrFailureForImport(status: Exclude<PdfImportStatus, 'ready' | 'no-text'>): Exclude<PdfOcrFailureStatus, 'busy' | 'cancelled'> {
+  switch (status) {
+    case 'file-too-large': case 'selection-limit': case 'text-limit': return 'too-large'
+    case 'page-limit': case 'protected': case 'timeout': case 'invalid': case 'unavailable': return status
+    default: return 'invalid'
+  }
+}
 
 async function toUiHostFile(file: File, documentBudget: { used: number }, imageBudget: { used: number }, accept: UiHostFileAccept, signal?: AbortSignal): Promise<UiHostFile> {
   const name = file.name
@@ -183,7 +195,7 @@ export async function pickUiHostFiles(
   const native = scope.agentCommonsDesktop?.context
   if (native) {
     // Artifact modes narrow renderer intake, not native filesystem authority.
-    const result = await native.pickFiles(accept === 'image-text' ? 'single-image' : accept === 'image' ? 'image' : 'any')
+    const result = await native.pickFiles(accept === 'image-text' ? 'single-image' : accept === 'pdf-text' ? 'single-pdf' : accept === 'image' ? 'image' : 'any')
     if (signal?.aborted) return []
     if (result.status === 'cancelled') return []
     if (result.status === 'rejected') throw new UiHostPickerError(result.reason)
@@ -208,6 +220,26 @@ export async function pickUiHostFiles(
     const files: UiHostFile[] = []
     for (const file of result.files) {
       if (signal?.aborted) return []
+      if (accept === 'pdf-text') {
+        if (file.kind !== 'file' || !isPdfFileName(file.name)) {
+          files.push(selectedFile({ name: file.name, kind: file.kind }))
+          continue
+        }
+        if (file.pdfFailure) {
+          files.push(selectedFile({ name: file.name, kind: 'file', pdfOcrFailure: pdfOcrFailureForImport(file.pdfFailure) }))
+        } else if (file.pdfBytes !== undefined) {
+          const snapshot = snapshotPdfOcrInput(file.pdfBytes)
+          files.push(selectedFile({
+            name: file.name, kind: 'file',
+            ...(snapshot.status === 'ready' ? { pdfOcrInput: snapshot.pdf } : { pdfOcrFailure: snapshot.status }),
+          }))
+        } else if (file.sizeBytes > PDF_OCR_MAX_INPUT_BYTES) {
+          files.push(selectedFile({ name: file.name, kind: 'file', pdfOcrFailure: 'too-large' }))
+        } else {
+          files.push(selectedFile({ name: file.name, kind: 'file', pdfOcrFailure: 'invalid' }))
+        }
+        continue
+      }
       const extracted = isPdfFileName(file.name)
         ? file.pdfFailure ? pdfImportFailure(file.pdfFailure)
           : file.pdfBytes ? await importPdf(file.pdfBytes, signal) : pdfImportFailure('unavailable')
@@ -230,6 +262,9 @@ export async function pickUiHostFiles(
     }
     return signal?.aborted ? [] : files
   }
+  // The web picker never retains or parses PDF bytes for OCR. This explicit
+  // action is exposed only when the on-device native capability exists.
+  if (accept === 'pdf-text') return []
   const files = await openInput({ multiple: accept === 'any' || accept === 'image', accept: accept === 'image' || accept === 'image-text' ? 'image/*' : undefined }, signal)
   return readSelectedFiles(files, accept, signal)
 }

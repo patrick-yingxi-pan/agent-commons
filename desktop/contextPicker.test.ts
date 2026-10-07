@@ -90,6 +90,29 @@ test('native single-image selection disables multi-select and rejects multiple r
   assert.equal(reads, 0)
 })
 
+test('single-PDF selection is path-free, format-filtered and refuses multiple or wrong-format paths before inspecting', async () => {
+  let paths = ['/private/fixture/scanned.PDF']
+  const dialogs = []
+  const bytes = Buffer.from('%PDF-1.7\nfixture')
+  let inspections = 0
+  let reads = 0
+  const picker = createNativeContextPicker({
+    showOpenDialog: async (_owner, options) => { dialogs.push(options); return { canceled: false, filePaths: paths } },
+    inspect: async () => { inspections++; return regularFile(bytes.length) },
+    readBytes: async (_path, maximum) => { reads++; assert.equal(maximum, MAX_PDF_FILE_BYTES); return bytes },
+  })
+  assert.deepEqual(await picker.pickFiles({}, 'single-pdf'), { status: 'selected', files: [
+    { name: 'scanned.PDF', kind: 'file', sizeBytes: bytes.length, pdfBytes: new Uint8Array(bytes) },
+  ] })
+  assert.deepEqual(dialogs[0], { title: 'Extract PDF text', properties: ['openFile'], filters: [{ name: 'PDF documents', extensions: ['pdf'] }] })
+  for (const invalid of [['/private/fixture/a.pdf', '/private/fixture/b.pdf'], ['/private/fixture/a.txt']]) {
+    paths = invalid
+    assert.deepEqual(await picker.pickFiles({}, 'single-pdf'), { status: 'rejected', reason: 'invalid-request' })
+  }
+  assert.equal(inspections, 1)
+  assert.equal(reads, 1)
+})
+
 test('native text selection recognizes source files and common extensionless files, but omits unsafe content', async () => {
   const payloads = new Map<string, Uint8Array>([
     ['/private/example.py', Buffer.from('print("python")')],

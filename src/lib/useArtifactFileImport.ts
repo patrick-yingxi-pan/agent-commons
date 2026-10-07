@@ -5,7 +5,7 @@ import { useUiHostFs } from './useUiHostFs.ts'
 
 type ReviewResult<Candidate> = Candidate | { status: 'cancelled' } | { status: 'error'; message: string }
 type ImportState<Candidate> = { status: 'idle' | 'reading' } | { status: 'error'; message: string } | Candidate
-type Mode = 'document' | 'slides' | 'sheet' | 'image-text'
+type Mode = 'document' | 'slides' | 'sheet' | 'image-text' | 'pdf-text'
 
 /** Every artifact format shares one local review lifetime. Neither extraction
  * nor adoption writes; account generation and operation identity own both. */

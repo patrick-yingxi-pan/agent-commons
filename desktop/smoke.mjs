@@ -18,6 +18,7 @@ import { smokePackagedRestore } from './restoreSmoke.mjs'
 import { smokePackagedProfileAdmission } from './profileAdmissionSmoke.mjs'
 import { smokePackagedBundledGit } from './bundledGitSmoke.mjs'
 import { smokePackagedImageOcr } from './imageOcrSmoke.mjs'
+import { smokePackagedPdfOcr } from './pdfOcrSmoke.mjs'
 import { smokePackagedContributionReview } from './contributionReviewSmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
@@ -157,6 +158,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   if (!existsSync(executable)) throw new Error(`Packaged desktop executable is missing: ${executable}`)
   await smokePackagedBundledGit({ executable })
   await smokePackagedImageOcr({ executable })
+  await smokePackagedPdfOcr({ executable })
   await smokePackagedProfileAdmission({ executable })
   const userDataPath = await mkdtemp(join(tmpdir(), 'agent-commons-desktop-smoke-'))
   const modelOrigin = loopbackOrigin(await findAvailableLoopbackPort())

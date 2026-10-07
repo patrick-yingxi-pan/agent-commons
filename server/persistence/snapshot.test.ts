@@ -13,7 +13,7 @@
  *  never touched (mirrors server/persistence/persist.test.ts). */
 import { test, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { rmSync, existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs'
+import { rmSync, existsSync, mkdirSync, readdirSync, writeFileSync, readFileSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
 import { saveSnapshot, restoreSnapshot, listSnapshots, snapshotPath, buildComprehensive } from '../../scripts/snapshot.ts'
@@ -199,6 +199,82 @@ test('one portable snapshot restores across JSON and SQLite in both directions',
   process.env.PERSIST_BACKEND = 'json'
   restoreSnapshot('sqlite-export')
   assert.deepEqual(JSON.parse(readFileSync(FS_STORE, 'utf8')), sqliteState, 'a SQLite export restores into JSON')
+
+  delete process.env.SNAPSHOT_DIR
+  delete process.env.DATABASE_PATH
+})
+
+test('portable restore stages a proven SQLite replacement before replacing a damaged database', () => {
+  const portableDir = join(TMP, 'damaged-sqlite-snapshots')
+  process.env.SNAPSHOT_DIR = portableDir
+  process.env.DATA_FILE = FS_STORE
+  process.env.DATABASE_PATH = SQLITE_STORE
+  process.env.PERSIST_BACKEND = 'json'
+  mkdirSync(dirname(FS_STORE), { recursive: true })
+  mkdirSync(dirname(SQLITE_STORE), { recursive: true })
+  const selected = stateNamed('startup recovery selection')
+  writeFileSync(FS_STORE, JSON.stringify(selected))
+  saveSnapshot('damaged-store-recovery')
+
+  const damagedBytes = Buffer.from('intentionally damaged SQLite bytes')
+  const damagedWal = Buffer.from('stale WAL bytes')
+  writeFileSync(SQLITE_STORE, damagedBytes)
+  writeFileSync(`${SQLITE_STORE}-wal`, damagedWal)
+  writeFileSync(snapshotPath('malformed-for-damaged-store'), '{not json')
+  process.env.PERSIST_BACKEND = 'sqlite'
+
+  assert.throws(() => restoreSnapshot('malformed-for-damaged-store'), /not readable JSON/)
+  assert.deepEqual(readFileSync(SQLITE_STORE), damagedBytes,
+    'an invalid selected snapshot cannot mutate the damaged live database')
+  assert.deepEqual(readFileSync(`${SQLITE_STORE}-wal`), damagedWal,
+    'an invalid selected snapshot cannot mutate its existing WAL companion')
+
+  const restored = restoreSnapshot('damaged-store-recovery')
+  assert.equal(restored.to, SQLITE_STORE)
+  const database = new SqliteBackend(SQLITE_STORE)
+  try {
+    assert.deepEqual(database.load(), selected,
+      'the replacement is independently reopened and exactly matches the selected portable snapshot')
+  } finally {
+    database.close()
+  }
+  assert.equal(existsSync(`${SQLITE_STORE}-wal`), false, 'the stale damaged WAL is not attached to the replacement')
+  assert.equal(existsSync(`${SQLITE_STORE}-shm`), false, 'the stale damaged shared-memory file is not attached to the replacement')
+  assert.deepEqual(readdirSync(dirname(SQLITE_STORE)).filter((name) => name.startsWith('.agent-commons-restore-')), [],
+    'staging and preserved corrupt bytes are removed only after final-path read-back proves the replacement')
+
+  const blockedStore = join(TMP, 'blocked-damaged-sqlite', 'store.db')
+  mkdirSync(dirname(blockedStore), { recursive: true })
+  const blockedBytes = Buffer.from('preserve this damaged database')
+  const blockedWal = Buffer.from('preserve this stale WAL')
+  writeFileSync(blockedStore, blockedBytes)
+  writeFileSync(`${blockedStore}-wal`, blockedWal)
+  mkdirSync(`${blockedStore}-shm`)
+  writeFileSync(join(`${blockedStore}-shm`, 'marker'), 'preserve sidecar directory')
+  process.env.DATABASE_PATH = blockedStore
+  assert.throws(() => restoreSnapshot('damaged-store-recovery'), /refusing to replace non-file SQLite storage/,
+    'staging refuses to publish over an unexpected non-file SQLite companion')
+  assert.deepEqual(readFileSync(blockedStore), blockedBytes,
+    'failed publication rolls the original damaged database bytes back into place')
+  assert.deepEqual(readFileSync(`${blockedStore}-wal`), blockedWal,
+    'failed publication leaves all original sidecar bytes untouched')
+  assert.equal(readFileSync(join(`${blockedStore}-shm`, 'marker'), 'utf8'), 'preserve sidecar directory',
+    'failed publication leaves unexpected companion contents untouched')
+  assert.deepEqual(readdirSync(dirname(blockedStore)).filter((name) => name.startsWith('.agent-commons-restore-')), [],
+    'a complete rollback removes only its private staging directory')
+
+  const orphanStore = join(TMP, 'orphan-only-sqlite', 'store.db')
+  mkdirSync(dirname(orphanStore), { recursive: true })
+  const orphanWal = Buffer.from('orphan WAL with no main database')
+  writeFileSync(`${orphanStore}-wal`, orphanWal)
+  process.env.DATABASE_PATH = orphanStore
+  assert.throws(() => restoreSnapshot('damaged-store-recovery'), /without an existing main database file/,
+    'an orphan-sidecar profile is not removed into a first-boot-seeding state by the fallback')
+  assert.equal(existsSync(orphanStore), false, 'the orphan-only profile remains without a main database')
+  assert.deepEqual(readFileSync(`${orphanStore}-wal`), orphanWal,
+    'the orphan-only profile retains its original recovery sidecar bytes')
+  assert.deepEqual(readdirSync(dirname(orphanStore)), ['store.db-wal'],
+    'refusing the unsafe orphan-only case creates no staging directory')
 
   delete process.env.SNAPSHOT_DIR
   delete process.env.DATABASE_PATH

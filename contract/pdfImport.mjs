@@ -64,7 +64,7 @@ export function pdfImportCopy(outcome) {
   if (!outcome || outcome.format !== 'pdf') return ''
   switch (outcome.status) {
     case 'ready': return `Extracted PDF text · ${outcome.textPages} of ${outcome.pages} pages contain text. Images and layout are not included; reading order may differ. No OCR is performed.`
-    case 'no-text': return 'No readable PDF text was found. This may be a scan; OCR is not available. Attach a text version instead.'
+    case 'no-text': return 'No readable PDF text was found. This may be a scan; this import does not perform OCR. Attach a text version instead.'
     case 'file-too-large': return 'PDF not imported. Choose a PDF up to 8 MB.'
     case 'selection-limit': return 'PDF not imported. Choose up to 24 MB of PDFs at a time.'
     case 'page-limit': return 'PDF not imported. Choose a document with 100 pages or fewer.'

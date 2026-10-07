@@ -7,6 +7,7 @@ import type { McpCredentialBinding } from '../../contract/mcpConnections.ts'
 import type { NativeLocalFolderBridge } from '../../contract/localFolderCapture.ts'
 import type { NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
 import type { NativeImageOcrBridge } from '../../contract/imageOcr.mjs'
+import type { NativePdfOcrBridge } from '../../contract/pdfOcr.mjs'
 
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
@@ -66,7 +67,7 @@ export type DesktopFolderPickResult =
 
 export interface DesktopBridge {
   context?: {
-    pickFiles(accept: 'image' | 'any' | 'single-image'): Promise<DesktopFilePickResult>
+    pickFiles(accept: 'image' | 'any' | 'single-image' | 'single-pdf'): Promise<DesktopFilePickResult>
     pickFolder(): Promise<DesktopFolderPickResult>
     localFolders?: NativeLocalFolderBridge
     localGit?: NativeLocalGitBridge
@@ -87,6 +88,7 @@ export interface DesktopBridge {
     restoreBackup(): Promise<DesktopRestoreResult>
   }
   imageOcr?: NativeImageOcrBridge
+  pdfOcr?: NativePdfOcrBridge
 }
 
 /** Compatibility name retained for the provider controller and its fixtures. */

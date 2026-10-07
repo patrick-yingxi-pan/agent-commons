@@ -29,6 +29,60 @@ test('image OCR shares its native contract without gaining HTTP, model, file-pat
   assert.match(stripComments(read(join(ROOT, 'src/api/desktopCredentials.ts'))), /imageOcr\?: NativeImageOcrBridge/)
 })
 
+test('scanned-PDF OCR is a bounded macOS Document review seam, separate from ordinary PDF projection', () => {
+  const contract = stripComments(read(join(ROOT, 'contract/pdfOcr.mjs')))
+  const runner = stripComments(read(join(ROOT, 'desktop/pdfOcr.mjs')))
+  const host = stripComments(read(join(ROOT, 'desktop/pdfOcrHost.mjs')))
+  const broker = stripComments(read(join(ROOT, 'desktop/native/pdf-ocr-broker.m')))
+  const service = stripComments(read(join(ROOT, 'desktop/native/pdf-ocr-service.m')))
+  const engine = stripComments(read(join(ROOT, 'desktop/native/pdf-ocr.m')))
+  const adapter = stripComments(read(join(ROOT, 'src/api/desktopPdfOcr.ts')))
+  const review = stripComments(read(join(ROOT, 'src/lib/artifactPdfOcrImport.ts')))
+  const ui = stripComments(read(join(ROOT, 'src/components/ArtifactDocumentImport.tsx')))
+
+  assert.match(runner, /from '\.\.\/contract\/pdfOcr\.mjs'/)
+  assert.match(host, /from '\.\.\/contract\/pdfOcr\.mjs'/)
+  assert.match(adapter, /from '\.\.\/\.\.\/contract\/pdfOcr\.mjs'/)
+  for (const [name, value] of [
+    ['PDF_OCR_MAX_INPUT_BYTES', '8 * 1024 * 1024'],
+    ['PDF_OCR_MAX_PAGES', '100'],
+    ['PDF_OCR_MAX_EDGE', '2_000'],
+    ['PDF_OCR_MAX_TEXT_BYTES', '64 * 1024'],
+    ['PDF_OCR_TIMEOUT_MS', '120_000'],
+    ['PDF_OCR_CAPACITY', '1'],
+  ]) assert.match(contract, new RegExp(`export const ${name} = ${value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+
+  function assertByteAdapter(source) {
+    assert.match(source, /snapshotPdfOcrInput\(pdf\)/, 'PDF OCR adapter must snapshot and bound selected bytes')
+    assert.match(source, /runDesktopOcrOperation\(/)
+    assert.match(source, /timeoutMs: ADAPTER_TIMEOUT_MS/)
+  }
+  assertByteAdapter(adapter)
+  const unboundedAdapter = adapter.replace('snapshotPdfOcrInput(pdf)', 'pdf')
+  assert.notEqual(unboundedAdapter, adapter, 'the in-memory regression mutation must change the adapter')
+  assert.throws(() => assertByteAdapter(unboundedAdapter), /must snapshot and bound selected bytes/)
+
+  assert.match(runner, /targetPlatform !== 'darwin'/, 'PDF OCR is unavailable outside macOS')
+  assert.match(broker, /fread\([\s\S]*stdin/)
+  assert.match(broker, /ACPeerRequirement\(/)
+  assert.doesNotMatch(broker, /CoreGraphics|Vision/, 'the stdin broker does not parse documents')
+  assert.match(service, /effectiveUserIdentifier/)
+  assert.match(service, /ACRecognizePdf\(input\)/)
+  assert.match(engine, /CGPDFDocumentGetNumberOfPages/)
+  assert.match(engine, /CGPDFPageGetDrawingTransform/)
+  assert.match(engine, /VNRecognizeTextRequestRevision3/)
+  assert.match(engine, /kMaximumAggregatePixels/)
+  assert.match(engine, /\[Page %zu\]/)
+
+  assert.match(review, /await recognize\(file\.pdfOcrInput, signal\)/)
+  assert.match(review, /Your draft is unchanged/)
+  assert.match(ui, /Extract PDF text/)
+  assert.match(ui, /Nothing is saved until you create the document/)
+  assert.doesNotMatch(adapter + review, /\bfetch\s*\(|\bpaths\.|localStorage|sessionStorage|enqueueArtifactCreation/)
+  assert.doesNotMatch(concatSource('server'), /\b(?:pdfOcr|PdfOcr|PDF_OCR)\b/,
+    'the review-only OCR seam adds no HTTP or MCP server operation')
+})
+
 test('production assets are root-absolute so the SPA fallback can boot nested canonical URLs', async () => {
   // `server/index.ts` deliberately serves dist/index.html for a route such as
   // `/projects/p-insights`. With a relative Vite base (`./`), that HTML asks

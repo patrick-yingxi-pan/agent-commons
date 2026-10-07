@@ -128,12 +128,29 @@ test('direct download release pins signing, Keychain notarization, and architect
   assert.equal(ignored(nativeFileHelper), false, 'the descriptor-relative reader must still be signed')
   assert.equal(plan.packagerOptions.osxSign.optionsForFile(nativeFileHelper).entitlements,
     '/repo/desktop/entitlements.git.plist')
+  const pdfOcrBundle = `${plan.appPath}/Contents/Helpers/Agent Commons PDF OCR.app`
+  const pdfOcrService = `${pdfOcrBundle}/Contents/XPCServices/com.agentcommons.desktop.pdf-ocr.service.xpc`
+  assert.equal(plan.packagerOptions.osxSign.optionsForFile(pdfOcrBundle).entitlements,
+    '/repo/desktop/entitlements.git.plist', 'the broker app is signed without Electron JIT entitlements')
+  assert.equal(plan.packagerOptions.osxSign.optionsForFile(`${pdfOcrBundle}/Contents/MacOS/agent-commons-pdf-ocr`).entitlements,
+    '/repo/desktop/entitlements.git.plist')
+  assert.deepEqual(plan.packagerOptions.osxSign.optionsForFile(`${pdfOcrBundle}/Contents/MacOS/agent-commons-pdf-ocr`).additionalArguments,
+    ['--identifier', 'com.agentcommons.desktop.pdf-ocr.broker'], 'distribution signing preserves the transport peer identifier')
+  assert.equal(plan.packagerOptions.osxSign.optionsForFile(pdfOcrService).entitlements,
+    '/repo/desktop/entitlements.pdf-ocr.plist', 'the nested XPC service receives its sandbox entitlement')
+  assert.equal(plan.packagerOptions.osxSign.optionsForFile(`${pdfOcrService}/Contents/MacOS/agent-commons-pdf-ocr-service`).entitlements,
+    '/repo/desktop/entitlements.pdf-ocr.plist')
   assert.equal(ignored(plan.appPath), false)
   assert.equal(plan.packagerOptions.osxSign.optionsForFile(`${nativeGit}/git`).entitlements,
     '/repo/desktop/entitlements.git.plist')
   const gitEntitlements = readFileSync(new URL('./entitlements.git.plist', import.meta.url), 'utf8')
   assert.match(gitEntitlements, /<dict\s*\/>/)
   assert.doesNotMatch(gitEntitlements, /<key>/, 'standalone Git needs no JIT or other entitlement')
+  const pdfOcrEntitlements = readFileSync(new URL('./entitlements.pdf-ocr.plist', import.meta.url), 'utf8')
+  assert.match(pdfOcrEntitlements, /<key>com\.apple\.security\.app-sandbox<\/key>\s*<true\/>/)
+  assert.equal([...pdfOcrEntitlements.matchAll(/<key>/g)].length, 1, 'the OCR service gets only App Sandbox authority')
+  const deepVerify = releaseVerificationCommands(plan.appPath)[0]
+  assert.deepEqual(deepVerify.args.slice(0, 3), ['--verify', '--deep', '--strict'], 'release verification walks nested service and Resources apps')
 })
 
 test('release identity is read from the app and its executable, not inferred for the receipt', () => {
