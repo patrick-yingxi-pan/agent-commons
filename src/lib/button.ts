@@ -57,4 +57,4 @@ export const PAGE_ACTION_BUTTON_CLASS =
  *  headers use the theme-colored page verb, while paired neutral choices keep
  *  this quiet frame and answer in accent only on hover. */
 export const SECONDARY_BUTTON_CLASS =
-  'rounded-md border border-line-strong bg-surface font-medium text-ink transition hover:border-accent hover:text-accent-strong'
+  'rounded-md border border-line-strong bg-surface font-medium text-ink transition hover:border-accent hover:text-accent-strong disabled:cursor-not-allowed disabled:opacity-50'

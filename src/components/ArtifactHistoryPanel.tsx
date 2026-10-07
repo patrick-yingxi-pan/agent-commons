@@ -20,6 +20,7 @@ import {
 import { isArtifactHistoryRestoreHeld } from '../controller/artifactBodyOperationHolds.ts'
 import { artifactHistoryNextCursor, flattenArtifactHistoryPages, mergeArtifactHistoryPage } from '../api/artifactHistoryPages.ts'
 import { accountGeneration } from '../api/account.ts'
+import { ArtifactHistoryComparison } from './ArtifactHistoryComparison.tsx'
 
 interface Props {
   artifactId: string
@@ -58,6 +59,8 @@ export default function ArtifactHistoryPanel({
   const olderQuery = useArtifactHistory(artifactId, olderCursor, olderCursor !== undefined)
   const [pages, setPages] = useState<ArtifactHistoryPage[]>([])
   const [selectedRevision, setSelectedRevision] = useState<number>()
+  const [comparisonRevision, setComparisonRevision] = useState<number>()
+  const [knownCurrentRevision, setKnownCurrentRevision] = useState<number>()
   const [review, setReview] = useState<RestoreReview | null>(null)
   const [notice, setNotice] = useState('')
   const restoreStatus = useArtifactHistoryRestoreStatus()
@@ -75,6 +78,8 @@ export default function ArtifactHistoryPanel({
   useEffect(() => {
     setPages([])
     setSelectedRevision(undefined)
+    setComparisonRevision(undefined)
+    setKnownCurrentRevision(undefined)
     setReview(null)
     setNotice('')
   }, [artifactId, sourceUserId])
@@ -94,13 +99,22 @@ export default function ArtifactHistoryPanel({
   const currentRevision = latestQuery.data?.currentRevision ?? pages[0]?.currentRevision
   const selectedQuery = useArtifactHistoryVersion(artifactId, selectedRevision)
   const selectedVersion = selectedQuery.data?.version
+  const comparisonQuery = useArtifactHistoryVersion(artifactId, comparisonRevision)
+  const comparisonVersion = comparisonQuery.data?.version
+  const comparing = comparisonRevision !== undefined
+  // A version read may observe an edit before the list or its SSE arrives.
+  const newestKnownRevision = Math.max(currentRevision ?? -1, comparisonQuery.data?.currentRevision ?? -1, selectedQuery.data?.currentRevision ?? -1, knownCurrentRevision ?? -1)
+  const comparisonIsCurrent = comparisonRevision === currentRevision && comparisonRevision === newestKnownRevision && latestQuery.status === 'success'
+  const comparisonReady = currentRevision === newestKnownRevision && (!comparing || (comparisonIsCurrent && comparisonQuery.status === 'success' && selectedQuery.status === 'success'))
   const olderCursorAvailable = artifactHistoryNextCursor(pages)
   const hasOlder = olderCursorAvailable !== undefined
 
   const reload = (message = '') => {
+    setKnownCurrentRevision(newestKnownRevision)
     setNotice(message)
     setPages([])
     setSelectedRevision(undefined)
+    setComparisonRevision(undefined)
     setOlderCursor(undefined)
     invalidateArtifactHistory(artifactId)
   }
@@ -114,6 +128,11 @@ export default function ArtifactHistoryPanel({
     if (blocked || !allowRestore) {
       setReview(null)
       reload('Another body or Trash operation started while you were reviewing. Finish it, then reload history before restoring a version.')
+      return
+    }
+    if (!comparisonReady) {
+      setReview(null)
+      reload('This comparison could not be confirmed against current content. Reload history before reviewing another restore.')
       return
     }
     if (latestQuery.status === 'loading' || latestQuery.data?.currentRevision !== review.expectedRevision) {
@@ -130,6 +149,8 @@ export default function ArtifactHistoryPanel({
       scope.current.sourceUserId !== submittedScope.sourceUserId || accountGeneration() !== submittedScope.generation) return
     if (outcome === 'applied') {
       setNotice('')
+      setKnownCurrentRevision(Math.max(newestKnownRevision, expected + 1))
+      setComparisonRevision(undefined)
       setSelectedRevision(expected + 1)
       invalidateArtifactHistory(artifactId)
     } else if (outcome === 'discarded') {
@@ -166,7 +187,7 @@ export default function ArtifactHistoryPanel({
                 aria-pressed={selectedRevision === version.revision}
                 title={`Version ${version.revision} · ${reasonLabel(version)} · ${label}`}
                 className={`flex w-full min-w-0 items-start justify-between gap-3 px-3 py-2.5 text-left transition hover:bg-panel-2 ${selectedRevision === version.revision ? 'bg-panel-2' : 'bg-surface'}`}
-                onClick={() => { setSelectedRevision(version.revision); setNotice('') }}
+                onClick={() => { setKnownCurrentRevision(newestKnownRevision); setSelectedRevision(version.revision); setComparisonRevision(undefined); setNotice('') }}
               >
                 <span className="min-w-0">
                   <span className="block truncate text-[12px] font-medium text-ink">Version {version.revision}{isCurrent ? ' · Current version' : ''}</span>
@@ -198,18 +219,47 @@ export default function ArtifactHistoryPanel({
                   <h3 className="truncate text-[13px] font-semibold text-ink">Version {selectedVersion.revision} · {reasonLabel(selectedVersion)}</h3>
                   {selectedVersion.revision === currentRevision && <p className="mt-0.5 text-[11px] text-cap-ok">Current version</p>}
                 </div>
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {selectedVersion.revision !== currentRevision && <button type="button"
+                  className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
+                  disabled={!comparing && (currentRevision === undefined || latestQuery.status !== 'success' || selectedQuery.status !== 'success')}
+                  onClick={() => {
+                    setKnownCurrentRevision(newestKnownRevision)
+                    setComparisonRevision(comparing ? undefined : currentRevision)
+                  }}
+                >{comparing ? 'View version' : 'Compare with current'}</button>}
                 {allowRestore && selectedVersion.revision !== currentRevision && <button
                   type="button"
-                  disabled={blocked || currentRevision === undefined}
-                  title={blocked ? 'Finish or dismiss the current body operation first' : undefined}
+                  disabled={blocked || currentRevision === undefined || !comparisonReady}
+                  title={blocked ? 'Finish or dismiss the current body operation first' : !comparisonReady ? 'Load a current comparison before restoring' : undefined}
                   className={`${SECONDARY_BUTTON_CLASS} shrink-0 px-3 py-1.5 text-[12px]`}
                   onClick={() => {
-                    if (currentRevision === undefined) return
+                    if (currentRevision === undefined || !comparisonReady) return
                     setReview({ targetRevision: selectedVersion.revision, expectedRevision: currentRevision })
                   }}
                 >Restore version {selectedVersion.revision}</button>}
+                </div>
               </div>
-              <ArtifactBodyView kind={artifactKind} name={artifactName} size="full" bodyOverride={selectedVersion.body} />
+              {!comparing && currentRevision !== newestKnownRevision && latestQuery.status === 'success' && <InlineOperationStatus tone="alert"
+                message="Current content changed. Reload history before restoring."
+                action={{ label: 'Reload history', onClick: () => reload() }} />}
+              {comparing ? <div className="space-y-3">
+                {!comparisonIsCurrent && latestQuery.status === 'success' && <InlineOperationStatus tone="alert"
+                  message="Current content changed after this comparison. Refresh it before restoring."
+                  action={{ label: 'Refresh comparison', onClick: () => {
+                    setComparisonRevision(newestKnownRevision)
+                    invalidateArtifactHistory(artifactId)
+                  } }} />}
+                {comparisonQuery.status === 'error' || selectedQuery.status === 'error' ? <InlineOperationStatus tone="alert"
+                  message="Couldn’t load the versions for comparison."
+                  action={{ label: 'Retry comparison', onClick: () => {
+                    invalidateArtifactHistoryVersion(artifactId, comparisonRevision)
+                    retrySelected()
+                  } }} />
+                  : comparisonQuery.status !== 'success' || selectedQuery.status !== 'success' ? <p role="status" className="text-[12px] text-ink-soft">Loading version comparison…</p>
+                    : comparisonVersion && <ArtifactHistoryComparison key={`${artifactId}:${comparisonVersion.revision}:${selectedVersion.revision}`}
+                      current={comparisonVersion} selected={selectedVersion} />}
+              </div> : <ArtifactBodyView kind={artifactKind} name={artifactName} size="full" bodyOverride={selectedVersion.body} />}
             </div>
           ) : null}
         </section>

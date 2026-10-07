@@ -6,7 +6,34 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: conversation Find
+## Current checkpoint: artifact history comparison
+
+Owners can compare a retained version against the exact current saved revision
+before deciding to restore it. The read-only comparison shows literal Document,
+Sheet, workbook and Slides changes, distinguishes empty from absent values, and
+pages every changed field in groups of 20. Workbook tabs retain their saved
+identity; positional content does not invent moves. A newer current revision
+requires explicit Refresh comparison before Restore becomes available again.
+Restore remains a separately confirmed, revision-pinned operation. Trash history
+can be compared but still cannot restore a body until lifecycle restoration.
+
+This checkpoint requires the full local verifier, complete UI sweep and focused
+five-viewport/accessibility browser acceptance on a frozen source tree. It adds
+no API authority, model input or external integration. Signed/notarized releases,
+native Intel and real external-provider acceptance remain separate release gates.
+Adversarial review added a guard for version reads that reveal a newer current
+revision before the history list/SSE arrives, plus success-state reset after a
+restore. The exact-revision guard and literal projection both received negative
+mutation checks. The initial UI sweep was intentionally stopped before edits;
+acceptance must run again against the final frozen tree.
+The complete 135-cell UI sweep and six focused comparison browser walks passed.
+The first full verifier found one source-scan collision in an inert test string
+(4,561/4,562 Node checks passed); the fixture was changed without weakening the
+no-native-dialog rule, and the browser lanes were deliberately interrupted.
+Follow-up review also keeps observed newer-revision evidence after leaving
+comparison or changing selection. The final complete verifier remains required.
+
+## Completed checkpoint: conversation Find
 
 After the verified paged-resource-search checkpoint, the next core gap was
 finding text in older conversation history. Browser Find cannot see unloaded
@@ -39,7 +66,10 @@ Two browser assertions needed alignment with the rendered structure: the
 revocation alert includes its Retry button, and a current summary now has its
 own addressable turn alongside the four retained originals. The strengthened
 checks assert the alert/retry separately and distinguish summary from tail;
-no production behavior, deadline or retry policy was relaxed.
+no production behavior, deadline or retry policy was relaxed. The final complete
+local verifier passed all five lanes and all 548 browser tests; the UI sweep
+covered 135/135 cells with no violations or skips. Reviewed and pushed as
+`b373bf57`.
 
 ## Decisions in force
 

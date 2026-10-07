@@ -18,6 +18,7 @@ export function TextDiff({
   current,
   proposed,
   sides,
+  presentation = 'code',
 }: {
   label?: string
 } & ({
@@ -25,13 +26,29 @@ export function TextDiff({
   current?: string
   proposed: string
   sides?: never
+  presentation?: never
 } | {
   current?: never
   proposed?: never
   /** Raw code uses explicit before/after states: absence and unread content
    * must never be rendered as an empty file or a fabricated removal. */
   sides: { before: TextDiffSide; after: TextDiffSide }
+  /** Literal structured fields need values, not code-line controls. */
+  presentation?: 'code' | 'values'
 })) {
+  if (sides && presentation === 'values') return <div className="@container min-w-0 space-y-2" data-text-value-comparison>
+    {label && <h4 className="text-[12px] font-semibold text-ink [overflow-wrap:anywhere]">{label}</h4>}
+    <div className="grid min-w-0 grid-cols-1 gap-2 @min-[34rem]:grid-cols-2">
+      {([['before', sides.before], ['after', sides.after]] as const).map(([position, side]) => <div key={position} data-text-diff-side={position}
+        className={`min-w-0 rounded-lg border border-line p-2.5 ${position === 'before' ? 'bg-removed-bg/40' : 'bg-ok/5'}`}>
+        <p className="mb-1 text-[11px] font-semibold text-ink-soft">{side.label}</p>
+        {side.text !== undefined
+          ? side.text === '' ? <p className="text-[12px] italic text-ink-soft">Empty value.</p>
+            : <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-ink [overflow-wrap:anywhere]">{side.text}</pre>
+          : <p className="text-[12px] italic text-ink-soft">{side.notice}</p>}
+      </div>)}
+    </div>
+  </div>
   if (sides) return <Suspense fallback={<p role="status" className="text-[12px] text-ink-soft">Loading text comparison…</p>}>
     <CodeDiff label={label} sides={sides} />
   </Suspense>

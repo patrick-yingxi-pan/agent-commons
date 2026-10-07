@@ -46,6 +46,8 @@ test('the solid faces ramp on hover and carry no size', () => {
   assert.ok(!/bg-(accent|danger|ink)(?![\w-])/.test(SECONDARY_BUTTON_CLASS), 'the secondary never fills solid')
   assert.ok(/hover:(border|text)-accent/.test(SECONDARY_BUTTON_CLASS), 'the secondary answers in accent on hover')
   assert.ok(SECONDARY_BUTTON_CLASS.includes('rounded-md'), 'the secondary sits on the control radius')
+  assert.ok(SECONDARY_BUTTON_CLASS.includes('disabled:opacity-50'), 'disabled secondary actions visibly differ from enabled actions')
+  assert.ok(SECONDARY_BUTTON_CLASS.includes('disabled:cursor-not-allowed'), 'disabled secondary actions retain an unavailable pointer cue')
   assert.ok(!/\btext-\[|\btext-sm|\bpx-|\bpy-|\bflex\b/.test(SECONDARY_BUTTON_CLASS), 'no size or layout')
   // The SOFT verb — the below-CTA affirmative (2026-08-03: opaque claret read
   // heavy): tinted fill, strong text, the fill deepening on hover. Never
