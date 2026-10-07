@@ -142,7 +142,7 @@ Manual native selection, cancellation and source-absent relaunch evidence lives
 in the [September record](../docs/acceptance/native-context-2026-09-10.md).
 The [October follow-up](../docs/acceptance/native-context-2026-10-04.md) closes its
 XLSX/PPTX/PNG/folder detach gaps. Both are revision-scoped unsigned arm64 evidence,
-not complete manual matrices or substitutes for broader native/release gates.
+not complete manual matrices or substitutes for broader native/release gates. The [PDF review](../docs/acceptance/native-pdf-ocr-2026-10-06.md) adds actual cancellation, blank refusal, scanned recognition, adoption/correction/Create and source-absent relaunch; protected-PDF manual selection remains unverified.
 
 Run `node --test "desktop/**/*.test.ts"`, then `npm run desktop:verify`. The MCP
 phase proves real OS-backed token replacement/relaunch, secret exclusion,

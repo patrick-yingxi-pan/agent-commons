@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-06 UTC. The standing goal remains production readiness for Agent
+Reviewed 2026-10-06. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -119,6 +119,23 @@ language support are OS-dependent, not a promise of universal recognition.
 
 ## Progress and next milestones
 
+### Actual native PDF review acceptance (2026-10-06)
+
+The [native PDF record](acceptance/native-pdf-ocr-2026-10-06.md) adds actual macOS
+chooser cancellation, blank-PDF refusal, two-page scanned recognition, separate
+read-only review, explicit adoption/correction/Create, and exact saved text after
+a full source-absent relaunch. Three ordinary launches used one generated private
+profile, real OS storage, no debug/test bridges and native-menu Quit. Native
+control state intermittently lagged; a clean relaunch restored the successful
+selection. The uncompleted protected-PDF manual attempt is not counted as a pass.
+
+The next core direction is real Contribution execution through a user-selected
+tool on an existing MCP connection, with reviewed exact arguments, a separate
+Run confirmation for each call and no automatic retry after uncertainty. That
+design decision is pending; approval would not authorize any real external
+action or credentials. Signed/notarized and native Intel evidence, public update
+hosting and authorized real-provider acceptance remain external release gates.
+
 ### Sandboxed scanned-PDF review (2026-10-06)
 
 The owner approved a separately sandboxed macOS service and continued independent
@@ -168,7 +185,9 @@ node tests. Its sole failure was the suite-path lint treating a quoted expected
 renderer import as a path relative to the cross-layer test itself. That assertion
 now uses the same exact import regex shape as the surrounding source locks;
 neither the path lint nor its exceptions, product behavior, timing or retries
-changed. The final complete verifier must run again before landing.
+changed. The corrected complete verifier passed before commit `1d53e352`:
+4,486 node tests and 527 E2E tests, all five lanes green without retries in
+474.2 seconds. The production build and complete packaged verifier also passed.
 
 ### Damaged-startup restore acceptance (2026-10-06)
 
@@ -262,9 +281,10 @@ The full 517-test E2E suite, 135/135-cell responsive sweep, production build and
 packaged OCR acceptance passed. Browser bridge fixtures establish UI wiring;
 the packaged helper establishes recognition for this bounded macOS path.
 
-Discussion-as-Context follows the separately scoped checkpoint above. Browser/non-macOS OCR,
-scanned PDFs and broader accuracy/language acceptance remain distinct future
-work. Release blockers are still signed and
+Discussion-as-Context follows the separately scoped checkpoint above. PORT-28
+now separately provides scanned-PDF-to-Document review. Browser/non-macOS OCR,
+automatic OCR in ordinary PDF attachments and broader accuracy/language
+acceptance remain distinct future work. Release blockers are still signed and
 notarized Apple Silicon/Intel evidence, public update hosting and authorized
 real-provider/external-effect acceptance; no GitHub CI dependency is introduced.
 
@@ -1989,7 +2009,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | Milestone | Evidence and remaining work |
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
-| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. Bounded macOS local-image OCR (PORT-26) is implemented and accepted for the stated macOS path. Discussion-as-Context (CTX-DISC-1) adds confirmed saved copies under its bounded checkpoint; scanned-PDF/non-macOS OCR, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain future work. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
+| Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. Bounded macOS local-image OCR (PORT-26) is implemented and accepted for the stated macOS path. Discussion-as-Context (CTX-DISC-1) adds confirmed saved copies under its bounded checkpoint; PORT-28 separately adds explicit macOS scanned-PDF-to-Document review; non-macOS and automatic PDF-attachment OCR, broader PDF recognition accuracy/language acceptance, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain future work. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
 | Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. OAuth, local transports, standing trust, MRTR and third-party acceptance remain required. Repository content/git and some imported artifact renderers remain declared fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
