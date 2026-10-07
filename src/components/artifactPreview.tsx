@@ -21,10 +21,12 @@ import type { ArtifactKind } from '../types'
 import type { ArtifactItem } from '../data/cowork'
 import type { ArtifactContent, DocBlock } from '../types'
 import type { ArtifactHistoryBody } from '../../contract/artifactHistory.ts'
+import type { EditableArtifactBody } from '../../contract/artifactEditing.ts'
 import type { SocialEntityRef } from '../../contract/index.ts'
 import { docBlockText } from '../../contract/index.ts'
 import { LocusGutter } from './LocusGutter'
 import { usePendingFocus, useFocusFlash, FOCUS_FLASH_CLASS } from '../lib/focusContext'
+import { describeLocus } from '../lib/anchorLocus'
 import { useArtifactContent, useFsText, fsContentUrl, useMe } from '../api'
 import { artifactEditDrafts, useArtifactEditDraft } from '../controller/artifactEditDrafts'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
@@ -212,7 +214,7 @@ function DocumentBlockEditor({ edit, unavailable = false }: { edit: DocEdit; una
   return (
     <div className="space-y-1.5" data-document-block-editor>
       <textarea
-        aria-label={`Rewrite block ${(edit.index ?? 0) + 1}`}
+        aria-label={edit.index !== null && edit.index < 0 ? 'Rewrite original block' : `Rewrite block ${(edit.index ?? 0) + 1}`}
         value={edit.draft}
         onChange={(e) => edit.onDraft(e.target.value)}
         disabled={edit.saving}
@@ -230,6 +232,22 @@ function DocumentBlockEditor({ edit, unavailable = false }: { edit: DocEdit; una
       {edit.error && <p className="text-[11px] text-danger-text" role="status">{edit.error}</p>}
     </div>
   )
+}
+
+function DocumentBlockArrival({ doc }: { doc: Extract<ArtifactContent, { type: 'doc' }> }) {
+  const { pending, consume } = usePendingFocus()
+  const [missingId, setMissingId] = useState<string | null>(null)
+  const id = pending?.artifactBlockId
+  const missing = id !== undefined && !doc.blocks.some(block => block.id === id)
+  useEffect(() => {
+    if (!missing || id === undefined) return
+    setMissingId(id)
+    consume()
+  }, [missing, id, consume])
+  if (!missingId || doc.blocks.some(block => block.id === missingId)) return null
+  return <p role="status" data-artifact-block-unavailable className="text-[12px] text-ink-soft">
+    {describeLocus({ kind: 'artifact-block', blockId: missingId }, 'deleted')}. The discussion remains attached to its original block.
+  </p>
 }
 
 function DocView({
@@ -252,6 +270,7 @@ function DocView({
   const search = useArtifactSearchFields()
   return (
     <div data-wrapping-prose className={`${t.gap} ${WRAPPING_PROSE_CLASS}`}>
+      {discuss && <DocumentBlockArrival key={discuss.id} doc={doc} />}
       <div {...search.props('doc.title')} className={`${t.title} font-serif font-semibold leading-snug text-ink ${size === 'thumb' ? 'line-clamp-1' : ''}`}>
         {doc.title}
       </div>
@@ -260,7 +279,7 @@ function DocView({
         // contract's own predicate, the same one the server validates a patch
         // with, so the pencil appears exactly where an edit can land.
         const current = docBlockText(b)
-        const editable = edit !== undefined && current !== undefined
+        const editable = edit !== undefined && current !== undefined && b.id !== undefined
         // The OPEN editor replaces the block's BODY: there is nothing to point
         // at or discuss while it is a textarea, and a gutter under a form would
         // anchor talk to a block the writer is mid-way through changing. It
@@ -268,10 +287,10 @@ function DocView({
         if (editable && edit.index === i) {
           const editor = <DocumentBlockEditor edit={edit} />
           return discuss ?
-              <DiscussableBlock key={i} subject={discuss} index={i} gutter={false}>
+              <DiscussableBlock key={b.id ?? i} subject={discuss} blockId={b.id} gutter={false}>
                 {editor}
               </DiscussableBlock>
-            : <Fragment key={i}>{editor}</Fragment>
+            : <Fragment key={b.id ?? i}>{editor}</Fragment>
         }
         const body =
           editable ?
@@ -296,9 +315,9 @@ function DocView({
         // A keyed Fragment, not a wrapper div: every preview surface renders
         // this body too, and an extra node per block would be DOM noise on all
         // of them for the benefit of the one surface that hosts a gutter.
-        if (!discuss) return <Fragment key={i}>{body}</Fragment>
+        if (!discuss) return <Fragment key={b.id ?? i}>{body}</Fragment>
         return (
-          <DiscussableBlock key={i} subject={discuss} index={i}>
+          <DiscussableBlock key={b.id ?? i} subject={discuss} blockId={b.id}>
             {body}
           </DiscussableBlock>
         )
@@ -318,7 +337,7 @@ function DocView({
  *  get different predicates rather than one borrowed from the other. */
 function DiscussableBlock({
   subject,
-  index,
+  blockId,
   /** False while this block is OPEN IN THE EDITOR: there is nothing to point at
    *  or discuss mid-rewrite. The wrapper still renders, so a door aimed at this
    *  block still lands on it — losing the anchor along with the gutter would
@@ -327,22 +346,19 @@ function DiscussableBlock({
   children,
 }: {
   subject: SocialEntityRef
-  index: number
+  blockId?: string
   gutter?: boolean
   children: ReactNode
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const { pending } = usePendingFocus()
-  // Zero-based: `!== undefined`, never truthiness — block 0 is a real block, and
-  // the opening paragraph is exactly the one people comment on.
-  // The hook returns WHETHER to flash, not a class — the caller styles on it.
-  const flash = useFocusFlash(pending?.artifactBlock !== undefined && pending.artifactBlock === index, ref)
+  const flash = useFocusFlash(blockId !== undefined && pending?.artifactBlockId === blockId, ref)
   return (
     // The lit cue needs room to read as a highlight of the block rather than of
     // its text, so the wrapper carries the inset only while it is lit.
-    <div ref={ref} className={`rounded-md ${flash ? `${FOCUS_FLASH_CLASS} -mx-2 px-2` : ''}`}>
+    <div ref={ref} data-doc-block-id={blockId} className={`rounded-md ${flash ? `${FOCUS_FLASH_CLASS} -mx-2 px-2` : ''}`}>
       {children}
-      {gutter && <LocusGutter subject={subject} locus={{ kind: 'artifact-block', block: index }} noun="block" />}
+      {gutter && blockId && <LocusGutter subject={subject} locus={{ kind: 'artifact-block', blockId }} noun="block" />}
     </div>
   )
 }
@@ -764,9 +780,9 @@ export function ArtifactDetailPage({
   const invalidName = !normalizedName
 
   const draftState = useArtifactEditDraft(artifact.id)
+  const { pending: pendingFocus } = usePendingFocus()
   const documentDraft = own && draftState?.draft.kind === 'document' ? draftState.draft : undefined
   const structuredDraft = own && draftState?.draft.kind === 'structured' ? draftState.draft : undefined
-  const editing = documentDraft?.block ?? null
   const saving = draftState?.held ?? false
   const editingStructured = structuredDraft !== undefined
   useArtifactLifecycleStatus()
@@ -776,9 +792,15 @@ export function ArtifactDetailPage({
   const artifactContent = useArtifactContent(shouldReadCurrentArtifactBody({ addressedRevision, inTrash, lifecycleHeld }))
   const structuredMutation = useStructuredArtifactMutationStatus()
   const structuredBody = artifactContent.data?.[artifact.id]
+  const editing = documentDraft ? documentDraft.blockId && structuredBody?.type === 'doc'
+    ? structuredBody.blocks.findIndex(block => block.id === documentDraft.blockId)
+    : documentDraft.block : null
   const draftBlock = structuredBody?.type === 'doc' && editing !== null ? structuredBody.blocks[editing] : undefined
   const documentTargetUnavailable = Boolean(documentDraft && (!draftBlock || docBlockText(draftBlock) === undefined))
-  const editableStructuredBody = structuredBody?.type === 'sheet' || structuredBody?.type === 'workbook' || structuredBody?.type === 'slides' ? structuredBody : undefined
+  const editableStructuredBody: (EditableArtifactBody & { revision?: number }) | undefined =
+    structuredBody?.type === 'sheet' || structuredBody?.type === 'workbook' || structuredBody?.type === 'slides' ? structuredBody :
+      structuredBody?.type === 'doc' && structuredBody.blocks.every(block => typeof block.id === 'string')
+        ? structuredBody as EditableArtifactBody & { revision?: number } : undefined
   const structuredBusy = saving || isStructuredArtifactMutationHeld(artifact.id) ||
     (structuredMutation.busy && structuredMutation.activeResourceId === artifact.id)
   const [sharing, setSharing] = useState(false)
@@ -798,7 +820,10 @@ export function ArtifactDetailPage({
         error: draftState?.error ?? null,
         saving,
         onStart: (index, current) => {
-          artifactEditDrafts.start(artifact.id, { kind: 'document', block: index, text: current })
+          const block = structuredBody?.type === 'doc' ? structuredBody.blocks[index] : undefined
+          if (!block?.id || structuredBody?.type !== 'doc') return
+          artifactEditDrafts.start(artifact.id, { kind: 'document', block: index, blockId: block.id,
+            expectedRevision: structuredBody.revision ?? 0, text: current })
         },
         onDraft: (text) => {
           if (documentDraft) artifactEditDrafts.update(artifact.id, { ...documentDraft, text })
@@ -825,7 +850,7 @@ export function ArtifactDetailPage({
     if (outcome === 'applied' && currentArtifactId.current === artifact.id) setEditingName(false)
   }
   const startStructuredEdit = () => {
-    if (!own || !editableStructuredBody || structuredBusy || historyRestoreHeld) return
+    if (!own || !editableStructuredBody || draftState || structuredBusy || historyRestoreHeld) return
     const { revision = 0, ...content } = editableStructuredBody
     artifactEditDrafts.start(artifact.id, { kind: 'structured', content, expectedRevision: revision })
   }
@@ -983,16 +1008,18 @@ export function ArtifactDetailPage({
 
       <div className="min-w-0">
         <Section
+          key={artifact.id}
           title="Content"
           heldOpen={searchTarget !== undefined}
+          reveal={pendingFocus?.artifactBlockId !== undefined}
           summary={artifactMetaIsSpecific(artifact.meta, KIND_LABEL[artifact.kind]) ? artifact.meta : KIND_LABEL[artifact.kind]}
           actions={<div className="flex flex-wrap items-center gap-1.5">
             {own && editableStructuredBody && <SectionAction
-              label={editingStructured ? 'Cancel editing' : editableStructuredBody.type === 'slides' ? 'Edit slides' : 'Edit sheet'}
+              label={editingStructured ? 'Cancel editing' : editableStructuredBody.type === 'doc' ? 'Edit document' : editableStructuredBody.type === 'slides' ? 'Edit slides' : 'Edit sheet'}
               icon={editingStructured ? <X size={14} /> : <Pencil size={14} />}
               onClick={editingStructured ? () => artifactEditDrafts.cancel(artifact.id) : startStructuredEdit}
-              disabled={structuredBusy || historyRestoreHeld}
-              disabledReason={historyRestoreHeld ? 'Wait for the version restore to be confirmed' : structuredBusy ? 'Finish the current structure edit first' : undefined}
+              disabled={structuredBusy || historyRestoreHeld || Boolean(documentDraft)}
+              disabledReason={historyRestoreHeld ? 'Wait for the version restore to be confirmed' : documentDraft ? 'Save or cancel your current block edit first' : structuredBusy ? 'Finish the current structure edit first' : undefined}
             />}
             {downloadFormat && <>
               <SectionAction
@@ -1016,7 +1043,14 @@ export function ArtifactDetailPage({
         >
           {artifactDownload.notice && <InlineOperationStatus {...artifactDownload.notice} />}
           {searchTarget && draftState && <p role="status" className="mb-3 text-[12px] text-ink-soft">Save or cancel your edit to reveal this search match in the saved body.</p>}
+          {pendingFocus?.artifactBlockId && structuredDraft && <p role="status" data-document-anchor-held className="mb-3 text-[12px] text-ink-soft">Save or cancel your draft to reveal the original discussion block in the saved document.</p>}
           {documentTargetUnavailable && edit && <DocumentBlockEditor edit={edit} unavailable />}
+          {documentDraft && draftBlock && documentDraft.expectedRevision !== undefined &&
+            documentDraft.expectedRevision !== (structuredBody?.revision ?? 0) &&
+            <div data-document-latest-block className="mb-3 space-y-2 rounded-md border border-line p-2.5">
+              <p className="text-[11px] font-semibold text-ink-soft">Latest saved block</p>
+              <DocBlockView block={draftBlock} size="full" index={editing ?? 0} />
+            </div>}
           {own && structuredDraft ? (
             <StructuredArtifactEditor
               body={structuredDraft.content}

@@ -60,8 +60,8 @@ test('migrateState rejects when a step in the chain is missing', () => {
 test('migrateState: current version passes through; a version with no migration path is rejected', () => {
   const current = at(STORE_VERSION)
   assert.equal(migrateState(current), current, 'current version passes straight through')
-  // v3 would need a to:4 step, which doesn't exist (only v4→v5 is registered).
-  assert.equal(migrateState(at(STORE_VERSION - 2)), null, 'a version with no registered path is rejected')
+  // v2 would need a to:3 step, which has no registered migration.
+  assert.equal(migrateState(at(2)), null, 'a version with no registered path is rejected')
 })
 
 // ── The real registered migration (v4 → v5: backfill AuditEntry.tenantId) ─────
@@ -69,7 +69,7 @@ test('migrateState: current version passes through; a version with no migration 
  *  before the tenant-scoped-audit bump looks like on disk. */
 const legacyV4 = (): PersistedState =>
   ({
-    ...at(STORE_VERSION - 1),
+    ...at(4),
     auditLog: [
       { id: 'audit-legacy', channel: 'proxy', capability: 'connector.read', target: 'legacy', outcome: 'fulfilled', at: 1 },
     ],
@@ -77,21 +77,22 @@ const legacyV4 = (): PersistedState =>
 
 test('the v4→v5 migration backfills a tenant-less audit entry, preserving stamped ones', () => {
   const v4 = {
-    ...at(STORE_VERSION - 1),
+    ...at(4),
     auditLog: [
       { id: 'a-old', channel: 'proxy', capability: 'c', target: 't', outcome: 'fulfilled', at: 1 },
       { id: 'a-new', tenantId: 'tenant-acme', channel: 'proxy', capability: 'c', target: 't', outcome: 'fulfilled', at: 2 },
     ],
   } as unknown as PersistedState
-  const out = migrateState(v4)
+  const out = migrateState(v4, DATA_MIGRATIONS, 5)
   assert.ok(out)
-  assert.equal(out.version, STORE_VERSION)
+  assert.equal(out.version, 5)
   assert.equal(out.auditLog?.[0]?.tenantId, 'tenant-personal', 'an unstamped entry is backfilled to the personal tenant')
   assert.equal(out.auditLog?.[1]?.tenantId, 'tenant-acme', 'an already-stamped entry is left untouched')
 })
 
 test('the real registry includes the v4→v5 audit-tenant migration', () => {
-  assert.ok(DATA_MIGRATIONS.some((m) => m.to === STORE_VERSION), `a migration to v${STORE_VERSION} is registered`)
+  assert.ok(DATA_MIGRATIONS.some((m) => m.to === 5), 'the historical v4→v5 migration remains registered')
+  assert.ok(DATA_MIGRATIONS.some((m) => m.to === STORE_VERSION), `the current v${STORE_VERSION} migration is registered`)
 })
 
 // Both backends route load() through migrateState (migrate.ts asserts this in prose),

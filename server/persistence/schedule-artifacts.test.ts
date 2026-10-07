@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { saveState } from './persist.ts'
+import { docBlockId } from '../documentIdentity.ts'
 
 const ROOT = mkdtempSync(join(tmpdir(), `agent-commons-schedule-artifacts-${process.pid}-`))
 const storeModule = new URL('../store/index.ts', import.meta.url).href
@@ -91,7 +92,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(artifact.tenantId, 'tenant-routine-owner', 'routine output is owned by task.tenantId')
     assert.equal(artifact.sourceSessionId, 'srun-schedule-artifact-test-run-schedule-first')
     assert.equal(first.body?.type, 'doc')
-    assert.deepEqual(first.body?.blocks, [{ p: 'First durable digest.' }])
+    assert.deepEqual(first.body?.blocks, [{ id: docBlockId(artifact.id, 0, 0), p: 'First durable digest.' }])
     assert.equal(first.state?.artifactHistory?.some(([id]: [string]) => id === artifact.id), false,
       'the first authored body has no invented predecessor to retain')
     assert.deepEqual(first.observed.map((row: any) => row.event), ['artifact.changed', 'relation.applied', 'session.updated', 'run.finished'])
@@ -112,7 +113,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(second.artifact.id, artifact.id, `${backend}: the schedule binding remains ID-stable`)
     assert.equal(second.artifact.sourceSessionId, 'srun-schedule-artifact-test-run-schedule-second')
     assert.equal(second.body?.revision, (first.body?.revision ?? 0) + 1)
-    assert.deepEqual(second.body?.blocks, [{ p: 'Second durable digest.' }])
+    assert.deepEqual(second.body?.blocks, [{ id: docBlockId(artifact.id, 1, 0), p: 'Second durable digest.' }])
     assert.ok(second.state?.graph.extraArtifacts.some((a: any) => a.id === artifact.id && a.sourceScheduleId === 'schedule-artifact-test'))
     const history = second.state?.artifactHistory?.find(([id]: [string]) => id === artifact.id)?.[1]
     assert.deepEqual(history?.map((version: any) => [version.revision, version.reason]), [[0, 'baseline'], [1, 'edit']],
@@ -143,7 +144,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(result.failureCode, 'execution_error')
     assert.equal(result.count, 1)
     assert.equal(result.current.id, result.before.id)
-    assert.deepEqual(result.body?.blocks, [{ p: 'Keep this digest.' }])
+    assert.deepEqual(result.body?.blocks, [{ id: docBlockId(result.before.id, 0, 0), p: 'Keep this digest.' }])
     assert.equal(result.body?.revision, result.beforeBody?.revision)
   })
 }
@@ -227,7 +228,7 @@ test('restart upgrades a legacy metadata-only scheduled artifact by its retained
   assert.equal(second.artifact.sourceScheduleId, 'schedule-legacy-artifact-test')
   assert.equal(second.artifact.tenantId, 'tenant-personal', 'rehydrate and delivery stamp the default owner')
   assert.equal(second.artifact.sourceSessionId, 'srun-schedule-legacy-artifact-test-run-legacy-second')
-  assert.deepEqual(second.body?.blocks, [{ p: 'Recovered scheduled digest.' }])
+  assert.deepEqual(second.body?.blocks, [{ id: docBlockId(second.artifact.id, 1, 0), p: 'Recovered scheduled digest.' }])
     assert.equal(second.body?.revision, 1, 'adopting an existing metadata row records the authored body as its first update')
     assert.equal(second.state.artifactHistory?.some(([id]: [string]) => id === first.artifactId), false,
       'the legacy metadata row has no invented baseline body')

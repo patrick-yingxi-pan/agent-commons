@@ -33,7 +33,8 @@ import { sheetXlsx } from '../artifactXlsx.ts'
 import { documentDocx, hasWordText } from '../artifactDocx.ts'
 import { slidesPptx } from '../artifactPptx.ts'
 import { hasPowerPointText } from '../artifactPptxLayout.ts'
-import { authoredArtifact, parseStructuredArtifactBody, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
+import { authoredArtifact, type AuthoredArtifact } from '../../contract/artifactAuthoring.ts'
+import { parseEditableArtifactBody } from '../../contract/artifactEditing.ts'
 import { isSpreadsheetContent } from '../../contract/workbook.ts'
 import { artifactBodyExcerpt } from '../../contract/artifactExcerpt.ts'
 import { normalizeArtifactName, projectArtifactMetadata, type ArtifactMetadata } from '../../contract/artifactMetadata.ts'
@@ -109,6 +110,7 @@ import {
 import { prepareArtifactHistoryAppend, type StoredArtifactHistoryRestoreReceipt } from '../artifactHistory.ts'
 import { searchArtifactVersions } from '../artifactVersionSearch.ts'
 import { findArtifactBodySearchMatch } from '../artifactBodySearch.ts'
+import { identifyDocumentBody } from '../documentIdentity.ts'
 import { literalSearchSnippet } from '../../contract/literalSearch.ts'
 import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS } from '../../contract/search.ts'
 import type { ArtifactDeletionPreview, ArtifactDeletionRequest, ArtifactDeletionResult } from '../../contract/artifactDeletion.ts'
@@ -1192,12 +1194,13 @@ function commitArtifactBodyEdit(
     (current.revision ?? 0) >= Number.MAX_SAFE_INTEGER) {
     throw new ConflictError('This artifact cannot accept another body revision. Refresh its current content before retrying.')
   }
+  const committed = identifyDocumentBody(artifact.id, updated)
   const editedAt = Math.max(Date.now(), artifact.editedAt)
   const versions = prepareArtifactHistoryAppend(
-    artifact.id, current, updated, new Date(editedAt).toISOString(), options.reason ?? 'edit',
+    artifact.id, current, committed, new Date(editedAt).toISOString(), options.reason ?? 'edit',
     options.restoredFromRevision, artifactHistory.get(artifact.id),
   )
-  artifactBodies.set(artifact.id, updated)
+  artifactBodies.set(artifact.id, committed)
   artifactHistory.set(artifact.id, versions)
   artifactMetadata.set(artifact.id, {
     name: artifact.name,
@@ -1207,7 +1210,7 @@ function commitArtifactBodyEdit(
   options.beforePersist?.()
   persist()
   emit({ type: 'artifact.changed', artifactId: artifact.id })
-  return updated
+  return committed
 }
 
 /** An artifact's CURRENT body — the edit if it has one, else the authored seed.
@@ -1221,11 +1224,12 @@ function artifactBodyOf(artifactId: string): ArtifactContent | undefined {
  * ordinary read wall. Export/edit/model paths must use artifactBodyOf instead. */
 function retainedArtifactBody(artifactId: string, knownBaseArtifact?: ArtifactItem): ArtifactContent | undefined {
   const stored = artifactBodies.get(artifactId)
-  if (stored) return stored
+  if (stored) return identifyDocumentBody(artifactId, stored)
   const a = knownBaseArtifact?.id === artifactId
     ? knownBaseArtifact
     : baseArtifacts().find((candidate) => candidate.id === artifactId)
-  return a ? ARTIFACT_CONTENT[a.name] : undefined
+  const body = a ? ARTIFACT_CONTENT[a.name] : undefined
+  return body ? identifyDocumentBody(artifactId, body) : undefined
 }
 
 /** The text an addressed block carries right now, or undefined when the address
@@ -1238,6 +1242,40 @@ function artifactBlockTextOf(artifactId: string, block: number): string | undefi
   if (!body || body.type !== 'doc') return undefined
   if (!Number.isInteger(block) || block < 0 || block >= body.blocks.length) return undefined
   return docBlockText(body.blocks[block])
+}
+
+function documentBlockIds(body: ArtifactContent | undefined): string[] | undefined {
+  if (!body || body.type !== 'doc') return undefined
+  const ids = body.blocks.map((block) => block.id)
+  return ids.every((id): id is string => typeof id === 'string') ? ids : undefined
+}
+
+/** An unversioned legacy index can only be safe while all retained versions
+ * prove the same stable block order. Legacy bodies have no such proof. */
+function stableDocumentBlockOrder(artifactId: string): boolean {
+  const current = documentBlockIds(artifactBodyOf(artifactId))
+  if (!current) return false
+  return (artifactHistory.get(artifactId) ?? []).every((version) => {
+    const ids = documentBlockIds({ ...version.body, revision: version.revision } as ArtifactContent)
+    return !!ids && ids.length === current.length && ids.every((id, index) => id === current[index])
+  })
+}
+
+function validateNewDocumentBlockIds(
+  artifactId: string,
+  current: ArtifactContent,
+  next: ArtifactContent,
+): void {
+  const currentIds = new Set(documentBlockIds(current) ?? [])
+  const retainedIds = new Set<string>()
+  for (const version of artifactHistory.get(artifactId) ?? []) {
+    for (const id of documentBlockIds({ ...version.body, revision: version.revision } as ArtifactContent) ?? []) retainedIds.add(id)
+  }
+  for (const id of documentBlockIds(next) ?? []) {
+    if (!currentIds.has(id) && retainedIds.has(id)) {
+      throw new ValidationError('A retired Document block identity cannot be reused; restore its saved version or choose a new block identity.')
+    }
+  }
 }
 
 /** ── Social-layer proposals (S3 — docs/design/social-layer.md §2.4) ──────────
@@ -1284,7 +1322,9 @@ function socialProposalIsStale(p: StoredSocialProposal): boolean {
     }
     case 'artifact-patch': {
       const body = artifactBodyOf(p.subject.id)
-      return !body || (body.revision ?? 0) !== p.baseRevision
+      return !body || (p.baseRevision === undefined
+        ? !stableDocumentBlockOrder(p.subject.id)
+        : (body.revision ?? 0) !== p.baseRevision)
     }
     case 'suggestion':
       return false
@@ -3752,7 +3792,7 @@ function applyStandingEffects(task: ScheduledTask, sessionId: string, spec: Sche
   if (priorBody && (priorBody.revision ?? 0) >= Number.MAX_SAFE_INTEGER) {
     throw new ConflictError('This routine artifact cannot accept another body revision.')
   }
-  const nextBody = { ...authored.body, revision: nextBodyRevision }
+  const nextBody = identifyDocumentBody(id, { ...authored.body, revision: nextBodyRevision })
   const nextHistory = priorBody
     ? prepareArtifactHistoryAppend(id, priorBody, nextBody, new Date(bodyEditedAt).toISOString(), 'edit', undefined, artifactHistory.get(id))
     : undefined
@@ -6967,7 +7007,8 @@ export const store = {
         if (!session || !this.sessionVisibleToTenant(session, tenantId)) continue
         for (const artifact of seed.artifacts ?? []) {
           if (!session.artifacts?.some((candidate) => candidate.id === artifact.id)) continue
-          visible.set(artifact.id, { name: artifact.name, body: ARTIFACT_CONTENT[artifact.name] })
+          const body = ARTIFACT_CONTENT[artifact.name]
+          visible.set(artifact.id, { name: artifact.name, body: body ? identifyDocumentBody(artifact.id, body) : undefined })
         }
       }
     }
@@ -7112,23 +7153,26 @@ export const store = {
   artifactBlockText(artifactId: string, block: number): string | undefined {
     return artifactBlockTextOf(artifactId, block)
   },
-  /** Commit a reviewed complete sheet/workbook/deck draft. The acting tenant, original
-   * kind, literal-body bounds and mandatory body revision all precede effects.
+  /** Commit a reviewed complete Document/sheet/workbook/deck draft. The acting
+   * tenant, original kind, literal-body bounds and mandatory revision precede effects.
    * Metadata, immutable save origin and sharing remain independent. */
   updateStructuredArtifactContent(artifactId: string, content: unknown, expectedRevision: number, tenantId: string): ArtifactContent | undefined {
     const artifact = findArtifact(artifactId)
     if (!artifact || !this.artifactOwnedBy(artifact, tenantId)) return undefined
     const body = artifactBodyOf(artifactId)
-    const next = parseStructuredArtifactBody(content)
-    const validKind = !!body && !!next && (artifact.kind === 'sheet'
-      ? isSpreadsheetContent(body) && isSpreadsheetContent(next) && (body.type !== 'workbook' || next.type === 'workbook')
-      : artifact.kind === 'slide' && body.type === 'slides' && next.type === 'slides')
+    const next = parseEditableArtifactBody(content)
+    const validKind = !!body && !!next && (artifact.kind === 'doc' || artifact.kind === 'email'
+      ? body.type === 'doc' && next.type === 'doc'
+      : artifact.kind === 'sheet'
+        ? isSpreadsheetContent(body) && isSpreadsheetContent(next) && (body.type !== 'workbook' || next.type === 'workbook')
+        : artifact.kind === 'slide' && body.type === 'slides' && next.type === 'slides')
     if (!body || !next || !validKind ||
       !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) return undefined
     const revision = body.revision ?? 0
     if (revision !== expectedRevision || revision >= Number.MAX_SAFE_INTEGER) {
       throw new ConflictError(`This artifact changed elsewhere (expected revision ${expectedRevision}, current revision ${revision}).`)
     }
+    if (next.type === 'doc') validateNewDocumentBlockIds(artifactId, body, next)
     const updated: ArtifactContent = { ...next, revision: revision + 1 }
     return commitArtifactBodyEdit(artifact, updated)
   },
@@ -7144,28 +7188,38 @@ export const store = {
    *  each gate before calling, exactly as they do for a routine. */
   updateArtifactBlock(
     artifactId: string,
-    block: number,
+    block: number | string,
     text: string,
     expectedRevision?: number,
   ): ArtifactContent | undefined {
+    const artifact = findArtifact(artifactId)
+    if (!artifact || (artifact.kind !== 'doc' && artifact.kind !== 'email')) return undefined
     const body = artifactBodyOf(artifactId)
     if (!body || body.type !== 'doc') return undefined
-    if (artifactBlockTextOf(artifactId, block) === undefined) return undefined
+    const index = typeof block === 'number'
+      ? block
+      : body.blocks.findIndex((candidate) => candidate.id === block)
+    if (!Number.isInteger(index) || index < 0 || index >= body.blocks.length) return undefined
+    const target = body.blocks[index]
+    if (!target || docBlockText(target) === undefined) return undefined
+    if (typeof block === 'string' &&
+      (!target.id || !('h' in target || 'p' in target) || expectedRevision === undefined)) return undefined
     const currentRevision = body.revision ?? 0
     if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
       throw new ConflictError(
         `This artifact changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
       )
     }
+    if (typeof block === 'number' && expectedRevision === undefined && !stableDocumentBlockOrder(artifactId)) {
+      throw new ConflictError('This legacy block address is no longer safe after a Document structure change. Refresh and retry with expectedRevision.')
+    }
     // Clamped like every other free-text field the layer stores: this string is
     // written into a body that GET /artifact-content hands to every reader of
     // the document, so an unbounded one is an unbounded broadcast.
     const next = text.trim().slice(0, MAX_ARTIFACT_BLOCK_CHARS)
     if (!next) return undefined
-    const blocks = body.blocks.map((b, i) => (i === block ? withDocBlockText(b, next) : b))
+    const blocks = body.blocks.map((b, i) => (i === index ? withDocBlockText(b, next) : b))
     const updated: ArtifactContent = { ...body, blocks, revision: currentRevision + 1 }
-    const artifact = findArtifact(artifactId)
-    if (!artifact) return undefined
     return commitArtifactBodyEdit(artifact, updated)
   },
 
@@ -7434,7 +7488,7 @@ export const store = {
         ? { ...graph.artifactProject, [logicalId]: projectId }
         : graph.artifactProject,
     }
-    artifactBodies.set(logicalId, authored.body)
+    artifactBodies.set(logicalId, identifyDocumentBody(logicalId, { ...authored.body, revision: 0 }))
     persist()
     emit({ type: 'artifact.changed', artifactId: logicalId })
     const created = this.getArtifactCreation(logicalId, tenantId)
@@ -9017,6 +9071,30 @@ export const store = {
         return this.discussionReadableBy(represented, tenantId)
           ? publicDiscussion(represented, tenantId)
           : undefined
+      }
+    }
+    // New Artifact block discussions are keyed by stable body identity, never
+    // by a position that can move after insertion or reorder. Numeric callers
+    // are accepted only as a current index and canonicalized before lookup;
+    // old persisted numeric loci remain distinct and therefore unavailable.
+    if (req.anchor.locus?.kind === 'artifact-block' && req.anchor.ref.kind !== 'artifact') return undefined
+    if (req.anchor.ref.kind === 'artifact' && req.anchor.locus?.kind === 'artifact-block') {
+      const locus = req.anchor.locus
+      if (!this.grantSubjectVisible(req.anchor.ref, tenantId)) return undefined
+      if (!this.socialSubjectCommentable(req.anchor.ref, tenantId)) return 'forbidden'
+      const artifact = findArtifact(req.anchor.ref.id)
+      if (!artifact || (artifact.kind !== 'doc' && artifact.kind !== 'email')) return undefined
+      const body = artifactBodyOf(req.anchor.ref.id)
+      if (!body || body.type !== 'doc') return undefined
+      const blockIndex = 'block' in locus
+        ? locus.block
+        : body.blocks.findIndex((block) => block.id === locus.blockId)
+      if (!Number.isInteger(blockIndex) || blockIndex < 0 || blockIndex >= body.blocks.length) return undefined
+      const blockId = body.blocks[blockIndex]?.id
+      if (!blockId) return undefined
+      req = {
+        ...req,
+        anchor: { ...req.anchor, locus: { kind: 'artifact-block', blockId } },
       }
     }
     // Get-or-create, resolved FIRST for a principal. For a RESOURCE the key is
@@ -12629,7 +12707,8 @@ export const store = {
           : 'Artifact body must match its kind and stay within the structured content limits.')
         if (existingArtifactId) {
           const existingBody = artifactBodies.get(existingArtifactId)
-          if (!existingBody || JSON.stringify(existingBody) !== JSON.stringify(authored.body)) {
+          const replayBody = identifyDocumentBody(existingArtifactId, { ...authored.body, revision: 0 })
+          if (!existingBody || JSON.stringify(existingBody) !== JSON.stringify(replayBody)) {
             throw new ConflictError(`An artifact named '${artifactName}' already exists here.`)
           }
         }
@@ -12734,7 +12813,7 @@ export const store = {
           if (created && created.tenantId === undefined) created.tenantId = tenantId ?? defaultTenantId()
           if (created && authored && !existingArtifactId) {
             if (bodyDerivedExcerpt) created.excerptSource = 'body'
-            artifactBodies.set(created.id, authored.body)
+            artifactBodies.set(created.id, identifyDocumentBody(created.id, { ...authored.body, revision: 0 }))
             emit({ type: 'artifact.changed', artifactId: created.id })
           }
         }

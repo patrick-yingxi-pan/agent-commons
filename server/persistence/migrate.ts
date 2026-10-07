@@ -5,12 +5,13 @@
  *  instead of dropping it. Both persistence backends route their `load()` through
  *  `migrateState`, so the rule is identical across JSON and SQLite.
  *
- *  The v2/v3/v4 historical bumps have no registered path. `migrateState` reports
- *  them unusable; live startup now fails closed while explicit restore rejects them.
- *  The v5 bump is the first to migrate in place:
- *  it backfills the `AuditEntry.tenantId` added for tenant-scoped audit (F5/PD9). On
- *  the *next* `STORE_VERSION` bump, append one more `DataMigration` here. */
+ *  The v2/v3 historical bumps have no registered path. `migrateState` reports
+ *  those versions unusable; live startup now fails closed while explicit restore rejects them.
+ *  v4 → v5 backfills the tenant-scoped audit anchor; v5 → v6 assigns deterministic,
+ *  revision-local identities to retained Document blocks. Future migrations append
+ *  one new `DataMigration` per `STORE_VERSION` step. */
 import { STORE_VERSION, type PersistedState } from './format.ts'
+import { migrateDocumentIdentityV6 } from './documentIdentityV6.ts'
 
 /** Transforms a snapshot from version `to - 1` to version `to`. The engine stamps
  *  `version = to` after `migrate` runs, so a migration only reshapes the data. */
@@ -35,6 +36,13 @@ export const DATA_MIGRATIONS: DataMigration[] = [
         e.tenantId ? e : { ...e, tenantId: 'tenant-personal' },
       ),
     }),
+  },
+  // v5 → v6: identify retained Document revisions independently; an explicit
+  // restore reuses its source IDs. Legacy numeric discussion/proposal anchors are
+  // left untouched because their indexes do not prove identity.
+  {
+    to: 6,
+    migrate: migrateDocumentIdentityV6,
   },
 ]
 

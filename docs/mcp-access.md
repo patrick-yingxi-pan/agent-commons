@@ -180,8 +180,14 @@ discussion, proposal-verdict and owner-graph responses
 also recheck current visibility before replay; an old acknowledgement does not
 authorize reading a subject retained in Trash. A refused replay does not erase
 its receipt or re-execute the historical mutation. For artifact content edits,
-send either the existing prose block body or `{content, expectedRevision}` for a
-complete sheet/deck; `content` excludes server revision metadata. Missing/stale
+send `{blockId, text, expectedRevision}` for one original Document prose block or
+`{content, expectedRevision}` for a complete Document, sheet/workbook or deck.
+Document replacements require unique stable IDs: keep existing IDs for retained
+blocks and choose fresh IDs for insertions. Retired IDs require explicit history
+restore. Legacy numeric prose writes without a revision are accepted only while
+retained identity proves unchanged block order. Numeric discussion requests are
+resolved to the current block ID; old persisted numeric anchors remain unavailable.
+`content` excludes server revision metadata. Missing/stale
 preconditions and reader writes meet the same HTTP validation and owner walls.
 
 Artifact history has separate owner-only list/version reads. Its restore route

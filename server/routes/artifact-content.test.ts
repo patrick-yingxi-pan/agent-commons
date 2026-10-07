@@ -21,7 +21,9 @@ async function editableArtifact() {
 }
 
 async function restore(artifactId: string, block: number, text: string) {
-  const restored = await call('PATCH', `/artifacts/${artifactId}/content`, { block, text })
+  const current = (await call('GET', '/artifact-content')).json as ArtifactContentLibrary
+  const expectedRevision = current[artifactId]?.revision ?? 0
+  const restored = await call('PATCH', `/artifacts/${artifactId}/content`, { block, text, expectedRevision })
   assert.equal(restored.status, 200, 'test restores the authored prose for later suites')
 }
 
@@ -84,7 +86,17 @@ test('artifact body PATCH refuses a stale revision and replays one logical retry
 })
 
 test('artifact body revision validates its precondition and preserves legacy clients', async () => {
-  const { artifact, body, block, text: original } = await editableArtifact()
+  const tenant = store.defaultTenantId()
+  const stamp = Date.now().toString(36)
+  const created = await call('POST', '/artifacts', {
+    name: `legacy-client-${stamp}.md`, kind: 'doc', body: 'A fresh identified body for an old client.',
+  }, { 'x-tenant-id': tenant, 'idempotency-key': `legacy-client-${stamp}` })
+  assert.equal(created.status, 201)
+  const artifact = created.json.artifact as ArtifactItem
+  const library = (await call('GET', '/artifact-content', undefined, { 'x-tenant-id': tenant })).json as ArtifactContentLibrary
+  const body = library[artifact.id]!
+  const block = 0
+  const original = body.type === 'doc' ? docBlockText(body.blocks[block]!)! : ''
   const revision = body.revision ?? 0
 
   const malformed = await call('PATCH', `/artifacts/${artifact.id}/content`, {
@@ -102,8 +114,135 @@ test('artifact body revision validates its precondition and preserves legacy cli
     assert.equal(legacy.status, 200)
     assert.equal(legacy.json.revision, revision + 1, 'an unconditional legacy write still advances ordering')
   } finally {
-    await restore(artifact.id, block, original)
+    const current = (await call('GET', '/artifact-content', undefined, { 'x-tenant-id': tenant })).json as ArtifactContentLibrary
+    await call('PATCH', `/artifacts/${artifact.id}/content`, {
+      block, text: original, expectedRevision: current[artifact.id]?.revision ?? revision,
+    }, { 'x-tenant-id': tenant })
   }
+})
+
+test('stable blockId prose edits require CAS, resolve the exact current h/p block, and preserve identity', async () => {
+  const { artifact, body } = await editableArtifact()
+  const doc = body as Extract<ArtifactContent, { type: 'doc' }>
+  const index = doc.blocks.findIndex((candidate) => 'p' in candidate || 'h' in candidate)
+  assert.ok(index >= 0)
+  const target = doc.blocks[index]!
+  const blockId = target.id
+  assert.ok(blockId)
+  const original = docBlockText(target)!
+  const revision = body.revision ?? 0
+  const headers = { 'idempotency-key': `stable-block-edit-${artifact.id}-${Date.now()}` }
+
+  const noCas = await call('PATCH', `/artifacts/${artifact.id}/content`, { blockId, text: 'No implicit rebase.' }, headers)
+  assert.equal(noCas.status, 400)
+  const mixedAddress = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    block: index, blockId, text: 'Ambiguous target.', expectedRevision: revision,
+  })
+  assert.equal(mixedAddress.status, 400)
+  const extraField = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    blockId, text: 'No unknown fields.', expectedRevision: revision, extra: true,
+  })
+  assert.equal(extraField.status, 400)
+  const wrongBlock = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    blockId: 'unknown-block-id', text: 'Must not land on a neighbor.', expectedRevision: revision,
+  })
+  assert.equal(wrongBlock.status, 400)
+
+  try {
+    const changed = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+      blockId, text: `${original} Stable identity.`, expectedRevision: revision,
+    })
+    assert.equal(changed.status, 200)
+    const current = (await call('GET', '/artifact-content')).json as ArtifactContentLibrary
+    const saved = current[artifact.id] as Extract<ArtifactContent, { type: 'doc' }>
+    assert.equal(saved.blocks[index]?.id, blockId)
+    assert.equal(docBlockText(saved.blocks[index]!), `${original} Stable identity.`)
+  } finally {
+    const current = (await call('GET', '/artifact-content')).json as ArtifactContentLibrary
+    const saved = current[artifact.id]
+    await call('PATCH', `/artifacts/${artifact.id}/content`, {
+      blockId, text: original, expectedRevision: saved?.revision ?? revision,
+    })
+  }
+})
+
+test('complete Document replacements preserve IDs through reorder and never reuse retired IDs', async () => {
+  const { artifact, body } = await editableArtifact()
+  const initial = body as Extract<ArtifactContent, { type: 'doc' }>
+  const originalIds = initial.blocks.map((block) => block.id)
+  assert.ok(originalIds.every((id) => typeof id === 'string'))
+  const firstRevision = body.revision ?? 0
+  const insertedId = `inserted-${Date.now().toString(36)}`
+  const reordered = {
+    type: 'doc' as const,
+    title: initial.title,
+    blocks: [
+      { id: insertedId, ul: ['A newly inserted list item.'] },
+      ...[...initial.blocks].reverse(),
+    ],
+  }
+  const first = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    content: reordered, expectedRevision: firstRevision,
+  })
+  assert.equal(first.status, 200)
+  assert.equal(first.json.revision, firstRevision + 1)
+  assert.equal(first.json.blocks[0].id, insertedId)
+  assert.deepEqual(first.json.blocks.slice(1).map((block: { id: string }) => block.id), [...originalIds].reverse())
+  const nonProsePatch = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    blockId: insertedId, text: 'Lists are not inline prose targets.', expectedRevision: firstRevision + 1,
+  })
+  assert.equal(nonProsePatch.status, 400, 'stable prose patches address only h/p blocks')
+  const legacyAfterReorder = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    block: 1, text: 'Must not address the new occupant without a revision.',
+  })
+  assert.equal(legacyAfterReorder.status, 409, 'an index without CAS is refused after identity order changes')
+
+  const removeInserted = {
+    type: 'doc' as const,
+    title: first.json.title,
+    blocks: first.json.blocks.slice(1),
+  }
+  const second = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    content: removeInserted, expectedRevision: firstRevision + 1,
+  })
+  assert.equal(second.status, 200)
+  const reused = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    content: { ...removeInserted, blocks: [{ id: insertedId, p: 'Trying to reuse a retired identity.' }, ...removeInserted.blocks] },
+    expectedRevision: firstRevision + 2,
+  })
+  assert.equal(reused.status, 400, 'retained history makes a deleted identity unavailable for reuse')
+  const current = (await call('GET', '/artifact-content')).json as ArtifactContentLibrary
+  assert.deepEqual(current[artifact.id], second.json, 'rejected identity reuse leaves the saved body untouched')
+  const restored = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    content: { type: 'doc', title: initial.title, blocks: initial.blocks },
+    expectedRevision: firstRevision + 2,
+  })
+  assert.equal(restored.status, 200, 'the fixture is restored without inventing new block identities')
+})
+
+test('stable-ID prose edits still target the same block after reorder', async () => {
+  const tenant = store.defaultTenantId()
+  const stamp = Date.now().toString(36)
+  const created = await call('POST', '/artifacts', {
+    name: `reordered-inline-${stamp}.md`, kind: 'doc', body: 'First target.\n\nSecond stays put.',
+  }, { 'x-tenant-id': tenant, 'idempotency-key': `reordered-inline-${stamp}` })
+  assert.equal(created.status, 201)
+  const id = created.json.artifact.id
+  const library = (await call('GET', '/artifact-content', undefined, { 'x-tenant-id': tenant })).json as ArtifactContentLibrary
+  const initial = library[id] as Extract<ArtifactContent, { type: 'doc' }>
+  const targetId = initial.blocks[0]!.id!
+  const moved = await call('PATCH', `/artifacts/${id}/content`, {
+    content: { type: 'doc', title: initial.title, blocks: [...initial.blocks].reverse() },
+    expectedRevision: initial.revision ?? 0,
+  }, { 'x-tenant-id': tenant })
+  assert.equal(moved.status, 200)
+  const patched = await call('PATCH', `/artifacts/${id}/content`, {
+    blockId: targetId, text: 'First target edited after reorder.', expectedRevision: moved.json.revision,
+  }, { 'x-tenant-id': tenant })
+  assert.equal(patched.status, 200)
+  assert.equal(patched.json.blocks[0].p, 'Second stays put.')
+  assert.equal(patched.json.blocks[1].id, targetId)
+  assert.equal(patched.json.blocks[1].p, 'First target edited after reorder.')
 })
 
 test('saving a document materializes its bounded body atomically with the artifact', async () => {

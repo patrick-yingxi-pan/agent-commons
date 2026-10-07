@@ -30,7 +30,7 @@ test('structured artifact editor is one held whole-body owner draft with structu
   const drafts = stripComments(read(join(ROOT, 'src', 'controller', 'artifactEditDrafts.ts')))
 
   assert.match(editor, /body=\{body\} onChange=\{onChange\}/, 'fields project the shared draft rather than a mount-local copy')
-  assert.match(editor, /parseStructuredArtifactBody\(body\)/, 'save is gated by the shared structured parser')
+  assert.match(editor, /parseEditableArtifactBody\(body\)/, 'save is gated by the shared complete-body parser')
   assert.match(editor, /Save changes/, 'the full draft has one explicit save')
   assert.match(editor, /Cancel/, 'the full draft has one explicit cancel')
   assert.match(editor, /Add column|Remove column/, 'sheets expose structural column edits')
@@ -78,4 +78,39 @@ test('every structured add action uses the shared inline glyph-and-label layout'
     assert.match(button, /className=\{buttonClass\}/, 'no structural add action hand-rolls icon/text layout')
     assert.match(button, /data-inline-action/, 'the browser can enumerate the same controls')
   }
+})
+
+test('document editor preserves typed block identity, offers insertion/reorder/delete, and reviews literal conflict content', () => {
+  const editor = stripComments(read(join(ROOT, 'src', 'components', 'DocumentArtifactEditor.tsx')))
+  assert.match(editor, /parseEditableArtifactBody\(body\)/, 'complete document validation gates Save')
+  assert.match(editor, /crypto\.randomUUID\(\)/, 'new blocks receive unique IDs at insertion')
+  assert.match(editor, /id, h: ''/)
+  assert.match(editor, /id, p: ''/)
+  assert.match(editor, /id, ul: \[''\]/)
+  assert.match(editor, /id, code: \[''\]/)
+  assert.match(editor, /id, email: \{ to: '', subject: '' \}/)
+  assert.match(editor, /Insert position/, 'typed blocks insert at a user-selected position')
+  assert.match(editor, /const boundedInsertAt = Math\.min\(Math\.max\(insertAt, 0\), blocks\.length\)/,
+    'a shared draft shrink clamps stale insertion positions against the latest body')
+  assert.match(editor, /next\.splice\(boundedInsertAt, 0, createBlock\(kind\)\)/)
+  assert.match(editor, /blockKinds = \['heading', 'paragraph', 'bullet list', 'code block', 'email header'\]/,
+    'all five document block variants are insertable')
+  assert.match(editor, /<Plus size=\{12\} \/> Add \{kind\}/)
+  for (const label of ['Document title', 'heading', 'paragraph', 'bullet list', 'code block', 'email recipient', 'email subject']) {
+    assert.ok(editor.includes(label), `document input is explicitly labeled: ${label}`)
+  }
+  assert.match(editor, /Move block \$\{index \+ 1\} up/)
+  assert.match(editor, /Move block \$\{index \+ 1\} down/)
+  assert.match(editor, /Delete block \$\{index \+ 1\}/)
+  assert.match(editor, /data-doc-block-id=\{block\.id\}/)
+  assert.match(editor, /discussions on deleted blocks are marked “original block deleted/i, 'draft deletion discloses the resulting discussion anchor state')
+  const fields = editor.slice(editor.indexOf('function DocumentBlockEditor'), editor.indexOf('function blockLabel'))
+  assert.doesNotMatch(fields, /\.ul\.join\(|\.code\.join\(|\.split\('\\n'\)/, 'editing line-array variants never remaps embedded newlines')
+  assert.match(editor, /block\.ul\.map\(\(bullet, bulletIndex\)/)
+  assert.match(editor, /block\.code\.map\(\(line, lineIndex\)/)
+  assert.match(editor, /DocumentBodyLiteral/, 'conflicts render readable current values without importing the page preview')
+  assert.doesNotMatch(editor, /artifactPreview/)
+  assert.match(editor, /Save changes/)
+  assert.match(editor, /Cancel/)
+  assert.match(editor, /2,000 characters per text field, and 20,000 characters of block content total/)
 })

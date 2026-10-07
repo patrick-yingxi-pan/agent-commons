@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store } from './index.ts'
+import { docBlockId } from '../documentIdentity.ts'
 
 const SEED_ID = 'a1'
 const SEED_NAME = 'insights-onepager.md'
@@ -27,6 +28,8 @@ test('seed body is projected by exact id to the flagship owner and remains edita
   const owner = store.defaultTenantId()
   const body = store.artifactContent(owner)[SEED_ID]
   assert.equal(body?.type, 'doc')
+  assert.equal(body?.type === 'doc' ? body.blocks[0]?.id : undefined, docBlockId(SEED_ID, 0, 0),
+    'seed reads expose deterministic IDs through the same exact-id projection as authored Documents')
   assert.equal(store.artifactBlockText(SEED_ID, 0), body?.type === 'doc' ? body.blocks[0]?.h : undefined)
 
   const before = store.artifactBlockText(SEED_ID, 0)
@@ -36,7 +39,8 @@ test('seed body is projected by exact id to the flagship owner and remains edita
     assert.equal(store.artifactContent(owner)[SEED_ID]?.type, 'doc')
     assert.equal(store.artifactBlockText(SEED_ID, 0), 'Seed identity edit.')
   } finally {
-    store.updateArtifactBlock(SEED_ID, 0, before)
+    const revision = store.artifactContent(owner)[SEED_ID]?.revision ?? 0
+    store.updateArtifactBlock(SEED_ID, 0, before, revision)
   }
 })
 

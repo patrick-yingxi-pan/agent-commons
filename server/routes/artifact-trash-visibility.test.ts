@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
+import { docBlockId } from '../documentIdentity.ts'
 
 test('HTTP and MCP suspend artifact bodies, exports, grants and review threads; restore honors revocation', async () => {
   const tenant = 'tenant-trash-route-owner'
@@ -50,6 +51,6 @@ test('HTTP and MCP suspend artifact bodies, exports, grants and review threads; 
   assert.equal(review.status, 200)
   assert.equal(review.json.state, 'offered', 'Trash preserved the pending review without landing it')
   const body = (await call('GET', '/artifact-content', undefined, owner)).json[id]
-  assert.deepEqual(body.blocks, [{ p: 'Saved route body.' }])
+  assert.deepEqual(body.blocks, [{ id: docBlockId(id, 0, 0), p: 'Saved route body.' }])
   assert.equal(body.revision, 0)
 })

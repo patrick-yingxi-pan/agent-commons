@@ -5,6 +5,7 @@ import { store } from './index.ts'
 import { runSessionId } from '../../contract/ids.ts'
 import { authoredDocument } from '../../contract/index.ts'
 import type { ArtifactItem, ScheduledTask } from '../../contract/index.ts'
+import { docBlockId } from '../documentIdentity.ts'
 
 function taskSeed(): Omit<ScheduledTask, 'id'> {
   const source = store.listSchedules().find((task) => task.steps.length > 0) ?? store.listSchedules()[0]
@@ -61,7 +62,12 @@ test('an approved routine stores the successful model output as an id-bound auth
   assert.equal(artifact!.tenantId, 'tenant-personal', 'the artifact is stamped to the routine owner')
   assert.equal(artifact!.meta, `Saved by ${task.name}`)
   assert.equal(artifact!.excerpt, 'A useful digest from the model.')
-  assert.deepEqual(contentFor(task)[artifact!.id], authoredDocument(name, 'A useful digest from the model.')!.body)
+  const body = contentFor(task)[artifact!.id]
+  const expected = authoredDocument(name, 'A useful digest from the model.')!.body
+  assert.equal(body?.type, 'doc')
+  assert.equal(body?.type === 'doc' ? body.blocks[0]?.id : undefined, docBlockId(artifact!.id, 0, 0))
+  assert.equal(body?.type === 'doc' ? body.blocks[0]?.p : undefined,
+    expected.type === 'doc' ? expected.blocks[0]?.p : undefined)
   assert.equal(run.status, 'ok')
   store.removeSchedule(task.id)
 })

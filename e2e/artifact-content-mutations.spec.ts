@@ -306,7 +306,7 @@ test('a disappeared document block keeps its submitted draft visible and prevent
   const detail = page.locator(`[data-artifact-page="${artifact.id}"]`)
   await page.goto(`/artifacts/${artifact.id}`)
   await detail.getByRole('button', { name: 'Edit block 2', exact: true }).click()
-  const editor = detail.getByRole('textbox', { name: 'Rewrite block 2', exact: true })
+  const editor = detail.getByRole('textbox', { name: /^Rewrite (block 2|original block)$/ })
   const draft = `Keep this if its block disappears ${stamp}.`
   await editor.fill(draft)
 
@@ -344,7 +344,7 @@ test('a disappeared document block keeps its submitted draft visible and prevent
   expect(patchAttempts).toBe(1)
 
   await detail.getByRole('button', { name: 'Cancel', exact: true }).click()
-  await expect(detail.getByRole('textbox', { name: 'Rewrite block 2', exact: true })).toHaveCount(0)
+  await expect(editor).toHaveCount(0)
   await expect(detail.getByText(draft, { exact: true })).toHaveCount(0)
   expect(patchAttempts).toBe(1)
 })

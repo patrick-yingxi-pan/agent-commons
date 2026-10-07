@@ -1,9 +1,9 @@
-import type { StructuredArtifactBody } from '../../contract/index.ts'
+import type { EditableArtifactBody } from '../../contract/index.ts'
 import type { RevisionedMutationOutcome } from './revisionedMutationCore.ts'
 
 export type ArtifactEditDraft =
-  | { kind: 'document'; block: number; text: string }
-  | { kind: 'structured'; content: StructuredArtifactBody; expectedRevision: number }
+  | { kind: 'document'; block: number; text: string; blockId?: string; expectedRevision?: number }
+  | { kind: 'structured'; content: EditableArtifactBody; expectedRevision: number }
 
 export interface ArtifactEditDraftState {
   draft: ArtifactEditDraft

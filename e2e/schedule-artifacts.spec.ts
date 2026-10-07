@@ -2,6 +2,7 @@
 import { test, expect, type Browser, type Page, type TestInfo } from '@playwright/test'
 import { runSessionId, type ArtifactItem, type ScheduledRun, type ScheduledTask, type Session, type ArtifactContent } from '../contract/index.ts'
 import { createServer, type Server } from 'node:http'
+import { docBlockId } from '../server/documentIdentity.ts'
 import { API, newUser, openSection } from './social-helpers.ts'
 import { settleArtifactPageRail } from './artifact-page-helpers.ts'
 import { ms } from './budget.ts'
@@ -100,9 +101,12 @@ async function verifyScheduledArtifact(browser: Browser, testInfo: TestInfo, kin
   const fixture = await startMessagesFixture(kind)
   const stamp = Date.now().toString(36)
   const artifactName = `scheduled-${kind}-${stamp}.md`
-  const expectedContent = (revision: number) => ({
+  const expectedContent = (artifactId: string, revision: number) => ({
     ...fixture.outputs[revision] as object,
-    ...(kind === 'doc' ? { title: artifactName.slice(0, -3) } : {}),
+    ...(kind === 'doc' ? {
+      title: artifactName.slice(0, -3),
+      blocks: [{ id: docBlockId(artifactId, revision, 0), p: fixture.outputTexts[revision] }],
+    } : {}),
     revision,
   })
   const formatLabel = kind === 'doc' ? 'Document' : kind === 'sheet' ? 'Sheet' : 'Slides'
@@ -256,7 +260,7 @@ async function verifyScheduledArtifact(browser: Browser, testInfo: TestInfo, kin
     expect(artifact.kind).toBe(kind)
     const firstContent = await artifactContent(owner.page)
     expect(fixture.replies).toHaveLength(1)
-    expect(firstContent[artifact.id]).toEqual(expectedContent(0))
+    expect(firstContent[artifact.id]).toEqual(expectedContent(artifact.id, 0))
 
     const grantResponse = await owner.page.request.post(`${API}/grants`, {
       data: { subject: { kind: 'artifact', id: artifact.id }, audience: { kind: 'org', orgId: 'tenant-beta' }, tier: 'view' },
@@ -286,7 +290,7 @@ async function verifyScheduledArtifact(browser: Browser, testInfo: TestInfo, kin
     expect(fixture.replies).toHaveLength(2)
     expect(refreshed[0]!.sourceSessionId).toBe(runSessionId(task.id, secondRun.id))
     const secondContent = await artifactContent(owner.page)
-    expect(secondContent[artifact.id]).toEqual(expectedContent(1))
+    expect(secondContent[artifact.id]).toEqual(expectedContent(artifact.id, 1))
 
     await foreign.page.goto(`/artifacts/${artifact.id}`)
     await expect(foreign.page.locator(artifactPage)).toHaveCount(0)

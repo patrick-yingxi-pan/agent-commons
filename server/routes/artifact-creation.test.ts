@@ -4,6 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { artifactCreationId } from '../artifactCreationIdentity.ts'
+import { docBlockId } from '../documentIdentity.ts'
 import { store } from '../store/index.ts'
 import { call, callFresh } from '../testkit/http.ts'
 
@@ -52,7 +53,8 @@ test('POST /artifacts requires a key and returns its exact authored row plus rev
   assert.equal(store.eventVisibleToTenant(events.at(-1) as any, tenant), true)
   assert.equal(store.eventVisibleToTenant(events.at(-1) as any, `${tenant}-foreign`), false)
   assert.deepEqual((await call('GET', '/artifact-content', undefined, { 'x-tenant-id': tenant })).json[response.json.artifact.id], {
-    type: 'doc', title: 'direct-notes', revision: 0, blocks: [{ p: 'A direct authored document.' }],
+    type: 'doc', title: 'direct-notes', revision: 0,
+    blocks: [{ id: docBlockId(response.json.artifact.id, 0, 0), p: 'A direct authored document.' }],
   })
 })
 

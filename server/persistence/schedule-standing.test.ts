@@ -7,6 +7,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { docBlockId } from '../documentIdentity.ts'
 
 const ROOT = mkdtempSync(join(tmpdir(), `agent-commons-schedule-standing-${process.pid}-`))
 const storeModule = new URL('../store/index.ts', import.meta.url).href
@@ -112,7 +113,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(second.run.status, 'failed')
     assert.equal(second.run.failureCode, 'authority_denied')
     assert.equal(second.artifacts.length, 1, `${backend}: no replacement artifact is published`)
-    assert.deepEqual(second.priorBody?.blocks, [{ p: 'Keep this prior report.' }])
+    assert.deepEqual(second.priorBody?.blocks, [{ id: docBlockId(second.artifacts[0].id, 0, 0), p: 'Keep this prior report.' }])
     assert.equal(second.artifacts[0]?.name, 'prior.md')
     assert.deepEqual(second.persisted, first.persisted, `${backend}: settlement retains the original audit snapshot`)
   })
@@ -296,7 +297,9 @@ for (const backend of ['json', 'sqlite'] as const) {
     const replacement = recreated.artifacts.find((artifact: any) => artifact.sourceScheduleId === 'recreated-standing-id')
     assert.ok(replacement)
     assert.notEqual(replacement.id, removed.retained.id, `${backend}: new approval cannot recapture the retained artifact`)
-    assert.deepEqual(recreated.replacementBody?.blocks, [{ p: 'A distinct newly approved body.' }])
+    assert.deepEqual(recreated.replacementBody?.blocks, [{
+      id: docBlockId(replacement.id, recreated.replacementBody?.revision ?? 0, 0), p: 'A distinct newly approved body.',
+    }])
     assert.equal(recreated.originalAfter.sourceScheduleId, undefined)
     assert.deepEqual(recreated.originalBodyAfter, recreated.originalBody)
     assert.deepEqual(recreated.originalGrantsAfter, recreated.originalGrants)
@@ -350,7 +353,9 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(cleaned.graph.scheduleExtraTools['legacy-orphan-id'], undefined)
     assert.equal(Object.keys(cleaned.graph.standingApprovals).some((key) => key.includes('legacy-orphan-id')), false)
     assert.equal(cleaned.victimArtifact.sourceScheduleId, undefined)
-    assert.deepEqual(cleaned.victimBody?.blocks, [{ p: 'Legacy retained body.' }])
+    assert.deepEqual(cleaned.victimBody?.blocks, [{
+      id: docBlockId(cleaned.victimArtifact.id, cleaned.victimBody?.revision ?? 0, 0), p: 'Legacy retained body.',
+    }])
     assert.equal(cleaned.victimGrants.length, 1)
     assert.deepEqual(cleaned.graph.scheduleArtifact['live-standing-id'], { name: 'live-retained.md', kind: 'doc' })
     assert.equal(cleaned.graph.scheduleSession['live-standing-id'], 'Live session')
@@ -397,7 +402,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     const created = recreated.artifacts.find((artifact: any) => artifact.sourceScheduleId === 'legacy-orphan-id')
     assert.ok(created)
     assert.notEqual(created.id, prepared.victimArtifactId)
-    assert.deepEqual(recreated.createdBody?.blocks, [{ p: 'New same-id routine body.' }])
+    assert.deepEqual(recreated.createdBody?.blocks, [{ id: docBlockId(created.id, 0, 0), p: 'New same-id routine body.' }])
     assert.equal(recreated.oldAfter.sourceScheduleId, undefined)
     assert.deepEqual(recreated.oldBodyAfter, recreated.oldBody)
     assert.deepEqual(recreated.oldGrantsAfter, recreated.oldGrants)

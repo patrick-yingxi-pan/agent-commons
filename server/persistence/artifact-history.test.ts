@@ -102,6 +102,27 @@ for (const backend of ['json', 'sqlite'] as const) {
     const malformed = structuredClone(replay)
     malformed.artifactHistory[0][1].at(-1).body.blocks[0].p = 'tampered retained history'
     assert.equal(hasCorePersistedShape(malformed), false, 'present history diverging from canonical current body refuses admission')
+
+    const legacyIdentityHistory = structuredClone(replay)
+    const current = legacyIdentityHistory.artifactBodies.find(([id]: [string]) => id === artifactId)?.[1]
+    const history = legacyIdentityHistory.artifactHistory.find(([id]: [string]) => id === artifactId)?.[1]
+    assert.ok(current?.type === 'doc' && history?.length)
+    for (const block of current.blocks) delete block.id
+    for (const version of history) {
+      if (version.body.type === 'doc') {
+        for (const block of version.body.blocks) delete block.id
+      }
+    }
+    assert.equal(hasCorePersistedShape(legacyIdentityHistory), false,
+      'v6 cannot admit ID-less retained Document history when current reads would mint IDs only for current')
+    let saves = 0
+    assert.throws(() => restoreBackendState({
+      name: `${backend}-unidentified-history-spy`,
+      load: () => replay,
+      save: () => { saves += 1 },
+      close: () => {},
+    }, legacyIdentityHistory), /invalid|incompatible/i)
+    assert.equal(saves, 0, 'portable admission refuses mismatched identity state before backend save')
   })
 
   test(`${backend}: reviewed Document block IDs survive portable restore, patch, history restore, and two restarts`, () => {

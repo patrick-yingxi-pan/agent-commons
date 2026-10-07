@@ -6,7 +6,50 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: Document block-identity foundation
+## Current checkpoint: full Document editing and stable discussions
+
+The approved editor now covers title, headings, paragraphs, bullet items, code
+lines and email headers, with insert, delete and keyboard-accessible reorder.
+Whole-body saves reuse the account-scoped draft and explicit conflict recovery
+workflow. Inline prose drafts also pin the opening revision and original block
+ID, so a later reorder cannot redirect a held edit to its neighbor.
+
+Authoritative creation and current reads identify every Document block. The
+append-only v5→v6 migration assigns legacy history revision-local identities,
+preserves already identified bodies and exact restore lineage, and refuses
+current/history mismatches. Legacy numeric discussion anchors remain explicitly
+unavailable. New anchors use stable IDs; deleted originals are labeled “original
+block deleted.” Ordinary editing cannot resurrect a retired identity; explicit
+saved-version restore can. Revision-fenced search positions remain unchanged.
+
+Acceptance includes fail-first contract/controller/migration/route locks, the
+five-viewport editor and owner/shared/foreign discussion journeys, the complete
+135-cell UI sweep, and the full local verifier on the frozen final tree. These
+are required gates, not implied by implementation. Packaged acceptance of this
+new editor and migration remains a separate follow-up; previous native evidence
+predates this rollout. Signing, notarization, Intel and real-service gates remain
+open and no GitHub CI is used.
+
+Review caught two additional boundary gaps before final acceptance. A transient
+discussion focus could reveal a folded section only to hide it again immediately;
+the shared section now latches navigation reveal locally, preserving global fold
+preferences and explicit user folding. A browser test reproduced the failure.
+Current-version snapshots with retained ID-less Document history must also refuse
+admission instead of normalizing only the current body and making future edits
+unappendable. Older version-5 snapshots still migrate current and history together.
+
+All six focused Document browser journeys pass, including the reproduced
+folded-section regression. Twenty editor/access/recovery viewport screenshots
+and the full 135/135-cell surface sweep were reviewed; the sweep reports zero
+violations and skips. The signed-in preview is left on Ada, light desktop, with
+the six-account roster stacked. Existing Sheet/workbook recovery assertions now
+follow the shared Artifact wording, and the removed-block assertion addresses the
+held original rather than its obsolete ordinal. The first full verifier found one
+remaining ID-less scheduled-output expectation; that assertion now verifies the
+exact revision-local block identity alongside content. The complete local verifier
+is the remaining mandatory landing gate for this tree.
+
+## Completed checkpoint: Document block-identity foundation
 
 The owner approved full Document editing with stable block IDs, insert, delete
 and reorder. Discussions must follow the original block; deletion must leave an

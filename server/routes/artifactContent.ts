@@ -1,10 +1,10 @@
-import { parseStructuredArtifactEdit, type UpdateArtifactContentRequest } from '../../contract/index.ts'
+import { isDocBlockId, parseStructuredArtifactEdit, type UpdateArtifactContentRequest } from '../../contract/index.ts'
 import { ConflictError, ValidationError } from '../conflict.ts'
 import { store } from '../store/index.ts'
 import { sendError, sendJson, type Ctx } from '../http/respond.ts'
 
-/** One owner-only content door. Legacy prose-block edits retain their existing
- * optional precondition; whole structured replacements always require CAS. */
+/** One owner-only content door. Numeric prose edits retain guarded legacy
+ * compatibility; stable-ID prose and complete-body replacements require CAS. */
 export async function updateArtifactContent({ req, res, params, body }: Ctx): Promise<void> {
   const tenantId = store.identity(req.headers).tenant.id
   const artifact = store.artifactById(params.id)
@@ -14,17 +14,27 @@ export async function updateArtifactContent({ req, res, params, body }: Ctx): Pr
   try {
     if (Object.hasOwn(input, 'content')) {
       const patch = parseStructuredArtifactEdit(input)
-      if (!patch) return sendError(res, 'bad_request', 'content must be a valid saved sheet, workbook, or slide body and expectedRevision is required; no other fields are accepted')
+      if (!patch) return sendError(res, 'bad_request', 'content must be a valid identified Document, sheet, workbook, or slide body and expectedRevision is required; no other fields are accepted')
       const updated = store.updateStructuredArtifactContent(params.id, patch.content, patch.expectedRevision, tenantId)
-      if (!updated) return sendError(res, 'bad_request', 'That saved sheet, workbook, or slide content cannot be replaced; workbook tabs cannot be discarded by changing body type')
+      if (!updated) return sendError(res, 'bad_request', 'That saved Document, sheet, workbook, or slide content cannot be replaced; body kind cannot change and workbook tabs cannot be discarded')
       return sendJson(res, updated)
     }
     const patch = input as UpdateArtifactContentRequest
-    if (typeof patch.block !== 'number' || typeof patch.text !== 'string') return sendError(res, 'bad_request', 'block (number) and text (string) are required')
+    const hasBlock = Object.hasOwn(input, 'block')
+    const hasBlockId = Object.hasOwn(input, 'blockId')
+    if (Object.keys(input).some((key) => !['block', 'blockId', 'text', 'expectedRevision'].includes(key)) ||
+      hasBlock === hasBlockId || typeof patch.text !== 'string' ||
+      (hasBlock && typeof patch.block !== 'number') ||
+      (hasBlockId && (typeof patch.blockId !== 'string' || !isDocBlockId(patch.blockId)))) {
+      return sendError(res, 'bad_request', 'Exactly one valid block (number) or blockId (string) address and text (string) are required')
+    }
+    if (hasBlockId && patch.expectedRevision === undefined) {
+      return sendError(res, 'bad_request', 'Stable blockId edits require expectedRevision')
+    }
     if (patch.expectedRevision !== undefined && (!Number.isSafeInteger(patch.expectedRevision) || patch.expectedRevision < 0)) {
       return sendError(res, 'bad_request', 'expectedRevision must be a non-negative safe integer')
     }
-    const updated = store.updateArtifactBlock(params.id, patch.block, patch.text, patch.expectedRevision)
+    const updated = store.updateArtifactBlock(params.id, hasBlockId ? patch.blockId! : patch.block!, patch.text, patch.expectedRevision)
     if (!updated) return sendError(res, 'bad_request', 'That block cannot be edited')
     sendJson(res, updated)
   } catch (error) {

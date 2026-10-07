@@ -19,6 +19,21 @@
 import type { AnchorLocus, SocialAnchor, SocialEntityKind } from '../../contract/index.ts'
 import type { SectionId } from '../types'
 import type { FocusTarget } from './notificationDoor'
+import type { ArtifactContent } from '../../contract/content.ts'
+
+export type ArtifactBlockAnchorState = 'attached' | 'deleted' | 'legacy' | 'loading' | 'unavailable'
+
+/** A failed/missing read proves no deletion. Legacy positions cannot prove
+ * correspondence even when the same ordinal still exists. */
+export function artifactBlockAnchorState(anchor: SocialAnchor, body: ArtifactContent | undefined,
+  status: string): ArtifactBlockAnchorState | undefined {
+  if (anchor.ref.kind !== 'artifact' || anchor.locus?.kind !== 'artifact-block') return undefined
+  if (!('blockId' in anchor.locus)) return 'legacy'
+  if (status === 'loading' || status === 'idle') return 'loading'
+  if (status !== 'success' || body?.type !== 'doc') return 'unavailable'
+  const blockId = anchor.locus.blockId
+  return body.blocks.some(block => block.id === blockId) ? 'attached' : 'deleted'
+}
 
 /** Which rail SECTION opens a social noun's page — the ONE answer, because two
  *  surfaces ask it (the Commons feed card and the `AnchorChip`) and they were
@@ -55,11 +70,14 @@ export function sectionForSocialKind(kind: SocialEntityKind): SectionId | null {
 
 /** The position in words — the chip's suffix ("· turn in this conversation").
  *  Kept short and lowercase: it reads as a continuation of the entity label. */
-export function describeLocus(locus: AnchorLocus): string {
+export function describeLocus(locus: AnchorLocus, state?: ArtifactBlockAnchorState): string {
   switch (locus.kind) {
     case 'session-turn':
       return 'one turn'
     case 'artifact-block':
+      if (!('blockId' in locus) || state === 'legacy' || state === 'unavailable') return 'original block unavailable'
+      if (state === 'deleted') return 'original block deleted'
+      if (state === 'loading') return 'checking original block'
       return 'one block'
     case 'schedule-run':
       return 'one run'
@@ -90,7 +108,7 @@ export function locusFocus(anchor: SocialAnchor): FocusTarget | null {
     // addressable element — the address `artifact-patch` already edits by, so a
     // thread and a patch land on the same thing.
     case 'artifact-block':
-      return { artifactBlock: locus.block }
+      return 'blockId' in locus ? { artifactBlockId: locus.blockId } : null
     // Declared, not yet focusable: a relation EDGE has no surface of its own at
     // all — no page renders one edge as an element to land on. It becomes a
     // target when the graph grows a surface that draws its edges; until then the

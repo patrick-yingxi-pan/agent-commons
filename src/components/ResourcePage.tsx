@@ -356,6 +356,7 @@ export function ResourcePageSection({
   actions,
   defaultFolded,
   heldOpen = false,
+  reveal = false,
   persist = true,
   listPartition = false,
   summary,
@@ -367,6 +368,9 @@ export function ResourcePageSection({
   defaultFolded?: boolean
   /** A submitted child draft cannot be unmounted while its outcome is unknown. */
   heldOpen?: boolean
+  /** Navigation reveals this mounted section without changing its global fold
+   * preference. Explicit folding ends the reveal. Key the section by subject. */
+  reveal?: boolean
   persist?: boolean
   /** A non-canonical view partition whose list capability is mirrored in the rail. */
   listPartition?: boolean
@@ -375,8 +379,14 @@ export function ResourcePageSection({
 }) {
   const [storedFolded, setStoredFolded] = useSectionFold(title, defaultFolded)
   const [localFolded, setLocalFolded] = useState(defaultFolded === true)
-  const folded = persist ? storedFolded : localFolded
-  const setFolded = persist ? setStoredFolded : setLocalFolded
+  const [revealed, setRevealed] = useState(reveal)
+  useEffect(() => { if (reveal) setRevealed(true) }, [reveal])
+  const folded = reveal || revealed ? false : persist ? storedFolded : localFolded
+  const setFolded = useCallback((next: boolean) => {
+    setRevealed(false)
+    if (persist) setStoredFolded(next)
+    else setLocalFolded(next)
+  }, [persist, setStoredFolded])
   const sectionPage = useContext(CompositeSectionPageContext)
   const projection = useContext(CompositeProjectionContext)
   const effectiveFolded = sectionPage || heldOpen ? false : folded

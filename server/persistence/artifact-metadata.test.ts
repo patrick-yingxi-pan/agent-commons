@@ -8,6 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { hasCorePersistedShape } from './format.ts'
+import { docBlockId } from '../documentIdentity.ts'
 
 const ROOT = mkdtempSync(join(tmpdir(), `agent-commons-artifact-metadata-${process.pid}-`))
 const storeModule = new URL('../store/index.ts', import.meta.url).href
@@ -53,7 +54,10 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.ok(first.id)
     assert.equal(first.changed.name, `persisted-renamed-${backend}.md`)
     assert.equal(first.changed.metadataRevision, 1)
-    assert.deepEqual(first.body.blocks, [{ p: 'Durable first block.' }, { p: 'Durable second block.' }])
+    assert.deepEqual(first.body.blocks, [
+      { id: docBlockId(first.id, 0, 0), p: 'Durable first block.' },
+      { id: docBlockId(first.id, 0, 1), p: 'Durable second block.' },
+    ])
     assert.equal(first.body.revision, 0)
     assert.deepEqual(first.origin, { name: `persisted-original-${backend}.md`, source: 'Durable metadata source' })
     assert.equal(first.source, 'Durable metadata source')

@@ -14,7 +14,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, concatSource, filesUnder, read, stripComments } from '../../tests/helpers/source.ts'
-import { describeLocus, locusFocus, sectionForSocialKind } from './anchorLocus.ts'
+import { describeLocus, locusFocus, sectionForSocialKind, artifactBlockAnchorState } from './anchorLocus.ts'
 import { SOCIAL_ENTITY_KINDS } from '../../contract/index.ts'
 import type { AnchorLocus } from '../../contract/index.ts'
 
@@ -23,7 +23,7 @@ import type { AnchorLocus } from '../../contract/index.ts'
  *  count assertion fails, which is the point: the ledger can't silently lag. */
 const EVERY_LOCUS: AnchorLocus[] = [
   { kind: 'session-turn', messageId: 'm-1' },
-  { kind: 'artifact-block', block: 4 },
+  { kind: 'artifact-block', blockId: 'original' },
   { kind: 'schedule-run', runId: 'run-1' },
   { kind: 'relation-edge', relationId: 'rel-1' },
 ]
@@ -55,15 +55,27 @@ test('an artifact position is named by the address the body HAS — a block, not
   // gutter stayed blocked on exactly that. It now speaks the same address an
   // artifact-patch edits by (contract/content.ts), so a patch, a thread and the
   // reader all mean one thing by "block 3".
-  assert.equal(describeLocus({ kind: 'artifact-block', block: 0 }), 'one block')
+  assert.equal(describeLocus({ kind: 'artifact-block', blockId: 'original' }), 'one block')
 })
 
-test('block 0 is a real position — the zero-index trap a truthiness test would swallow', () => {
-  // The opening paragraph is the one people comment on, and `{artifactBlock: 0}`
-  // is falsy on the field. Every read must ask `!== undefined`.
-  const focus = locusFocus({ ref: { kind: 'artifact', id: 'a-1' }, locus: { kind: 'artifact-block', block: 0 } })
-  assert.deepEqual(focus, { artifactBlock: 0 })
-  assert.notEqual(focus, null, 'the first block resolves to a target, not to "no position"')
+test('block focus uses immutable identity and never reinterprets a legacy position', () => {
+  const ref = { kind: 'artifact', id: 'a-1' } as const
+  assert.deepEqual(locusFocus({ ref, locus: { kind: 'artifact-block', blockId: 'original' } }), { artifactBlockId: 'original' })
+  assert.equal(locusFocus({ ref, locus: { kind: 'artifact-block', block: 0 } }), null)
+  assert.equal(describeLocus({ kind: 'artifact-block', block: 0 }), 'original block unavailable')
+})
+
+test('block anchor status proves deletion only from a successful current document read', () => {
+  const anchor = { ref: { kind: 'artifact', id: 'a-1' }, locus: { kind: 'artifact-block', blockId: 'original' } } as const
+  const body = { type: 'doc', title: 'Doc', blocks: [{ id: 'neighbor', p: 'Neighbor' }, { id: 'original', p: 'Moved' }] } as const
+  const current = JSON.parse(JSON.stringify(body))
+  assert.equal(artifactBlockAnchorState(anchor, current, 'success'), 'attached')
+  current.blocks.pop()
+  assert.equal(artifactBlockAnchorState(anchor, current, 'success'), 'deleted')
+  assert.equal(artifactBlockAnchorState(anchor, current, 'loading'), 'loading')
+  assert.equal(artifactBlockAnchorState(anchor, current, 'error'), 'unavailable')
+  assert.equal(artifactBlockAnchorState(anchor, undefined, 'success'), 'unavailable')
+  assert.equal(describeLocus(anchor.locus, 'deleted'), 'original block deleted')
 })
 
 test('every social noun answers where its page lives — one map, not one per surface', () => {

@@ -45,6 +45,42 @@ test('document, sheet, and slides drafts retain their format and opening revisio
   assert.deepEqual(store.get('slides'), { draft: deck, held: false, error: null })
 })
 
+test('stable inline block identity and reviewed revision survive draft snapshots and save claims', async () => {
+  const { calls, store } = deferredWrites()
+  const inline: ArtifactEditDraft = {
+    kind: 'document', block: 2, blockId: 'block-existing-2', text: 'corrected', expectedRevision: 14,
+  }
+  store.start('doc', inline)
+  assert.deepEqual(store.get('doc')?.draft, inline)
+  const updated = { ...inline, text: 'revised correction' }
+  store.update('doc', updated)
+  const saving = store.save('doc')
+  assert.deepEqual(calls[0]?.draft, updated, 'the frozen write preserves identity and its opening revision')
+  calls[0]!.resolve('applied')
+  assert.equal(await saving, 'applied')
+})
+
+test('full document drafts keep typed identified blocks intact in the held replacement', async () => {
+  const { calls, store } = deferredWrites()
+  const document: ArtifactEditDraft = {
+    kind: 'structured',
+    content: {
+      type: 'doc', title: 'Dispatch', blocks: [
+        { id: 'block-heading', h: 'Status' },
+        { id: 'block-list', ul: ['one', 'two'] },
+        { id: 'block-code', code: ['const answer = 42'] },
+        { id: 'block-email', email: { to: 'team@example.test', subject: 'Update' } },
+      ],
+    },
+    expectedRevision: 9,
+  }
+  store.start('doc', document)
+  const saving = store.save('doc')
+  assert.deepEqual(calls[0]?.draft, document, 'the complete frozen body retains each type, order and stable block ID')
+  calls[0]!.resolve('applied')
+  assert.equal(await saving, 'applied')
+})
+
 test('start and update keep detached structured snapshots; start preserves an existing draft', () => {
   const { store } = deferredWrites()
   const initial = sheet()

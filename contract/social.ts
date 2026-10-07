@@ -6,6 +6,7 @@
  *  behavior lives in per-kind adapters (anchor resolvers, delta appliers,
  *  resource previews) registered elsewhere; nothing here may branch on a kind.
  *  Imported verbatim by UI + server — framework- and Node-free. */
+import { isDocBlockId } from './content.ts'
 
 /** The social nouns: the five of `contract/relations.ts` plus Discussion and
  *  Proposal (both entities themselves, so every primitive applies recursively —
@@ -89,17 +90,17 @@ export type AnchorLocus =
    *  stayed blocked on that for as long as the variant kept its shape.
    *
    *  S3 settled the question from the other side: `artifact-patch` had to
-   *  address a body EDIT, and took the address the body actually has
-   *  (`block`, `contract/content.ts`). So the locus now speaks that same
-   *  address rather than inventing a second vocabulary for "which piece of an
-   *  artifact" — one index, meaning the same block to a patch, to a thread and
-   *  to the reader looking at it.
+   *  address a body EDIT. Legacy callers may still send a numeric index, but
+   *  the backend resolves it against the current body and persists the stable
+   *  block ID. New callers can address that identity directly so insertions
+   *  and reorders never retarget a thread.
    *
    *  Scoped like the patch to a `doc` body's ordered blocks. Sheets, decks and
    *  figures have no addressed interior yet; when one grows an address, the
    *  patch and this locus should grow it together, for the same reason they
-   *  share one now. */
+   *  share one now. Old persisted numeric loci remain identity-unknown. */
   | { kind: 'artifact-block'; block: number }
+  | { kind: 'artifact-block'; blockId: string }
   | { kind: 'session-turn'; messageId: string }
   | { kind: 'schedule-run'; runId: string }
   | { kind: 'relation-edge'; relationId: string }
@@ -126,7 +127,8 @@ export function isAnchorLocus(v: unknown): v is AnchorLocus {
   }
   switch (o.kind) {
     case 'artifact-block':
-      return shape({ block: 'number' })
+      return shape({ block: 'number' }) ||
+        (shape({ blockId: 'string' }) && isDocBlockId(o.blockId))
     case 'session-turn':
       return shape({ messageId: 'string' })
     case 'schedule-run':

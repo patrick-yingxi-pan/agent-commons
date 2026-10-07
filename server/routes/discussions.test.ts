@@ -30,6 +30,15 @@ async function arena(tier: 'view' | 'comment' = 'comment') {
   return { projectId, ref: { kind: 'project', id: projectId } }
 }
 
+async function authoredDocument(name: string, body: string) {
+  const saved = await call('POST', '/artifacts', { name, kind: 'doc', body }, {
+    'x-tenant-id': OWNER,
+    'idempotency-key': `discussion-doc-${name}`,
+  })
+  assert.equal(saved.status, 201)
+  return saved.json.artifact as { id: string; name: string }
+}
+
 test('root-thread rule: a locus-free open is get-or-create — one public stream per subject', async () => {
   const { ref } = await arena()
   const first = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'First!' }, { 'x-tenant-id': OWNER })
@@ -128,6 +137,7 @@ test('SOCIAL-6b: an undeclared locus is REFUSED, not stored (INV-9, strict core)
     { kind: 'artifact-block' }, // the variant's field is missing
     { kind: 'artifact-block', block: '2' }, // …and it is typed: an index is a number
     { kind: 'artifact-block', block: 1, to: 8 }, // a line-span shape no longer rides along
+    { kind: 'artifact-block', blockId: 'bad block id' }, // stable IDs are strict and bounded
     'not-an-object',
     null,
   ]
@@ -140,40 +150,84 @@ test('SOCIAL-6b: an undeclared locus is REFUSED, not stored (INV-9, strict core)
   // …and the declared variants still pass.
   for (const locus of [
     { kind: 'session-turn', messageId: 'm1' },
-    { kind: 'artifact-block', block: 1 },
     { kind: 'schedule-run', runId: 'r1' },
     { kind: 'relation-edge', relationId: 'e1' },
   ]) {
     const out = await call('POST', '/discussions', { anchor: { ref, locus }, firstPost: 'ok' }, { 'x-tenant-id': OWNER })
     assert.equal(out.status, 200, `accepted: ${JSON.stringify(locus)}`)
   }
+  const wrongSubject = await call('POST', '/discussions', {
+    anchor: { ref, locus: { kind: 'artifact-block', block: 0 } }, firstPost: 'wrong subject',
+  }, { 'x-tenant-id': OWNER })
+  assert.equal(wrongSubject.status, 404, 'an artifact block locus cannot attach to a non-Artifact subject')
 })
 
-test('SOCIAL-6b: locus equality is by VALUE, not identity — a re-sent anchor matches', async () => {
-  const { ref } = await arena()
+test('Artifact block discussions canonicalize indices to stable IDs and never follow a deleted neighbor', async () => {
+  const artifact = await authoredDocument(`discussion-anchor-${Date.now()}.md`, 'First block.\n\nSecond block.')
+  const ref = { kind: 'artifact', id: artifact.id }
+  const body = (await call('GET', '/artifact-content', undefined, { 'x-tenant-id': OWNER })).json[artifact.id]
+  const removedId = body.blocks[0].id
+  const retainedId = body.blocks[1].id
   const a = await call(
     'POST',
     '/discussions',
-    { anchor: { ref, locus: { kind: 'artifact-block', block: 3 } }, firstPost: 'This block' },
+    { anchor: { ref, locus: { kind: 'artifact-block', block: 0 } }, firstPost: 'This block' },
     { 'x-tenant-id': OWNER },
   )
+  assert.equal(a.status, 200)
+  assert.deepEqual(a.json.anchor.locus, { kind: 'artifact-block', blockId: removedId })
   const same = await call(
     'POST',
     '/discussions',
-    { anchor: { ref, locus: { kind: 'artifact-block', block: 3 } }, firstPost: 'Still this block' },
+    { anchor: { ref, locus: { kind: 'artifact-block', blockId: removedId } }, firstPost: 'Still this block' },
     { 'x-tenant-id': OWNER },
   )
-  assert.equal(same.json.id, a.json.id, 'an equal range is the same position')
-  // A range that merely overlaps is a different position — the rule is
-  // equality, deliberately: "near enough" would need a per-kind notion of
-  // overlap in the kind-generic substrate, which S0 forbids.
-  const overlapping = await call(
+  assert.equal(same.json.id, a.json.id, 'numeric and stable-ID opens resolve to the same current position')
+
+  const replaced = await call('PATCH', `/artifacts/${artifact.id}/content`, {
+    content: { type: 'doc', title: body.title, blocks: [body.blocks[1]] }, expectedRevision: body.revision ?? 0,
+  }, { 'x-tenant-id': OWNER })
+  assert.equal(replaced.status, 200)
+  const next = await call(
     'POST',
     '/discussions',
-    { anchor: { ref, locus: { kind: 'artifact-block', block: 9 } }, firstPost: 'Another block' },
+    { anchor: { ref, locus: { kind: 'artifact-block', block: 0 } }, firstPost: 'New block at old index' },
     { 'x-tenant-id': OWNER },
   )
-  assert.notEqual(overlapping.json.id, a.json.id, 'a different range is a different thread')
+  assert.equal(next.status, 200)
+  assert.notEqual(next.json.id, a.json.id, 'the new occupant receives a different stable thread identity')
+  assert.deepEqual(next.json.anchor.locus, { kind: 'artifact-block', blockId: retainedId })
+  const unavailable = await call('POST', '/discussions', {
+    anchor: { ref, locus: { kind: 'artifact-block', blockId: removedId } }, firstPost: 'Deleted block',
+  }, { 'x-tenant-id': OWNER })
+  assert.equal(unavailable.status, 404, 'a deleted stable block cannot resolve to the remaining neighbor')
+})
+
+test('stable Artifact loci resolve only after current subject visibility and comment authority', async () => {
+  const artifact = await authoredDocument(`discussion-wall-${Date.now()}.md`, 'Private first block.')
+  const grant = await call('POST', '/grants', {
+    subject: { kind: 'artifact', id: artifact.id },
+    audience: { kind: 'org', orgId: AUDIENCE },
+    tier: 'comment',
+  }, { 'x-tenant-id': OWNER })
+  assert.equal(grant.status, 200)
+  const body = (await call('GET', '/artifact-content', undefined, { 'x-tenant-id': AUDIENCE })).json[artifact.id]
+  const blockId = body.blocks[0].id
+  const reader = await call('POST', '/discussions', {
+    anchor: { ref: { kind: 'artifact', id: artifact.id }, locus: { kind: 'artifact-block', blockId } },
+    firstPost: 'Visible to the granted reader.',
+  }, { 'x-tenant-id': AUDIENCE })
+  assert.equal(reader.status, 200)
+
+  for (const locus of [
+    { kind: 'artifact-block', block: 0 },
+    { kind: 'artifact-block', blockId },
+  ]) {
+    const hidden = await call('POST', '/discussions', {
+      anchor: { ref: { kind: 'artifact', id: artifact.id }, locus }, firstPost: 'Must not reveal the block.',
+    }, { 'x-tenant-id': BYSTANDER })
+    assert.equal(hidden.status, 404, 'unknown Artifact authority is hidden before the block is resolved')
+  }
 })
 
 test('inheritance: the discussion wall IS the anchor wall — audience reads, bystander 404s on every face', async () => {
@@ -216,7 +270,7 @@ test('comment authority: view reads silently (may react, not post); comment post
 
 test('resolve: opener or anchor owner; a commenting visitor may not; posting stays open after resolve (aftermath)', async () => {
   const { ref } = await arena('comment')
-  const d = (await call('POST', '/discussions', { anchor: { ref, locus: { kind: 'artifact-block', block: 1 } }, firstPost: 'Anchored' }, { 'x-tenant-id': AUDIENCE })).json
+  const d = (await call('POST', '/discussions', { anchor: { ref, locus: { kind: 'session-turn', messageId: 'm1' } }, firstPost: 'Anchored' }, { 'x-tenant-id': AUDIENCE })).json
   assert.equal(d.mine, true, 'the opener sees their own flag')
   const byAudienceOther = await call('POST', `/discussions/${d.id}/resolve`, undefined, { 'x-tenant-id': AUDIENCE })
   assert.equal(byAudienceOther.status, 200, 'the opener resolves')
@@ -470,7 +524,7 @@ test('S9: replying to a REPLY nests deeper — the chain records who answered wh
 test('S9: a replyTo naming no post in THIS thread is refused, not silently detached', async () => {
   const { ref } = await arena()
   const a = await call('POST', '/discussions', { anchor: { ref }, firstPost: 'thread A' }, { 'x-tenant-id': OWNER })
-  const b = await call('POST', '/discussions', { anchor: { ref, locus: { kind: 'artifact-block', block: 4 } }, firstPost: 'thread B' }, { 'x-tenant-id': OWNER })
+  const b = await call('POST', '/discussions', { anchor: { ref, locus: { kind: 'session-turn', messageId: 'm1' } }, firstPost: 'thread B' }, { 'x-tenant-id': OWNER })
   const foreign = b.json.posts[0].id
 
   for (const bad of ['dpost-does-not-exist', foreign]) {

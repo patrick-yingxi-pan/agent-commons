@@ -282,7 +282,7 @@ test('an uncertain workbook save stays held across navigation and retries the ex
     await heldCell.fill(`held-${stamp}`)
     await editor.getByRole('button', { name: 'Save changes', exact: true }).click()
     const notice = page.locator('[data-revisioned-mutation="structured-artifact"]')
-    await expect(notice).toContainText('Couldn’t confirm the content edit')
+    await expect(notice).toContainText('Couldn’t confirm the artifact edit')
     await expect(heldCell).toBeDisabled()
     await leaveAndReturnToArtifact(page, artifact.id, name)
     const returnedDetail = page.locator(`[data-artifact-page="${artifact.id}"]`)

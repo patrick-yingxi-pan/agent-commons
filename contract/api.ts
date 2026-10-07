@@ -302,21 +302,18 @@ export interface DeleteScheduleRequest {
   expectedRevision?: number
 }
 
-/** One owner's intent to rewrite one addressable prose block. The block index
- * and replacement stay separate from the precondition so the client can hold
- * and rebase the exact edit after a conflict. */
-export interface ArtifactContentPatch {
-  block: number
-  text: string
-}
+/** One owner's intent to rewrite one Document prose block. New callers pin the
+ * stable `blockId`; the numeric index remains only for legacy callers. Both
+ * addresses stay separate from the replacement text and optional CAS. */
+export type ArtifactContentPatch =
+  | { block: number; blockId?: never; text: string }
+  | { block?: never; blockId: string; text: string }
 
 /** Body of `PATCH /v1/artifacts/:id/content`. Supplying the current body
- * revision gives compare-and-swap semantics; absence preserves the v1 legacy
- * unconditional-write meaning used by older clients. New proposal landings
- * carry the server-frozen offer revision through the same mutator. */
-export interface UpdateArtifactContentRequest extends ArtifactContentPatch {
-  expectedRevision?: number
-}
+ * revision gives compare-and-swap semantics; stable IDs require it, while
+ * numeric addresses preserve safe legacy compatibility where history proves
+ * the block order. New proposal landings carry the frozen offer revision. */
+export type UpdateArtifactContentRequest = ArtifactContentPatch & { expectedRevision?: number }
 
 /** A relation-graph snapshot: the editable edges, seeded from the catalog and
  *  then mutated by confirmed ops. The client reads through this instead of

@@ -22,7 +22,7 @@ export type DocBlock = (
  * Validation does not mint identity or establish correspondence with an older
  * snapshot; the authoritative writer/migration owns those decisions. */
 export function isDocBlockId(value: unknown): value is string {
-  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value)
+  return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,95}$/.test(value) && !/\s/.test(value)
 }
 
 export type FigureShape = 'hero' | 'bars' | 'line' | 'funnel'

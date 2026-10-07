@@ -141,7 +141,8 @@ import { ProposalVerdictActions } from './ProposalVerdictActions'
 import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
 import { ConfirmDialog } from './ConfirmDialog'
-import { describeLocus, locusFocus, sectionForSocialKind } from '../lib/anchorLocus'
+import { describeLocus, locusFocus, sectionForSocialKind, artifactBlockAnchorState } from '../lib/anchorLocus'
+import { useArtifactContent } from '../api/hooks'
 import type { FocusTarget } from '../lib/notificationDoor'
 import { profileTagline, profileTitle } from '../lib/publicFace'
 import { mentionHint, squareVoices, workItemVoices } from '../lib/mentionPicker'
@@ -5647,11 +5648,13 @@ function AnchorChip({
   const rel = useRelations()
   const { kind, id } = anchor.ref
   const target: SectionId | null = sectionForSocialKind(kind)
-  const at = anchor.locus ? ` · ${describeLocus(anchor.locus)}` : ''
+  const content = useArtifactContent(kind === 'artifact' && anchor.locus?.kind === 'artifact-block')
+  const blockState = artifactBlockAnchorState(anchor, content.data?.[id], content.status)
+  const at = anchor.locus ? ` · ${describeLocus(anchor.locus, blockState)}` : ''
   const label = `${kind} · ${id}${at}`
   // The position to land on, from the ONE registry — this chip never asks which
   // FIELD a kind uses, so a new locus kind needs no edit here.
-  const focus = locusFocus(anchor)
+  const focus = blockState && blockState !== 'attached' ? null : locusFocus(anchor)
   // Two doors by subject kind: a conversation is a PANE fill, a section entity
   // is a route. Either way the highlight is aimed afterwards, identically.
   const open = () => {
@@ -5664,6 +5667,7 @@ function AnchorChip({
   return (
     <button
       onClick={open}
+      data-artifact-anchor-state={blockState}
       className={INLINE_ACTION_CLASS}
       title={focus && anchor.locus ? `Open this ${kind} at ${describeLocus(anchor.locus)}` : `Open this ${kind}`}
     >

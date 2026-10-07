@@ -68,7 +68,14 @@ export function updateArtifactBlock(
   artifactId: string,
   block: number,
   text: string,
+  stableTarget?: { blockId: string; expectedRevision: number },
 ): Promise<RevisionedMutationOutcome> {
+  if (stableTarget) {
+    if (!Number.isSafeInteger(stableTarget.expectedRevision) || stableTarget.expectedRevision < 0) {
+      return Promise.resolve('discarded')
+    }
+    return controller.enqueue(artifactId, { blockId: stableTarget.blockId, text }, stableTarget.expectedRevision)
+  }
   return controller.enqueue(artifactId, { block, text })
 }
 

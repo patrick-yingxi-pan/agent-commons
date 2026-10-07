@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { docBlockId } from '../documentIdentity.ts'
 
 const ROOT = mkdtempSync(join(tmpdir(), `agent-commons-scheduled-artifact-spec-${process.pid}-`))
 const storeModule = new URL('../store/index.ts', import.meta.url).href
@@ -73,14 +74,17 @@ for (const backend of ['json', 'sqlite'] as const) {
         { id: 'legacy-runtime-reply', role: 'assistant', content: 'Legacy runtime document.' },
         { agentId: context.agent.id, providerId: context.provider.id }, 20_000);
       const artifact = store.listArtifacts('tenant-standing-owner').find(row => row.sourceScheduleId === task.id);
-      console.log(JSON.stringify({ standing: run.execution.standing, blocked: context.blocked, status: completed.status,
+      console.log(JSON.stringify({ artifactId: artifact.id, standing: run.execution.standing, blocked: context.blocked, status: completed.status,
         kind: artifact.kind, body: store.artifactContent('tenant-standing-owner')[artifact.id] }));
     `))
     assert.deepEqual(resumed.standing, { artifact: { name: 'legacy.xlsx', kind: 'doc' }, tools: [] })
     assert.equal(resumed.blocked, undefined)
     assert.equal(resumed.status, 'ok')
     assert.equal(resumed.kind, 'doc', `${backend}: a legacy filename never selects Sheet`)
-    assert.deepEqual(resumed.body.blocks, [{ p: 'Legacy runtime document.' }])
+    assert.deepEqual(resumed.body.blocks, [{
+      id: docBlockId(resumed.artifactId, resumed.body.revision ?? 0, 0),
+      p: 'Legacy runtime document.',
+    }])
   })
 
   test(`${backend}: resumed Sheet and Slides runs publish and later refresh body plus run provenance`, () => {

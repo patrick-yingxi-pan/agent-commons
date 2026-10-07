@@ -10,20 +10,22 @@ import {
   MAX_AUTHORED_WORKBOOK_SHEETS,
   MAX_WORKBOOK_SHEET_NAME_CHARS,
   spreadsheetSheets,
-  parseStructuredArtifactBody,
+  parseEditableArtifactBody,
+  type EditableArtifactBody,
   type SheetGrid,
   type StructuredArtifactBody,
 } from '../../contract/index.ts'
 import { StructuredArtifactView } from './DeferredStructuredArtifactView'
+import { DocumentArtifactEditor, DocumentBodyLiteral } from './DocumentArtifactEditor'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { WorkbookTabs } from './WorkbookTabs'
 import { pasteSheetCells, reconcileSheetPasteFeedback, type SheetPasteFeedback, type SpreadsheetBody } from '../lib/sheetPaste'
 
 type Props = {
-  body: StructuredArtifactBody
-  onChange: (body: StructuredArtifactBody) => void
-  latestBody?: StructuredArtifactBody
+  body: EditableArtifactBody
+  onChange: (body: EditableArtifactBody) => void
+  latestBody?: EditableArtifactBody
   onSave: () => void
   onCancel: () => void
   saving?: boolean
@@ -38,7 +40,11 @@ const buttonClass = INLINE_ACTION_CLASS
  * using StructuredArtifactView; the account-scoped draft store owns lifetime
  * across navigation and duplicate panes. Save emits one complete replacement. */
 export function StructuredArtifactEditor({ body, onChange, latestBody, onSave, onCancel, saving = false, error, showLatest = false }: Props) {
-  const valid = parseStructuredArtifactBody(body) !== undefined
+  if (body.type === 'doc') {
+    return <DocumentArtifactEditor body={body} onChange={onChange} latestBody={latestBody?.type === 'doc' ? latestBody : undefined}
+      onSave={onSave} onCancel={onCancel} saving={saving} error={error} showLatest={showLatest} />
+  }
+  const valid = parseEditableArtifactBody(body) !== undefined
 
   return (
     <div className="space-y-3" data-structured-artifact-editor={body.type}>
@@ -56,7 +62,7 @@ export function StructuredArtifactEditor({ body, onChange, latestBody, onSave, o
       {showLatest && latestBody && (
         <div className="space-y-1.5 rounded-lg border border-line bg-panel-2/40 p-2.5" role="status">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Latest saved version</div>
-          <StructuredArtifactView body={latestBody} size="compact" />
+          {latestBody.type === 'doc' ? <DocumentBodyLiteral body={latestBody} /> : <StructuredArtifactView body={latestBody} size="compact" />}
           <p className="text-[11px] text-ink-faint">Retry replaces the entire saved structure with your held draft.</p>
         </div>
       )}

@@ -100,7 +100,7 @@ import { join } from 'node:path'
  *  (Dispatch runs joined as an *additive optional* slice — `dispatch?` + `seq.dispatch?` —
  *  so a v5 snapshot without them loads cleanly (rehydrate keeps the seed feed); no bump,
  *  matching how `savedContexts?` / `auditLog?` were added.) */
-export const STORE_VERSION = 5
+export const STORE_VERSION = 6
 
 /** A notification as STORED — the wire row plus three server-private anchors the
  *  read strips (the caller sees a plain `AppNotification`).
@@ -674,6 +674,18 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       for (const [id, versions] of entries) {
         const latest = versions.at(-1)!
         const body = currentBodies.get(id)
+        // V6 may still admit a legacy current-only Document without IDs so it
+        // can be normalized at read time. Once retained history exists, however,
+        // current and every saved Document version must already share the
+        // persisted identity model; normalizing only current would make edits,
+        // restores, and history reads disagree about the same body.
+        const identifiedDocument = (candidate: unknown): boolean => {
+          if (!candidate || typeof candidate !== 'object' || (candidate as { type?: unknown }).type !== 'doc') return true
+          const blocks = (candidate as { blocks?: unknown }).blocks
+          return Array.isArray(blocks) && blocks.every((block) =>
+            block !== null && typeof block === 'object' && typeof (block as { id?: unknown }).id === 'string')
+        }
+        if (!identifiedDocument(body) || versions.some((version) => !identifiedDocument(version.body))) return false
         if (!body || (body.revision ?? 0) !== latest.revision ||
           JSON.stringify(historyBodyWithoutRevision(body)) !== JSON.stringify(latest.body)) return false
       }
