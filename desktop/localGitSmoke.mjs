@@ -29,9 +29,11 @@ async function indexState(repository) {
 }
 
 async function assertIndexUnchanged(repository, before) {
-  for (const expected of before) {
-    assert.deepEqual(await readFile(join(repository, '.git', expected.name)), expected.bytes, `${expected.name} bytes remain unchanged`)
-    assert.equal((await stat(join(repository, '.git', expected.name), { bigint: true })).mtimeNs, expected.mtimeNs, `${expected.name} mtime remains unchanged`)
+  const after = await indexState(repository)
+  assert.deepEqual(after.map(item => item.name), before.map(item => item.name), 'index and split shared-index files remain unchanged')
+  for (let index = 0; index < before.length; index += 1) {
+    assert.deepEqual(after[index].bytes, before[index].bytes, `${before[index].name} bytes remain unchanged`)
+    assert.equal(after[index].mtimeNs, before[index].mtimeNs, `${before[index].name} mtime remains unchanged`)
   }
 }
 
@@ -227,6 +229,113 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.equal(JSON.stringify(endpoint.requests).includes('captured-nested-index-v1'), false,
     'staged-only review text never enters model input')
 
+  // Build real staged rename candidates only inside the generated repository.
+  // The explicit fixture identity and --no-gpg-sign keep this commit independent
+  // of user Git configuration, credentials, hooks and signing tools.
+  const renameDirectory = join(repository, 'rename-fixture')
+  await mkdir(renameDirectory, { recursive: true })
+  const exactOldPath = 'rename-fixture/exact-before.md'
+  const exactNewPath = 'rename-fixture/exact-after.md'
+  const editedOldPath = 'rename-fixture/edited-before.md'
+  const editedNewPath = 'rename-fixture/edited-after.md'
+  const exactText = 'PACKAGED_RENAME_EXACT_CANARY_6f9c\nPreserve this exact captured body.\n'
+  const stableLines = [
+    `PACKAGED_RENAME_STABLE_1 ${'line-content-'.repeat(5)}`,
+    `PACKAGED_RENAME_STABLE_2 ${'line-content-'.repeat(5)}`,
+    `PACKAGED_RENAME_STABLE_3 ${'line-content-'.repeat(5)}`,
+  ]
+  const editedOldText = [...stableLines, `PACKAGED_RENAME_OLD_BODY ${'before-'.repeat(4)}`].join('\n') + '\n'
+  const editedNewText = [...stableLines, `PACKAGED_RENAME_NEW_BODY ${'after-'.repeat(4)}`].join('\n') + '\n'
+  await writeFile(join(repository, exactOldPath), exactText)
+  await writeFile(join(repository, editedOldPath), editedOldText)
+  const fixtureIdentity = [
+    '-c', 'user.name=Agent Commons Packaged Fixture',
+    '-c', 'user.email=packaged-git-fixture@example.test',
+    '-c', 'commit.gpgsign=false',
+    '-c', 'core.hooksPath=/dev/null',
+  ]
+  git(gitExecutable, repository, ...fixtureIdentity, 'add', '--', exactOldPath, editedOldPath)
+  git(gitExecutable, repository, ...fixtureIdentity, 'commit', '--no-gpg-sign', '-m', 'Create packaged rename fixture base')
+  await rename(join(repository, exactOldPath), join(repository, exactNewPath))
+  await rename(join(repository, editedOldPath), join(repository, editedNewPath))
+  await writeFile(join(repository, editedNewPath), editedNewText)
+  git(gitExecutable, repository, 'add', '-A', '--', exactOldPath, exactNewPath, editedOldPath, editedNewPath)
+
+  const beforeRenameReview = await readWorkspace(run.page, session.id)
+  const modelRequestsBeforeRenameReview = endpoint.requests.length
+  const indexBeforeRenameReview = await indexState(repository)
+  await run.page.goto(run.origin + '/contexts/' + encodeURIComponent(connectionId))
+  const renameReviewPanel = run.page.locator('[data-local-git-review]')
+  await expect(renameReviewPanel).toBeVisible()
+  // A full navigation reloads the renderer and discards the previous review.
+  await expect(renameReviewPanel.locator('[data-local-git-review-result]')).toHaveCount(0)
+  await renameReviewPanel.getByRole('button', { name: 'Review changes', exact: true }).click()
+  const renameResult = renameReviewPanel.locator('[data-local-git-review-result]')
+  await expect(renameResult).toBeVisible({ timeout: TIMEOUT_MS })
+  const renameCompare = renameResult.getByLabel('Compare')
+  const renameFile = renameResult.getByLabel('Changed file')
+  await renameCompare.selectOption('staged')
+  const grouping = renameResult.getByRole('checkbox', { name: /^Group possible renames/ })
+  await expect(grouping).not.toBeChecked()
+
+  // Raw mode is the default: each staged deletion remains independently
+  // selectable and shows its exact HEAD body against an absent Index side.
+  await renameFile.selectOption(exactOldPath)
+  await expect(renameResult.getByRole('heading', { name: exactOldPath, exact: true })).toBeVisible()
+  await renameResult.getByLabel('Review view').selectOption('full')
+  assert.equal(await renameResult.getByLabel('HEAD · Regular file').textContent(), exactText)
+  await expect(renameResult.getByText('Not present in this version.', { exact: true })).toBeVisible()
+  await renameFile.selectOption(editedOldPath)
+  await expect(renameResult.getByRole('heading', { name: editedOldPath, exact: true })).toBeVisible()
+  await renameResult.getByLabel('Review view').selectOption('changes')
+  await expect(renameResult.locator('[data-diff-lines] tr[data-diff-kind="delete"]')
+    .filter({ hasText: 'PACKAGED_RENAME_OLD_BODY' })).toHaveAttribute('data-diff-kind', 'delete')
+
+  await expect(grouping).toContainText('(2)')
+  await grouping.check()
+  await expect(grouping).toBeChecked()
+  await expect(renameResult.getByRole('heading', {
+    name: `Possible rename: ${editedOldPath} → ${editedNewPath}`, exact: true,
+  })).toBeVisible()
+  await expect(renameResult.locator('[data-git-rename-match]')).toContainText(/\d+% shared line bytes/)
+  const sharedPercent = Number((await renameResult.locator('[data-git-rename-match]').textContent())?.match(/\d+/)?.[0])
+  assert.ok(sharedPercent >= 80, 'edited suggestion discloses at least 80% shared line bytes')
+  const groupedChanges = renameResult.locator('[data-diff-lines] tr[data-diff-kind]')
+  await expect(groupedChanges.filter({ hasText: 'PACKAGED_RENAME_OLD_BODY' })).toHaveAttribute('data-diff-kind', 'delete')
+  await expect(groupedChanges.filter({ hasText: 'PACKAGED_RENAME_NEW_BODY' })).toHaveAttribute('data-diff-kind', 'add')
+  await renameResult.getByLabel('Review view').selectOption('full')
+  assert.equal(await renameResult.getByLabel(`HEAD · ${editedOldPath} · Regular file`).textContent(), editedOldText)
+  assert.equal(await renameResult.getByLabel(`Index · ${editedNewPath} · Regular file`).textContent(), editedNewText)
+  await renameFile.selectOption(exactNewPath)
+  await expect(renameResult.getByRole('heading', {
+    name: `Possible rename: ${exactOldPath} → ${exactNewPath}`, exact: true,
+  })).toBeVisible()
+  await expect(renameResult.locator('[data-git-rename-match]')).toContainText('Identical captured text')
+  await renameResult.getByLabel('Review view').selectOption('full')
+  assert.equal(await renameResult.getByLabel(`HEAD · ${exactOldPath} · Regular file`).textContent(), exactText)
+  assert.equal(await renameResult.getByLabel(`Index · ${exactNewPath} · Regular file`).textContent(), exactText)
+
+  // Opt-out restores both original staged rows. The pre-existing nested edit
+  // remains an independent unstaged comparison and is never grouped.
+  await grouping.uncheck()
+  await expect(renameResult.getByRole('heading', { name: exactNewPath, exact: true })).toBeVisible()
+  const rawRenameOptions = renameFile.locator('option')
+  await expect(rawRenameOptions.filter({ hasText: exactOldPath })).toHaveCount(1)
+  await expect(rawRenameOptions.filter({ hasText: exactNewPath })).toHaveCount(1)
+  await expect(rawRenameOptions.filter({ hasText: editedOldPath })).toHaveCount(1)
+  await expect(rawRenameOptions.filter({ hasText: editedNewPath })).toHaveCount(1)
+  await renameCompare.selectOption('unstaged')
+  await expect(renameResult.getByRole('checkbox', { name: /^Group possible renames/ })).toHaveCount(0)
+  await renameFile.selectOption('src/nested.md')
+  await expect(renameResult.getByRole('heading', { name: 'src/nested.md', exact: true })).toBeVisible()
+  await renameResult.getByLabel('Review view').selectOption('full')
+  assert.equal(await renameResult.getByLabel('Index · Regular file').textContent(), 'captured-nested-index-v1\n')
+  assert.equal(await renameResult.getByLabel('Working tree · Regular file').textContent(), 'review-working-only-v3\n')
+  assert.equal(endpoint.requests.length, modelRequestsBeforeRenameReview, 'local rename review and grouping never dispatch a model request')
+  assert.deepEqual(await readWorkspace(run.page, session.id), beforeRenameReview,
+    'rename review and grouping do not mutate the saved conversation workspace')
+  await assertIndexUnchanged(repository, indexBeforeRenameReview)
+
   // A full packaged-process relaunch proves the remembered native grant and
   // durable saved snapshot are separate: reopening access does not auto-attach.
   await run.app.close()
@@ -304,6 +413,6 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     ['nested.md', 'ready', 'captured-nested-v2-before-refresh\n'],
   ])
   assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
-  console.log('[desktop-local-git-smoke] native dialog result fixture only · bundled Git + packaged reader/IPC/preload/renderer · tracked working edits and exclusions · explicit transient staged/unstaged review · index/sharedindex bytes+mtime unchanged · remembered relaunch · saved-only Attach/Refresh/review/model input · missing-source recovery · disconnect clears review, retains copy and revokes Refresh')
+  console.log('[desktop-local-git-smoke] native dialog result fixture only · bundled Git + packaged reader/IPC/preload/renderer · tracked working edits and exclusions · explicit transient staged/unstaged review · optional identical/edited possible-rename grouping with raw opt-out · index/sharedindex names+bytes+mtime unchanged · remembered relaunch · saved-only Attach/Refresh/review/model input · missing-source recovery · disconnect clears review, retains copy and revokes Refresh')
   return run
 }

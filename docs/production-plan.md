@@ -228,6 +228,29 @@ token. Dialog answers, relaunch spawning and that walk's mock keychain are
 explicit test fixtures, not manual OS-dialog or OS-encryption evidence. Separate
 ordinary packaged launches still prove OS-backed credential/auth persistence.
 
+### Captured possible-rename review (2026-10-07 UTC)
+
+PORT-29 extends the read-only review with optional grouping of staged additions
+and deletions. Unique identical text and conservatively scored edited text can
+pair old HEAD with new Index; every suggestion remains a possible move because
+copy-plus-delete is indistinguishable from these bytes. Ambiguous, unread and
+over-budget edited candidates stay as raw rows. Unstaged changes remain separate,
+and a fresh read or dismissed review resets grouping. This is a pure projection
+of the existing capture, not native Git rename detection or a new API authority.
+
+The duplicate-exact ambiguity guard was intentionally broken and its regression
+failed before restoration; bypassing grouping also failed the rendered old-to-new
+heading assertion. Independent cutoff and reverse-ambiguity mutations also failed.
+Pure locks cover UTF-8 weighting, exact line endings,
+input/work budgets and raw immutability. Browser acceptance covers opt-in/out,
+old-path selection, fresh-read/disposal resets, no implicit reads or writes and
+short/long paths across five viewports. Packaged acceptance creates actual staged
+moves in an isolated generated repository and checks exact old/new sides,
+unchanged index/sharedindex bytes and mtimes, saved context and model requests.
+Complete local verification, the general UI sweep and unsigned arm64 desktop
+verification remain required before landing; outcomes belong in the checkpoint
+handoff. Signed/Intel and broader real-provider/service acceptance remain open.
+
 ### Changed-line Git review (2026-10-06 UTC)
 
 PORT-27 turns the existing read-only Git capture into line-numbered changed
@@ -244,8 +267,8 @@ mutations were watched fail. Acceptance covers changed-line/full-file views,
 pagination, long lines, mode-only and empty changes, omission/fallback, native
 read counts, account disposal and the five-viewport accessibility matrix.
 The complete local verifier, general UI sweep and packaged Git walk remain the
-delivery gates. This does not add rename detection, Git writes, live status,
-model access, or signed/Intel evidence.
+delivery gates. PORT-29 separately adds possible-rename hints; neither adds Git
+writes, live status, model access, or signed/Intel evidence.
 
 ### Saved Discussion context (2026-10-06 UTC)
 

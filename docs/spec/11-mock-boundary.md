@@ -89,7 +89,9 @@ imports remain valid. Native local Git Attach/Refresh now
 captures bounded tracked working-tree text into a portable saved snapshot
 (CTX-FS-25). Explicit read-only Git review on that connection's page now shows
 real bounded HEAD/index/working-tree comparisons (PORT-25), kept only in local
-account-scoped memory and never sent to a model. Existing demo repository panels
+account-scoped memory and never sent to a model. PORT-27 adds exact changed-line
+views and PORT-29 optional possible-rename hints over those captured bytes, not
+recorded Git operations or new read/write authority. Existing demo repository panels
 and terminal surfaces remain fixtures. Recursive folder selection, rich remote document fidelity and signed
 two-architecture acceptance remain production work.
 

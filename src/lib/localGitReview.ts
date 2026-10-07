@@ -1,5 +1,6 @@
 import type { GitReviewChange, GitReviewSide, LocalGitReviewFile } from '../../contract/localGitReview.mjs'
 import type { TextDiffSide } from './textDiff.ts'
+import type { GitRenameSuggestion } from './gitRenameSuggestions.ts'
 
 export type GitComparison = 'staged' | 'unstaged'
 export const GIT_CHANGE_LABELS: Record<GitReviewChange, string> = {
@@ -24,8 +25,27 @@ export function gitReviewSide(side: GitReviewSide, label: string): TextDiffSide 
     : { label, notice: omissionCopy[side.reason] }
 }
 
-export function gitReviewComparison(file: LocalGitReviewFile, comparison: GitComparison) {
+export function gitReviewComparison(file: LocalGitReviewFile, comparison: GitComparison, previous?: LocalGitReviewFile) {
+  if (comparison === 'staged' && previous) return {
+    before: gitReviewSide(previous.head, `HEAD · ${previous.path}`),
+    after: gitReviewSide(file.index, `Index · ${file.path}`),
+  }
   return comparison === 'staged'
     ? { before: gitReviewSide(file.head, 'HEAD'), after: gitReviewSide(file.index, 'Index') }
     : { before: gitReviewSide(file.index, 'Index'), after: gitReviewSide(file.working, 'Working tree') }
+}
+
+export type GitReviewEntry = { file: LocalGitReviewFile; previous?: LocalGitReviewFile; suggestion?: GitRenameSuggestion }
+
+/** Project only the staged list. Raw rows remain authoritative, and destination
+ * paths remain the controller's selection identity across grouping changes. */
+export function gitReviewEntries(files: readonly LocalGitReviewFile[], comparison: GitComparison, pairs: readonly GitRenameSuggestion[] = []): GitReviewEntry[] {
+  const byPath = new Map(files.map(file => [file.path, file]))
+  const grouped = comparison === 'staged' ? pairs : []
+  const oldPaths = new Set(grouped.map(pair => pair.fromPath))
+  const newPaths = new Map(grouped.map(pair => [pair.toPath, pair]))
+  return files.filter(file => file[comparison] !== 'unchanged' && !oldPaths.has(file.path)).map(file => {
+    const suggestion = newPaths.get(file.path)
+    return suggestion ? { file, previous: byPath.get(suggestion.fromPath)!, suggestion } : { file }
+  })
 }

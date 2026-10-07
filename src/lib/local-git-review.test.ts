@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { gitReviewSide, gitReviewComparison, GIT_CHANGE_LABELS } from './localGitReview.ts'
+import { gitReviewSide, gitReviewComparison, gitReviewEntries, GIT_CHANGE_LABELS } from './localGitReview.ts'
 import type { GitReviewSide, LocalGitReviewFile } from '../../contract/localGitReview.mjs'
 
 test('review projection distinguishes missing, empty and unavailable text without fabricating deletions', () => {
@@ -14,6 +14,26 @@ test('review projection distinguishes missing, empty and unavailable text withou
     assert.ok(side.notice!.length > 20)
   }
   assert.equal(new Set(reasons.map(reason => gitReviewSide({ kind: 'omitted', reason }, 'Working tree').notice)).size, reasons.length)
+})
+
+test('rename grouping preserves raw rows and independent unstaged input while comparing old HEAD with new index', () => {
+  const side = (text: string): GitReviewSide => ({ kind: 'text', text, mode: '100644' })
+  const previous: LocalGitReviewFile = { path: 'old.ts', staged: 'deleted', unstaged: 'unchanged', head: side('before'), index: { kind: 'missing' }, working: { kind: 'missing' } }
+  const file: LocalGitReviewFile = { path: 'new.ts', staged: 'added', unstaged: 'modified', head: { kind: 'missing' }, index: side('after'), working: side('working') }
+  const files = [file, previous]
+  const snapshot = structuredClone(files)
+  const suggestion = { fromPath: previous.path, toPath: file.path, match: 'similar' as const, sharedPercent: 85 }
+  assert.deepEqual(gitReviewEntries(files, 'staged', [suggestion]), [{ file, previous, suggestion }])
+  assert.deepEqual(gitReviewEntries(files, 'staged'), [{ file }, { file: previous }])
+  assert.deepEqual(gitReviewEntries(files, 'unstaged', [suggestion]), [{ file }])
+  assert.deepEqual(gitReviewComparison(file, 'staged', previous), {
+    before: { label: 'HEAD · old.ts · Regular file', text: 'before' },
+    after: { label: 'Index · new.ts · Regular file', text: 'after' },
+  })
+  assert.deepEqual(gitReviewComparison(file, 'unstaged', previous), {
+    before: { label: 'Index · Regular file', text: 'after' }, after: { label: 'Working tree · Regular file', text: 'working' },
+  })
+  assert.deepEqual(files, snapshot)
 })
 
 test('staged and unstaged comparison use the exact separate baseline sides and disclose executable mode', () => {
