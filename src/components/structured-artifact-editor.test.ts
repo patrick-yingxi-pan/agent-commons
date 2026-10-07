@@ -17,7 +17,11 @@ test('workbook reading and editing share an accessible identity-based tab strip 
   assert.match(tabs, /flex-wrap/, 'all tab labels fit the pane instead of hiding beyond a strip')
   assert.match(editor, /spreadsheetSheets\(body\)/, 'legacy and named sheets use one projection')
   assert.match(editor, /Undo removal/, 'removal is reversible before saving')
-  assert.match(editor, /onChange\(\{ type: 'workbook', sheets: next \}\)/, 'tab operations edit one complete draft')
+  assert.match(editor, /change\(\{ type: 'workbook', sheets: next \}\)/, 'tab operations edit one complete draft')
+  assert.match(editor, /const change = .*setPaste\(null\); onChange\(next\)/, 'ordinary edits invalidate paste Undo before updating the shared draft')
+  assert.match(editor, /const currentPaste = reconcileSheetPasteFeedback\(paste, body\)/, 'paste feedback goes through the shared invalidation rule')
+  assert.match(editor, /if \(currentPaste !== paste\) setPaste\(currentPaste\)/, 'a retired snapshot cannot reappear after an equal-body edit')
+  assert.match(editor, /data-sheet-paste-feedback/, 'the browser can enumerate live paste feedback')
 })
 
 test('structured artifact editor is one held whole-body owner draft with structural controls', () => {

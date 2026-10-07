@@ -160,7 +160,45 @@ export async function runArtifactSheetImportSmoke({ page, app, origin, fixtureRo
     assert.equal(saved.artifact.kind, 'sheet')
     assert.deepEqual(saved.body, imported.body)
     imported.id = id
+    if (imported.allVisible) {
+      await page.getByRole('button', { name: 'Edit sheet', exact: true }).click()
+      const editor = page.locator('[data-structured-artifact-editor]')
+      const cell = editor.getByRole('textbox', { name: 'Sheet row 1 value 2', exact: true })
+      // Fixture only the clipboard event, without touching the user's OS clipboard.
+      // The built editor, validation, explicit Save and durable body are real.
+      const paste = async text => cell.evaluate((node, source) => {
+        const clipboardData = new DataTransfer()
+        clipboardData.setData('text/plain', source)
+        node.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }))
+      }, text)
+      const text = '0007\t=1+1\n"line one\nline two"\t'
+      await paste(text)
+      await expect(editor.getByRole('status')).toContainText('Pasted 2 × 2 cells')
+      await expect(cell).toHaveValue('0007')
+      await editor.getByRole('button', { name: 'Undo paste', exact: true }).click()
+      await expect(cell).toHaveValue('00042')
+      await expect(editor.getByRole('textbox', { name: 'Sheet column 3', exact: true })).toHaveCount(0)
+      await paste(text)
+      await paste('bad\tshape\nshort')
+      await expect(editor.getByRole('status')).toContainText('Nothing was pasted.')
+      await expect(cell).toHaveValue('0007')
+      await editor.getByRole('button', { name: 'Save changes', exact: true }).click()
+      await expect(editor).toHaveCount(0)
+      imported.body = {
+        ...imported.body, revision: 1,
+        sheets: imported.body.sheets.map((sheet, index) => index === 0 ? {
+          ...sheet, columns: ['Metric', 'Value', 'Column 3'],
+          rows: [['Revenue', '0007', '=1+1'], ['', 'line one\nline two', '']],
+        } : sheet),
+      }
+      const updated = await page.evaluate(async artifactId => {
+        const response = await fetch('/api/v1/artifact-content')
+        if (!response.ok) throw new Error('Pasted workbook read failed.')
+        return (await response.json())[artifactId]
+      }, id)
+      assert.deepEqual(updated, imported.body, 'range paste preserves the second tab and saves one literal revision')
+    }
   }
-  console.log('[desktop-artifact-sheet-import-smoke] native dialog result · real CSV/TSV/XLSX readers + IPC · worksheet/all-visible selection · quoted/literal cells · header mapping · explicit adoption · exact saved Sheet and workbook bodies')
+  console.log('[desktop-artifact-sheet-import-smoke] native dialog result · real CSV/TSV/XLSX readers + IPC · worksheet/all-visible selection · quoted/literal cells · header mapping · explicit adoption · range paste/Undo/refusal/Save · exact saved Sheet and workbook bodies')
   return importedSheets
 }

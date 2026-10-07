@@ -119,6 +119,27 @@ language support are OS-dependent, not a promise of universal recognition.
 
 ## Progress and next milestones
 
+### Literal Sheet range paste (2026-10-06)
+
+ADAPT-40 adds bounded table paste to the shared creation and editing fields.
+TSV quoting preserves literal values, and one validated replacement grows the
+chosen worksheet without changing other tabs, notes or cells. Malformed and
+oversized pastes leave the draft untouched. Immediate Undo is fenced by the
+exact resulting body so a later edit from another pane cannot be overwritten;
+normal Save/Create and Cancel still own persistence. CSV/TSV file import and
+clipboard paste now share one parser instead of separate grammars.
+The production bundle gate caught a 502,641-byte section dependency graph
+against its unchanged 500,000-byte ceiling. Saved editing now loads on demand
+behind announced local loading/failure, safe Cancel and explicit warned Reload;
+the shared memory draft and creation-runtime admission remain authoritative.
+
+Acceptance covers pure boundaries, creation/edit browser workflows at all five
+viewports, the full local verifier and UI sweep, plus built-renderer paste and
+source-independent relaunch in the unsigned arm64 package. The packaged paste
+event is a generated fixture, not OS-clipboard acceptance. No GitHub CI is used.
+MCP Contribution execution remains a separate pending design decision; release
+credentials, update hosting and native Intel acceptance remain open.
+
 ### Actual native PDF review acceptance (2026-10-06)
 
 The [native PDF record](acceptance/native-pdf-ocr-2026-10-06.md) adds actual macOS

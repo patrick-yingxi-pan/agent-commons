@@ -289,6 +289,8 @@ dialog ever ships without one, extract a `DIALOG_SURFACE` funnel the same way.
 
 | UI-186 | **A code-diff change marker has a textual equivalent without renaming a role-less element.** The shared raw comparison renders screen-reader text for Added/Removed/Unchanged alongside an assistive-hidden visible symbol; color alone never carries the distinction. | `src/components/TextDiffCode.tsx` | `src/components/local-git-ui.test.ts`; `e2e/local-git-review.spec.ts` | The first changed-line browser matrix failed WCAG at 320×700 because `aria-label` on a generic empty span was prohibited. The shared marker now uses ordinary hidden text, and the exclusion-free scan covers all five viewports. |
 
+| UI-187 | **An immediate draft Undo cannot resurrect after an observed intervening edit.** Every sheet-paste feedback state is reconciled against the current shared body and permanently retired on mismatch, including edits from duplicate panes followed by restoration of equal text. Rejection without an edit retains the last valid Undo; Save holds disable it. | `src/lib/sheetPaste.ts`; `src/components/StructuredArtifactEditor.tsx` | `src/lib/sheet-paste.test.ts`; `src/components/structured-artifact-editor.test.ts`; `e2e/sheet-paste.spec.ts` | Sheet-paste review, 2026-10-06: a visibility-only equality guard re-exposed an old whole-body snapshot after a second pane changed and restored a value. The duplicate-pane browser assertion failed before permanent retirement was added; `data-sheet-paste-feedback` enumerates the shared feedback surface. |
+
 ## The ratchet procedure
 
 When a UI escape is confirmed (by a user report or a `/ui-review` sweep):

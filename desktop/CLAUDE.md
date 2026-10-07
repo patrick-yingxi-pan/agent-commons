@@ -91,9 +91,9 @@ keeps first-row/headerless mapping and exact saved identity/body checks separate
 from the attachment driver; it is excluded from the shipped package. Only the native dialog result
 is a fixture; reader/IPC, extraction, review, explicit adoption and keyed
 creation stay real. It verifies exact canonical bodies and reuses its existing
-full app relaunch after deleting the source files. This is not actual OS-dialog
-interaction, rich Office conversion, or a replacement for OS-backed keychain
-acceptance in the separate ordinary executable smoke.
+full app relaunch after deleting source files, including exact range-pasted workbooks
+after Undo/refusal/Save. Synthetic paste leaves the OS clipboard untouched. This is not OS-dialog
+interaction, rich Office conversion, or OS-backed keychain acceptance (ordinary executable smoke).
 
 The native [CSV/TSV](../docs/acceptance/native-sheet-2026-10-04.md) and
 [selected XLSX worksheet](../docs/acceptance/native-workbook-2026-10-04.md) reviews

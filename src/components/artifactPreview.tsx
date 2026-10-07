@@ -58,7 +58,7 @@ import { InlineOperationStatus } from './InlineOperationStatus'
 import { normalizeArtifactName } from '../../contract/index.ts'
 import { HOVER_CUE } from '../lib/hoverReveal'
 import { StructuredArtifactView } from './DeferredStructuredArtifactView'
-import { StructuredArtifactEditor } from './StructuredArtifactEditor'
+import { StructuredArtifactEditor } from './DeferredStructuredArtifactEditor'
 import {
   isStructuredArtifactMutationHeld,
   useStructuredArtifactMutationStatus,

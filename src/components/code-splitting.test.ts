@@ -309,6 +309,19 @@ test('Contribution review admits its panel and exact mutation runtime behind a l
   assert.match(deferred, /data-contribution-review-load="loading"/)
 })
 
+test('saved structured editing admits its fields only behind cancelable local loading and failure', () => {
+  const page = stripComments(read(join(ROOT, 'src/components/artifactPreview.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredStructuredArtifactEditor.tsx')))
+  assert.match(page, /import \{ StructuredArtifactEditor \} from '\.\/DeferredStructuredArtifactEditor'/)
+  assert.doesNotMatch(page, /from '\.\/StructuredArtifactEditor'/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/StructuredArtifactEditor\.tsx'\)/)
+  assert.match(deferred, /data-structured-editor-load/)
+  assert.match(deferred, /getDerivedStateFromError/)
+  assert.match(deferred, /disabled=\{saving\} onClick=\{onCancel\}/)
+  assert.match(deferred, /Copy any unsaved workspace text before reloading/)
+  assert.match(deferred, /window\.location\.reload\(\)/)
+})
+
 test('structured artifact bodies load through one shared announced boundary', () => {
   const consumers = [
     'artifactPreview.tsx',

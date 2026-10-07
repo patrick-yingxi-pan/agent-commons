@@ -12,6 +12,7 @@ import { LOCAL_TEXT_PREVIEW_BYTES } from '../../contract/localTextFile.mjs'
 import { normalizeArtifactName } from '../../contract/artifactMetadata.ts'
 import { parseWorkbookImportResult, parseWorkbookSnapshot, type WorkbookSnapshot } from '../../contract/workbookImport.ts'
 import { isXlsxFileName, xlsxImportCopy } from '../../contract/xlsxImport.mjs'
+import { parseDelimitedText } from './delimitedText.ts'
 import type { UiHostFile } from './uiHostFs.ts'
 
 const MAX_IMPORTED_RECORDS = MAX_AUTHORED_SHEET_ROWS + 1
@@ -36,73 +37,6 @@ function importedName(name: string): string {
   const leaf = name.trim().split(/[\\/]/).at(-1) ?? ''
   const dot = leaf.lastIndexOf('.')
   return normalizeArtifactName(`${dot > 0 ? leaf.slice(0, dot) : leaf}.xlsx`) ?? 'imported-sheet.xlsx'
-}
-
-function parseDelimited(source: string, delimiter: ',' | '\t'): string[][] | undefined {
-  const rows: string[][] = []
-  let row: string[] = []
-  let cell = ''
-  let quoted = false
-  let closedQuote = false
-
-  const finishCell = () => {
-    row.push(cell)
-    cell = ''
-  }
-  const finishRow = () => {
-    finishCell()
-    rows.push(row)
-    row = []
-  }
-  const isBreak = (char: string) => char === '\r' || char === '\n'
-
-  for (let index = 0; index < source.length; index += 1) {
-    const char = source[index]
-    if (quoted) {
-      if (char !== '"') {
-        cell += char
-        continue
-      }
-      if (source[index + 1] === '"') {
-        cell += '"'
-        index += 1
-      } else {
-        quoted = false
-        closedQuote = true
-      }
-      continue
-    }
-
-    if (closedQuote) {
-      if (char === delimiter) {
-        finishCell()
-        closedQuote = false
-      } else if (isBreak(char)) {
-        finishRow()
-        closedQuote = false
-        if (char === '\r' && source[index + 1] === '\n') index += 1
-      } else {
-        return undefined
-      }
-      continue
-    }
-
-    if (char === '"') {
-      if (cell.length !== 0) return undefined
-      quoted = true
-    } else if (char === delimiter) {
-      finishCell()
-    } else if (isBreak(char)) {
-      finishRow()
-      if (char === '\r' && source[index + 1] === '\n') index += 1
-    } else {
-      cell += char
-    }
-  }
-
-  if (quoted) return undefined
-  if (cell.length > 0 || row.length > 0 || closedQuote) finishRow()
-  return rows.length ? rows : undefined
 }
 
 function columnLabel(index: number): string {
@@ -140,7 +74,7 @@ export function reviewArtifactSheetImport(
   if (file.text.length > LOCAL_TEXT_PREVIEW_BYTES || new TextEncoder().encode(file.text).byteLength > LOCAL_TEXT_PREVIEW_BYTES) return { status: 'error', message: 'Choose a valid UTF-8 CSV or TSV file under 256 KiB.' }
   const source = file.text.startsWith('\uFEFF') ? file.text.slice(1) : file.text
   const delimiter: ',' | '\t' = /\.tsv$/i.test(file.name) ? '\t' : ','
-  const records = parseDelimited(source, delimiter)
+  const records = parseDelimitedText(source, delimiter)
   if (!records) return { status: 'error', message: 'The selected sheet has malformed CSV/TSV quoting or no records.' }
   if (records.length > MAX_IMPORTED_RECORDS) return { status: 'error', message: `The selected sheet exceeds the ${MAX_IMPORTED_RECORDS} record import limit.` }
   const width = records[0]?.length ?? 0

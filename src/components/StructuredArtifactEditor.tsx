@@ -18,6 +18,7 @@ import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { WorkbookTabs } from './WorkbookTabs'
+import { pasteSheetCells, reconcileSheetPasteFeedback, type SheetPasteFeedback, type SpreadsheetBody } from '../lib/sheetPaste'
 
 type Props = {
   body: StructuredArtifactBody
@@ -83,9 +84,28 @@ function WorkbookEditor({ body, onChange, disabled }: {
   const sheets = spreadsheetSheets(body)
   const [selected, select] = useState(sheets[0]!.id)
   const [removed, setRemoved] = useState<{ sheet: typeof sheets[number]; index: number } | null>(null)
+  const [paste, setPaste] = useState<SheetPasteFeedback | null>(null)
+  const change = (next: SpreadsheetBody) => { setPaste(null); onChange(next) }
   const active = sheets.find(sheet => sheet.id === selected) ?? sheets[0]!
   const index = sheets.indexOf(active)
-  const setSheets = (next: typeof sheets) => onChange({ type: 'workbook', sheets: next })
+  const setSheets = (next: typeof sheets) => change({ type: 'workbook', sheets: next })
+  // A duplicate pane may edit the shared draft. Never undo across a later edit.
+  const currentPaste = reconcileSheetPasteFeedback(paste, body)
+  // Adjust this component's state before children render; equal text restored
+  // by a later edit must not resurrect a retired Undo snapshot.
+  if (currentPaste !== paste) setPaste(currentPaste)
+  const pasteCells = (row: number, column: number, text: string) => {
+    if (disabled) return true
+    const result = pasteSheetCells(body, active.id, row, column, text)
+    if (result.kind === 'native') return false
+    if (result.kind === 'error') setPaste({ ...currentPaste, message: result.message, error: true, after: JSON.stringify(body) })
+    else {
+      setPaste({ message: `Pasted ${result.rows} × ${result.columns} cells into this draft.`, error: false,
+        before: body, after: JSON.stringify(result.body) })
+      onChange(result.body)
+    }
+    return true
+  }
   const move = (delta: number) => {
     const target = index + delta
     if (target < 0 || target >= sheets.length) return
@@ -101,7 +121,7 @@ function WorkbookEditor({ body, onChange, disabled }: {
     select(sheet.id)
   }
   return <div className="min-w-0 space-y-2">
-    <WorkbookTabs sheets={sheets} activeId={active.id} onSelect={select}>
+    <WorkbookTabs sheets={sheets} activeId={active.id} onSelect={id => { setPaste(null); select(id) }}>
       <div className="space-y-2">
         <label className="block text-[11px] text-ink-soft">Worksheet name
           <input aria-label="Worksheet name" maxLength={MAX_WORKBOOK_SHEET_NAME_CHARS} className={`${FORM_INPUT_CLASS} mt-1 w-full`} value={active.name} disabled={disabled}
@@ -117,11 +137,16 @@ function WorkbookEditor({ body, onChange, disabled }: {
             select(sheets[index === 0 ? 1 : index - 1]!.id)
           }}><Minus size={12} /> Remove worksheet</button>
         </div>
-        <SheetEditor body={active} disabled={disabled} onChange={({ columns, rows, note }) => {
+        <SheetEditor body={active} disabled={disabled} onPasteCells={pasteCells} onChange={({ columns, rows, note }) => {
           const grid = { columns, rows, ...(note === undefined ? {} : { note }) }
-          if (body.type === 'sheet') onChange({ type: 'sheet', ...grid })
+          if (body.type === 'sheet') change({ type: 'sheet', ...grid })
           else setSheets(sheets.map(sheet => sheet.id === active.id ? { id: sheet.id, name: sheet.name, ...grid } : sheet))
         }} />
+        {currentPaste && <div role="status" data-sheet-paste-feedback className={`flex flex-wrap items-center gap-2 text-[11px] ${currentPaste.error ? 'text-danger-text' : 'text-ink-soft'}`}>
+          <span>{currentPaste.message}</span>
+          {currentPaste.before && <button type="button" data-inline-action className={buttonClass} disabled={disabled}
+            onClick={() => change(currentPaste.before!)}>Undo paste</button>}
+        </div>}
       </div>
     </WorkbookTabs>
     {removed && <div role="status" className="flex flex-wrap items-center gap-2 text-[11px] text-ink-soft">
@@ -141,10 +166,12 @@ function WorkbookEditor({ body, onChange, disabled }: {
 function SheetEditor({
   body,
   onChange,
+  onPasteCells,
   disabled,
 }: {
   body: SheetGrid
   onChange: (body: SheetGrid) => void
+  onPasteCells: (row: number, column: number, text: string) => boolean
   disabled: boolean
 }) {
   const setColumn = (index: number, value: string) => onChange({ ...body, columns: body.columns.map((column, i) => i === index ? value : column) })
@@ -162,6 +189,7 @@ function SheetEditor({
         <button type="button" data-inline-action className={buttonClass} disabled={disabled || body.columns.length >= MAX_AUTHORED_SHEET_COLUMNS} onClick={addColumn}><Plus size={12} /> Add column</button>
         <button type="button" data-inline-action className={buttonClass} disabled={disabled || body.rows.length >= MAX_AUTHORED_SHEET_ROWS} onClick={addRow}><Plus size={12} /> Add row</button>
       </div>
+      <p className="text-[11px] leading-relaxed text-ink-faint">Paste a table into its first cell: tabs separate columns, line breaks start rows. The range replaces existing cells and expands this worksheet as needed. Review before saving; values stay literal.</p>
       <div className="@container max-w-full overflow-x-auto rounded-lg border border-line" tabIndex={0} role="region" aria-label="Edit sheet">
         <table className="min-w-full border-collapse text-[12px]">
           <thead><tr className="bg-panel-2">
@@ -173,7 +201,8 @@ function SheetEditor({
           </tr></thead>
           <tbody>{body.rows.map((row, rowIndex) => <tr key={rowIndex} className="border-t border-line">
             {body.columns.map((_, columnIndex) => <td key={columnIndex} className="min-w-24 border-l border-line p-1.5 align-top first:border-l-0">
-              <textarea aria-label={`Sheet row ${rowIndex + 1} value ${columnIndex + 1}`} maxLength={MAX_AUTHORED_CELL_CHARS} className={`${FORM_INPUT_CLASS} min-w-24 resize-y`} rows={2} disabled={disabled} value={row[columnIndex] ?? ''} onChange={(event) => setCell(rowIndex, columnIndex, event.target.value)} />
+              <textarea aria-label={`Sheet row ${rowIndex + 1} value ${columnIndex + 1}`} maxLength={MAX_AUTHORED_CELL_CHARS} className={`${FORM_INPUT_CLASS} min-w-24 resize-y`} rows={2} disabled={disabled} value={row[columnIndex] ?? ''} onChange={(event) => setCell(rowIndex, columnIndex, event.target.value)}
+                onPaste={event => { if (onPasteCells(rowIndex, columnIndex, event.clipboardData.getData('text/plain'))) event.preventDefault() }} />
             </td>)}
             <td className="p-1 align-top"><button type="button" aria-label={`Remove sheet row ${rowIndex + 1}`} className="text-ink-faint hover:text-ink" disabled={disabled || body.rows.length <= 1} onClick={() => removeRow(rowIndex)}><Minus size={13} /></button></td>
           </tr>)}</tbody>
