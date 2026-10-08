@@ -6,7 +6,59 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: search saved conversation text
+## Current checkpoint: packaged conversation search and relaunch
+
+The browser checkpoint landed at `37b14c3f`: all five local verifier lanes passed,
+including 578 browser tests. The broad sweep covered 135/135 cells with zero
+violations/skips, and the final five-size search matrix repeated after its help
+copy correction. That evidence does not yet prove the packaged Electron path.
+
+The new acceptance extends the existing ordinary Discussion lifecycle, profile,
+local model fixture and signed-in relaunch. It creates 44 exact saved messages,
+placing the first of two matches outside the initial 40-message read. Owner and
+shared-reader search must open that exact turn through real earlier-history
+loading; an ungranted account must neither discover nor read the conversation.
+Search cannot mutate its messages or invoke the model. Reload and Back retain
+the canonical conversation URL without treating transient focus as a bookmark.
+Read-only SQLite checks compare exact IDs and bodies before quit, after process
+exit and after relaunch; the helper remains outside the shipped application.
+
+Required evidence is a rebuilt host-architecture package, a deliberately broken
+search-target check rejected by the native workflow, reviewed native captures,
+the complete packaged smoke and final full local verifier. This checkpoint
+changes acceptance code, not rendered product surfaces; the prior responsive
+matrix remains applicable unless native acceptance discovers a product defect.
+Unsigned Apple Silicon evidence does not close signed/notarized distribution,
+native Intel, public hosting or real-service acceptance. The pending Artifact
+context and Contribution execution decisions remain separate; no GitHub CI is used.
+
+The rebuilt unsigned arm64 package passed its packaging checks. A test-only
+response mutation replaced a real message match with a nonexistent target; the
+native exact-turn assertion rejected it. Review also added an explicit empty
+foreign-account search API assertion, independently of UI filtering, with a
+failing-then-passing lock. The complete unmodified packaged run and final local
+verifier remain the landing gates; neither result is inferred from these checks.
+The first normal native run reached the exact highlighted turn but exposed a
+test-only paragraph assertion: DOM text nodes concatenate Markdown paragraphs.
+The assertion now reads visible text, retaining the exact content expectation;
+the independent HTTP and SQLite comparisons still check every original byte.
+The next complete native run passed, but visual review caught landing captures
+midway through the real message fade-in. The helper now waits for full opacity
+before asserting the highlight and capturing evidence; its lock failed before
+that correction. Final native captures and the complete verifier are repeated
+on the frozen corrected tree, without changing the renderer or its animations.
+
+The corrected complete `npm run desktop:smoke` passed on the unchanged unsigned
+arm64 package (ASAR SHA-256
+`000fcd37a82c3a32593790ee9d359ef8e59d48fea85e1588abbe18b2eb3f494e`).
+Its real signed-in relaunch retained all 44 exact messages; all ten search
+captures were reviewed with readable text, visible exact-turn highlights and
+distinct owner/shared/foreign states. The built ASAR contains no search acceptance
+helper. Existing credential, import/OCR, export, MCP, backup and restore phases
+also passed. Final full local verification and post-test diff review remain
+required before committing and pushing this checkpoint to `main`.
+
+## Completed checkpoint: search saved conversation text
 
 Global search now includes current user/assistant text in human-initiated
 conversations, including conversations readable through an explicit grant.

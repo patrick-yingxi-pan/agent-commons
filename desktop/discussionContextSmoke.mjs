@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
+import { prepareConversationSearchSmoke, verifyConversationSearchSmoke, readSqliteConversationSearch } from './conversationSearchSmoke.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const TIMEOUT_MS = 30_000
@@ -196,6 +197,15 @@ export async function smokePackagedDiscussionContext({ executable, launch, close
     await request(page, '/auth/session', { userId: owner.user.id })
     await page.goto(`${origin}${route}`)
 
+    stage = 'global-conversation-search-before-relaunch'
+    const conversationSearchFixture = await prepareConversationSearchSmoke({
+      page, origin, request, providerId: provider.id, model: fixture, owner, reader, stamp: Date.now().toString(36),
+    })
+    await verifyConversationSearchSmoke({ page, origin, request, model: fixture,
+      fixture: conversationSearchFixture, evidenceDirectory, phase: 'before-relaunch' })
+    const conversationSearchBeforeQuit = readSqliteConversationSearch(profile, conversationSearchFixture)
+    await page.goto(`${origin}${route}`)
+
     stage = 'delete-source-and-full-relaunch'
     const currentSource = await page.request.get(`${origin}/api/v1${sourcePath}`)
     assert.equal(currentSource.status(), 200)
@@ -209,11 +219,14 @@ export async function smokePackagedDiscussionContext({ executable, launch, close
     assert.deepEqual(beforeQuit.viewerPreferences.panelFocus, {
       kind: 'discussion', id: beforeQuit.workspace.attachments[0].id,
     }, 'the owner has a saved open-panel preference before relaunch')
+    const modelRequestsBeforeQuit = fixture.requests.length
     const oldOrigin = origin
     await close(run)
     run = undefined
     await assert.rejects(fetch(`${oldOrigin}/api/v1/me`, { signal: AbortSignal.timeout(1_000) }))
     assert.deepEqual(saved(), refreshed, 'exact saved Discussion bytes remain in SQLite after process exit')
+    assert.deepEqual(readSqliteConversationSearch(profile, conversationSearchFixture), conversationSearchBeforeQuit,
+      'the exact search transcript is committed before relaunch')
     run = await launch(executable, profile)
     ;({ page, origin } = run)
     await page.setViewportSize({ width: 1280, height: 800 })
@@ -227,7 +240,7 @@ export async function smokePackagedDiscussionContext({ executable, launch, close
     panel = page.locator('[data-discussion-context-panel]').filter({ visible: true })
     await expect(panel).toBeVisible({ timeout: TIMEOUT_MS })
     await expect(panel.getByRole('textbox', { name: 'Saved discussion copy', exact: true })).toHaveValue(refreshed.text)
-    assert.equal(fixture.requests.length, 3, 'relaunch never automatically sends a model request')
+    assert.equal(fixture.requests.length, modelRequestsBeforeQuit, 'relaunch never automatically sends a model request')
     await send(page, fixture, sessionPath, 'Read the saved copy after its source was deleted and the app relaunched.', refreshed)
     await page.screenshot({ path: join(evidenceDirectory, 'source-absent-relaunch.png') })
     assert.deepEqual(sourceReads, [], 'saved-copy preview, shared reading, reload and sends never request per-Discussion detail')
@@ -241,15 +254,29 @@ export async function smokePackagedDiscussionContext({ executable, launch, close
     await send(page, fixture, sessionPath, 'A new turn with no Discussion attached.', undefined)
     assert.deepEqual(await request(page, `${sessionPath}/contexts`), [])
     await page.screenshot({ path: join(evidenceDirectory, 'detached.png') })
+
+    stage = 'global-conversation-search-after-relaunch'
+    await verifyConversationSearchSmoke({ page, origin, request, model: fixture,
+      fixture: conversationSearchFixture, evidenceDirectory, phase: 'after-relaunch' })
+    assert.deepEqual(readSqliteConversationSearch(profile, conversationSearchFixture), conversationSearchBeforeQuit,
+      'ordinary signed-in relaunch preserves the exact search transcript without rewrites')
     const asarPath = join(dirname(executable), process.platform === 'darwin' ? '../Resources/app.asar' : 'resources/app.asar')
     const hash = value => createHash('sha256').update(value).digest('hex')
     await writeFile(join(evidenceDirectory, 'receipt.json'), `${JSON.stringify({
       checkedAt: new Date().toISOString(), asarSha256: hash(await readFile(asarPath)),
       requestCount: fixture.requests.length, initialTranscriptSha256: hash(initial.text),
       refreshedTranscriptSha256: hash(refreshed.text), postCounts: [initial.postCount, refreshed.postCount],
+      conversationSearch: {
+        sessionId: conversationSearchFixture.sessionId, target: conversationSearchFixture.target,
+        messageCount: conversationSearchBeforeQuit.messages.length,
+        transcriptSha256: hash(JSON.stringify(conversationSearchBeforeQuit.messages)),
+        exactOlderTurnBeforeAndAfterRelaunch: true, ownerSharedForeign: true,
+        readOnlyNavigation: true, canonicalReloadAndBackWithoutTransientHighlight: true,
+      },
       scope: 'Ordinary unsigned host-architecture package; local model fixture only. Not paid-provider, signed/notarized or Intel acceptance.',
     }, null, 2)}\n`, { mode: 0o600 })
     console.log('[desktop-discussion-smoke] rendered Attach + disclosure · exact model wire · explicit Refresh · destination-only reader · source deletion · SQLite + signed-in full relaunch · saved-only send · detach without erasing replies')
+    console.log('[desktop-conversation-search-smoke] exact older message · one conversation per result · owner/shared/foreign walls · read-only search · transient focus with canonical reload/Back · exact SQLite transcript + signed-in full relaunch')
     console.log(`[desktop-discussion-smoke] evidence ${evidenceDirectory}`)
   } catch (error) {
     if (run) await run.page.screenshot({ path: join(evidenceDirectory, 'failure.png') }).catch(() => {})

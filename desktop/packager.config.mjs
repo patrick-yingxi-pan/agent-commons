@@ -99,6 +99,7 @@ export function ignoreFromPackage(path) {
       'desktop/discussionContextSmoke.mjs',
       'desktop/artifactHistorySmoke.mjs',
       'desktop/artifactSearchSmoke.mjs',
+      'desktop/conversationSearchSmoke.mjs',
       'desktop/artifactDocumentEditSmoke.mjs',
       'desktop/artifactDocumentMigrationFixture.mjs',
       'desktop/contributionReviewSmokeFixture.mjs',
