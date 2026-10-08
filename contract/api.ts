@@ -70,6 +70,8 @@ export interface Capabilities {
     /** Development-only Dispatch, commissioned effects and Agent proxy fixtures.
      * Never represents real execution or grants unattended tool authority. */
     simulatedAutomation: boolean
+    /** Explicit Agent/endpoint Dispatch with a private conversation result. */
+    dispatchExecution: boolean
     /** Stream assistant replies token-by-token (SSE). */
     streaming: boolean
     /** The account switcher (multi-account design §5.6, revised; §13): whether
@@ -253,6 +255,9 @@ export interface PushRecentRequest {
 export interface CreateDispatchRequest {
   title: string
   detail?: string
+  /** Explicit real execution. Absence retains the development-only fixture;
+   * release profiles never infer an Agent/model from legacy requests. */
+  execution?: import('./dispatchExecution.ts').DispatchBinding
 }
 
 /** Body of `POST /v1/schedules` — materialize one template seed. Identity is

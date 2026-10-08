@@ -345,4 +345,13 @@ export interface DispatchRun {
    *  "started 4 minutes ago" while running, "4 minutes ago" once it's settled. */
   startedAt: number
   detail: string
+  /** Absent on historical simulations. A real run owns one ordinary private
+   * conversation; replied means a model reply is saved, not that its proposed
+   * external actions were executed. Interrupted work never resumes itself. */
+  execution?: import('./dispatchExecution.ts').DispatchBinding & {
+    kind: 'conversation'
+    sessionId: string
+    state: 'running' | 'replied' | 'failed' | 'interrupted' | 'cancelled'
+    messageId?: string
+  }
 }

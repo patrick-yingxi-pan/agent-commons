@@ -8,11 +8,6 @@ export function automationPresentation(simulatedAutomation: boolean | undefined)
   const { state } = availability
   return {
     ...availability,
-    dispatch: state === 'fixture'
-      ? 'Development simulation. Dispatch does not run an Agent or call tools. Feed statuses describe simulated runs.'
-      : state === 'unavailable'
-        ? 'Dispatch execution is not available in this release. No Agent will run. Existing feed entries are simulations, not execution receipts. Start a conversation or use a configured Routine.'
-        : 'Dispatch availability could not be confirmed. No Agent will run. Existing feed entries are simulations, not execution receipts.',
     standing: state === 'fixture'
       ? 'Development simulation only: eligible posted work may be marked done without running an Agent or calling tools. This setting does not grant real unattended execution.'
       : state === 'unavailable'

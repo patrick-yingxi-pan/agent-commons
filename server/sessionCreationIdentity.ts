@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { isDispatchSessionId } from './dispatchIdentity.ts'
 
 const DRAFT_SESSION_CREATION_ID = /^sess-new-[a-f0-9]{24}$/
 const FORK_SESSION_CREATION_ID = /^sess-fork-[a-f0-9]{24}$/
@@ -25,4 +26,4 @@ export function sessionForkCreationId(tenantId: string, idempotencyKey: string):
 export const isDraftSessionCreationId = (id: string): boolean => DRAFT_SESSION_CREATION_ID.test(id)
 export const isForkSessionCreationId = (id: string): boolean => FORK_SESSION_CREATION_ID.test(id)
 export const isSessionCreationId = (id: string): boolean =>
-  isDraftSessionCreationId(id) || isForkSessionCreationId(id)
+  isDraftSessionCreationId(id) || isForkSessionCreationId(id) || isDispatchSessionId(id)

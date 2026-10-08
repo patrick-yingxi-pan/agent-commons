@@ -4,7 +4,7 @@ import { COMPOSITE_FEATURES, type CompositeCommandKind } from '../lib/compositeF
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { SECTION_META } from '../lib/sections'
 import { useCapabilities } from '../api'
-import { automationAvailability } from '../lib/automationAvailability.ts'
+import { dispatchAvailable } from '../lib/automationAvailability.ts'
 
 /** The compact rail projection of a composite root's page capabilities.
  *
@@ -23,8 +23,8 @@ export function CompositeRailControls({
 }) {
   const spec = COMPOSITE_FEATURES[section]
   const capabilities = useCapabilities()
-  const automation = automationAvailability(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
-  const primaryUnavailable = section === 'dispatch' && !automation.canSimulate
+  const canDispatch = dispatchAvailable(capabilities.status === 'error' ? undefined : capabilities.data?.features.dispatchExecution)
+  const primaryUnavailable = section === 'dispatch' && !canDispatch
   const items: RowMenuItem[] = []
   if (spec.primaryAction) {
     items.push({

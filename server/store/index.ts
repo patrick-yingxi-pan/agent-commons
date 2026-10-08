@@ -16,6 +16,8 @@
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
 import { automationRuntimeMode, requireAutomationFixture } from '../automationRuntime.ts'
+import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput } from '../../contract/dispatchExecution.ts'
+import { dispatchSessionId } from '../dispatchIdentity.ts'
 import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, prepareContributionMcpLines, currentContributionMcpLine, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
 import { createContributionEffectAttempt, settleContributionEffectAttempt, interruptContributionEffectAttempt, publicContributionEffectRun, contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX } from '../contributionEffectState.ts'
 import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
@@ -177,7 +179,7 @@ import { ARTIFACT_CONTENT } from '../data/artifactContent.ts'
 import { estimateTokens, mintBudget } from '../usage.ts'
 import { UsageRegistry } from '../usageRegistry.ts'
 import { mintAuthority } from '../authority.ts'
-import { ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
+import { CapabilityUnavailableError, ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MAX_DISCUSSION_POSTS, MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
@@ -3427,10 +3429,13 @@ function rehydrate(s: PersistedState): boolean {
   // in-flight forever — settle it to 'failed'. Seed runs (d1/d2/d3), 'running' for visual
   // variety, aren't live-minted, so they're left alone.
   if (s.dispatch) dispatch.splice(0, dispatch.length, ...s.dispatch)
+  let recoveredDispatch = false
   for (const run of dispatch) {
     if (run.status === 'running' && run.id.startsWith('d-new-')) {
       run.status = 'failed'
-      run.detail = 'Interrupted by a server restart'
+      if (run.execution) run.execution.state = 'interrupted'
+      else run.detail = 'Interrupted by a server restart'
+      recoveredDispatch = true
     }
   }
   // Seed reconciliation (the P9 rule — CODE seeds are authoritative): a snapshot
@@ -3694,7 +3699,7 @@ function rehydrate(s: PersistedState): boolean {
   materializeRunSessions()
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -4261,6 +4266,7 @@ export const store = {
         authGate: process.env.AUTH_GATE === 'require',
         scheduledExecution: true, // a remote server can run schedules too
         simulatedAutomation: automationRuntimeMode() === 'fixture',
+        dispatchExecution: true,
         streaming: true,
       },
     }
@@ -6719,6 +6725,11 @@ export const store = {
     }
     const [removed] = SESSIONS.splice(i, 1)
     if (isSessionCreationId(id)) retiredSessionCreationIds.add(id)
+    const dispatchIndex = dispatch.findIndex((run) => run.execution?.sessionId === id)
+    if (dispatchIndex !== -1) {
+      dispatch.splice(dispatchIndex, 1)
+      emit({ type: 'dispatch.changed' })
+    }
     sessionContextBindings.delete(id)
     sessionWorkspaces.delete(id)
     removeSessionPreferences(id)
@@ -6809,6 +6820,75 @@ export const store = {
   listDispatch(tenantId?: string): DispatchRun[] {
     if (!tenantId) return dispatch
     return dispatch.filter((d) => rowVisibleTo(d, tenantId))
+  },
+  /** Replay and retirement precede mutable registry/capacity gates. Never
+   * reconstitute a deleted result or infer a fresh run from an existing row. */
+  getRealDispatch(runId: string, tenantId: string): DispatchRun | 'retired' | undefined {
+    const represented = dispatch.find((run) => run.id === runId && run.tenantId === tenantId)
+    if (represented?.execution) return represented
+    if (retiredSessionCreationIds.has(dispatchSessionId(runId))) return 'retired'
+    return undefined
+  },
+  startRealDispatch(input: RealDispatchInput, tenantId: string, runId: string): DispatchRun {
+    const represented = this.getRealDispatch(runId, tenantId)
+    if (represented === 'retired') throw new NotFoundError('This Dispatch conversation was already removed.')
+    if (represented) return represented
+    if (dispatch.some((run) => run.id === runId)) throw new ConflictError('This key already represents a different Dispatch.')
+    const parsed = parseRealDispatchInput(input)
+    if (!parsed) throw new ValidationError('Dispatch requires a bounded task and explicit Agent, endpoint provider, and model.')
+    const { agentId, providerId, modelId } = parsed.execution
+    const agent = this.listAgents(tenantId).find((row) => row.id === agentId)
+    const provider = this.listProviders(tenantId).find((row) => row.id === providerId)
+    if (!agent || !provider) throw new NotFoundError('The selected Agent or model provider is unavailable.')
+    if (provider.kind === 'session') throw new ValidationError('Dispatch requires an endpoint model, not a Session provider.')
+    assertModelInCatalog(modelId, providerId, agentId)
+    if (provider.execution !== 'configured' && provider.execution !== 'mock') throw new CapabilityUnavailableError('Connect the selected model provider before starting Dispatch.')
+    const over = this.overSpendLimit(agent.budget, tenantId)
+    if (over) throw new LimitError(`Plan limit reached for '${over.label}'.`)
+    // A Dispatch starts immediately or retains the user's form for Retry. It
+    // never silently queues work that could later spend under changed authority.
+    const active = dispatch.filter((run) => run.execution?.state === 'running')
+    if (active.length >= 4 || active.filter((run) => run.tenantId === tenantId).length >= 2 ||
+      active.some((run) => run.tenantId === tenantId && run.execution?.agentId === agentId)) {
+      throw new LimitError('Dispatch capacity is busy. Retry when another run finishes (4 per instance, 2 per account, 1 per Agent).')
+    }
+    const sessionId = dispatchSessionId(runId)
+    if (SESSIONS.some((session) => session.id === sessionId)) throw new ConflictError('This Dispatch conversation identity is already in use.')
+    const run: DispatchRun = {
+      id: runId, tenantId, title: parsed.title.trim(), detail: parsed.detail?.trim() ?? '',
+      status: 'running', startedAt: Date.now(),
+      execution: { ...parsed.execution, kind: 'conversation', sessionId, state: 'running' },
+    }
+    return commitMutationBatch(() => {
+      mintSession({
+        id: sessionId, tenantId, title: run.title, preview: run.detail || run.title,
+        agentId, providerId, modelId,
+        messages: [{ id: this.mintMessageId('user'), role: 'user', content: dispatchPrompt(run.title, run.detail) }],
+      })
+      dispatch.unshift(run)
+      emit({ type: 'dispatch.changed' })
+      persist()
+      return run
+    })
+  },
+  /** One terminal transaction saves the real assistant/proposals and job face.
+   * Terminal replay, deletion and late callbacks can never restart this job. */
+  settleRealDispatch(runId: string, tenantId: string, outcome: GenerationOutcome, message?: Message): boolean {
+    const run = dispatch.find((candidate) => candidate.id === runId && candidate.tenantId === tenantId)
+    if (!run?.execution || run.execution.state !== 'running') return false
+    const session = SESSIONS.find((candidate) => candidate.id === run.execution!.sessionId && candidate.tenantId === tenantId)
+    if (!session) return false
+    return commitMutationBatch(() => {
+      if (message) {
+        this.appendMessage(session.id, message)
+        run.execution!.messageId = message.id
+      }
+      run.execution!.state = outcome === 'aborted' ? 'cancelled' : outcome === 'ok' && message ? 'replied' : 'failed'
+      run.status = run.execution!.state === 'replied' ? 'done' : 'failed'
+      emit({ type: 'dispatch.changed' })
+      persist()
+      return true
+    })
   },
   /** Kick off a one-off dispatch (a single on-demand agent run). It lands
    *  'running', broadcasts, then finishes 'done' a beat later (the mock stand-in

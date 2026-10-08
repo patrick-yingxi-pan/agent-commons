@@ -6,7 +6,68 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: truthful automation availability
+## Current checkpoint: real one-off Dispatch
+
+The approved workflow is implemented for local acceptance: explicitly select an
+Agent, endpoint connection and catalog model; launch one private conversation;
+open it to observe, Stop, review proposals or continue normally. The initial turn
+has the submitted instructions and no attached context; the selected Agent's
+instructions and permitted workspace tools still apply. External calls retain
+the existing per-call consent boundary. Authenticated remote MCP reaches the same
+tenant-scoped route and admission rules; in-session mutations remain proposals.
+
+Admission commits the exact task, binding and conversation before model I/O.
+The shared conversation executor removes duplicated model/consent logic. A reply
+and the run outcome commit together; “Reply ready” does not claim proposed effects
+were performed. There are four instance slots, two per account and one per
+account-Agent; busy requests retain explicit Retry rather than scheduling future
+spend. Restart records interruption without replay. Deleting the result removes
+the run and retires its logical key. Fixture history remains labeled Simulation.
+
+Focused route, executor, store and JSON/SQLite recovery tests pass. Snapshot
+tests caught and locked mixed legacy/real identity collisions. Historical Agent,
+provider and message references remain valid after legitimate conversation
+handoff or compaction. The old append-only UI merge was removed: query-owned
+generation fences now prevent delayed acknowledgements resurrecting deleted runs.
+
+The focused browser workflow passes all eight tests, including exact binding,
+held recovery, continuation and owner/foreign visibility. The full visual sweep
+passes 135/135 cells with zero violations or skips; all five screenshot columns
+and focused Dispatch/standing-work states were reviewed. The rebuilt unsigned
+arm64 desktop gate passes: its original executable saves the exact private reply,
+continues the conversation, persists a pending call before quitting, and recovers
+as Interrupted after a signed-in full relaunch. Same-key replay retains the exact
+job and Session without another model request. Only the local protocol peer is a
+model fixture; the native launcher, OS authentication and SQLite remain real.
+
+The broad sweep was stopped before the final scope-copy repair, then rerun in
+full on the corrected product revision. An initial native assertion incorrectly
+expected no tools at all; it now verifies the normal generated workspace API
+tools, with no external MCP tools. The complete native gate passed afterward.
+Removing the Dispatch helper exclusions and smoke import made both source guards
+fail; restoring them passed. The five-viewport scope-disclosure check also passes,
+including scroll reachability above the fixed footer. Remaining checkpoint gates:
+complete local verifier, diff review and push. No paid model/public MCP acceptance is implied.
+Next is the approved bounded unattended Routine MCP policy, using a separate
+versioned per-Routine grant and durable call receipts rather than reusing legacy
+context-level standing approval. No additional product decision is currently
+needed. Signing/notarization, Intel and public-service acceptance remain separate.
+
+Adversarial review found that interruption was initially changed only in memory:
+a current snapshot with no other recovery could remain running on disk until a
+later write. The verifier was stopped before edits. JSON and SQLite regressions
+both failed after adding a backing-store read immediately after startup, before
+Retry or deletion. Recovery now participates in the startup commit flag, and the
+native smoke also compares the recovered job directly with SQLite. The complete
+rebuilt native gate passed after this repair. The frozen complete local verifier
+remains the final test gate before diff review and push.
+
+## Completed checkpoint: truthful automation availability
+
+Shipped as `4a74158b`: five local verifier lanes and 602 browser tests passed,
+with 135/135 UI sweep cells and rebuilt unsigned arm64 desktop acceptance.
+The following records the pre-landing work; real Dispatch above supersedes the
+legacy UI gate without weakening release refusal of timer-based simulations.
 
 The owner approved both pending automation defaults on 2026-10-08:
 

@@ -128,8 +128,14 @@ calls per process, two per tenant and one per tenant/Agent. Operators can set
 `ROUTINE_MAX_CONCURRENT_PER_AGENT` to integers from 1–64; invalid values retain
 the respective default. Waiting work rechecks live authority and budget when
 admitted. Cancellation retains capacity until the underlying call settles.
-These limits cover Routines, not interactive turns or the still-simulated
-Dispatch feed, and do not reserve or guarantee a monetary spend ceiling.
+These settings cover Routines, not interactive turns, and do not reserve or
+guarantee a monetary spend ceiling. Real one-off Dispatch has separate immediate
+admission limits of four active calls per instance, two per account and one per
+account-Agent. It requires an explicit Agent, endpoint connection and catalog
+model, saves a private continuable conversation before model I/O, and never
+automatically repeats interrupted work. External tool calls keep their normal
+per-call consent. Historical timer-based Dispatch rows remain labeled Simulation;
+unbound creation remains a development-only fixture.
 
 ## Run it
 

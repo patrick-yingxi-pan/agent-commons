@@ -21,6 +21,7 @@ import { smokePackagedBundledGit } from './bundledGitSmoke.mjs'
 import { smokePackagedImageOcr } from './imageOcrSmoke.mjs'
 import { smokePackagedPdfOcr } from './pdfOcrSmoke.mjs'
 import { smokePackagedContributionReview } from './contributionReviewSmoke.mjs'
+import { smokePackagedDispatch } from './dispatchSmoke.mjs'
 import { smokePackagedDiscussionContext } from './discussionContextSmoke.mjs'
 import { smokePackagedArtifactHistory } from './artifactHistorySmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
@@ -547,6 +548,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   // real OS-backed storage; Playwright's main-process dialog fixture below must
   // neither reuse that profile nor compete with its single-instance lock.
   await smokePackagedContributionReview({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
+  await smokePackagedDispatch({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedDiscussionContext({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedArtifactHistory({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedAttachments({ executable })

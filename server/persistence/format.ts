@@ -42,6 +42,7 @@ import type {
   WorkItemComment,
 } from '../../contract/index.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
+import { validDispatchState } from '../dispatchState.ts'
 import { validStoredReviews, type StoredContributionReview } from '../contributionReviewState.ts'
 import { validStoredJudgments, type StoredDelegatedJudgment } from '../delegatedJudgmentState.ts'
 import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, type NormalizedEnvelopeProposalLine, type StoredContributionEnvelope, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
@@ -1189,6 +1190,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     state
       && (state.initialWorld === undefined || state.initialWorld === 'demo' || state.initialWorld === 'clean')
       && Array.isArray(state.sessions)
+      && validDispatchState(state.dispatch, state.sessions, state.retiredSessionCreationIds)
       && mcpActivitiesValid(state.sessions)
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)

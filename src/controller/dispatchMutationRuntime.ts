@@ -16,14 +16,14 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
     return { message: 'That dispatch belonged to the previous account. Dismiss it to continue.', retryable: false }
   }
   if (error instanceof ApiRequestError) {
-    if (error.status === 400 || error.status === 404) {
-      return { message: 'That dispatch is no longer valid. Dismiss it and review the task.', retryable: false }
+    if (error.status === 400 || error.status === 404 || error.status === 409) {
+      return { message: 'That dispatch cannot start. Dismiss it and review the task, Agent, and model connection.', retryable: false }
     }
     if (error.status === 401 || error.status === 403) {
       return { message: 'You no longer have permission to dispatch this task. Dismiss it to continue.', retryable: false }
     }
     if (error.status === 429) {
-      return { message: 'All dispatch slots are busy. Retry after a run finishes.', retryable: true }
+      return { message: 'Dispatch cannot start yet. Check the account budget or retry after another run finishes.', retryable: true }
     }
   }
   return {

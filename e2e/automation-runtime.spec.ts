@@ -1,8 +1,8 @@
-/** Rendered automation posture: development simulations stay explicitly
- * identified, while unknown and release-unavailable capabilities fail closed. */
+/** Rendered posture keeps real Dispatch execution separate from legacy
+ * simulations and the independent standing-work fixture boundary. */
 import { test, expect, type Page } from '@playwright/test'
 import { join } from 'node:path'
-import { DEFAULT_PROVIDER_ID, type OpenSubGoal, type Project } from '../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, type DispatchRun, type OpenSubGoal, type Project } from '../contract/index.ts'
 import { SP_DEFAULT_ID } from '../server/data/prompts.ts'
 import { assertWcag22Aa } from './accessibility-helpers.ts'
 import { ms } from './budget.ts'
@@ -14,9 +14,9 @@ const VIEWPORTS = [
 ]
 const REVIEW_DIR = join(process.cwd(), '.data', 'automation-runtime-review')
 
-const DEVELOPMENT_NOTICE = 'Development simulation. Dispatch does not run an Agent or call tools. Feed statuses describe simulated runs.'
-const UNAVAILABLE_NOTICE = 'Dispatch execution is not available in this release. No Agent will run. Existing feed entries are simulations, not execution receipts. Start a conversation or use a configured Routine.'
-const UNKNOWN_NOTICE = 'Dispatch availability could not be confirmed. No Agent will run. Existing feed entries are simulations, not execution receipts.'
+const AVAILABLE_DISPATCH_NOTICE = 'Run a task with your chosen Agent and model. Open its private conversation to follow progress, review proposed actions, or continue the work. External tool calls need your approval.'
+const UNAVAILABLE_DISPATCH_NOTICE = 'Dispatch execution is unavailable on this backend. Existing history is still readable.'
+const UNKNOWN_DISPATCH_NOTICE = 'Dispatch availability could not be confirmed. No task can be started.'
 const STANDING_UNAVAILABLE_NOTICE = 'Standing execution is not available. This setting is saved for coordination only; posted work stays open. It does not grant real unattended execution.'
 const WORK_UNAVAILABLE_NOTICE = 'Posting adds this to the Project backlog. Standing execution is unavailable, so new work stays open until a real workflow handles it.'
 const WORK_DEVELOPMENT_NOTICE = 'Posting adds this to the Project backlog. A standing contributor may simulate completion; no Agent or external tool runs.'
@@ -29,6 +29,38 @@ async function overrideAutomationCapability(page: Page, posture: 'false' | 'miss
     else delete capabilities.features.simulatedAutomation
     await route.fulfill({ response, body: JSON.stringify(capabilities) })
   })
+}
+
+async function overrideDispatchCapability(page: Page, posture: 'available' | 'unavailable' | 'unknown') {
+  await page.route('**/api/v1/capabilities', async (route) => {
+    const response = await route.fetch()
+    const capabilities = await response.json() as { features: Record<string, unknown> }
+    if (posture === 'unknown') delete capabilities.features.dispatchExecution
+    else capabilities.features.dispatchExecution = posture === 'available'
+    await route.fulfill({ response, body: JSON.stringify(capabilities) })
+  })
+}
+
+async function selectDispatchBinding(page: Page, dialog: import('@playwright/test').Locator) {
+  type AgentChoice = { id: string; providerId: string }
+  type ProviderChoice = {
+    id: string; kind?: string; execution?: string
+    models: Array<{ id: string }>
+  }
+  const [agentsResponse, providersResponse] = await Promise.all([
+    page.request.get('/api/v1/agents'), page.request.get('/api/v1/providers'),
+  ])
+  expect(agentsResponse.ok()).toBe(true)
+  expect(providersResponse.ok()).toBe(true)
+  const agents = await agentsResponse.json() as AgentChoice[]
+  const providers = await providersResponse.json() as ProviderChoice[]
+  const provider = providers.find((candidate) => candidate.id === DEFAULT_PROVIDER_ID &&
+    candidate.kind !== 'session' && candidate.execution !== 'unconfigured' && candidate.models.length > 0)
+  const choice = provider && { provider, agent: agents.find((candidate) => candidate.providerId === provider.id) }
+  expect(choice?.agent, 'the API fixture exposes a compatible Agent and configured model connection').toBeTruthy()
+  await dialog.getByRole("combobox", { name: "Agent", exact: true }).selectOption(choice!.agent!.id)
+  await dialog.getByRole("combobox", { name: "Model connection", exact: true }).selectOption(choice!.provider.id)
+  await dialog.getByRole("combobox", { name: "Model", exact: true }).selectOption(choice!.provider.models[0]!.id)
 }
 
 async function expectNoHorizontalOverflow(page: Page, width: number) {
@@ -60,64 +92,97 @@ async function expectRailDispatchUnavailable(page: Page) {
   await expect(page.getByRole('menu', { name: 'Controls for Dispatch' })).toHaveCount(0)
 }
 
-test('Dispatch page and form identify development simulation across the viewport ladder', async ({ page }) => {
+test('Dispatch page and explicit Agent/model form render across the viewport ladder', async ({ page }) => {
   test.setTimeout(ms(90_000))
+  await overrideDispatchCapability(page, 'available')
   await page.goto('/dispatch')
   await expect(page.getByRole('heading', { level: 1, name: 'Dispatch' })).toBeVisible()
-  await expect(page.locator('[data-automation-posture="fixture"]')).toHaveText(DEVELOPMENT_NOTICE)
+  const pagePosture = page.locator('[data-dispatch-posture="available"]')
+  await expect(pagePosture).toHaveText(AVAILABLE_DISPATCH_NOTICE)
   await expect(page.getByRole('button', { name: 'New dispatch', exact: true })).toBeEnabled()
 
-  for (const viewport of VIEWPORTS) await capturePosture(page, viewport, 'dispatch-development')
+  for (const viewport of VIEWPORTS) await capturePosture(page, viewport, 'dispatch-available', pagePosture)
 
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.getByRole('button', { name: 'New dispatch', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'New dispatch', exact: true })
-  await expect(dialog.locator('[data-automation-posture="fixture"]')).toHaveText(DEVELOPMENT_NOTICE)
-  await dialog.getByRole('textbox', { name: 'Task' }).fill('A development-only simulated dispatch')
+  await expect(dialog.locator('[data-dispatch-posture="available"]')).toHaveText(AVAILABLE_DISPATCH_NOTICE)
+  const scopeNotice = dialog.getByText('Uses the selected Agent’s instructions and permitted workspace tools. No context is attached initially; open the conversation to add it or review actions.', { exact: true })
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await scopeNotice.scrollIntoViewIfNeeded()
+    await expect(scopeNotice).toBeVisible()
+    await expectNoHorizontalOverflow(page, viewport.width)
+    await expect.poll(() => scopeNotice.evaluate((notice) => {
+      const panel = notice.closest('[data-bounded-dialog]')!
+      return notice.getBoundingClientRect().bottom - panel.lastElementChild!.getBoundingClientRect().top
+    }), 'the scope disclosure remains reachable above the fixed footer').toBeLessThanOrEqual(1)
+    await assertWcag22Aa(page, `Dispatch scope disclosure ${viewport.width}x${viewport.height}`)
+    await page.screenshot({ path: join(REVIEW_DIR, `${viewport.width}x${viewport.height}-dispatch-scope.png`) })
+  }
+  await dialog.getByRole('textbox', { name: 'Task' }).fill('A real Dispatch with an explicit binding')
+  await dialog.getByRole('textbox', { name: 'Detail' }).fill('The first turn stays private and continuable.')
+  await selectDispatchBinding(page, dialog)
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport)
     await expect(dialog).toBeVisible()
-    await expect(dialog.locator('[data-automation-posture="fixture"]')).toHaveText(DEVELOPMENT_NOTICE)
+    await expect(dialog.locator('[data-dispatch-posture="available"]')).toHaveText(AVAILABLE_DISPATCH_NOTICE)
     await expectNoHorizontalOverflow(page, viewport.width)
-    await assertWcag22Aa(page, `dispatch simulation form ${viewport.width}x${viewport.height}`)
+    await assertWcag22Aa(page, `real Dispatch form ${viewport.width}x${viewport.height}`)
     await page.screenshot({ path: join(REVIEW_DIR, `${viewport.width}x${viewport.height}-dispatch-dialog.png`) })
     if (viewport.height === 390) {
       // The bounded body intentionally scrolls above a fixed footer. Prove the
-      // last field is keyboard-reachable, not actually hidden by that footer.
+      // explicit binding controls remain keyboard-reachable through the final
+      // Model field, not hidden by that footer.
       await dialog.getByRole('textbox', { name: 'Task', exact: true }).focus()
       await page.keyboard.press('Tab')
       const detail = dialog.getByRole('textbox', { name: 'Detail' })
       await expect(detail).toBeFocused()
-      await detail.scrollIntoViewIfNeeded()
-      await expect.poll(() => detail.evaluate((field) => {
+      await page.keyboard.press('Tab')
+      await expect(dialog.getByRole("combobox", { name: "Agent", exact: true })).toBeFocused()
+      await page.keyboard.press('Tab')
+      await expect(dialog.getByRole("combobox", { name: "Model connection", exact: true })).toBeFocused()
+      await page.keyboard.press('Tab')
+      const model = dialog.getByRole("combobox", { name: "Model", exact: true })
+      await expect(model).toBeFocused()
+      await model.scrollIntoViewIfNeeded()
+      await expect.poll(() => model.evaluate((field) => {
         const panel = field.closest('[data-bounded-dialog]')!
         return field.getBoundingClientRect().bottom - panel.lastElementChild!.getBoundingClientRect().top
-      }), 'the scrolled Detail field fits above the fixed footer').toBeLessThanOrEqual(1)
+      }), 'the scrolled final Model field fits above the fixed footer').toBeLessThanOrEqual(1)
       await page.screenshot({ path: join(REVIEW_DIR, '844x390-dispatch-dialog-scrolled.png') })
     }
   }
 })
 
-test('an unavailable simulation capability disables new Dispatch but preserves readable feed history', async ({ page }) => {
+test('unavailable Dispatch preserves readable history and distinguishes legacy simulations', async ({ page }) => {
   test.setTimeout(ms(60_000))
-  const title = `Existing simulated dispatch ${Date.now().toString(36)}`
-  const created = await page.request.post('/api/v1/dispatch', { data: { title, detail: 'Readable history remains available.' } })
-  expect(created.ok()).toBe(true)
-  await overrideAutomationCapability(page, 'false')
+  const historyResponse = await page.request.get('/api/v1/dispatch')
+  expect(historyResponse.ok()).toBe(true)
+  const history = await historyResponse.json() as DispatchRun[]
+  const simulation = history.find((run) => run.execution === undefined)
+  expect(simulation, 'the fixture includes legacy Dispatch history').toBeTruthy()
+  expect(simulation!.execution).toBeUndefined()
+  const title = simulation!.title
+  await overrideDispatchCapability(page, 'unavailable')
   await page.goto('/dispatch')
 
-  await expect(page.locator('[data-automation-posture="unavailable"]')).toHaveText(UNAVAILABLE_NOTICE)
+  const unavailablePosture = page.locator('[data-dispatch-posture="unavailable"]')
+  await expect(unavailablePosture).toHaveText(UNAVAILABLE_DISPATCH_NOTICE)
   await expect(page.getByRole('button', { name: 'New dispatch', exact: true })).toBeDisabled()
-  await expect(page.getByText(title, { exact: true })).toBeVisible()
+  const historyRow = page.locator('[data-resource-synopsis-row]')
+    .filter({ has: page.getByText(title, { exact: true }) })
+  await expect(historyRow).toBeVisible()
+  await expect(historyRow).toContainText('Simulation')
   await expectRailDispatchUnavailable(page)
   await expect(page.getByRole('dialog', { name: 'New dispatch' })).toHaveCount(0)
-  for (const viewport of VIEWPORTS) await capturePosture(page, viewport, 'dispatch-unavailable')
+  for (const viewport of VIEWPORTS) await capturePosture(page, viewport, 'dispatch-unavailable', unavailablePosture)
 })
 
-test('a missing automation capability is unknown and cannot open New Dispatch', async ({ page }) => {
-  await overrideAutomationCapability(page, 'missing')
+test('a missing Dispatch capability is unknown and cannot open New Dispatch', async ({ page }) => {
+  await overrideDispatchCapability(page, 'unknown')
   await page.goto('/dispatch')
-  await expect(page.locator('[data-automation-posture="unknown"]')).toHaveText(UNKNOWN_NOTICE)
+  await expect(page.locator('[data-dispatch-posture="unknown"]')).toHaveText(UNKNOWN_DISPATCH_NOTICE)
   await expect(page.getByRole('button', { name: 'New dispatch', exact: true })).toBeDisabled()
   await expectRailDispatchUnavailable(page)
   await expect(page.getByRole('dialog', { name: 'New dispatch' })).toHaveCount(0)

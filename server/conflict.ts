@@ -39,3 +39,12 @@ export class NotFoundError extends Error {
     this.name = 'NotFoundError'
   }
 }
+
+/** A recognized capability whose configured runtime cannot currently execute. */
+export class CapabilityUnavailableError extends Error {
+  readonly code = 'capability_unavailable' as const
+  constructor(message: string) {
+    super(message)
+    this.name = 'CapabilityUnavailableError'
+  }
+}

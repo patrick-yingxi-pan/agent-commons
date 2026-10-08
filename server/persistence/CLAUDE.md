@@ -42,6 +42,7 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
 | PERSIST-D22 | data-access | Append-only v6 migration assigns deterministic revision-local block IDs to legacy Documents without guessing positional lineage. Exact restore reuses source IDs; current must match pre-migration latest history. V6 admission also refuses ID-less retained Document histories so read normalization cannot diverge from the saved ledger. Numeric legacy discussions stay unresolved. | [`documentIdentityV6.ts`](documentIdentityV6.ts) · [`migrate.ts`](migrate.ts) · [`format.ts`](format.ts) · [`../documentIdentity.ts`](../documentIdentity.ts) | [`documentIdentityV6.test.ts`](documentIdentityV6.test.ts) · [`persist-migrate.test.ts`](persist-migrate.test.ts) · [`artifact-history.test.ts`](artifact-history.test.ts) · [`../documentIdentity.test.ts`](../documentIdentity.test.ts) | requires PERSIST-D19; requires CONTRACT-D114 |
 | PERSIST-D23 | data-access | Artifact context persists only complete saved-copy receipts, never pending capture intent. JSON, SQLite and portable snapshots retain exact bodies, source IDs and revisions independently of later source access. | [`format.ts`](format.ts) | [`artifact-context-snapshot.test.ts`](artifact-context-snapshot.test.ts) | requires CONTRACT-D116; refines PERSIST-D2 |
 | PERSIST-D24 | data-access | Contribution MCP attempts are a strict additive private slice: legacy absence remains valid, while present attempts require exact current envelope/proposal provenance, approved version, owner binding, slot counts and the permanent executed-effects stamp. At most 100 append-only receipts survive JSON/SQLite and portable snapshots. A pending receipt commits with its slot reservation before I/O and is durably converted to uncertain before restart admission; it is never retried automatically. | [`format.ts`](format.ts) · [`../contributionEffectState.ts`](../contributionEffectState.ts) · [`../store/index.ts`](../store/index.ts) | [`contribution-effect-attempt.test.ts`](contribution-effect-attempt.test.ts) · [`contribution-effect-recovery.test.ts`](contribution-effect-recovery.test.ts) · [`snapshot.test.ts`](snapshot.test.ts) | requires CONTRACT-D117; requires STORE-D93; refines PERSIST-D2 |
+| PERSIST-D25 | data-access | Real Dispatch joins one same-owner Session with an exact frozen binding. Startup commits running-to-interrupted recovery before admission, without a later write or model replay; original prompt and binding survive. Deletion atomically removes the job and retires its Session identity, so restart cannot resurrect it. | [`format.ts`](format.ts) · [`../dispatchState.ts`](../dispatchState.ts) · [`../store/index.ts`](../store/index.ts) | [`real-dispatch-durability.test.ts`](real-dispatch-durability.test.ts) · [`../dispatch-state.test.ts`](../dispatch-state.test.ts) | requires STORE-D27; refines PERSIST-D2 |
 | PERSIST-V1 | verification | Every new durable slice updates local requirements, round-trip coverage, and migration behavior. | [`SPEC.md`](SPEC.md) · [`migrate.ts`](migrate.ts) | [`snapshot.test.ts`](snapshot.test.ts) · [`persist-migrate.test.ts`](persist-migrate.test.ts) | refines SERVER-V1; requires PERSIST-D2 |
 <!-- context-rules:end -->
 
@@ -85,7 +86,14 @@ suite. Store-shape changes also require [`../store/CLAUDE.md`](../store/CLAUDE.m
 - **The snapshot covers durable application-owned slices.** Genuinely transient
   state — reservations and the live runner registry — is excluded on
   purpose. Dispatch runs ARE included (P7): a run caught `running` mid-flight is
-  swept to `failed` on rehydrate, which is what makes that status reachable.
+  swept to `failed` on rehydrate; real executions additionally record
+  `interrupted` without changing the authored detail or replaying model I/O.
+  Startup commits this recovery before admission; a later write is not required.
+  Real rows join one same-owner conversation, cannot collide with legacy row
+  identities, and cannot coexist with retired conversation identities. Historical
+  bindings and message references survive later model edits and compaction.
+  `server/dispatch-state.test.ts` caught a mixed legacy/real identity collision;
+  the JSON/SQLite `real-dispatch-durability.test.ts` locks recovery and deletion.
   Routine attempt cursors are durable: only legacy timer-era running rows sweep;
   execution-aware rows remain recoverable work for the routine worker.
 - **Served image receipts are cross-references, not standalone content.** A

@@ -2,6 +2,8 @@
  *  Phase 1 wires capabilities, the ambient event stream, and sessions. The router
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
+import { startConversationTurn } from '../conversationExecution.ts'
+import { dispatchPrompt, parseRealDispatchInput } from '../../contract/dispatchExecution.ts'
 import { contributionRuntimeMode, CONTRIBUTION_RUNTIME_UNAVAILABLE } from '../contributionRuntime.ts'
 import { automationRuntimeMode, AUTOMATION_RUNTIME_UNAVAILABLE, type AutomationFixtureKind } from '../automationRuntime.ts'
 import { validReviewerBinding } from '../contributionReviewState.ts'
@@ -26,8 +28,6 @@ import type {
   ReportDiscussionPostResponse,
   SetDiscussionReactionRequest,
   SetDiscussionStateRequest,
-  Message,
-  ReplyStreamEvent,
   CreateCommissionRequest,
   DeleteCommissionRequest,
   CreateArtifactRequest,
@@ -113,7 +113,7 @@ import {
 import { userPrincipal } from '../identity.ts'
 import { accounts, type StoredOrgInvite } from '../accounts.ts'
 import { openSse } from '../http/sse.ts'
-import { store, type GenerationOutcome } from '../store/index.ts'
+import { store } from '../store/index.ts'
 import { artifactCreationId } from '../artifactCreationIdentity.ts'
 import { artifactReplayVisible, discussionReplayVisible, grantReplayVisible, graphReplayVisible, proposalReplayVisible, type ReplayVisibility } from './replayVisibility.ts'
 import {
@@ -130,7 +130,7 @@ import {
 } from '../idempotency.ts'
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
-import { generateReply, generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId, type ReplySession } from '../generate.ts'
+import { generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId, type ReplySession } from '../generate.ts'
 import { UsageRecordingError } from '../modelUsage.ts'
 import {
   deriveRelayCreationSecret,
@@ -192,7 +192,7 @@ import { CapabilityError, runCapability, scopeMatches } from '../runner-runtime.
 import { GuardianError } from '../guardian.ts'
 import { BudgetError } from '../usage.ts'
 import { AuthorityError } from '../authority.ts'
-import { ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
+import { CapabilityUnavailableError, ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
@@ -4774,210 +4774,22 @@ export function buildRouter(): Router {
     // is server-owned, so a sent turn survives a reload even if generation fails.
     const persist = !!known && !ephemeral
 
-    // The turn is a server-owned resource (contract/turns.ts, design I1): registered
-    // before anything is persisted, torn down in `finally`. One live turn per session
-    // — a concurrent second send is refused, not silently interleaved.
-    const ac = new AbortController()
-    const active = turns.start(params.id, () => ac.abort(), idemKey)
-    if (!active) {
+    // Admission above remains HTTP-owned. Execution is server-owned: closing
+    // this SSE view never cancels the model turn or its consent proposals.
+    const work = startConversationTurn({
+      session, known, agent, provider: turnConfig, providerId: turnProviderId,
+      modelId: turnModelId, tenantId, text: text ?? '', history: turnHistory,
+      persist, reusePersistedUser, idempotencyKey: idemKey,
+      apiRuntime: {
+        catalog: apiCatalog(),
+        dispatch: (method, path, body) => apiDispatch(method, path, req.headers, body),
+      },
+      openView: () => openSse(res),
+    })
+    if (!work) {
       return sendError(res, 'conflict', 'A turn is already generating for this session — cancel it or wait for it to finish.')
     }
-
-    // Persist the user's turn up front. (Drafts are materialized via POST
-    // /sessions before they're sent to; run / unknown ids stay ephemeral —
-    // appendMessage no-ops for them.) Anything that throws between the turn
-    // registration above and the main try/finally below must release the registry
-    // entry on its way out — a leaked entry would refuse this session's sends
-    // (409) forever, since only `finish` clears the one-live-turn slot.
-    const channel = (() => {
-      try {
-        if (persist && !reusePersistedUser) {
-          store.appendMessage(params.id, {
-            id: store.mintMessageId('user'),
-            role: 'user',
-            content: text ?? '',
-          })
-        } else if (persist && known) {
-          // Retry reuses its persisted user row, so appendMessage emits no
-          // start hint. Other open readers still need to discover this new
-          // live handle before the first reply frame, without a fake write.
-          store.emit({ type: 'session.updated', session: known })
-        }
-        return openSse(res)
-      } catch (err) {
-        turns.finish(active.id)
-        throw err
-      }
-    })()
-    // Detach, don't abort (I1): a closed connection stops this *view* only — the
-    // turn runs on under generateReply's own wall-clock timeout, and its completion
-    // persists + broadcasts `session.updated` to the tenant's subscribers whether or
-    // not anyone is watching. `ac` is tripped only by the explicit cancel route (or
-    // never — the timeout uses its own signal), so `aborted` means "deliberately
-    // cancelled", not "the viewer went away". (`channel.send` no-ops once closed.)
-
-    let messageId = ''
-    // Streamed text accumulated route-side, so an explicitly *cancelled* turn can
-    // persist the partial it already produced (design §7).
-    let streamedText = ''
-    // Tee every reply-stream frame into the registry (the reattach/replay buffer),
-    // stamping the frame seq onto deltas so a reattached viewer dedupes overlap (I4).
-    const emit = (e: ReplyStreamEvent) => {
-      const seq = turns.append(active.id, e)
-      channel.send(e.type === 'message.delta' && seq !== undefined ? { ...e, seq } : e)
-    }
-    // The turn's outcome, recorded exactly once in `finally` (F6 PD31) so a mid-stream send
-    // failure after a successful generation can't double-count. `error` until we know better.
-    let turnOutcome: GenerationOutcome = 'error'
-    // The streamed-reply seam both transports share (contract: ReplyHandlers in,
-    // ReplyResult out) — the route around the dispatch below is transport-blind.
-    const replyHandlers = {
-      onUsage: (usage: { inputTokens: number; outputTokens: number }) => store.recordUsage(usage.inputTokens, usage.outputTokens, tenantId),
-      onStart: (id: string) => {
-        messageId = id
-        emit({ type: 'message.start', sessionId: session.id, turnId: active.id, message: { id, role: 'assistant', content: '' } })
-      },
-      onDelta: (delta: string) => {
-        streamedText += delta
-        emit({ type: 'message.delta', sessionId: session.id, messageId, text: delta })
-      },
-    }
-    try {
-      // The live Agent Commons registries, so a confirmed "commission the agent I
-      // just made" / "create an agent on <provider>" resolves the names the model
-      // proposes against what currently exists (server/model/tools.ts). Tenant-scoped
-      // (F2/PD9): the model only resolves against the caller's own + the shared seeds.
-      // Shared by BOTH transports — a relayed tool call resolves against the same
-      // registries a dial-out one does.
-      const createdProjectIds = new Set(store.relationGraph(tenantId).extraProjects.map((project) => project.id))
-      const commons = {
-        // isDefault rides along so create_agent can pre-select the caller's
-        // default-else-first binding when the model names none — the same
-        // shortcut the New-agent dialog applies (contract `defaultEntry`).
-        providers: store.listProviders(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
-        systemPrompts: store.listSystemPrompts(tenantId).map((p) => ({ id: p.id, label: p.label, isDefault: p.isDefault })),
-        agents: store.listAgents(tenantId).map((a) => ({ id: a.id, label: a.label })),
-        commissions: store.listCommissions(undefined, tenantId).map((c) => ({ id: c.id, agentId: c.agentId, projectId: c.projectId })),
-        // The LIVE entity registries the relation tools resolve names against —
-        // created entities (the graph extras) first, then the seeds, so "file this
-        // under ‹a project Claude created two turns ago›" resolves (a seed-only
-        // list once defaulted that to the wrong project — INV-9).
-        projects: store.listProjects(tenantId).map((p) => ({
-          id: p.id,
-          name: p.name,
-          defaultRole: p.defaultRole,
-          description: p.description,
-          instructions: p.instructions,
-          own: p.own,
-          shared: p.shared,
-          shareable: createdProjectIds.has(p.id),
-        })),
-        // These semantic aliases propose filing/source writes. Read-only
-        // grants remain discoverable through GET /artifacts, not write targets.
-        artifacts: store.listArtifacts(tenantId).filter((a) => a.own === true).map((a) => ({ id: a.id, name: a.name })),
-        schedules: store.listSchedules(tenantId).map((s) => ({ id: s.id, name: s.name, cadence: s.cadence })),
-        // The Contexts registry (user-saved connectors/MCP servers — custom ones
-        // included) merged over the Add-context catalog, deduped by id.
-        connectors: (() => {
-          const byId = new Map(store.contextCatalog().connectors.map((c) => [c.id, { id: c.id, label: c.label, kind: c.kind }]))
-          for (const c of store.savedContexts(tenantId).contexts) {
-            if (c.kind === 'connector' || c.kind === 'mcp') byId.set(c.id, { id: c.id, label: c.label, kind: c.connectorKind })
-          }
-          return [...byId.values()]
-        })(),
-      }
-      // P6: the session's attached connector/MCP contexts become callable tools for
-      // this turn (server/model/connectorTools.ts derives them; non-connector
-      // contexts are ignored). Only what's attached is reachable — on either transport.
-      const contexts = store.sessionContexts(params.id)
-      const externalMcpConnections = store.mcpConnections(tenantId)
-      // The transport dispatch (docs/delegated-cognition-provider.md §6.5): dial-out
-      // Messages (`generateReply`, N providers, zero provider code) vs the rendezvous
-      // relay (`relayReply` — the user's own session answers over the framed mailbox,
-      // relaying tool calls unexecuted; its own deadline, never `MODEL_TIMEOUT_MS`).
-      // One `if` where a loopback shim isn't.
-      // The generated API tools' runtime (access-parity INV-11, the in-app leg):
-      // reads dispatch through the router NOW with THIS request's headers — the
-      // sender's identity, so the model reads exactly what its user can read —
-      // and mutations only mint proposals (executed later by the tool-activities
-      // route, as the confirmer). Same catalog as the MCP door.
-      const apiRuntime = {
-        catalog: apiCatalog(),
-        dispatch: (method: string, path: string, body?: unknown) => apiDispatch(method, path, req.headers, body),
-      }
-      const { message, outcome } =
-        provider.kind === 'session'
-          ? await relayReply(session, agent, text ?? '', replyHandlers, ac.signal, store.relay, turnProviderId!, commons, contexts, turnHistory, apiRuntime, externalMcpConnections)
-          : await generateReply(session, agent, text ?? '', replyHandlers, ac.signal, turnConfig, commons, contexts, apiRuntime, { externalMcpConnections }, turnHistory)
-      // Completed calls were already metered, including ephemeral/cancelled work.
-      // The model reported `ok` or `fallback` (endpoint degraded); recorded once in `finally`.
-      turnOutcome = outcome
-      if (message.relationActions?.length) {
-        emit({
-          type: 'message.relations',
-          sessionId: session.id,
-          messageId: message.id,
-          relationActions: message.relationActions,
-        })
-      }
-      // A panel escalation the model proposed via a tool call (open_workspace /
-      // connect_repo / create_project) — the UI shows the consent prompt and
-      // applies it only on approval.
-      if (message.escalation) {
-        emit({
-          type: 'message.escalation',
-          sessionId: session.id,
-          messageId: message.id,
-          escalation: message.escalation,
-        })
-      }
-      // P6: connector/MCP tools the model called this turn + their (mock) results —
-      // shown as activity under the message (a read needs no consent).
-      if (message.toolActivities?.length) {
-        emit({
-          type: 'message.toolActivity',
-          sessionId: session.id,
-          messageId: message.id,
-          toolActivities: message.toolActivities,
-        })
-      }
-      // The model's reply text is canned (the mock model server) but its
-      // *persistence* is real: record the assistant turn so the thread is the
-      // system of record, then close the stream. An ephemeral turn skips this.
-      // D16 per-turn provenance: stamp the turn with the Agent that drove it AND the
-      // provider that supplied the cognition (as resolved — session pick or agent's), so
-      // authorship, metering attribution, and the relayed-reply badge survive a
-      // mid-thread hand-off or model switch — the binding is current-driver.
-      const stamped = { ...message, agentId: agent.id, providerId: turnProviderId, ...(turnModelId ? { modelId: turnModelId } : {}) }
-      if (persist) {
-        store.appendMessage(params.id, stamped)
-        turns.markPersisted(active.id, stamped.id) // gate for post-finish retry replay (§5.4)
-      }
-      emit({ type: 'message.end', sessionId: session.id, message: stamped })
-    } catch {
-      // `aborted` = the explicit cancel route tripped `ac` (a viewer disconnect no
-      // longer aborts — design §5.2); anything else is a genuine turn error.
-      turnOutcome = ac.signal.aborted ? 'aborted' : 'error'
-      // A cancel keeps what the turn already produced (design §7): persist the
-      // partial as the assistant turn and close the stream with it as authoritative.
-      if (ac.signal.aborted && messageId) {
-        const partial: Message = { id: messageId, role: 'assistant', content: streamedText, agentId: agent.id, providerId: turnProviderId, ...(turnModelId ? { modelId: turnModelId } : {}) }
-        if (persist) {
-          store.appendMessage(params.id, partial)
-          turns.markPersisted(active.id, partial.id) // a cancelled partial is still the record
-        }
-        emit({ type: 'message.end', sessionId: session.id, message: partial })
-      }
-    } finally {
-      // Record the outcome exactly once (F6 PD31), so a degraded/dropped turn is visible in
-      // /metrics and a post-generation send failure can't double-count against a good turn.
-      store.recordGenerationOutcome(turnOutcome)
-      // The turn is over (persisted / cancelled / errored): notify any reattached
-      // viewers and drop the registry entry — the persisted message is now the
-      // authority, and a late reattach 404s into a session refetch.
-      turns.finish(active.id)
-      channel.close()
-    }
+    await work.finished
   })
 
   // Cancel a live turn — the *deliberate* stop (design §5.2). Distinct from a viewer
@@ -5380,10 +5192,61 @@ export function buildRouter(): Router {
   r.get('/dispatch', ({ req, res, url }) => {
     sendList(res, url, store.listDispatch(store.identity(req.headers).tenant.id), (d) => d.id)
   })
-  // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later). Refuses a
-  // 429 when the in-flight cap (DISPATCH_MAX_CONCURRENT, P7) is reached, so the caller backs off.
-  r.post('/dispatch', fixtureAutomation('dispatch', idempotent(async ({ req, res, body }) => {
-    const { title, detail } = await body<CreateDispatchRequest>()
+  const startRealDispatchRequest = (ctx: Ctx, value: unknown) => {
+    const { req, res } = ctx
+    if (!accountTransitionSourceMatches(req, res)) return
+    const key = headerValue(req.headers, 'idempotency-key')
+    if (!key?.trim() || key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
+      return sendError(res, 'bad_request', 'A bounded Idempotency-Key is required for real Dispatch.')
+    }
+    const tenantId = store.identity(req.headers).tenant.id
+    // Another body reader may have committed while this request was awaiting
+    // input. Recheck immediately before admission, with no further await.
+    const represented = store.getRealDispatch(manualDispatchRunId(tenantId, key), tenantId)
+    if (represented === 'retired') return sendError(res, 'not_found', 'This Dispatch conversation was already removed.')
+    if (represented) return sendJson(res, represented)
+    const input = parseRealDispatchInput(value)
+    if (!input) return sendError(res, 'bad_request', 'Provide a bounded task and explicit Agent, endpoint provider, and model.')
+    try {
+      const run = store.startRealDispatch(input, tenantId, manualDispatchRunId(tenantId, key))
+      const execution = run.execution!
+      const known = store.getSession(execution.sessionId)!
+      const work = startConversationTurn({
+        session: { id: known.id, title: known.title }, known,
+        agent: store.getAgent(execution.agentId),
+        provider: { ...store.providerConfig(execution.providerId), model: execution.modelId },
+        providerId: execution.providerId, modelId: execution.modelId, tenantId,
+        text: dispatchPrompt(run.title, run.detail), history: [], persist: true,
+        reusePersistedUser: true, idempotencyKey: key,
+        apiRuntime: {
+          catalog: apiCatalog(),
+          dispatch: (method, path, body) => apiDispatch(method, path, req.headers, body),
+        },
+        commit: ({ outcome, message }) => { store.settleRealDispatch(run.id, tenantId, outcome, message) },
+      })
+      if (!work) {
+        store.settleRealDispatch(run.id, tenantId, 'error')
+        return sendError(res, 'conflict', 'This Dispatch conversation already has a running turn.')
+      }
+      // No viewer owns this lifetime. The normal turn stream observes it, and
+      // only explicit Stop can cancel it. Never retry an unsettled model call.
+      void work.finished.catch(() => console.error('[dispatch] terminal commit failed; inspect backend storage health'))
+      sendJson(res, run)
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof NotFoundError || error instanceof ConflictError ||
+        error instanceof CapabilityUnavailableError || error instanceof LimitError) {
+        return sendError(res, error.code, error.message)
+      }
+      throw error
+    }
+  }
+  // Compatibility fixtures retain their original response-cache semantics in
+  // development. The outer release wall never lets that cache claim execution.
+  const createDevelopmentDispatch = idempotent(async (ctx) => {
+    const { req, res, body } = ctx
+    const input = await body<CreateDispatchRequest>()
+    if (input?.execution !== undefined) return startRealDispatchRequest(ctx, input)
+    const { title, detail } = input
     if (!title || !title.trim()) return sendError(res, 'bad_request', 'title is required')
     try {
       const tenantId = store.identity(req.headers).tenant.id
@@ -5398,7 +5261,22 @@ export function buildRouter(): Router {
       if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err
     }
-  })))
+  })
+  r.post('/dispatch', async (ctx) => {
+    const { req, res, body } = ctx
+    if (!accountTransitionSourceMatches(req, res)) return
+    const tenantId = store.identity(req.headers).tenant.id
+    const key = headerValue(req.headers, 'idempotency-key')
+    if (key && key.length <= IDEMPOTENCY_KEY_MAX_LENGTH) {
+      const represented = store.getRealDispatch(manualDispatchRunId(tenantId, key), tenantId)
+      if (represented === 'retired') return sendError(res, 'not_found', 'This Dispatch conversation was already removed.')
+      if (represented) return sendJson(res, represented)
+    }
+    if (automationRuntimeMode() === 'fixture') return createDevelopmentDispatch(ctx)
+    const input = await body<CreateDispatchRequest>()
+    if (input?.execution === undefined) return sendError(res, 'capability_unavailable', AUTOMATION_RUNTIME_UNAVAILABLE.dispatch)
+    return startRealDispatchRequest(ctx, input)
+  })
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
   registerMcpConnectionRoutes(r, accountTransitionSourceMatches)

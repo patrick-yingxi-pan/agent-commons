@@ -5,6 +5,8 @@ import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { automationPresentation, AUTOMATION_NOTICE_CLASS } from '../lib/automationPresentation.ts'
+import { dispatchPresentation, dispatchStatusLabel } from '../lib/dispatchPresentation.ts'
+import { DISPATCH_TITLE_MAX, DISPATCH_DETAIL_MAX } from '../../contract/dispatchExecution.ts'
 import {
   AlertCircle,
   Award,
@@ -964,7 +966,7 @@ export function SectionView({
       // regardless.
       <AdminSection subview={subview ?? 'accounts'} adminUserId={focusAdminUserId} onBack={onBack} backTo={backTo} />
     ) : (
-      <GenericSection section={section} />
+      <GenericSection section={section} onOpenSession={onOpenSession} />
     )
   return (
     // The hub pages' back state (ADAPT-18): when history exists — a bare
@@ -13074,12 +13076,12 @@ function AdminOpsPanel() {
   )
 }
 
-function GenericSection({ section }: { section: SectionId }) {
+function GenericSection({ section, onOpenSession }: { section: SectionId; onOpenSession: (id: string) => void }) {
   const meta = SECTION_META[section]
   const [creating, setCreating] = useState(false)
   const capabilities = useCapabilities()
-  const automation = automationPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
-  const openDispatch = () => { if (automation.canSimulate) setCreating(true) }
+  const dispatch = dispatchPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.dispatchExecution)
+  const openDispatch = () => { if (dispatch.available) setCreating(true) }
   return (
     <CompositeResourcePage section={section} projectSections={false}>
       <PageHeader
@@ -13097,40 +13099,50 @@ function GenericSection({ section }: { section: SectionId }) {
           <PageActionButton
             icon={<Plus size={15} />}
             onClick={openDispatch}
-            disabled={!automation.canSimulate}
-            title={!automation.canSimulate ? automation.dispatch : undefined}
+            disabled={!dispatch.available}
+            title={!dispatch.available ? dispatch.note : undefined}
             mirrorsRailFor="dispatch"
-            onRailInvoke={automation.canSimulate ? openDispatch : undefined}
+            onRailInvoke={dispatch.available ? openDispatch : undefined}
           >
             New dispatch
           </PageActionButton>
         )}
       </PageHeader>
-      {section === 'dispatch' && <DispatchView />}
+      {section === 'dispatch' && <DispatchView onOpenSession={onOpenSession} />}
       {section === 'customize' && <CustomizeView />}
       {creating && <NewDispatchDialog onClose={() => setCreating(false)} />}
     </CompositeResourcePage>
   )
 }
 
-/** Development-only Dispatch simulation, using the shared FormDialog. Live
- * server capability and execution guards are independent of feed history. */
+/** One explicit execution binding, held with the task until acknowledgement. */
 function NewDispatchDialog({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('')
   const [detail, setDetail] = useState('')
+  const [agentId, setAgentId] = useState('')
+  const [providerId, setProviderId] = useState('')
+  const [modelId, setModelId] = useState('')
+  const agents = useAgents()
+  const providers = useProviders()
+  const rel = useRelations()
   useDispatchMutationStatus()
   const tenantId = useMe().data?.tenant.id
   const held = isDispatchHeld()
   const capabilities = useCapabilities()
-  const automation = automationPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
+  const dispatch = dispatchPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.dispatchExecution)
+  const provider = providers.data?.find((candidate) => candidate.id === providerId && candidate.kind !== 'session')
+  const bindingReady = agents.status !== 'error' && providers.status !== 'error' &&
+    agents.data?.some((candidate) => candidate.id === agentId) && provider && modelProviderAvailable(provider) &&
+    provider.models?.some((model) => model.id === modelId)
 
-  const canCreate = automation.canSimulate && title.trim().length > 0 && Boolean(tenantId)
+  const canCreate = dispatch.available && Boolean(bindingReady) && title.trim().length > 0 && Boolean(tenantId)
   const submit = () => {
     if (!canCreate || held || !tenantId) return
     const input = {
       tenantId,
       title: title.trim(),
       detail: detail.trim() || undefined,
+      execution: { agentId, providerId, modelId },
     }
     void enqueueDispatch(input).then((outcome) => {
       if (outcome === 'applied') onClose()
@@ -13148,27 +13160,57 @@ function NewDispatchDialog({ onClose }: { onClose: () => void }) {
       onSubmit={submit}
       onClose={onClose}
     >
-      <AutomationNotice kind="dispatch" />
+      <DispatchNotice />
       <FormField label="Task">
         <input
           value={title}
+          maxLength={DISPATCH_TITLE_MAX}
           onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') submit()
           }}
-          placeholder="e.g. Triage today’s new support tickets"
+          placeholder="e.g. Draft a launch checklist"
           className={FORM_INPUT_CLASS}
         />
       </FormField>
       <FormField label="Detail" optional>
         <textarea
           value={detail}
+          maxLength={DISPATCH_DETAIL_MAX}
           onChange={(e) => setDetail(e.target.value)}
           rows={3}
-          placeholder="What it should do, and where to deliver the result."
+          placeholder="Instructions and information the Agent needs."
           className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
         />
       </FormField>
+      <FormField label="Agent">
+        <select value={agentId} onChange={(event) => setAgentId(event.currentTarget.value)} className={FORM_INPUT_CLASS}>
+          <option value="">Choose an Agent</option>
+          {(agents.data ?? []).map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Model connection">
+        <select value={providerId} onChange={(event) => { setProviderId(event.currentTarget.value); setModelId('') }} className={FORM_INPUT_CLASS}>
+          <option value="">Choose a connection</option>
+          {(providers.data ?? []).filter((candidate) => candidate.kind !== 'session').map((candidate) =>
+            <option key={candidate.id} value={candidate.id}>{candidate.label}{modelProviderAvailable(candidate) ? '' : ' — needs setup'}</option>)}
+        </select>
+      </FormField>
+      <FormField label="Model">
+        <select value={modelId} disabled={!provider} onChange={(event) => setModelId(event.currentTarget.value)} className={FORM_INPUT_CLASS}>
+          <option value="">Choose a model</option>
+          {(provider?.models ?? []).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+        </select>
+      </FormField>
+      <p role="status" className="text-[12px] leading-relaxed text-ink-soft">
+        {agents.status === 'error' || providers.status === 'error'
+          ? 'Agent or model choices could not be loaded. Your draft is kept.'
+          : provider?.execution === 'mock' ? 'Development model: this runs through the conversation engine using a deterministic local fixture.'
+            : provider && !modelProviderAvailable(provider) ? 'This connection needs setup before it can run.'
+              : 'Uses the selected Agent’s instructions and permitted workspace tools. No context is attached initially; open the conversation to add it or review actions.'}
+      </p>
+      {(agents.status === 'error' || providers.status === 'error') && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => retryResourceQueries([keys.workerAgents, keys.providers])}>Retry choices</button>}
+      <button type="button" className={INLINE_ACTION_CLASS} onClick={() => { onClose(); rel.navigate('models') }}>Manage model connections</button>
     </FormDialog>
   )
 }
@@ -15262,14 +15304,21 @@ function ScheduleModelPicker({
   )
 }
 
-function AutomationNotice({ kind }: { kind: 'dispatch' | 'standing' | 'work' }) {
+function AutomationNotice({ kind }: { kind: 'standing' | 'work' }) {
   const capabilities = useCapabilities()
   const posture = automationPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
   return <p role="note" data-automation-posture={posture.state} className={AUTOMATION_NOTICE_CLASS}>{posture[kind]}</p>
 }
 
-function DispatchView() {
-  const runs = useDispatchRuns().data ?? []
+function DispatchNotice() {
+  const capabilities = useCapabilities()
+  const posture = dispatchPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.dispatchExecution)
+  return <p role="note" data-dispatch-posture={posture.state} className={AUTOMATION_NOTICE_CLASS}>{posture.note}</p>
+}
+
+function DispatchView({ onOpenSession }: { onOpenSession: (id: string) => void }) {
+  const query = useDispatchRuns()
+  const runs = query.data ?? []
   const projection = flatCollectionProjection({
     section: 'dispatch',
     fallbackLabel: 'Dispatch',
@@ -15278,21 +15327,27 @@ function DispatchView() {
   })
   return (
     <>
-      <AutomationNotice kind="dispatch" />
+      <DispatchNotice />
+      <p className="mb-3 text-[12px] text-ink-soft">Reply ready means a reply was saved, not that proposed actions were performed. Interrupted runs are never restarted automatically.</p>
+      {query.status === 'error' && <InlineOperationStatus tone="alert" message="Couldn’t refresh Dispatch. Previously loaded runs may be out of date." action={{ label: 'Retry', onClick: () => retryResourceQueries([keys.dispatch]) }} />}
+      {!query.data && query.status !== 'error' && <p role="status" className="text-[12px] text-ink-soft">Loading Dispatch…</p>}
+      {query.data && (
       <MainCollectionTemplate
         projection={projection}
         renderItem={(item) => {
           const r = item.value
           return (
             <SynopsisRow
-              prefix={<DispatchStatus status={r.status} />}
+              prefix={r.execution ? <DispatchStatus status={r.status} /> : <History size={17} className="shrink-0 text-ink-faint" />}
               title={r.title}
               description={r.detail}
-              meta={r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
+              meta={<span title={`${dispatchStatusLabel(r)} · ${relativeTime(r.startedAt)}`}>{dispatchStatusLabel(r)}</span>}
+              onOpen={r.execution ? () => onOpenSession(r.execution!.sessionId) : undefined}
             />
           )
         }}
       />
+      )}
     </>
   )
 }

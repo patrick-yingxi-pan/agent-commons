@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { dispatchSessionId, isDispatchSessionId, manualDispatchRunId } from './dispatchIdentity.ts'
 import {
   isDraftSessionCreationId,
   isForkSessionCreationId,
@@ -29,4 +30,15 @@ test('conversation branch identity is deterministic, tenant-scoped, opaque, and 
   assert.equal(isForkSessionCreationId(fork), true)
   assert.equal(isDraftSessionCreationId(fork), false)
   assert.doesNotMatch(fork, /tenant-a|continue-from-here-key/)
+})
+
+test('Dispatch conversations share durable retirement without colliding with drafts or branches', () => {
+  const key = 'dispatch-identity-key'
+  const id = dispatchSessionId(manualDispatchRunId('owner', key))
+  assert.equal(isDispatchSessionId(id), true)
+  assert.equal(isSessionCreationId(id), true)
+  assert.notEqual(id, sessionCreationId('owner', key))
+  assert.notEqual(id, sessionForkCreationId('owner', key))
+  assert.notEqual(id, dispatchSessionId(manualDispatchRunId('foreign', key)))
+  assert.throws(() => dispatchSessionId('legacy-seed-id'))
 })
