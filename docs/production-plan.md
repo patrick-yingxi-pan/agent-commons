@@ -6,7 +6,37 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: bounded Routine execution
+## Current checkpoint: native Contribution MCP acceptance
+
+The exact-bound Contribution workflow now has a feature-specific macOS fixture
+gate. The original unsigned package must refuse a loopback MCP connection
+without contacting it. Only a disposable app copy changes the startup network
+scope; the original ASAR is hash-checked before and after. Actual packaged UI,
+HTTP, schema worker, OS credential vault, account sharing and SQLite remain real.
+Rendered proposal/approval performs no call; separate confirmation sends exact
+arguments. Full process interruption and signed-in relaunch retain uncertainty
+without replay, preserve cardinality, and retain exact managed-backup history.
+
+The native gate passed, then deliberately disabling pending-to-uncertain recovery
+made its rendered uncertain-state check fail. Restoring recovery is mandatory
+before final acceptance. Removing the fixture's package exclusion likewise made
+its source lock fail. All helpers remain excluded from the shipped app; the
+signed-release smoke never substitutes this modified copy. This closes only the
+local feature-specific native fixture gap, not public-service/TLS, paid-provider,
+signed/notarized or Intel acceptance. Final `desktop:verify` and the complete
+local verifier are the landing gates; no GitHub CI is used.
+
+The rebuilt complete desktop gate passed. Final review strengthened exact peer
+result comparisons in public history and SQLite; that journey passed again on
+the unchanged original ASAR. All five final captures were reviewed. The
+[acceptance record](acceptance/native-contribution-mcp-2026-10-08.md) binds the
+scope, package digests and negative checks. The complete frozen local verifier
+is the remaining pre-push gate.
+
+## Completed checkpoint: bounded Routine execution
+
+Shipped as `c268c3ce`: the final strengthened local gate passed all five lanes
+and 597 browser tests. The pre-landing history below records the checks performed.
 
 The core-workflow audit confirmed two unfinished automation directions. Real
 Dispatch still needs an approved Agent/model and result-destination policy;
@@ -115,7 +145,7 @@ The legacy simulated envelope-effect path remains a deterministic development
 fixture and is refused in release profiles. Harness labels (dry-run, escrow,
 canary, cooling and hold-until-landing) do not authorize real effects. Local
 loopback fixtures validate the implemented exact-bound workflow, not a public
-service or packaged/native execution. Signed/notarized, Intel and real-service
+service. The later checkpoint above adds isolated native fixture acceptance. Signed/notarized, Intel and real-service
 acceptance remain independent release gates.
 
 ## Completed checkpoint: Artifact saved context
