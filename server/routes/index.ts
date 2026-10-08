@@ -15,6 +15,7 @@ import { parseArtifactDeletionRequest } from '../../contract/artifactDeletion.ts
 import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS, MAX_SEARCH_QUERY_CHARS, SEARCH_HIT_TYPES, parseSearchPage } from '../../contract/search.ts'
 import { MAX_CONVERSATION_SEARCH_QUERY_CHARS } from '../../contract/conversationSearch.ts'
 import { parseConversationSearchQuery, searchSessionMessages } from '../sessionMessageSearch.ts'
+import { sessionMarkdownExport } from '../sessionExport.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import type {
   ApplyOpRequest,
@@ -4299,6 +4300,19 @@ export function buildRouter(): Router {
     q: { type: 'string', minLength: 0, maxLength: MAX_CONVERSATION_SEARCH_QUERY_CHARS, description: 'Literal substring to find in current user and assistant message content.' },
     offset: { type: 'string', pattern: '^(0|[1-9][0-9]*)$', description: 'Zero-based result offset.' },
   } })
+  r.get('/sessions/:id/export', ({ req, res, params }) => {
+    if (denyForeignSession(req, res, params.id)) return
+    const session = store.getSession(params.id)
+    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    if (turns.bySession(params.id)) {
+      return sendError(res, 'conflict', 'Wait for the active reply to finish before exporting this conversation.')
+    }
+    const result = sessionMarkdownExport(session)
+    if (!result.ok) {
+      return sendJson(res, { error: { code: 'bad_request', message: `Conversation export exceeds the ${result.maxBytes}-byte UTF-8 limit.` } }, 413)
+    }
+    sendJson(res, result.value)
+  }, { kind: 'product', session: 'tool' })
   // The recoverable detail behind a compaction marker. This new browser door is
   // bounded from birth (always a Page<Message>, default 40). The legacy full
   // session read remains unchanged for API/MCP compatibility (ADAPT-24).

@@ -17,6 +17,17 @@ import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
+test('conversation downloads share one portable descriptor and never bypass the authorized read door', () => {
+  for (const path of ['server/sessionExport.ts', 'src/api/conversationExport.ts', 'src/lib/conversationExport.ts']) {
+    assert.match(stripComments(read(join(ROOT, path))), /from '[^']*contract\/conversationExport\.ts'/, path)
+  }
+  const api = stripComments(read(join(ROOT, 'src/api/conversationExport.ts')))
+  assert.match(api, /apiGet<ConversationExport>\(paths\.sessionExport\(id\), \{ signal \}\)/)
+  assert.doesNotMatch(api, /\bpeek\(|localStorage|sessionStorage/)
+  const dialog = stripComments(read(join(ROOT, 'src/components/ConversationDownload.tsx')))
+  assert.doesNotMatch(dialog, /fetch\(|\/v1\/|\.messages|compactedMessages/)
+})
+
 test('image OCR shares its native contract without gaining HTTP, model, file-path or save authority', () => {
   for (const file of ['desktop/imageOcr.mjs', 'desktop/imageOcrHost.mjs', 'src/api/desktopImageOcr.ts']) {
     const source = stripComments(read(join(ROOT, file)))

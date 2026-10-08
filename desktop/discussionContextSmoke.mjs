@@ -201,7 +201,7 @@ export async function smokePackagedDiscussionContext({ executable, launch, close
     const conversationSearchFixture = await prepareConversationSearchSmoke({
       page, origin, request, providerId: provider.id, model: fixture, owner, reader, stamp: Date.now().toString(36),
     })
-    await verifyConversationSearchSmoke({ page, origin, request, model: fixture,
+    await verifyConversationSearchSmoke({ browser: run.browser, page, origin, request, model: fixture,
       fixture: conversationSearchFixture, evidenceDirectory, phase: 'before-relaunch' })
     const conversationSearchBeforeQuit = readSqliteConversationSearch(profile, conversationSearchFixture)
     await page.goto(`${origin}${route}`)
@@ -256,7 +256,7 @@ export async function smokePackagedDiscussionContext({ executable, launch, close
     await page.screenshot({ path: join(evidenceDirectory, 'detached.png') })
 
     stage = 'global-conversation-search-after-relaunch'
-    await verifyConversationSearchSmoke({ page, origin, request, model: fixture,
+    await verifyConversationSearchSmoke({ browser: run.browser, page, origin, request, model: fixture,
       fixture: conversationSearchFixture, evidenceDirectory, phase: 'after-relaunch' })
     assert.deepEqual(readSqliteConversationSearch(profile, conversationSearchFixture), conversationSearchBeforeQuit,
       'ordinary signed-in relaunch preserves the exact search transcript without rewrites')

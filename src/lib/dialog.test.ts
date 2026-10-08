@@ -1,7 +1,21 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { filesUnder, read, stripComments } from '../../tests/helpers/source.ts'
-import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS } from './dialog.ts'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, dialogReadRegionProps } from './dialog.ts'
+
+test('prose-only dialog bodies share named keyboard-scroll access', () => {
+  assert.deepEqual(dialogReadRegionProps('Download details'), {
+    'data-dialog-read-region': true, role: 'region', 'aria-label': 'Download details', tabIndex: 0,
+  })
+  const consumers = filesUnder('src').filter(file => file.endsWith('.tsx'))
+    .map(file => ({ file, source: stripComments(read(file)) }))
+    .filter(({ source }) => /dialogReadRegionProps|data-dialog-read-region/.test(source))
+  assert.ok(consumers.some(({ file }) => file.endsWith('/ConversationDownload.tsx')))
+  for (const { file, source } of consumers) {
+    assert.match(source, /\{\.\.\.dialogReadRegionProps\('/, file)
+    assert.doesNotMatch(source, /data-dialog-read-region=/, `${file} uses the shared accessibility props`)
+  }
+})
 
 test('bounded dialog layout reserves viewport space and gives overflow to its body', () => {
   assert.match(BOUNDED_DIALOG_LAYER_CLASS, /\bpy-4\b/)

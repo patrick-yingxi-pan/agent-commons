@@ -179,6 +179,7 @@ interface Buffer extends Uint8Array {
 }
 declare const Buffer: {
   alloc(size: number): Buffer
+  byteLength(data: string, encoding?: string): number
   concat(list: Uint8Array[]): Buffer
   from(data: string, encoding?: string): Buffer
   from(data: Uint8Array): Buffer

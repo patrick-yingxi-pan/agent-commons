@@ -6,7 +6,65 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: packaged conversation search and relaunch
+## Current checkpoint: conversation download
+
+The previous checkpoint landed at `c6ba70b2`: rebuilt unsigned arm64 package,
+complete native smoke and all five local verifier lanes passed (578 browser
+tests). The real signed-in relaunch retained 44 exact saved messages.
+
+The next complete workflow is a readable conversation download (ADAPT-42), not a
+new sharing policy. Owner and currently granted reader use the existing read
+wall for an explicit fresh Markdown snapshot. Saved user/assistant text,
+retained compacted originals and the current summary are separated and labeled;
+private context, tool payloads and attachments never enter the file. Downloads
+refuse while a reply is active or if the complete UTF-8 file exceeds 8 MiB.
+Close, navigation and account changes retire pending browser work.
+
+Read-only review identified speaker-like Markdown/raw HTML inside messages as a
+content-integrity problem; a fail-first lock now requires collision-free literal
+blocks without changing original text. The cold build budget also caught 199
+excess bytes; Find and Download now share their lazy loading/recovery boundary
+instead of increasing the budget. Fresh authorization, descriptor validation,
+retry and export side effects have dedicated locks.
+
+The first focused browser run passed eight of nine journeys and caught a
+short-landscape shared-reader accessibility defect: the prose-only scrolling
+disclosure had no keyboard entry point. UI-202 adds one shared named read-region
+funnel and fail-first source/browser locks; the five-size matrix repeats after
+repair, including Escape return focus and always-visible download controls.
+
+The broad sweep completed 135/135 cells with zero violations or skips. All 15
+affected titlebar captures were reviewed; Download fits at every tier and stays
+absent from drafts. The corrected dialog matrix passed; retry assertions now
+name the dialog's own error instead of colliding with an unrelated interrupted
+conversation notice, and revoked screenshots reissue the rejected read at every
+size. Final focused, packaged and complete-verifier runs follow on the frozen
+tree. A final lifecycle review consolidated Find/Download into one pane-local
+selection so late module loading cannot mount competing dialogs; a fail-first
+source lock and browser import gate cover that overlap without changing layout.
+The first native export attempt exposed an acceptance-harness mismatch: ordinary
+CDP launch has no injected Electron application handle. Download acceptance must
+retain that ordinary process/OS-storage lifecycle and configure only its browser
+download destination, not substitute a different launcher.
+
+The corrected ordinary Electron suite passed, including exact owner/reader
+downloaded bytes before and after signed-in relaunch; all eight native download
+captures passed review. The first complete local verifier passed all four
+browser shards but its checks lane caught an off-scale 17px dialog title and a
+deliberate traversal filename misclassified as a source reference. The title
+now uses the existing 15px step (UI-27); the path lock explicitly identifies
+that one non-read fixture without weakening traversal rejection. Acceptance
+repeats on this final correction before landing.
+
+Acceptance covers owner/shared/revoked/foreign states, five viewport sizes,
+keyboard and WCAG checks, the full 135-cell UI sweep, and actual Electron saved
+file bytes before and after relaunch. Complete local verification and post-test
+diff review remain required before committing and pushing this checkpoint.
+The entire tree stays frozen during acceptance. Release signing/notarization,
+native Intel, public hosting and real-service gates remain open; pending
+Contribution execution and Artifact context decisions are unchanged.
+
+## Completed checkpoint: packaged conversation search and relaunch
 
 The browser checkpoint landed at `37b14c3f`: all five local verifier lanes passed,
 including 578 browser tests. The broad sweep covered 135/135 cells with zero

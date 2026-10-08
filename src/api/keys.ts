@@ -311,6 +311,7 @@ export const paths = {
     return `${base}?messageLimit=${page.limit}${cursor}`
   },
   sessionMessages: (id: string) => `/sessions/${encodePathSegment(id)}/messages`,
+  sessionExport: (id: string) => `/sessions/${encodePathSegment(id)}/export`,
   sessionContexts: (id: string) => `/sessions/${encodePathSegment(id)}/contexts`,
   sessionContextState: (id: string) => `/sessions/${encodePathSegment(id)}/context-state`,
   sessionPreferences: (id: string) => `/sessions/${encodePathSegment(id)}/preferences`,

@@ -23,6 +23,8 @@ test('ordinary packaged Discussion workflow prepares once and verifies exact sea
   assert.match(discussion, /const conversationSearchBeforeQuit = readSqliteConversationSearch\(profile, conversationSearchFixture\)/)
   assert.match(discussion, /assert\.deepEqual\(readSqliteConversationSearch\(profile, conversationSearchFixture\), conversationSearchBeforeQuit,[\s\S]*?before relaunch/)
   assert.match(discussion, /assert\.deepEqual\(readSqliteConversationSearch\(profile, conversationSearchFixture\), conversationSearchBeforeQuit,[\s\S]*?ordinary signed-in relaunch/)
+  assert.equal([...discussion.matchAll(/verifyConversationSearchSmoke\(\{ browser: run\.browser/g)].length, 2,
+    'both packaged passes configure the ordinary CDP browser for downloads')
 })
 
 test('conversation-search helper proves real durable corpus, access boundaries, navigation, and no side effects', () => {
@@ -53,6 +55,26 @@ test('conversation-search helper proves real durable corpus, access boundaries, 
   assert.match(helper, /assert\.deepEqual\(mutations, \[\]/)
   assert.match(helper, /assert\.equal\(model\.requests\.length, modelRequestCount/)
   assert.match(helper, /historyReads\.length > previousHistoryReads/)
+  assert.match(helper, /\/sessions\/\$\{encodeURIComponent\(fixture\.sessionId\)\}\/export/,
+    'each authorized viewer obtains a fresh export descriptor before the native download')
+  assert.match(helper, /getByRole\('button', \{ name: 'Download conversation', exact: true \}\)/)
+  assert.match(helper, /getByRole\('button', \{ name: 'Download Markdown', exact: true \}\)/)
+  assert.match(helper, /browser\.newBrowserCDPSession\(\)/)
+  assert.match(helper, /Browser\.setDownloadBehavior/)
+  assert.match(helper, /behavior: 'allow', downloadPath: downloadDirectory, eventsEnabled: true/)
+  assert.match(helper, /Browser\.downloadWillBegin/)
+  assert.match(helper, /Browser\.downloadProgress/)
+  assert.match(helper, /behavior: 'default'/)
+  assert.match(helper, /downloadSession\.detach\(\)/)
+  assert.match(helper, /state === 'completed'/)
+  assert.match(helper, /assert\.equal\(downloadResult\.state, 'completed'/)
+  assert.match(helper, /assert\.equal\(downloadResult\.filename, descriptor\.filename/)
+  assert.match(helper, /assert\.deepEqual\(downloadedBytes, Buffer\.from\(descriptor\.content, 'utf8'\)/,
+    'the saved native download is byte-for-byte the fresh authorized export')
+  assert.match(helper, /downloadDialog\.getByRole\('button', \{ name: 'Close', exact: true \}\)\.click\(\)/,
+    'the download modal is dismissed before the next account is admitted')
+  assert.match(helper, /\/sessions\/\$\{encodeURIComponent\(fixture\.sessionId\)\}\/export[\s\S]*?, 404\)/,
+    'foreign viewers cannot fetch the export endpoint')
   assert.match(helper, /await page\.reload\(\)/)
   assert.match(helper, /await page\.goBack\(\)/)
   assert.doesNotMatch(helper, /_electron|use-mock-keychain|saveState\(|store\.\w+\(/)

@@ -4,12 +4,45 @@
  */
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { expect } from '@playwright/test'
 
 const TIMEOUT_MS = 30_000
 const REPLY = 'No supplied attachment text.'
+
+function waitForBrowserDownload(downloadSession, expectedOrigin) {
+  return new Promise((resolve, reject) => {
+    let guid
+    let suggestedFilename
+    const timeout = setTimeout(() => finish(new Error('Packaged conversation download timed out.')), TIMEOUT_MS)
+    const cleanup = () => {
+      clearTimeout(timeout)
+      downloadSession.off('Browser.downloadWillBegin', onBegin)
+      downloadSession.off('Browser.downloadProgress', onProgress)
+    }
+    const finish = (error, result) => {
+      cleanup()
+      error ? reject(error) : resolve(result)
+    }
+    const onBegin = ({ guid: startedGuid, url, suggestedFilename: filename }) => {
+      let origin = ''
+      try { origin = new URL(url).origin } catch {}
+      if (origin !== expectedOrigin) return finish(new Error(`Unexpected download origin: ${origin || 'invalid URL'}`))
+      guid = startedGuid
+      suggestedFilename = filename
+    }
+    const onProgress = ({ guid: progressGuid, state, filePath }) => {
+      if (!guid || progressGuid !== guid) return
+      if (state === 'canceled') return finish(new Error('Packaged conversation download was canceled.'))
+      if (state === 'completed') finish(null, { state, filename: suggestedFilename, filePath })
+    }
+    downloadSession.on('Browser.downloadWillBegin', onBegin)
+    downloadSession.on('Browser.downloadProgress', onProgress)
+  })
+}
 
 export async function prepareConversationSearchSmoke({ page, origin, request, providerId, model, owner, reader, stamp }) {
   const query = `conversationneedle${stamp}`
@@ -78,7 +111,7 @@ export function readSqliteConversationSearch(profile, fixture) {
   } finally { database.close() }
 }
 
-export async function verifyConversationSearchSmoke({ page, origin, request, model, fixture, evidenceDirectory, phase }) {
+export async function verifyConversationSearchSmoke({ browser, page, origin, request, model, fixture, evidenceDirectory, phase }) {
   const sessionPath = `/api/v1/sessions/${encodeURIComponent(fixture.sessionId)}`
   const canonicalUrl = `${origin}/s/${encodeURIComponent(fixture.sessionId)}`
   const modelRequestCount = model.requests.length
@@ -94,6 +127,8 @@ export async function verifyConversationSearchSmoke({ page, origin, request, mod
       historyReads.push(url.href)
     }
   }
+  const downloadSession = await browser.newBrowserCDPSession()
+  const downloadDirectories = []
   page.on('request', observe)
   try {
     for (const viewer of [
@@ -116,6 +151,7 @@ export async function verifyConversationSearchSmoke({ page, origin, request, mod
         await expect(dialog.getByText(`No matches for “${fixture.query}”.`, { exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
         await expect(hit).toHaveCount(0)
         await request(page, `/sessions/${encodeURIComponent(fixture.sessionId)}`, undefined, 'GET', 404)
+        await request(page, `/sessions/${encodeURIComponent(fixture.sessionId)}/export`, undefined, 'GET', 404)
         await page.screenshot({ path: join(evidenceDirectory, `${phase}-conversation-foreign.png`) })
         continue
       }
@@ -156,11 +192,46 @@ export async function verifyConversationSearchSmoke({ page, origin, request, mod
       await expect(page.locator(`[data-turn="${fixture.messages.at(-1).id}"]`)).toBeVisible({ timeout: TIMEOUT_MS })
       await expect(turn).toHaveCount(0)
       await expect(page.locator('[data-turn][class*="ring-co/40"]')).toHaveCount(0)
+
+      // Exercise the real renderer download for each readable principal. The
+      // saved bytes must match a fresh authenticated descriptor exactly.
+      const descriptor = await request(page, `/sessions/${encodeURIComponent(fixture.sessionId)}/export`)
+      assert.equal(descriptor.sessionId, fixture.sessionId)
+      assert.equal(descriptor.mediaType, 'text/markdown;charset=utf-8')
+      await page.getByRole('button', { name: 'Download conversation', exact: true }).click()
+      const downloadDialog = page.getByRole('dialog', { name: 'Download conversation', exact: true })
+      await expect(downloadDialog).toBeVisible()
+      await page.screenshot({ path: join(evidenceDirectory, `${phase}-conversation-${viewer.kind}-download-dialog.png`) })
+      const downloadDirectory = await mkdtemp(join(tmpdir(), `conversation-export-${phase}-${viewer.kind}-`))
+      downloadDirectories.push(downloadDirectory)
+      await downloadSession.send('Browser.setDownloadBehavior', {
+        behavior: 'allow', downloadPath: downloadDirectory, eventsEnabled: true,
+      })
+      const downloadDone = waitForBrowserDownload(downloadSession, origin)
+      const [downloadResult] = await Promise.all([
+        downloadDone,
+        downloadDialog.getByRole('button', { name: 'Download Markdown', exact: true }).click(),
+      ])
+      assert.equal(downloadResult.state, 'completed', 'Chromium reports the packaged download completed')
+      assert.equal(downloadResult.filename, descriptor.filename, 'download uses the bounded descriptor filename')
+      const downloadPath = downloadResult.filePath ?? join(downloadDirectory, downloadResult.filename)
+      const downloadedBytes = await readFile(downloadPath)
+      assert.deepEqual(downloadedBytes, Buffer.from(descriptor.content, 'utf8'),
+        'the downloaded Markdown is exactly the authorized export descriptor')
+      await expect(downloadDialog.getByRole('status')).toContainText('Markdown download requested.')
+      await page.screenshot({ path: join(evidenceDirectory, `${phase}-conversation-${viewer.kind}-downloaded.png`) })
+      await downloadDialog.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(downloadDialog).toHaveCount(0)
     }
     await request(page, '/auth/session', { userId: fixture.ownerId })
     assert.deepEqual((await request(page, `/sessions/${encodeURIComponent(fixture.sessionId)}`)).messages,
       fixture.messages, 'searching and reading never changes the exact saved transcript')
     assert.deepEqual(mutations, [], 'search navigation performs no message mutations')
     assert.equal(model.requests.length, modelRequestCount, 'search navigation performs no model requests')
-  } finally { page.off('request', observe) }
+  } finally {
+    page.off('request', observe)
+    await downloadSession.send('Browser.setDownloadBehavior', { behavior: 'default' }).catch(() => {})
+    await downloadSession.detach().catch(() => {})
+    await Promise.all(downloadDirectories.map(directory => rm(directory, { recursive: true, force: true })))
+  }
 }

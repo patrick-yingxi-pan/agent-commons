@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { join } from 'node:path'
+import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
+
+test('saved conversation downloads enter through one lazy, dismissible, account-fenced door', () => {
+  const pane = stripComments(read(join(ROOT, 'src/components/ConversationPane.tsx')))
+  const bar = stripComments(read(join(ROOT, 'src/components/SessionTitleBar.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredConversationDownload.tsx')))
+  const dialog = stripComments(read(join(ROOT, 'src/components/ConversationDownload.tsx')))
+  const controller = stripComments(read(join(ROOT, 'src/controller/useConversationDownload.ts')))
+  assert.match(pane, /onDownload=\{!isDraft && row/)
+  assert.match(pane, /tool\?\.sessionId === sessionId && tool\.kind === 'download' && <DeferredConversationDownload key=\{sessionId\}/)
+  assert.match(pane, /useState<\{ sessionId: string; kind: 'search' \| 'download' \} \| null>/, 'optional dialogs have one mutually exclusive state')
+  assert.match(bar, /aria-label="Download conversation"/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ConversationDownload\.tsx'\)/)
+  assert.match(deferred, /<DeferredConversationFeature feature="download" onClose=\{props\.onClose\}/)
+  const boundary = stripComments(read(join(ROOT, 'src/components/DeferredConversationFeature.tsx')))
+  assert.match(boundary, /getDerivedStateFromError/)
+  assert.match(boundary, /Copy any unsent text before reloading/)
+  assert.match(boundary, /Loading conversation \$\{feature\}…/)
+  assert.match(boundary, /label: `Close \$\{feature\}`, onClick: onClose/)
+  assert.match(dialog, /createPortal/)
+  assert.match(dialog, /useFocusTrap\(dialogRef, onClose/)
+  assert.match(dialog, /useBoundedDialog\(dialogRef\)/)
+  assert.match(dialog, /retained compacted originals/)
+  assert.match(dialog, /Attachments, tool details, and private context aren’t included/)
+  assert.match(controller, /onAccountSwitch/)
+  assert.match(controller, /accountGeneration\(\) !== issuedGeneration/)
+  assert.match(controller, /active\.current !== controller/)
+  assert.match(controller, /downloadBlob\(decodeConversationExport\(file, sessionId\)\)/)
+  assert.doesNotMatch(controller, /peek\(|localStorage|sessionStorage/)
+})

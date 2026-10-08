@@ -11,6 +11,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { SessionTitleBar } from './SessionTitleBar'
 import { ConversationView } from './ConversationView'
 import { DeferredConversationSearch } from './DeferredConversationSearch'
+import { DeferredConversationDownload } from './DeferredConversationDownload'
 import { EmptyState } from './EmptyState'
 import { AtomicResourcePage } from './ResourcePage'
 import type { MainPaneNav, PaneBackOut } from './MainSplit'
@@ -50,7 +51,7 @@ export function ConversationPane({
   const row =
     (useSessions().data ?? []).find((s) => s.id === sessionId) ?? peek<Session>(keys.session(sessionId))
   const isDraft = sessionId === DRAFT_ID
-  const [searchSession, setSearchSession] = useState<string | null>(null)
+  const [tool, setTool] = useState<{ sessionId: string; kind: 'search' | 'download' } | null>(null)
   const canControlTurn = isDraft || row?.own === true
   const providersQ = useProviders()
   const providers = providersQ.data ?? []
@@ -180,11 +181,14 @@ export function ConversationPane({
         // sibling run retargets THIS pane in place — the same session door as
         // every navigation.
         onSelectRun={nav.onOpenSession}
-        onFind={!isDraft && row ? () => setSearchSession(sessionId) : undefined}
+        onFind={!isDraft && row ? () => setTool({ sessionId, kind: 'search' }) : undefined}
+        onDownload={!isDraft && row ? () => setTool({ sessionId, kind: 'download' }) : undefined}
       />
-      {searchSession === sessionId && <DeferredConversationSearch key={sessionId}
-        sessionId={sessionId} onClose={() => setSearchSession(null)}
+      {tool?.sessionId === sessionId && tool.kind === 'search' && <DeferredConversationSearch key={sessionId}
+        sessionId={sessionId} onClose={() => setTool(null)}
         onSelect={(messageId) => nav.onFocusHere({ messageId })} />}
+      {tool?.sessionId === sessionId && tool.kind === 'download' && <DeferredConversationDownload key={sessionId}
+        sessionId={sessionId} onClose={() => setTool(null)} />}
       <ConversationView
         sessionId={sessionId}
         onOpenSession={nav.onOpenSession}
