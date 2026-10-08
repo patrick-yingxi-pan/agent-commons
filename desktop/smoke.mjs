@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { startModelServer } from '../server/model/index.ts'
+import { docBlockId } from '../server/documentIdentity.ts'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { AUTH_ROOT_FILE } from './authRoot.mjs'
 import { smokePackagedAttachments } from './attachmentSmoke.mjs'
@@ -310,17 +311,23 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       if (retry.status !== 200 || represented.artifact?.id !== created[1].id) {
         throw new Error('A changed-payload Retry did not recover the exact direct Artifact.')
       }
-      const contentsResponse = await fetch('/api/v1/artifact-content')
-      const contents = await contentsResponse.json()
-      if (!contentsResponse.ok || created.some(({ id, name, kind, body }) => JSON.stringify(contents[id]) !== JSON.stringify(
-        kind === 'doc'
-          ? { type: 'doc', title: name, blocks: [{ p: body }], revision: 0 }
-          : { ...body, revision: 0 },
-      ))) {
-        throw new Error('Direct Artifact creation did not expose each exact canonical body.')
-      }
       return created
     })
+    const directArtifactExpectations = directArtifacts.map((artifact) => ({
+      ...artifact,
+      expectedBody: artifact.kind === 'doc'
+        ? { type: 'doc', title: artifact.name, blocks: [{ id: docBlockId(artifact.id, 0, 0), p: artifact.body }], revision: 0 }
+        : { ...artifact.body, revision: 0 },
+    }))
+    const directArtifactBodies = await page.evaluate(async () => {
+      const response = await fetch('/api/v1/artifact-content')
+      if (!response.ok) throw new Error('Direct Artifact content read failed.')
+      return response.json()
+    })
+    for (const { id, expectedBody } of directArtifactExpectations) {
+      assert.deepEqual(directArtifactBodies[id], expectedBody,
+        'Direct Artifact creation did not expose each exact canonical body.')
+    }
     const rootPath = join(userDataPath, AUTH_ROOT_FILE)
     const encryptedRoot = await readFile(rootPath, 'utf8')
     const ciphertext = JSON.parse(encryptedRoot).ciphertext
@@ -467,16 +474,10 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
         const artifacts = await artifactsResponse.json()
         const contents = await contentsResponse.json()
         if (!artifactsResponse.ok || !contentsResponse.ok) throw new Error('Relaunched direct Artifact reads failed.')
-        for (const { id, name, kind, body } of created) {
+        for (const { id, name, kind } of created) {
           const artifact = artifacts.find((candidate) => candidate.id === id)
           if (artifact?.name !== name || artifact?.kind !== kind) {
             throw new Error('The packaged relaunch lost an exact direct Artifact row.')
-          }
-          const expectedBody = kind === 'doc'
-            ? { type: 'doc', title: name, blocks: [{ p: body }], revision: 0 }
-            : { ...body, revision: 0 }
-          if (JSON.stringify(contents[id]) !== JSON.stringify(expectedBody)) {
-            throw new Error('The packaged relaunch changed a direct Artifact body.')
           }
         }
         const retry = await fetch('/api/v1/artifacts', {
@@ -485,10 +486,14 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
           body: '{"changed":',
         })
         const represented = await retry.json()
-        return { status: retry.status, id: represented.artifact?.id }
-      }, directArtifacts)
+        return { status: retry.status, id: represented.artifact?.id, contents }
+      }, directArtifactExpectations)
       if (reopenedDirectArtifacts.status !== 200 || reopenedDirectArtifacts.id !== directArtifacts[1].id) {
         throw new Error('The packaged relaunch could not recover the exact keyed direct Artifact.')
+      }
+      for (const { id, expectedBody } of directArtifactExpectations) {
+        assert.deepEqual(reopenedDirectArtifacts.contents[id], expectedBody,
+          'The packaged relaunch changed a direct Artifact body.')
       }
       const revoked = await page.evaluate(async (id) => {
         const response = await fetch(`/api/v1/auth/tokens/${id}`, { method: 'DELETE' })

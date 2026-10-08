@@ -368,12 +368,14 @@ test('a lost first-send capture acknowledgement flushes removal before Retry sen
   await expect(queuedRemove).toHaveCount(0)
   const retry = failed.getByRole('button', { name: 'Retry', exact: true })
   await expect(retry).toBeVisible()
-  const resumedMessage = page.waitForRequest((request) =>
-    request.method() === 'POST' && new URL(request.url()).pathname === `${API}/sessions/${sessionId}/messages`,
+  // A request event precedes the async route's saved-state inspection. The
+  // response proves that inspection finished before the POST was continued.
+  const resumedMessage = page.waitForResponse((response) =>
+    response.request().method() === 'POST' && new URL(response.url()).pathname === `${API}/sessions/${sessionId}/messages`,
     { timeout: ms(20_000) },
   )
   await retry.click()
-  await resumedMessage
+  expect((await resumedMessage).ok(), 'the recovered first turn is accepted after the saved-state inspection').toBe(true)
   await expect(failed).toHaveCount(0)
   expect(contextWrites, 'Retry writes the current empty workspace before posting the turn').toBe(2)
   expect(sessionCreates, 'Retry reuses the already-created session').toBe(1)

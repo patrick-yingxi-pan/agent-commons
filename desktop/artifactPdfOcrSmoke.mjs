@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
 import { pdfOcrFixture } from './pdfOcrFixture.mjs'
+import { docBlockId } from '../server/documentIdentity.ts'
 
 const OCR_TEXT = '[Page 1]\nScan Alpha 427\n\n[Page 2]\nScan Bravo 813'
 const CORRECTED_TEXT = '[Page 1]\nScan Alpine 427\n\n[Page 2]\nScan Bravo 813'
@@ -103,7 +104,10 @@ export async function runArtifactPdfOcrSmoke({ page, app, origin, fixtureRoot, o
   assert.equal(artifact.kind, 'doc')
   const body = {
     type: 'doc', title: 'native-artifact-pdf-ocr',
-    blocks: [{ p: '[Page 1] Scan Alpine 427' }, { p: '[Page 2] Scan Bravo 813' }], revision: 0,
+    blocks: [
+      { id: docBlockId(artifact.id, 0, 0), p: '[Page 1] Scan Alpine 427' },
+      { id: docBlockId(artifact.id, 0, 1), p: '[Page 2] Scan Bravo 813' },
+    ], revision: 0,
   }
   assert.deepEqual(saved.bodies[artifact.id], body, 'saved body contains both OCR pages and only the corrected user draft')
   assert.equal(JSON.stringify(saved.bodies[artifact.id]).includes('%PDF-'), false)

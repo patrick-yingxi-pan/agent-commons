@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
+import { docBlockId } from '../server/documentIdentity.ts'
 
 const TIMEOUT_MS = 30_000
 
@@ -46,6 +47,9 @@ export async function prepareArtifactSearchSmoke({ page, request, stamp }) {
     })
     assert.equal(created.artifact.name, fixture.name)
     fixture.id = created.artifact.id
+    if (fixture.label === 'document') {
+      fixture.body.blocks.forEach((block, index) => { block.id = docBlockId(fixture.id, 0, index) })
+    }
     fixture.path = `/artifacts/${encodeURIComponent(fixture.id)}/match/0/${fixture.field}`
   }
   const bodies = await request(page, '/artifact-content')

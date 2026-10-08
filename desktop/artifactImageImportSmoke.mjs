@@ -3,6 +3,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
 import { imageOcrFixture } from './imageOcrFixture.mjs'
+import { docBlockId } from '../server/documentIdentity.ts'
 
 const OCR_TEXT = 'Cobalt garden 427'
 const DRAFT_TEXT = 'Keep this draft until adoption.'
@@ -89,7 +90,8 @@ export async function runArtifactImageImportSmoke({ page, app, origin, fixtureRo
   assert.ok(artifact, 'explicit Create document writes the reviewed image-text draft')
   assert.equal(artifact.kind, 'doc')
   assert.deepEqual(saved.bodies[artifact.id], {
-    type: 'doc', title: 'native-artifact-image-ocr', blocks: [{ p: CORRECTED_TEXT }], revision: 0,
+    type: 'doc', title: 'native-artifact-image-ocr',
+    blocks: [{ id: docBlockId(artifact.id, 0, 0), p: CORRECTED_TEXT }], revision: 0,
   }, 'saved body contains the corrected reviewed text, not the image or uncorrected OCR candidate')
   console.log('[desktop-artifact-image-import-smoke] native Add photos dialog result · generated real PNG pixels · packaged normalization + native OCR IPC · cancel/no-text inert · read-only review · explicit replace/edit/create · exact saved body')
   return { id: artifact.id, path: readablePath, name: artifact.name, body: saved.bodies[artifact.id] }

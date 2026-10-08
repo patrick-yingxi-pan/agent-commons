@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { ignoreFromPackage } from './packager.config.mjs'
+import { docBlockId } from '../server/documentIdentity.ts'
+import { prepareArtifactSearchSmoke } from './artifactSearchSmoke.mjs'
 
 const source = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf8')
 
@@ -24,6 +26,55 @@ test('current-body smoke prepares Document, Sheet, workbook and Slides with exac
   assert.match(helper, /const bodies = await request\(page, '\/artifact-content'\)/,
     'the canonical API confirms each exact generated body before navigation')
   assert.match(helper, /assert\.deepEqual\(bodies\[fixture\.id\], fixture\.body/)
+})
+
+test('current-body preparation preserves all authored fixtures and assigns every Document block its canonical identity', async () => {
+  const stamp = 'identity-lock'
+  const artifactIds = ['search-document', 'search-sheet', 'search-workbook', 'search-slides']
+  const expectedBodies = {
+    'search-document': {
+      type: 'doc', title: `Packaged search document ${stamp}`,
+      blocks: [
+        { id: docBlockId('search-document', 0, 0), p: 'Opening context. '.repeat(32).trim() },
+        { id: docBlockId('search-document', 0, 1), p: `A later paragraph contains documentneedle${stamp}.` },
+      ], revision: 0,
+    },
+    'search-sheet': {
+      type: 'sheet', columns: ['Metric', 'Value'],
+      rows: [['Opening', 'Ordinary'], ['Later', `sheetneedle${stamp}`]], revision: 0,
+    },
+    'search-workbook': {
+      type: 'workbook', revision: 0, sheets: [
+        { id: 'overview', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Opening', 'Ordinary']] },
+        { id: 'details', name: 'Details', columns: ['Metric', 'Value'], rows: [['Later', `workbookneedle${stamp}`]] },
+      ],
+    },
+    'search-slides': {
+      type: 'slides', revision: 0, slides: [
+        { title: 'Opening', bullets: ['Ordinary introduction'] },
+        { title: 'Details', bullets: ['Other detail', `slidesneedle${stamp}`] },
+      ],
+    },
+  }
+  const request = async (_page: unknown, path: string, body?: { name: string }) => {
+    if (path === '/artifacts') {
+      const index = Object.keys(expectedBodies).findIndex(id => expectedBodies[id as keyof typeof expectedBodies].type ===
+        (body?.name.includes('document') ? 'doc' : body?.name.includes('workbook') ? 'workbook' : body?.name.includes('slides') ? 'slides' : 'sheet'))
+      assert.notEqual(index, -1, `stub recognizes create request ${body?.name}`)
+      return { artifact: { id: artifactIds[index], name: body?.name } }
+    }
+    assert.equal(path, '/artifact-content')
+    return expectedBodies
+  }
+  const fixtures = await prepareArtifactSearchSmoke({ page: {}, request, stamp })
+  assert.deepEqual(fixtures.map(({ label, id, field, query }) => ({ label, id, field, query })), [
+    { label: 'document', id: 'search-document', field: 'doc.block.1.p', query: `documentneedle${stamp}` },
+    { label: 'sheet', id: 'search-sheet', field: 'sheet.cell.1.1', query: `sheetneedle${stamp}` },
+    { label: 'workbook', id: 'search-workbook', field: 'workbook.1.cell.0.1', query: `workbookneedle${stamp}` },
+    { label: 'slides', id: 'search-slides', field: 'slides.1.bullet.1', query: `slidesneedle${stamp}` },
+  ])
+  assert.deepEqual(Object.fromEntries(fixtures.map(fixture => [fixture.id, fixture.body])), expectedBodies,
+    'the helper compares exact authored content and all canonical Document block IDs')
 })
 
 test('current-body search verifies exact URLs, focused reveal, reload, Back, and Show match without writes or history reads', () => {

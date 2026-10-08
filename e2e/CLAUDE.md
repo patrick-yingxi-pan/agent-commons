@@ -133,7 +133,7 @@ down). The store/route suites lock the logic; the E2E locks the wiring. Anchor s
     bylines, and where the walk also holds the list's PORTAL (it escapes its
     composer to `document.body` and takes its position from the field).
 
-Spec gotchas: the app **opens on a fresh draft** (sending materializes a new session), and the sidebar is an `<aside>` (role `complementary`) — only its nav buttons carry a `navigation` role.
+Spec gotchas: the app **opens on a fresh draft** (sending materializes a new session), and the sidebar is an `<aside>` (role `complementary`) — only its nav buttons carry a `navigation` role. A request event precedes async route inspection; exact observations must await its completed response, as in [`discussion-context.spec.ts`](discussion-context.spec.ts).
 
 - **Never assert a posted body with `getByText`.** React mirrors a controlled
   `<textarea>`'s value into its `defaultValue`, and a textarea's `defaultValue`

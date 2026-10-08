@@ -19,6 +19,7 @@ import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
 import { smokePackagedLocalGit } from './localGitSmoke.mjs'
 import { settledAttachmentPreview } from '../e2e/accessibility-helpers.ts'
+import { docBlockId } from '../server/documentIdentity.ts'
 
 const TIMEOUT_MS = 30_000
 const DIAGNOSTIC_TIMEOUT_MS = 2_000
@@ -419,7 +420,8 @@ export async function smokePackagedAttachments({ executable }) {
       }, imported.name)
       assert.equal(saved.artifact?.kind, 'doc')
       assert.deepEqual(saved.body, {
-        type: 'doc', title: imported.name.slice(0, -3), blocks: imported.blocks.map((p) => ({ p })), revision: 0,
+        type: 'doc', title: imported.name.slice(0, -3),
+        blocks: imported.blocks.map((p, index) => ({ id: docBlockId(saved.artifact.id, 0, index), p })), revision: 0,
       })
       imported.id = saved.artifact.id
     }

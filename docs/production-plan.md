@@ -6,7 +6,50 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: full Document editing and stable discussions
+## Current checkpoint: packaged Document editing and migration
+
+The full editor shipped at `3ce125a4` after the local verifier passed all five
+lanes, including 570 browser tests, and the 135/135-cell UI sweep passed with no
+violations or skips. The new native acceptance extends the existing ordinary
+Artifact history launch/relaunch lifecycle rather than adding a privileged test
+bridge or another user-data profile.
+
+The focused unsigned arm64 packaged workflow passed: the built renderer edits
+the title and all five block kinds, inserts/reorders/deletes under one exact
+revision-fenced Save, and retains literal list/code entries. Discussion doors
+follow moved originals and explicitly label deleted originals before and after
+signed-in relaunch. Exact current bodies, IDs, versions and discussion rows are
+read from the real SQLite database.
+
+A separate generated legacy fixture is staged only after the app exits and its
+old service is unreachable. A compare-before-write transaction removes IDs only
+from that fixture's current/history blocks, preserves all other rows and receipts,
+and restores the old numeric discussion locus. Ordinary startup performs v5→v6
+migration; exact restore lineage survives, the numeric discussion stays explicitly
+unavailable, and a subsequent rendered edit appends a new revision without
+rewriting its retained versions. Test-only helpers are excluded from the package.
+
+Review found ID-less expectations in older direct-create, local import, image OCR
+and scanned-PDF OCR native helpers. Their exact-content checks now include every
+canonical block identity; the search helper also has a behavioral two-block lock.
+`npm run desktop:package` and the complete `npm run desktop:smoke` passed on the
+unsigned arm64 artifact, including the existing credential, import/OCR, export,
+MCP, backup and restore paths. The actual ASAR excludes the new test helpers.
+A disposable response mutation replaced the moved block's ID after Save; the
+native workflow failed its exact-body assertion before the unmodified full run
+passed. Editor, moved/deleted discussions and migrated-edit captures were reviewed.
+The first full local verifier passed static/unit/build checks and three browser
+shards, but exposed an existing discussion-copy test race: its request event
+preceded the async route observer's saved-state read. That walk now waits for the
+same POST's successful response before checking the exact pre-send empty copy;
+no assertion, deadline or retry policy was relaxed. The focused regression and
+all six discussion-context browser tests passed. A fresh trace-enabled full local
+verifier remains the final mandatory landing gate for this tree.
+This milestone is unsigned Apple Silicon evidence, not signed/notarized,
+Intel, paid-provider, or public-release acceptance. Those production gates remain
+open; no GitHub CI is used.
+
+## Completed checkpoint: full Document editing and stable discussions
 
 The approved editor now covers title, headings, paragraphs, bullet items, code
 lines and email headers, with insert, delete and keyboard-accessible reorder.

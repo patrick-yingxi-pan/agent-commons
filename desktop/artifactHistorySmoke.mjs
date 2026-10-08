@@ -11,6 +11,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
 import { prepareArtifactSearchSmoke, verifyArtifactSearchSmoke, verifyStaleArtifactSearchSmoke, readSqliteSearchBodies } from './artifactSearchSmoke.mjs'
+import { prepareDocumentEditSmoke, verifyDocumentEditSmoke, verifyDocumentMigrationSmoke } from './artifactDocumentEditSmoke.mjs'
+import { stageLegacyDocumentMigration } from './artifactDocumentMigrationFixture.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const TIMEOUT_MS = 30_000
@@ -106,6 +108,10 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
     const editedVersion = await readVersion(page, artifact.id, 1)
     assert.equal(JSON.stringify(originalVersion.version.body).includes(baseline), true)
     assert.equal(JSON.stringify(editedVersion.version.body).includes(edited), true)
+
+    stage = 'complete-document-edit-and-discussions'
+    const documentFixtures = await prepareDocumentEditSmoke({ page, origin, request, profile, stamp, evidenceDirectory })
+    await verifyDocumentEditSmoke({ page, origin, request, profile, fixture: documentFixtures, evidenceDirectory, phase: 'before-relaunch' })
 
     stage = 'current-body-search-reveal'
     const searchFixtures = await prepareArtifactSearchSmoke({ page, request, stamp })
@@ -295,10 +301,19 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
     assert.deepEqual(readSqliteSearchBodies(profile, searchFixtures), searchBodiesBeforeQuit,
       'the exact current search bodies are committed before relaunch')
 
+    // Only this generated fixture profile is changed, after both process exit
+    // and service refusal. The ordinary launch below owns the real migration.
+    stage = 'stopped-profile-legacy-document-fixture'
+    const legacyDocumentRows = stageLegacyDocumentMigration(profile, documentFixtures.legacy)
+
     run = await launch(executable, profile)
     ;({ page, origin } = run)
     await page.setViewportSize({ width: 1280, height: 800 })
     assert.equal((await request(page, '/me')).user.id, owner.user.id, 'ordinary relaunch preserves the signed-in owner')
+    stage = 'document-identity-and-migration-after-relaunch'
+    await verifyDocumentEditSmoke({ page, origin, request, profile, fixture: documentFixtures, evidenceDirectory, phase: 'after-relaunch' })
+    const documentMigrationProof = await verifyDocumentMigrationSmoke({ page, origin, request, profile,
+      fixture: documentFixtures, legacyRows: legacyDocumentRows, evidenceDirectory })
     stage = 'current-body-search-after-relaunch'
     await verifyArtifactSearchSmoke({ page, origin, request, fixtures: searchFixtures, evidenceDirectory, phase: 'after-relaunch' })
     await verifyStaleArtifactSearchSmoke({ page, origin, artifactId: artifact.id, oldRevision: 1,
@@ -353,9 +368,13 @@ export async function smokePackagedArtifactHistory({ executable, launch, close }
       currentSearchMatches: searchFixtures.map(({ id, label, field }) => ({ artifactId: id, format: label, revision: 0, field })),
       currentSearchReloadBackAndFocus: true, currentSearchSqliteRelaunch: true,
       currentSearchMadeNoArtifactWritesOrHistoryReads: true, staleCurrentLocatorSelectedNothing: true,
+      completeDocumentEdit: { artifactId: documentFixtures.edited.artifactId, allFiveBlockKinds: true,
+        exactLiteralEntries: true, titleInsertDeleteReorder: true, originalDiscussionIdentity: true,
+        deletedOriginalLabeled: true, exactSqliteRelaunch: true },
+      documentMigration: documentMigrationProof,
       scope: 'Ordinary packaged unsigned host-architecture app, generated isolated profile/accounts, real SQLite, no provider/model/service. Not signed/notarized, Intel, or paid-provider acceptance.',
     }, null, 2)}\n`, { mode: 0o600 })
-    console.log('[desktop-artifact-history-smoke] four-format current search/reveal/focus · stale locator refusal · explicit saved-version search · exact revision reload/back · shared/foreign privacy · read-only compare/cancel · confirmed restore · real SQLite + signed-in full relaunch + exact receipt replay')
+    console.log('[desktop-artifact-history-smoke] complete Document editing + stable/deleted discussion doors · v5 migration + exact restore identity + editable migrated body · four-format current search/reveal/focus · stale locator refusal · explicit saved-version search · exact revision reload/back · shared/foreign privacy · read-only compare/cancel · confirmed restore · real SQLite + signed-in full relaunch + exact receipt replay')
     console.log(`[desktop-artifact-history-smoke] evidence ${evidenceDirectory}`)
   } catch (error) {
     if (run && evidenceDirectory) await run.page.screenshot({ path: join(evidenceDirectory, 'failure.png') }).catch(() => {})
