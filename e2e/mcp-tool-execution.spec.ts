@@ -41,13 +41,33 @@ async function inspectExecutionFixture(page: Page, fixtureUrl: string, label: st
   return connectionId
 }
 
-async function attachExternalMcp(page: Page, sessionId: string, label: string) {
+async function attachExternalMcp(page: Page, sessionId: string, label: string, expectOverflow = false) {
   await page.goto(`/s/${sessionId}`)
   await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Add context', exact: true }).click()
   const picker = page.getByRole('dialog', { name: 'Add context', exact: true })
   await picker.getByRole('button', { name: /^MCP server/ }).click()
-  const external = picker.getByRole('button', { name: new RegExp(label) })
+  const externalButton = (within: Locator) => within.getByRole('button', { name: new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) })
+  const inlineExternal = externalButton(picker)
+  const more = picker.getByRole('button', { name: /^More available\b/ })
+  await expect.poll(async () => await inlineExternal.isVisible() || await more.isVisible()).toBe(true)
+  if (expectOverflow) {
+    await expect(more).toBeVisible()
+    await expect(inlineExternal).toHaveCount(0)
+  }
+  let external = inlineExternal
+  if (!await inlineExternal.isVisible()) {
+    await more.hover()
+    // RecentOverflowList portals its one-level tail to document.body, outside
+    // the Add-context dialog. Select the named flyout rather than assuming it
+    // is a descendant of the picker.
+    const overflow = page.getByRole('dialog', { name: 'More available', exact: true })
+    await expect(overflow).toBeVisible()
+    const overflowExternal = externalButton(overflow)
+    await expect.poll(async () => await inlineExternal.isVisible() || await overflowExternal.isVisible()).toBe(true)
+    external = await inlineExternal.isVisible() ? inlineExternal : overflowExternal
+  }
+  await expect(external).toBeVisible()
   await expect(external).toContainText('Approval required for every call')
   await external.click()
   await expect(page.getByTitle('Open in sidebar').filter({ hasText: label })).toBeVisible({ timeout: ms(20_000) })
@@ -56,6 +76,31 @@ async function attachExternalMcp(page: Page, sessionId: string, label: string) {
   // not a transient popover node, is the authority that the mutation landed.
   const settledPicker = page.getByRole('dialog', { name: 'Add context', exact: true })
   if (await settledPicker.isVisible()) await settledPicker.getByRole('button', { name: 'Done', exact: true }).click()
+}
+
+async function seedPickerOverflowConnections(page: Page, stack: McpRouterStack, stamp: string, count: number) {
+  for (let index = 0; index < count; index++) {
+    const fixture = await startMcpFixture({ label: `Overflow fixture ${stamp} ${index}` })
+    try {
+      const created = await page.request.post(`${stack.url}/api/v1/mcp-connections`, {
+        data: {
+          creationId: `picker-overflow-${stamp}-${index}`,
+          label: `Overflow fixture ${stamp} ${index}`,
+          endpoint: fixture.url,
+          authentication: 'none',
+        },
+      })
+      expect(created.ok()).toBe(true)
+      const { connection } = await created.json() as { connection: { id: string; revision: number } }
+      const inspected = await page.request.post(`${stack.url}/api/v1/mcp-connections/${connection.id}/inspect`, {
+        data: { operationId: `picker-overflow-inspect-${stamp}-${index}`, expectedRevision: connection.revision },
+      })
+      expect(inspected.ok()).toBe(true)
+      await inspected.body()
+    } finally {
+      await fixture.close()
+    }
+  }
 }
 
 async function requestExternalCall(page: Page, query: string) {
@@ -328,6 +373,7 @@ test('known MCP errors and post-submission uncertainty stay durable without repl
 
 test('long external labels and result descriptors stay contained at 320px', async ({ page }) => {
   test.setTimeout(ms(90_000))
+  const stamp = Date.now().toString(36)
   const longLabel = `Long external connection ${'identity-'.repeat(20)}`
   const longResource = `Resource ${'descriptor-'.repeat(24)}`
   const longMime = `application/vnd.agent-commons.${'schema-'.repeat(20)}+json`
@@ -339,10 +385,19 @@ test('long external labels and result descriptors stay contained at 320px', asyn
   const stack = await startMcpRouterStack()
   const disposeProxy = await proxyMcpApi(page, stack)
   try {
-    await inspectExecutionFixture(page, fixture.url, longLabel)
+    // The inline picker is capped at nine rows; nine earlier connected rows
+    // force this target into its "More available" flyout even in an otherwise
+    // empty worker store. This exercises the real collapsed-list path rather
+    // than depending on accumulated state from preceding specs.
+    await seedPickerOverflowConnections(page, stack, stamp, 9)
+    const longConnectionId = await inspectExecutionFixture(page, fixture.url, longLabel)
+    const listed = await page.request.get(`${stack.url}/api/v1/mcp-connections`)
+    expect(listed.ok()).toBe(true)
+    const { connections } = await listed.json() as { connections: Array<{ id: string }> }
+    expect(connections.findIndex(connection => connection.id === longConnectionId)).toBeGreaterThanOrEqual(9)
     const created = await page.request.post(`${stack.url}/api/v1/sessions`, { data: {} })
     const session = await created.json() as Session
-    await attachExternalMcp(page, session.id, longLabel)
+    await attachExternalMcp(page, session.id, longLabel, true)
     const proposed = await requestExternalCall(page, 'long-content')
     await proposed.getByRole('button', { name: 'Run tool', exact: true }).click()
     const done = page.locator('[data-mcp-tool-status="done"]').filter({ hasText: 'inspect_records' }).last()

@@ -137,6 +137,8 @@ down). The store/route suites lock the logic; the E2E locks the wiring. Anchor s
 
 Spec gotchas: the app **opens on a fresh draft** (sending materializes a new session), and the sidebar is an `<aside>` (role `complementary`) — only its nav buttons carry a `navigation` role. A request event precedes async route inspection; exact observations must await its completed response, as in [`discussion-context.spec.ts`](discussion-context.spec.ts).
 
+The MCP picker waits for its exact target or “More available” before choosing a path. Exercise overflow with a test-owned crowded list; locate its target in the portaled flyout, not inside the Add-context dialog.
+
 - **Never assert a posted body with `getByText`.** React mirrors a controlled
   textarea's draft into its text content, so the still-open composer can satisfy
   the assertion before anything posts. Target the rendered body instead:

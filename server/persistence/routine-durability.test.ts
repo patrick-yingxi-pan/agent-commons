@@ -29,12 +29,18 @@ test('rehydrate preserves execution-aware work for recovery and sweeps only lega
       summary: 'Working', at: 90,
     },
   ]
+  const waiting = structuredClone(seed)
+  waiting.id = 'routine-capacity-waiting'
+  waiting.runs = [{
+    id: 'run-live-waiting', status: 'running', duration: '—', reachedStep: 0,
+    summary: 'Queued', at: 101, attempts: 0, maxAttempts: 3, nextAttemptAt: 101,
+  }]
   saveState({
     version: STORE_VERSION,
     sessions: [],
     bindings: [],
     workspaces: [],
-    schedules: [seed],
+    schedules: [seed, waiting],
     recents: { files: [], photos: [], folder: [], repo: [], connector: [], mcp: [] },
     graph: {
       sessionProject: {}, artifactProject: {}, scheduleProject: {}, projectContexts: {},
@@ -54,7 +60,13 @@ test('rehydrate preserves execution-aware work for recovery and sweeps only lega
     { status: 'running', attempts: 1, maxAttempts: 3, nextAttemptAt: 500 },
     'the worker owns recovery of execution-aware rows',
   )
-  assert.deepEqual(store.pendingScheduleRuns(), [{ taskId: seed.id, runId: aware.id, nextAttemptAt: 500 }])
+  assert.deepEqual(store.pendingScheduleRuns(), [
+    { taskId: seed.id, runId: aware.id, nextAttemptAt: 500 },
+    { taskId: waiting.id, runId: waiting.runs[0].id, nextAttemptAt: 101 },
+  ])
+  const recoveredWaiting = store.listSchedules().find((candidate) => candidate.id === waiting.id)!.runs[0]
+  assert.equal(recoveredWaiting.attempts, 0, 'waiting for worker capacity survives restart without spending an attempt')
+  assert.equal(recoveredWaiting.status, 'running', 'queued work remains recoverable, not falsely interrupted')
 
   const legacy = task.runs.find((run) => run.id === 'run-live-legacy')!
   assert.equal(legacy.status, 'failed')

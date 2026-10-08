@@ -15,6 +15,7 @@ import { createRoutineArtifactCapture } from './routineArtifact.ts'
 import { generateReply, type ReplyResult } from './generate.ts'
 import { positiveNumberEnv } from './env.ts'
 import { UsageRecordingError } from './modelUsage.ts'
+import { PersistenceWriteError } from './persistence/persist.ts'
 import { store, type RoutineExecutionContext } from './store/index.ts'
 
 export interface RoutineRunStore {
@@ -44,9 +45,35 @@ export interface RoutineRunStore {
 
 export type RoutineGenerate = typeof generateReply
 
+export interface RoutineConcurrencyLimits {
+  global: number
+  perTenant: number
+  perAgent: number
+}
+
+function concurrencyLimit(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'string' && value.trim() ? Number(value) : value
+  return typeof parsed === 'number' && Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= 64
+    ? parsed : fallback
+}
+
+/** Operator tuning is bounded too: zero, malformed, and excessive limits never
+ * silently turn the desktop worker into an unlimited model-call launcher. */
+export function routineConcurrencyLimits(env: Record<string, string | undefined> = process.env): RoutineConcurrencyLimits {
+  return {
+    global: concurrencyLimit(env.ROUTINE_MAX_CONCURRENT, 4),
+    perTenant: concurrencyLimit(env.ROUTINE_MAX_CONCURRENT_PER_TENANT, 2),
+    perAgent: concurrencyLimit(env.ROUTINE_MAX_CONCURRENT_PER_AGENT, 1),
+  }
+}
+
 export interface RoutineRunnerOptions {
   now?: () => number
   retryBaseMs?: number
+  concurrency?: Partial<RoutineConcurrencyLimits>
+  /** Process supervisor seam. The default terminates on an internal worker
+   * fault after closing admission; it never exposes the private store cause. */
+  onFatal?: () => void
 }
 
 function executionPrompt(task: ScheduledTask, output?: ScheduledArtifactSpec | null): string {
@@ -95,11 +122,76 @@ export function createRoutineRunner(
 ) {
   const now = options.now ?? Date.now
   const retryBaseMs = options.retryBaseMs ?? positiveNumberEnv(process.env.ROUTINE_RETRY_BASE_MS, 5_000)
+  const defaults = routineConcurrencyLimits()
+  const limits: RoutineConcurrencyLimits = {
+    global: concurrencyLimit(options.concurrency?.global, defaults.global),
+    perTenant: concurrencyLimit(options.concurrency?.perTenant, defaults.perTenant),
+    perAgent: concurrencyLimit(options.concurrency?.perAgent, defaults.perAgent),
+  }
   const timers = new Map<string, ReturnType<typeof setTimeout>>()
-  const controllers = new Map<string, AbortController>()
+  const ready = new Map<string, { taskId: string; runId: string }>()
+  const active = new Map<string, { tenantId: string; agentId: string; controller: AbortController }>()
   let stopped = false
+  let faulted = false
+  let draining = false
 
-  const key = (taskId: string, runId: string) => `${taskId}\u0000${runId}`
+  const key = (taskId: string, runId: string) => JSON.stringify([taskId, runId])
+
+  const stop = (): void => {
+    stopped = true
+    for (const handle of timers.values()) clearTimeout(handle)
+    timers.clear()
+    ready.clear()
+    for (const call of active.values()) call.controller.abort()
+  }
+
+  const fatal = (): void => {
+    if (faulted) return
+    faulted = true
+    stop()
+    if (options.onFatal) options.onFatal()
+    else queueMicrotask(() => { throw new Error('Routine worker state failed. Restart is required before more work can run.') })
+  }
+
+  const drain = (): void => {
+    if (stopped || draining) return
+    draining = true
+    try {
+      // Map order is ready-time FIFO. A saturated tenant/Agent cannot hold up a
+      // different eligible scope. Waiting does not spend an attempt or tokens.
+      for (const [k, job] of ready) {
+        if (active.size >= limits.global) break
+        if (active.has(k)) continue
+        const ctx = runStore.routineExecutionContext(job.taskId, job.runId)
+        if (!ctx) { ready.delete(k); continue }
+        const tenantId = ctx.tenantId
+        // taskForRun supplies the frozen binding. A missing Agent's fallback
+        // face must not merge its capacity with an unrelated default Agent.
+        const agentId = ctx.task.agentId ?? ctx.agent.id
+        const tenantCalls = [...active.values()].filter((call) => call.tenantId === tenantId)
+        if (tenantCalls.length >= limits.perTenant ||
+            tenantCalls.filter((call) => call.agentId === agentId).length >= limits.perAgent) continue
+        ready.delete(k)
+        const call = { tenantId, agentId, controller: new AbortController() }
+        active.set(k, call)
+        void execute(job.taskId, job.runId, call.controller).then(() => {
+          // Cancellation is not completion. Even an abort-ignoring endpoint
+          // occupies its slot until its promise settles, across stop/start.
+          if (active.get(k) === call) active.delete(k)
+          drain()
+        }, () => {
+          // A failed state transition is not a retryable provider failure.
+          // Close every admission before reporting it to the supervisor.
+          fatal()
+          if (active.get(k) === call) active.delete(k)
+        })
+      }
+    } catch {
+      fatal()
+    } finally {
+      draining = false
+    }
+  }
 
   const schedule = (taskId: string, runId: string, at: number): void => {
     if (stopped) return
@@ -108,7 +200,8 @@ export function createRoutineRunner(
     if (prior) clearTimeout(prior)
     const handle = setTimeout(() => {
       timers.delete(k)
-      void execute(taskId, runId)
+      ready.set(k, { taskId, runId })
+      drain()
     }, Math.max(0, at - now()))
     handle.unref?.()
     timers.set(k, handle)
@@ -133,14 +226,14 @@ export function createRoutineRunner(
     if (!stopped) runStore.failScheduleRun(ctx.task.id, ctx.run.id, code, detail, now())
   }
 
-  const execute = async (taskId: string, runId: string): Promise<void> => {
-    if (stopped) return
+  const execute = async (taskId: string, runId: string, controller: AbortController): Promise<void> => {
+    if (stopped || controller.signal.aborted) return
     let ctx = runStore.routineExecutionContext(taskId, runId)
     if (!ctx) return
     const attempt = (ctx.run.attempts ?? 0) + 1
     if (!runStore.markScheduleRunAttempt(taskId, runId, attempt, now())) return
     ctx = runStore.routineExecutionContext(taskId, runId)
-    if (!ctx) return
+    if (!ctx || stopped || controller.signal.aborted) return
 
     if (ctx.blocked) {
       retryOrFail(ctx, ctx.blocked.code, ctx.blocked.detail, false)
@@ -163,8 +256,6 @@ export function createRoutineRunner(
       return
     }
 
-    const controller = new AbortController()
-    controllers.set(key(taskId, runId), controller)
     try {
       const routineArtifact = output && output.kind !== 'doc' ? createRoutineArtifactCapture(output) : undefined
       const providerConfig = { ...ctx.providerConfig, ...(ctx.modelId ? { model: ctx.modelId } : {}) }
@@ -225,6 +316,7 @@ export function createRoutineRunner(
         routineArtifact?.result,
       )
     } catch (error) {
+      if (error instanceof PersistenceWriteError) throw error
       if (stopped || controller.signal.aborted) return // durable row resumes after restart
       runStore.recordGenerationOutcome('error')
       // Accounting failure is terminal: the model may already have consumed
@@ -238,30 +330,29 @@ export function createRoutineRunner(
         error instanceof Error ? `Routine execution failed: ${error.message}` : 'Routine execution failed unexpectedly.',
         retryable,
       )
-    } finally {
-      controllers.delete(key(taskId, runId))
     }
+  }
+
+  const enqueue = (taskId: string, runId: string): void => {
+    if (stopped) return
+    const k = key(taskId, runId)
+    const running = active.get(k)
+    if (timers.has(k) || ready.has(k) || (running && !running.controller.signal.aborted)) return
+    const ctx = runStore.routineExecutionContext(taskId, runId)
+    if (ctx) schedule(taskId, runId, ctx.run.nextAttemptAt ?? now())
   }
 
   return {
     /** Called by the store after it durably mints a run. */
-    enqueue(taskId: string, runId: string): void {
-      const ctx = runStore.routineExecutionContext(taskId, runId)
-      if (ctx) schedule(taskId, runId, ctx.run.nextAttemptAt ?? now())
-    },
+    enqueue,
     /** Recover every execution-aware running row after persistence rehydrate. */
     start(): void {
+      if (faulted) return
       stopped = false
       for (const pending of runStore.pendingScheduleRuns()) {
-        schedule(pending.taskId, pending.runId, pending.nextAttemptAt)
+        enqueue(pending.taskId, pending.runId)
       }
     },
-    stop(): void {
-      stopped = true
-      for (const handle of timers.values()) clearTimeout(handle)
-      timers.clear()
-      for (const controller of controllers.values()) controller.abort()
-      controllers.clear()
-    },
+    stop,
   }
 }

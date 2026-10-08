@@ -6,7 +6,54 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: real Contribution execution
+## Current checkpoint: bounded Routine execution
+
+The core-workflow audit confirmed two unfinished automation directions. Real
+Dispatch still needs an approved Agent/model and result-destination policy;
+external MCP calls in unattended Routines need separate scoped standing authority
+or a pause-for-confirmation workflow. Both decisions have been requested and are
+pending. Neither existing per-call permission nor an automatic goal continuation
+authorizes either policy change.
+
+The existing PD60 requirement for bounded automation can proceed independently.
+The Routine worker now queues durable rows under process/tenant/tenant-Agent
+limits (defaults 4/2/1), without spending attempts until admission. Ready order
+is preserved within competing scopes while eligible other scopes can proceed.
+Repeated recovery/wakeup calls cannot duplicate active runs. Admission rechecks
+authority and budget; retries release capacity during backoff. Stop/start keeps
+abort-ignoring work counted until settlement, and late cancelled results cannot
+publish. Fatal state transitions stop admissions before supervisor reporting;
+failed storage commits are never treated as transient model failures.
+
+Focused locks cover limits, fairness, deduplication, current authority, retry,
+shutdown, fault handling and zero-attempt restart recovery. The global limit,
+Agent limit, cancellation retention and fatal-commit locks were each watched
+fail under targeted implementation mutations, then restored. The complete local
+verifier remains the landing gate. No UI, external-tool authority, persistence
+shape or provider credentials changed; this does not complete real Dispatch,
+standing MCP permissions, spend reservations or the wider production goal.
+
+The first complete local gate passed checks and three browser shards; one MCP
+browser walk failed because its connection had moved behind the picker's real
+“More available” disclosure as the worker's fixture registry grew. The harness
+now drives that portaled tail, and the long-label case deliberately creates a
+crowded registry and proves the target is not inline. Disabling overflow lookup
+failed at that exact hidden row; restoring it passed all seven focused MCP
+browser tests. No product behavior, assertion, retry count or timing budget is
+relaxed. The complete frozen local gate remains required before landing.
+
+That corrected full run passed all five lanes and 597 browser tests. Review then
+strengthened the shutdown lock to wait for the actual generator and worker
+continuations before asserting unchanged state. Removing late-result fencing
+made it fail with a falsely completed run; the implementation was restored. The
+final strengthened test revision repeats the complete local gate before push.
+
+## Completed checkpoint: real Contribution execution
+
+Shipped as `c9dffd0b`: the corrected final local verifier passed all five lanes
+and 597 browser tests. The broad review covered 135/135 cells without violations
+or skips, and the rebuilt unsigned arm64 native regression passed. The detailed
+pre-landing history below is retained as evidence, not outstanding local work.
 
 The exact-bound Contribution execution foundation was pushed at `576bbce7`
 after its final local run passed 4,800 Node tests and 593 browser tests. The

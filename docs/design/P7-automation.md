@@ -9,9 +9,10 @@
 
 The product has both shapes: **Scheduled** routines (`ScheduledTask` + durable cursor
 and fire-time-keyed runs, `/schedule-templates`) and persisted **Dispatch** one-off runs
-(`DispatchRun`, `addDispatch`). Both have live feeds; both still synthesize their work
-rather than entering one real model/tool executor. P4 now supplies the desktop cadence
-core and designs standing approvals; P7 designs the **broader automation surface**: one
+(`DispatchRun`, `addDispatch`). Both have live feeds. Routines now execute through
+the real bounded model loop; user-created Dispatch rows still finish on a fixture
+timer without model work. P4 supplies the desktop cadence core and standing
+approval design; P7 designs the **broader automation surface**: one
 execution model, concurrency + budget bounding, templates, and the runs feed. **Shared**
 model; web runs a real queue/worker fleet, desktop a single in-process worker.
 
@@ -19,7 +20,7 @@ model; web runs a real queue/worker fleet, desktop a single in-process worker.
 
 ### 2.1 One job model, two triggers
 
-Scheduled and Dispatch are the **same job executed by the same engine** (P4 §2.3 + the
+The target is Scheduled and Dispatch as the **same job executed by the same engine** (P4 §2.3 + the
 P5 model+tool loop), differing only in trigger:
 
 - **Dispatch** — a one-shot job enqueued immediately (the prototype's "lands running,
@@ -33,10 +34,15 @@ runs feed (the prototype's single live source), and deliver via graph bindings (
 ### 2.2 Durability, retries, concurrency
 
 - The desktop cadence producer is durable and idempotent by `(routine, fire time)`.
-  A future **job queue** (web) / real in-process executor (desktop) executes jobs
-  at-least-once; failures retry with backoff and `notifyOnFailure` alerts.
-- **Concurrency caps** per tenant + per agent so automation can't exhaust budgets
-  (P5 PD53) or saturate runners (F4); excess jobs queue.
+  Its real in-process Routine executor retries transient failures with durable
+  backoff. The hosted queue and real Dispatch executor remain unbuilt.
+- **Routine concurrency caps** now bound active calls per process, tenant and
+  tenant/Agent (defaults 4/2/1). Excess durable rows wait without spending attempts;
+  saturated scopes do not block other eligible scopes. Admission rechecks live
+  authority and budget, retries release slots during backoff, and abort-ignoring
+  calls retain capacity until settlement. Internal state failures close admission
+  before supervisor reporting. These are concurrency limits, not spend reservations
+  or a guarantee against concurrent/unreported provider charges (P5 PD53).
 - The interrupted-run sweep (already present) reconciles jobs in flight at a crash.
 
 ### 2.3 Templates

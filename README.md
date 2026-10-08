@@ -122,6 +122,14 @@ its authored definition and endpoint binding, then runs the same guarded Message
 loop under the bound Agent's live authority and budget. Transient failures retry
 three times by default with exponential backoff; operators can tune
 `ROUTINE_MAX_ATTEMPTS` (1–8) and `ROUTINE_RETRY_BASE_MS` (default 5000).
+The worker queues excess runs without spending attempts: defaults are four active
+calls per process, two per tenant and one per tenant/Agent. Operators can set
+`ROUTINE_MAX_CONCURRENT`, `ROUTINE_MAX_CONCURRENT_PER_TENANT` and
+`ROUTINE_MAX_CONCURRENT_PER_AGENT` to integers from 1–64; invalid values retain
+the respective default. Waiting work rechecks live authority and budget when
+admitted. Cancellation retains capacity until the underlying call settles.
+These limits cover Routines, not interactive turns or the still-simulated
+Dispatch feed, and do not reserve or guarantee a monetary spend ceiling.
 
 ## Run it
 
