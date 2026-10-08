@@ -96,6 +96,11 @@ export async function startMcpRouterStack(options: {
     const { buildRouter } = await import('../server/routes/index.ts')
     const router = buildRouter()
     server = createServer(async (request, response) => {
+      // This test-only hop is driven by Playwright's pooled route.fetch client.
+      // A reload after the viewport sweep can race Node's idle socket expiry.
+      // Own one exchange per connection rather than retrying a possibly
+      // effectful request or changing any production/test timing budget.
+      response.setHeader('connection', 'close')
       const raw = request.url ?? '/'
       const url = new URL(raw, 'http://127.0.0.1')
       if (url.pathname.startsWith('/api/v1/')) url.pathname = url.pathname.slice('/api/v1'.length)

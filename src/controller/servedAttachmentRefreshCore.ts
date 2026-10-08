@@ -2,6 +2,7 @@ import type { SessionContextState } from '../../contract/api.ts'
 import { parseFsRecentKey } from '../../contract/fs.ts'
 import { attachmentSnapshotId } from '../../contract/attachmentInput.ts'
 import { discussionIdFromContextId, isDiscussionSnapshot } from '../../contract/discussionSnapshot.ts'
+import { artifactIdFromContextId, isArtifactSnapshot } from '../../contract/artifactSnapshot.ts'
 import { type Live } from '../data/liveSession.ts'
 
 export interface ServedAttachmentRefreshTarget {
@@ -29,6 +30,27 @@ export function mergeServedAttachmentRefresh(
   if (target.reconciled === true) {
     if (currentSnapshotId !== target.baselineSnapshotId) return current
   } else if (currentSnapshotId !== target.expectedSnapshotId && currentSnapshotId !== target.requestId) return current
+
+  const artifactId = artifactIdFromContextId(target.attachmentId)
+  if (artifactId) {
+    if (attached.kind !== 'artifact') return current
+    const canonical = returned.workspace.attachments.find((item) => item.id === target.attachmentId)
+    if (!canonical) {
+      return target.reconciled === true
+        ? { ...current, attachments: current.attachments.filter((item) => item.id !== target.attachmentId) }
+        : current
+    }
+    if (canonical.kind !== 'artifact') return current
+    const snapshot = canonical.artifactSnapshot
+    if (!snapshot || !isArtifactSnapshot(snapshot) || snapshot.artifactId !== artifactId || canonical.label !== snapshot.title) return current
+    if (target.reconciled !== true && snapshot.snapshotId !== target.requestId) return current
+    return {
+      ...current,
+      attachments: current.attachments.map((item) => item.id === target.attachmentId
+        ? { id: canonical.id, kind: 'artifact', label: snapshot.title, artifactSnapshot: snapshot }
+        : item),
+    }
+  }
 
   const discussionId = discussionIdFromContextId(target.attachmentId)
   if (discussionId) {

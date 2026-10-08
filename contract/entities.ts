@@ -44,13 +44,19 @@ export interface Connector {
 export interface Attachment {
   id: string
   label: string
-  kind: 'file' | 'photo' | 'discussion'
+  kind: 'file' | 'photo' | 'discussion' | 'artifact'
   /** A draft stages only a Discussion target. The server captures current
    * readable posts on first durable attachment, never client-supplied prose. */
   discussionCaptureId?: string
   /** An immutable saved transcript, governed by the destination conversation's
    * sharing rather than the source's later access or deletion. */
   discussionSnapshot?: import('./discussionSnapshot.ts').DiscussionSnapshot
+  /** A draft stages only an Artifact target. The server captures its complete
+   * current readable body on first durable attachment. */
+  artifactCaptureId?: string
+  /** An immutable saved Artifact body, governed by the destination
+   * conversation's sharing rather than the source's later access or deletion. */
+  artifactSnapshot?: import('./artifactSnapshot.ts').ArtifactSnapshot
   /** Which filesystem source it came from — UI host, a runner, or cloud storage
    *  (contract/fs.ts). Drives where its content is read from. Absent on legacy /
    *  seeded attachments (no readable source until reattached). */
@@ -129,6 +135,7 @@ export type AddedContext =
   | { kind: 'files'; attachments: Attachment[] }
   | { kind: 'photos'; attachments: Attachment[] }
   | { kind: 'discussion'; attachment: Attachment }
+  | { kind: 'artifact'; attachment: Attachment }
 
 /** Which attached context the right-hand sidebar is currently showing. Every
  *  chip maps to one of these; clicking a chip focuses it. Workspaces and repos
@@ -140,6 +147,7 @@ export type PanelFocus =
   | { kind: 'file'; id: string }
   | { kind: 'photo'; id: string }
   | { kind: 'discussion'; id: string }
+  | { kind: 'artifact'; id: string }
 
 export interface Message {
   id: string
@@ -367,7 +375,7 @@ export interface SessionPreferences {
   panelFocus?: PanelFocus | null
 }
 
-const PANEL_FOCUS_KINDS = new Set<PanelFocus['kind']>(['workspace', 'repo', 'connector', 'file', 'photo', 'discussion'])
+const PANEL_FOCUS_KINDS = new Set<PanelFocus['kind']>(['workspace', 'repo', 'connector', 'file', 'photo', 'discussion', 'artifact'])
 
 /** Runtime guard at both ends of the wire. Keeping the closed kind set beside
  * the contract prevents client storage and server request validation drifting. */

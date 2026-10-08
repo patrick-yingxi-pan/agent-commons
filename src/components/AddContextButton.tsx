@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   FolderOpen,
+  FileText,
   GitBranch,
   Image as ImageIcon,
   MessageSquare,
@@ -22,7 +23,7 @@ import type { ContextTypeId } from '../../contract/contexts.ts'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { DeferredContextPickerWorkflow } from './DeferredContextPickerWorkflow.tsx'
 
-export type TypeId = ContextTypeId | 'discussion'
+export type TypeId = ContextTypeId | 'discussion' | 'artifact'
 
 /** Approx height of one recent row, and the fixed chrome a picker keeps around
  *  the list (header + label + Browse row + footer + padding). Used to size the
@@ -34,6 +35,7 @@ const CONTEXT_TYPES: { id: TypeId; label: string; desc: string; Icon: typeof Pap
   { id: 'files', label: 'Files', desc: 'Text, documents, spreadsheets, slides and images', Icon: Paperclip },
   { id: 'photos', label: 'Photos', desc: 'Add from your photo library', Icon: ImageIcon },
   { id: 'discussion', label: 'Discussion', desc: 'Attach a saved copy of a discussion', Icon: MessageSquare },
+  { id: 'artifact', label: 'Artifact', desc: 'Attach a saved copy of an Artifact', Icon: FileText },
   { id: 'folder', label: 'Folder', desc: 'Save a read-only copy of top-level text files', Icon: FolderOpen },
   { id: 'repo', label: 'Repository', desc: 'View available repository connections', Icon: GitBranch },
   { id: 'connector', label: 'Connector', desc: 'View available service connections', Icon: Plug },
@@ -56,12 +58,13 @@ export function AddContextButton({
   variant = 'icon',
   label = 'Add context',
   sessionId,
-  discussionEnabled = true,
+  referenceCopiesEnabled = true,
 }: {
   onAttach: (ctx: AddedContext) => void
   /** Session whose preview waits for this multi-add picker to finish. */
   sessionId?: string
-  discussionEnabled?: boolean
+  /** Saved references belong to conversations, not descriptive project context. */
+  referenceCopiesEnabled?: boolean
   /** The thread's currently-attached context — drives which rows show "Added"
    *  and the repo→GitHub-connector prompt. */
   connectors: Connector[]
@@ -158,7 +161,7 @@ export function AddContextButton({
               <div className="px-1.5 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
                 Add context
               </div>
-              {CONTEXT_TYPES.filter((t) => t.id !== 'discussion' || discussionEnabled).map((t) => (
+              {CONTEXT_TYPES.filter((t) => (t.id !== 'discussion' && t.id !== 'artifact') || referenceCopiesEnabled).map((t) => (
                 <button
                   key={t.id}
                   onClick={() => setType(t.id)}

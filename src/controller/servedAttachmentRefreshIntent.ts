@@ -28,6 +28,11 @@ export function createServedAttachmentRefreshIntent(sessionId: string, attachmen
       if (!current || current.kind !== attachment.kind) throw new Error('This context is no longer attached.')
       const currentId = attachmentSnapshotId(current)
       if (currentId !== expectedSnapshotId && currentId !== requestId) throw new Error('This saved copy changed. Use saved state, then review it before refreshing again.')
+      if (current.kind === 'artifact') {
+        if (!expectedSnapshotId || !current.artifactSnapshot) throw new Error('There is no saved Artifact copy to refresh.')
+        if (sessionId === DRAFT_ID) throw new Error('Send this conversation before refreshing its saved Artifact copy.')
+        return deps.refresh(sessionId, attachmentId, { expectedSnapshotId, requestId }, expectedSessionUserId)
+      }
       if (current.kind === 'discussion') {
         if (!expectedSnapshotId || !current.discussionSnapshot) throw new Error('There is no saved discussion copy to refresh.')
         if (sessionId === DRAFT_ID) throw new Error('Send this conversation before refreshing its saved discussion copy.')

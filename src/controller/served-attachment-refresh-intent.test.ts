@@ -4,6 +4,10 @@ import { createServedAttachmentRefreshIntent } from './servedAttachmentRefreshIn
 import { EMPTY_LIVE, DRAFT_ID, workspaceOf } from '../data/liveSession.ts'
 import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
 import { discussionContextId, type DiscussionSnapshot } from '../../contract/discussionSnapshot.ts'
+import type { SessionContextState } from '../../contract/api.ts'
+import type { Attachment } from '../../contract/entities.ts'
+import { artifactContextId, type ArtifactSnapshot } from '../../contract/artifactSnapshot.ts'
+import { attachmentSnapshotId } from '../../contract/attachmentInput.ts'
 
 const oldId = '11111111-1111-4111-8111-111111111111'
 const newId = '22222222-2222-4222-8222-222222222222'
@@ -157,4 +161,100 @@ test('Discussion Refresh refuses detached or changed copies and cannot run again
   await assert.rejects(noSavedCopy.mutate!({ ...state, live: { ...state.live, attachments: [pending] } }, noSavedCopy.plan(state)), /no saved discussion copy/)
   assert.equal(reads, 0)
   assert.equal(writes, 0)
+})
+
+const expectedArtifactSnapshotId = '11111111-1111-4111-8111-111111111111'
+const artifactRequestId = '22222222-2222-4222-8222-222222222222'
+const newerArtifactSnapshotId = '33333333-3333-4333-8333-333333333333'
+
+function artifactSnapshot(snapshotId: string): ArtifactSnapshot {
+  return {
+    version: 1,
+    snapshotId,
+    capturedAt: '2026-10-08T12:00:00.000Z',
+    artifactId: 'launch/brief',
+    title: 'Launch brief',
+    artifactKind: 'doc',
+    revision: 5,
+    body: { type: 'doc', title: 'Launch brief', blocks: [{ id: 'launch-body', p: `Saved body ${snapshotId}` }] },
+  }
+}
+
+function artifactAttachment(saved = artifactSnapshot(expectedArtifactSnapshotId)): Attachment {
+  return {
+    id: artifactContextId(saved.artifactId),
+    label: saved.title,
+    kind: 'artifact',
+    artifactSnapshot: saved,
+  }
+}
+
+function artifactState(attachments: Attachment[]): SessionContextState {
+  return { contexts: [], workspace: { workspaces: [], repos: [], connectors: [], attachments } }
+}
+
+test('Artifact Refresh forwards the frozen snapshot receipt to the server without renderer capture', async () => {
+  const target = artifactAttachment()
+  const current = { live: { ...EMPTY_LIVE, attachments: [target] }, focus: { kind: 'artifact', id: target.id } as never }
+  const captureCalls: unknown[][] = []
+  const refreshCalls: unknown[][] = []
+  const reconcileCalls: Array<{ sessionId: string; signal: AbortSignal }> = []
+  let currentChecks = 0
+  const canonical = artifactAttachment(artifactSnapshot(artifactRequestId))
+  const intent = createServedAttachmentRefreshIntent('session-1', target, artifactRequestId, {
+    assertCurrent: () => { currentChecks += 1 },
+    capture: async (...args) => {
+      captureCalls.push(args)
+      throw new Error('Artifact Refresh must not read a source through the renderer')
+    },
+    refresh: async (...args) => {
+      refreshCalls.push(args)
+      return artifactState([canonical])
+    },
+    reconcile: async (sessionId, signal) => {
+      reconcileCalls.push({ sessionId, signal })
+      return artifactState([target])
+    },
+  })
+  const plan = intent.plan(current)
+
+  assert.deepEqual(plan.attachmentRefresh, {
+    attachmentId: target.id,
+    expectedSnapshotId: expectedArtifactSnapshotId,
+    requestId: artifactRequestId,
+  })
+  assert.deepEqual(await intent.mutate!(current, plan, 'user-at-dispatch'), artifactState([canonical]))
+  assert.deepEqual(refreshCalls, [[
+    'session-1', target.id,
+    { expectedSnapshotId: expectedArtifactSnapshotId, requestId: artifactRequestId },
+    'user-at-dispatch',
+  ]], 'the CAS receipt and source identity stay fixed in the server request')
+  assert.equal(captureCalls.length, 0, 'only the server may read the canonical Artifact')
+  assert.equal(currentChecks, 1)
+  assert.equal(attachmentSnapshotId(target), expectedArtifactSnapshotId)
+
+  const signal = new AbortController().signal
+  assert.deepEqual(await intent.reconcile!(current, signal), artifactState([target]))
+  assert.deepEqual(reconcileCalls, [{ sessionId: 'session-1', signal }],
+    'Dismiss reconciliation uses the same session while remaining read-only')
+  assert.equal(captureCalls.length, 0)
+})
+
+test('Artifact Refresh rejects a stale local capture receipt before any server mutation', async () => {
+  const opened = artifactAttachment(artifactSnapshot(expectedArtifactSnapshotId))
+  const changed = artifactAttachment(artifactSnapshot(newerArtifactSnapshotId))
+  const state = { live: { ...EMPTY_LIVE, attachments: [changed] }, focus: null }
+  let captureCalls = 0
+  let refreshCalls = 0
+  const intent = createServedAttachmentRefreshIntent('session-1', opened, artifactRequestId, {
+    assertCurrent() {},
+    capture: async () => { captureCalls += 1; throw new Error('unexpected renderer capture') },
+    refresh: async () => { refreshCalls += 1; return artifactState([changed]) },
+    reconcile: async () => artifactState([changed]),
+  })
+  const plan = intent.plan(state)
+
+  await assert.rejects(intent.mutate!(state, plan), /saved copy changed/i)
+  assert.equal(captureCalls, 0)
+  assert.equal(refreshCalls, 0, 'a stale local receipt never reaches the compare-and-swap write')
 })

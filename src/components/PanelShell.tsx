@@ -1,10 +1,11 @@
-import { useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { motion } from 'framer-motion'
+import { useContext, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react'
+import { motion, PresenceContext, useIsPresent } from 'framer-motion'
 import { X } from 'lucide-react'
 import { ResizeHandle } from './ResizeHandle'
 import { PaneChromeContext } from './paneChrome'
 import { clamp, getLayout, setLayout } from '../lib/uiPrefs'
 import { PANEL_MIN, PANEL_MAX, panelWidthFor, useViewport } from '../lib/viewport'
+import { scopePanelPresence } from '../lib/panelPresence'
 
 /** Default before the user has dragged: a fluid ~34vw, clamped. */
 function defaultWidth() {
@@ -22,7 +23,14 @@ function defaultWidth() {
  *  surface re-layouts every frame on mobile), no resize handle. The two modes
  *  render under different keys so framer never tweens px↔% when the tier flips
  *  mid-open. */
-export function PanelShell({
+export function PanelShell(props: ComponentProps<typeof PanelShellBody>) {
+  const parent = useContext(PresenceContext)
+  const active = useRef(new Set<string | number>()).current
+  const scoped = useMemo(() => parent && scopePanelPresence(parent, active), [parent, active])
+  return <PresenceContext.Provider value={scoped}><PanelShellBody {...props} /></PresenceContext.Provider>
+}
+
+function PanelShellBody({
   icon,
   title,
   count,
@@ -37,6 +45,21 @@ export function PanelShell({
   onClose: () => void
   children: ReactNode
 }) {
+  const present = useIsPresent()
+  const admittedAtMount = useRef(present).current
+  // Suspense can resolve after Close, replacing its exiting fallback with a
+  // new shell. That late shell must not enter or register a new motion exit.
+  // Pair a rejected shell's temporary presence registration with cleanup.
+  // Otherwise a fallback swap/reopen can leave a stale claim blocking a later
+  // exit. Ordinary shells leave their motion root in charge of animation.
+  const presence = useContext(PresenceContext)
+  const presenceId = useId()
+  useEffect(() => {
+    if (admittedAtMount || !presence || presence.isPresent) return
+    const unregister = presence.register(presenceId)
+    presence.onExitComplete?.(presenceId)
+    return unregister
+  }, [admittedAtMount, presence, presenceId])
   const { tier } = useViewport()
   const takeover = tier === 'narrow'
   // The universal-tree pane adaptation (src/components/paneChrome.ts): an embedded
@@ -75,6 +98,8 @@ export function PanelShell({
     widthRef.current = w
     setWidth(w)
   }
+
+  if (!admittedAtMount) return null
 
   const header = (
     <div className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-1.5">

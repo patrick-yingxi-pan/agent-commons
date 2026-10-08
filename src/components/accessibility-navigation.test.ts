@@ -36,6 +36,13 @@ test('a conversation exposes resource identity and a persistent composer name', 
     'the message field keeps its name when placeholder copy changes or disappears')
   assert.match(audit, /getByRole\('textbox', \{ name: 'Message', exact: true \}\)\)\.toBeEnabled\(\)/,
     'the rendered contrast audit waits for the named composer to leave its temporary disabled face')
+  assert.ok(audit.indexOf('await ensureAuthRefactorPanelOpen(page)') < audit.indexOf('await page.goto(surface.path)') &&
+    audit.includes('await ensureAuthRefactorPanelOpen(page)'),
+    'the conversation audit explicitly restores its durable Repository panel precondition')
+  assert.ok(audit.includes(`await expect(page.locator('pre[aria-label="Code changes"]')).toBeVisible()`),
+    'the actual deferred Repository body must exist before measuring its resting paint')
+  assert.ok(audit.includes(`await settledAttachmentPreview(page, 'pre[aria-label="Code changes"]')`),
+    'the code preview settles its exact tier, full ancestor opacity and geometry before the WCAG scan')
 })
 
 test('page identity survives compact chrome and scrollable code is keyboard reachable', () => {

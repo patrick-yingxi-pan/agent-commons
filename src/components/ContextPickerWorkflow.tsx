@@ -30,6 +30,7 @@ import { ContextCatalogNotice } from './ContextCatalogNotice.tsx'
 import { DeferredRepoContextPicker as RepoPicker } from './DeferredRepoContextPicker.tsx'
 import { BrowseRow, MultiAddFooter, Section } from './ContextPickerParts.tsx'
 import { DeferredDiscussionContextPicker as DiscussionPicker } from './DeferredDiscussionContextPicker.tsx'
+import { DeferredArtifactContextPicker as ArtifactPicker } from './DeferredArtifactContextPicker.tsx'
 import type { TypeId } from './AddContextButton.tsx'
 
 export function WorkflowBody({
@@ -69,6 +70,7 @@ export function WorkflowBody({
   const addedFileIds = attachments.filter((a) => a.kind === 'file').map((a) => a.id)
   const addedPhotoIds = attachments.filter((a) => a.kind === 'photo').map((a) => a.id)
   const addedDiscussionIds = attachments.filter((a) => a.kind === 'discussion').map((a) => a.id)
+  const addedArtifactIds = attachments.filter((a) => a.kind === 'artifact').map((a) => a.id)
   const addedRepoIds = repos.map((r) => r.id)
   const addedFolderIds = workspaces.flatMap(workspaceFolders).map((folder) => folder.id)
   const catalog = useContextCatalog(type === 'connector')
@@ -125,6 +127,9 @@ export function WorkflowBody({
   }
   if (type === 'discussion') {
     return <DiscussionPicker onAdd={onAttach} onClose={onClose} addedIds={addedDiscussionIds} isDraft={!sessionId || sessionId === DRAFT_ID} />
+  }
+  if (type === 'artifact') {
+    return <ArtifactPicker onAdd={onAttach} onClose={onClose} addedIds={addedArtifactIds} isDraft={!sessionId || sessionId === DRAFT_ID} />
   }
   if (type === 'files') {
     return <FilePicker kind="files" key="files" maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFileIds} />

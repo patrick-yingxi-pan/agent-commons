@@ -10,11 +10,13 @@ import { rememberPanelPreference } from './panelPreferences'
 import { conversations } from './conversationStore'
 import { createDraftController } from './draftCore'
 import { enqueueSessionMetadataMutation } from './sessionMetadataMutations'
+import { accountGeneration } from '../api/account'
 
 export const draft = createDraftController({
   createSession,
   updateContextState: updateSessionContextState,
   captureSessionWriteSourceUserId,
+  accountGeneration,
   patchSession: enqueueSessionMetadataMutation,
   setPanelPref: rememberPanelPreference,
   knownProviders: () => peek<ModelProvider[]>(keys.providers),

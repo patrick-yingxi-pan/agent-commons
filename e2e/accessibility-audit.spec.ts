@@ -4,7 +4,8 @@
  * across shared chrome, pages, and modal forms. */
 import { test, expect } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { assertWcag22Aa } from './accessibility-helpers.ts'
+import { assertWcag22Aa, settledAttachmentPreview } from './accessibility-helpers.ts'
+import { ensureAuthRefactorPanelOpen } from './panel-preference-helpers.ts'
 
 const WIDE = { width: 1280, height: 800 }
 const NARROW = { width: 375, height: 812 }
@@ -15,6 +16,7 @@ async function auditSurface(
   viewport: { width: number; height: number },
 ) {
   await page.setViewportSize(viewport)
+  if (surface.path.startsWith('/s/')) await ensureAuthRefactorPanelOpen(page)
   await page.goto(surface.path)
   await expect(page.getByRole('heading', { level: 1, name: surface.heading })).toBeVisible()
   // The conversation heading can settle before its keyed controller finishes
@@ -22,6 +24,11 @@ async function auditSurface(
   // face that exists only while the controller becomes writable.
   if (surface.path.startsWith('/s/')) {
     await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
+    // A lazy Repository body can mount after the composer's entrance finished.
+    // Require that actual body, then settle its CSS morph and parent spring;
+    // the generic audit intentionally also supports loading-state surfaces.
+    await expect(page.locator('pre[aria-label="Code changes"]')).toBeVisible()
+    await settledAttachmentPreview(page, 'pre[aria-label="Code changes"]')
   }
   await assertWcag22Aa(page, `${surface.name} at ${viewport.width}×${viewport.height}`)
 }

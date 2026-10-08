@@ -118,7 +118,7 @@ import {
 import { ModelPickerMenu } from './ModelPickerMenu'
 import { STEP_TOOLS } from '../lib/stepTools'
 import { cleanSteps, moveStep, removeStep } from '../lib/steps'
-import { ConnectorDetailBody } from './ConnectorPanel'
+import { DeferredConnectorDetailBody as ConnectorDetailBody } from './DeferredConnectorContextPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { useDisclosure } from '../lib/useDisclosure'
@@ -1740,7 +1740,7 @@ function ProjectDetail({
               <AddContextButton
                 variant="section"
                 onAttach={attachToProject}
-                discussionEnabled={false}
+                referenceCopiesEnabled={false}
                 connectors={contextsToConnectors(contexts)}
                 repos={[]}
                 attachments={[]}

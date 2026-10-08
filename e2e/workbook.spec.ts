@@ -128,7 +128,7 @@ test('editing a legacy sheet promotes it to a named workbook and saves ordered l
     await owner.page.reload()
     await expect(detail).toBeVisible()
     const readTabs = detail.getByRole('tablist', { name: 'Worksheets', exact: true })
-    expect(await readTabs.getByRole('tab').allTextContents()).toEqual(['Details & values', 'Summary'])
+    await expect(readTabs.getByRole('tab')).toHaveText(['Details & values', 'Summary'])
     const exported = await exportText(owner.page, name)
     expect(exported.indexOf('Sheet: "Details & values"')).toBeGreaterThanOrEqual(0)
     expect(exported.indexOf('Sheet: "Summary"')).toBeGreaterThan(exported.indexOf('Sheet: "Details & values"'))

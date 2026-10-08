@@ -174,12 +174,13 @@ test('owners download exact local SVG, ICO, and PNG bytes after reload while leg
     expect(normalized.ok()).toBe(true)
     expect(Buffer.from(await normalized.body())).not.toEqual(image.bytes)
     await downloadAndCompare(page, preview, image)
-    const sessionLoad = page.waitForResponse((response) =>
-      response.request().method() === 'GET' &&
-      new URL(response.url()).pathname === `/api/v1/sessions/${encodeURIComponent(sessionId)}` && response.ok(),
-    )
     await page.reload()
-    const reloadedSession = await sessionLoad
+    // A pre-reload response listener can capture an old document's pending
+    // session poll, whose body handle expires during navigation. Prove the new
+    // page is writable, then read fresh metadata through the request context.
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
+    const reloadedSession = await page.request.get(`/api/v1/sessions/${encodeURIComponent(sessionId)}`)
+    expect(reloadedSession.ok(), 'fresh session metadata is readable after reload').toBe(true)
     const reloadedDetail = await reloadedSession.json() as {
       workspace?: { attachments?: SavedAttachment[] }
       viewerPreferences?: { panelFocus?: { kind: string; id: string } | null }

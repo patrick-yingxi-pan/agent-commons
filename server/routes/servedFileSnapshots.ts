@@ -134,14 +134,14 @@ export function registerServedFileSnapshotRoutes(
   })
 
   router.post('/sessions/:id/attachments/:attachmentId/refresh', async ({ req, res, params, body }) => {
+    const requesterTenantId = store.identity(req.headers).tenant.id
     const owner = () => {
       if (!accountTransitionSourceMatches(req, res)) return false
       if (denyForeignSession(req, res, params.id)) return false
       const session = store.getSession(params.id)
       if (!session) { sendError(res, 'not_found', 'This conversation is unavailable.'); return false }
-      const tenantId = store.identity(req.headers).tenant.id
-      if (!store.sessionOwnedBy(session, tenantId)) {
-        sendError(res, 'forbidden', 'Only the conversation owner may refresh attached files.'); return false
+      if (!store.sessionOwnedBy(session, requesterTenantId)) {
+        sendError(res, 'forbidden', 'Only the conversation owner may refresh saved attachments.'); return false
       }
       return true
     }
@@ -158,10 +158,10 @@ export function registerServedFileSnapshotRoutes(
       return sendError(res, 'conflict', 'The attached file changed while reading. The saved copy is unchanged.')
     }
     if (!isRefreshServedAttachmentRequest(input)) {
-      return sendError(res, 'bad_request', 'A valid expected snapshot, refresh key, and optional complete saved file or image are required.')
+      return sendError(res, 'bad_request', 'A valid expected snapshot and refresh key, with any supplied file or image copy complete, are required.')
     }
     try {
-      const state = store.refreshSessionAttachment(params.id, params.attachmentId, input)
+      const state = store.refreshSessionAttachment(params.id, params.attachmentId, input, requesterTenantId)
       if (!owner()) return
       sendJson(res, state)
     } catch (error) {

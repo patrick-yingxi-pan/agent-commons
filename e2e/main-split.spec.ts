@@ -424,7 +424,8 @@ test('the right panel folds into the tree: a repo session tiles its context PANE
   // Its identity is (owning session, panel): the auth-refactor repo.
   await expect(ctx).toHaveAttribute('data-context-pane', /^auth-refactor repo/)
   // The panel body renders (the Repository header) and the conversation is beside it.
-  await expect(ctx.getByText('Repository')).toBeVisible()
+  await expect(ctx.getByText('Repository', { exact: true })).toBeVisible()
+  await expect(ctx.locator('[data-workspace-panel-load]')).toHaveCount(0)
   await expect(page.locator('[data-main-pane="a"]').getByText('token refresh logic').first()).toBeVisible()
 
   // Closed by the rail cluster like every other pane (no per-pane X). After

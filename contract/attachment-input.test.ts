@@ -10,6 +10,7 @@ import {
 } from './attachmentInput.ts'
 import type { Attachment } from './entities.ts'
 import { discussionContextId, type DiscussionSnapshot } from './discussionSnapshot.ts'
+import { artifactContextId, buildArtifactSnapshot } from './artifactSnapshot.ts'
 
 test('discussion copies share text budgets and reject file-shaped provenance or mismatched identity', () => {
   const snapshot: DiscussionSnapshot = { version: 1, snapshotId: '12345678-1234-4123-8123-123456789012', capturedAt: '2026-10-06T00:00:00.000Z', discussionId: 'disc-1', title: 'Discussion', postCount: 1, text: 'x'.repeat(65_536) }
@@ -27,6 +28,36 @@ test('discussion copies share text budgets and reject file-shaped provenance or 
     { ...pending, discussionCaptureId: 'not-a-uuid' },
   ]) assert.equal(isAttachmentInput(malformed), false)
   assert.deepEqual(planAttachmentInput([saved, saved, saved, pending]).map((item) => item.status), ['ready', 'ready', 'total-limit', 'unavailable'])
+})
+
+test('Artifact copies are server-captured, exact-ID-bound whole inputs under the shared byte budget', () => {
+  const source = {
+    artifactId: 'artifact-1', title: 'Notes', artifactKind: 'doc' as const,
+    body: { type: 'doc' as const, title: 'Notes', revision: 4, blocks: [{ id: 'block-1', p: 'A saved body.' }] },
+  }
+  const snapshot = buildArtifactSnapshot(source, '12345678-1234-4123-8123-123456789012', '2026-10-06T00:00:00.000Z')
+  assert.ok(snapshot)
+  const saved: Attachment = { id: artifactContextId(source.artifactId), label: snapshot.title, kind: 'artifact', artifactSnapshot: snapshot }
+  const pending: Attachment = { id: saved.id, label: saved.label, kind: 'artifact', artifactCaptureId: snapshot.snapshotId }
+  assert.equal(isAttachmentInput(saved), true)
+  assert.equal(isAttachmentInput(pending), true)
+  for (const malformed of [
+    { ...saved, artifactCaptureId: snapshot.snapshotId },
+    { ...saved, previewText: 'forged' },
+    { ...saved, label: 'different' },
+    { ...saved, id: artifactContextId('other') },
+    { ...saved, kind: 'file' },
+    { ...pending, artifactCaptureId: 'not-a-uuid' },
+    { ...pending, id: 'discussion::artifact-1' },
+  ]) assert.equal(isAttachmentInput(malformed), false)
+  assert.deepEqual(planAttachmentInput([saved, pending]).map(({ status }) => status), ['ready', 'unavailable'])
+  assert.equal(attachmentInputCopy(planAttachmentInput([saved])[0]!.status), 'Send and retry use the currently attached text for the selected model.')
+  const body = { type: 'doc' as const, title: 'Large', blocks: [{ id: 'large-1', p: 'é'.repeat(20_000) }] }
+  const large = buildArtifactSnapshot({ artifactId: 'large', title: 'Large', artifactKind: 'doc', body }, snapshot.snapshotId, snapshot.capturedAt)
+  assert.equal(large, null, 'a complete snapshot that exceeds 64 KiB is refused, never truncated')
+  assert.equal(ATTACHMENT_TEXT_FILE_BYTES, 65_536)
+  assert.equal(ATTACHMENT_TEXT_TOTAL_BYTES, 131_072)
+  assert.equal(ATTACHMENT_INPUT_MAX_ITEMS, 24)
 })
 
 let nextId = 0

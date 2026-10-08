@@ -4586,7 +4586,7 @@ export function buildRouter(): Router {
       }
     }
     try {
-      sendJson(res, store.updateSessionContextState(params.id, input.operations, ws))
+      sendJson(res, store.updateSessionContextState(params.id, input.operations, ws, tenantId))
     } catch (error) {
       if (error instanceof ConflictError || error instanceof NotFoundError || error instanceof ValidationError) return sendError(res, error.code, error.message)
       throw error

@@ -15,10 +15,11 @@ import { isContextMutationHeld } from '../controller/conversationCore'
 import { rememberPanelPreference } from '../controller/panelPreferences'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { DRAFT_ID } from '../data/liveSession'
-import { WorkspacePanel } from './WorkspacePanel'
-import { ConnectorPanel } from './ConnectorPanel'
+import { DeferredWorkspacePanel as WorkspacePanel } from './DeferredWorkspacePanel'
+import { DeferredConnectorContextPanel as ConnectorPanel } from './DeferredConnectorContextPanel'
 import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
 import { DeferredDiscussionContextPanel } from './DeferredDiscussionContextPanel'
+import { DeferredArtifactContextPanel } from './DeferredArtifactContextPanel'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { PaneChromeContext, type PaneChrome } from './paneChrome'
 
@@ -50,6 +51,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
   const focusedRepo = focus?.kind === 'repo' ? live.repos.find((r) => r.id === focus.id) : undefined
   const focusedConnector = focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
   const focusedDiscussion = focus?.kind === 'discussion' ? live.attachments.find((item) => item.kind === 'discussion' && item.id === focus.id) : undefined
+  const focusedArtifact = focus?.kind === 'artifact' ? live.attachments.find((item) => item.kind === 'artifact' && item.id === focus.id) : undefined
   const panelOpen = !!focus
   const chrome: PaneChrome = {
     footer: panelOpen ? (
@@ -116,6 +118,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
 
           <AnimatePresence>
             {focusedDiscussion && <DeferredDiscussionContextPanel key={focusedDiscussion.id} sessionId={sessionId} attachment={focusedDiscussion} onClose={closePanel} />}
+            {focusedArtifact && <DeferredArtifactContextPanel key={focusedArtifact.id} sessionId={sessionId} attachment={focusedArtifact} onClose={closePanel} />}
           </AnimatePresence>
 
           <AnimatePresence>

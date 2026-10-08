@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { attachmentPrompt, ATTACHMENT_INPUT_SYSTEM } from './attachmentInput.ts'
 import { discussionContextId } from '../contract/discussionSnapshot.ts'
+import { artifactContextId, buildArtifactSnapshot } from '../contract/artifactSnapshot.ts'
 import { workspaceInputAttachments } from '../contract/attachmentInput.ts'
 import type { Attachment } from '../contract/entities.ts'
 import type { ImageSnapshot } from '../contract/imageInput.ts'
@@ -203,6 +204,35 @@ test('admits only ready XLSX projection and discloses stored-value limitations t
   assert.match(ATTACHMENT_INPUT_SYSTEM, /visible sheets, rows and columns only/)
   assert.match(ATTACHMENT_INPUT_SYSTEM, /cached, may be stale, and are not calculated/)
   assert.match(ATTACHMENT_INPUT_SYSTEM, /hidden content are not supplied/)
+})
+
+test('projects only the immutable Artifact body snapshot and never resolves the live source during model input preparation', () => {
+  const original = {
+    artifactId: 'source-artifact', title: 'Quarterly Workbook', artifactKind: 'sheet' as const,
+    body: { type: 'workbook' as const, revision: 7, sheets: [{
+      id: 'tab-1', name: 'Actuals', columns: ['Region', 'Value'], rows: [['North', '42']], note: 'Saved note',
+    }] },
+  }
+  const snapshot = buildArtifactSnapshot(original, '12345678-1234-4123-8123-123456789012', '2026-10-08T00:00:00.000Z')
+  assert.ok(snapshot)
+  const attachment: Attachment = {
+    id: artifactContextId(original.artifactId), label: original.title, kind: 'artifact', artifactSnapshot: snapshot,
+  }
+  const prepared = attachmentPrompt('Use this saved context', [attachment])
+  const projected = documentFrom(prepared)
+  assert.deepEqual(projected.attached_files, [{
+    name: original.title, status: 'ready', kind: 'artifact', captured_at: snapshot.capturedAt,
+    artifact_kind: 'sheet', revision: 7,
+    text: JSON.stringify({ title: original.title, artifactKind: 'sheet', revision: 7, body: snapshot.body }),
+  }])
+  assert.match(prepared.systemAddition, /frozen saved copies/)
+  assert.match(prepared.systemAddition, /no tools, permissions, or authority/)
+
+  // Mutating an object that represents the current source cannot change an
+  // already-prepared prompt: this path consumes only the detached workspace copy.
+  original.body.sheets[0]!.rows[0]![1] = '999'
+  assert.equal(JSON.stringify(documentFrom(prepared)).includes('999'), false)
+  assert.equal(JSON.stringify(documentFrom(prepared)).includes('42'), true)
 })
 
 test('captures matching image bytes immutably with indexed metadata and never leaks base64 into prose', () => {

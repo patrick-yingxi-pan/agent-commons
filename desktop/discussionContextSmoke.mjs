@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
 import { SMOKE_MODEL_ID, startAttachmentSmokeEndpoint } from './attachmentSmokeFixture.mjs'
 import { prepareConversationSearchSmoke, verifyConversationSearchSmoke, readSqliteConversationSearch } from './conversationSearchSmoke.mjs'
+import { smokePackagedArtifactContext } from './artifactContextSmoke.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const TIMEOUT_MS = 30_000
@@ -260,6 +261,8 @@ export async function smokePackagedDiscussionContext({ executable, launch, close
       fixture: conversationSearchFixture, evidenceDirectory, phase: 'after-relaunch' })
     assert.deepEqual(readSqliteConversationSearch(profile, conversationSearchFixture), conversationSearchBeforeQuit,
       'ordinary signed-in relaunch preserves the exact search transcript without rewrites')
+    stage = 'saved-artifact-context'
+    run = await smokePackagedArtifactContext({ run, executable, profile, launch, close, request, owner, providerId: provider.id, fixture })
     const asarPath = join(dirname(executable), process.platform === 'darwin' ? '../Resources/app.asar' : 'resources/app.asar')
     const hash = value => createHash('sha256').update(value).digest('hex')
     await writeFile(join(evidenceDirectory, 'receipt.json'), `${JSON.stringify({

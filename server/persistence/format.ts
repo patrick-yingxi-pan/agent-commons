@@ -923,6 +923,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
         if (record(attachment) && (attachment.kind === 'discussion' || Object.hasOwn(attachment, 'discussionSnapshot') || Object.hasOwn(attachment, 'discussionCaptureId'))) {
           if (!isAttachmentInput(attachment) || !attachment.discussionSnapshot) return false
         }
+        if (record(attachment) && (attachment.kind === 'artifact' || Object.hasOwn(attachment, 'artifactSnapshot') || Object.hasOwn(attachment, 'artifactCaptureId'))) {
+          if (!isAttachmentInput(attachment) || !attachment.artifactSnapshot) return false
+        }
         if (record(attachment) && (Object.hasOwn(attachment, 'textSnapshot') || Object.hasOwn(attachment, 'imageSnapshot')) && !isAttachmentInput(attachment)) return false
       }
     }

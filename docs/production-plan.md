@@ -1,12 +1,130 @@
 # Desktop preview plan
 
-Reviewed 2026-10-07. The standing goal remains production readiness for Agent
+Reviewed 2026-10-08. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: conversation download
+## Current checkpoint: Artifact saved context
+
+The owner approved both pending defaults on 2026-10-08. Artifact context is an
+explicit saved copy governed by the destination conversation's sharing; only
+explicit Refresh reads the current source again, and source revocation does not
+erase an existing copy. Contribution execution will use an explicitly selected
+existing MCP tool and exact reviewed arguments, a separate Run action, and no
+automatic retry after an uncertain execution. Approval does not supply signing
+credentials or authorize executing any external tool during development.
+
+Conversation download landed at `86ef5e73`: all five local verifier lanes passed
+(583 browser tests), the broad UI sweep covered 135/135 cells without violations
+or skips, and the rebuilt ordinary unsigned arm64 Electron lifecycle verified
+exact owner/reader downloads before and after relaunch.
+
+The next complete workflow is Artifact-as-context. It reuses the saved Discussion
+copy's draft/first-send, destination-owner mutation and acknowledgement recovery
+paths. A copy includes the complete canonical document, sheet, workbook, slides
+or figure body; model input derives whole text/data from that one immutable
+body under the existing attachment budget. Unsupported, unreadable, bodyless or
+oversized sources are refused, never replaced with excerpts or name aliases.
+Saved previews preserve each body's nature without source reads or editing.
+
+Implementation and fail-first locks are present. The first permitted full Node
+run passed 4,760 tests. Focused route/contract/persistence and controller locks
+also passed. A new late-acknowledgement test caught draft adoption after account
+replacement: the shared draft funnel now checks account generation after each
+wait while preserving valid same-account coalesced sends. The startup budget
+caught new eager parser cost; optional connector/workspace panels and connector
+detail now share lazy admission with visible loading/recovery rather than a
+larger budget. The corrected build and typecheck passed.
+
+Adversarial review also caught an organization-owner source-read mismatch:
+copy capture used the destination organization rather than the authenticated
+person's current read access. Both Artifact and Discussion now carry that
+requester through the existing owner-gated capture/Refresh funnel. A realistic
+owner-seat route test failed before the repair and now proves capture, explicit
+Refresh and refusal after the source enters Trash without erasing saved copies.
+
+The three Artifact browser journeys passed, including 35 reviewed viewport
+captures. The complete unsigned arm64 Electron suite passed; its Artifact
+receipt verifies exact model input, SQLite, sharing, permanent source deletion,
+signed-in relaunch and detach. The broad sweep exposed a harness timing defect:
+its fixed 300 ms delay judged a still-exiting panel as stuck on tablet and
+captured a pointer-disabled phone panel mid-exit. A fail-first sweep lock now
+requires bounded DOM disappearance, not elapsed time, before judging or taking
+the next screenshot. Browser acceptance repeats with that stronger condition.
+
+That stronger check then exposed a real cold-load race: a module resolving
+during Close could replace the exiting loading shell and leave the new motion
+root mounted indefinitely. UI-204 fixes admission once at the shared PanelShell
+for all context families; a late shell renders nothing and completes its own
+presence participation. The held-import browser case failed before the guard
+and passed on phone/tablet afterward. All six cold Workspace, Repository and
+Connector cases pass. Their gate waits for exact request completion before
+cleanup and for the unrelated seeded panel to finish exiting after preference
+hydration; no route errors are swallowed or dismissal assertions weakened.
+
+Owner/shared/foreign, source-revoked, draft, held-refresh and all five viewport
+tiers passed browser acceptance. The final broad sweep passed 135/135 cells
+with zero violations/skips; every captured viewport column was reviewed.
+The rebuilt complete `npm run desktop:verify` passed after the shared-shell
+repair. Its Artifact receipt is `.data/desktop-artifact-context-smoke/run-vvvwvl/receipt.json`
+(ASAR SHA-256 `79f337825cde0f5a47212fe270b5ead8cdb40a29f5b1942cee9e3d2e80c3c584`).
+Full local verification and post-test diff review remain the final landing
+gates. The entire tree freezes for acceptance. Contribution execution follows this checkpoint; signing,
+notarization, Intel and real-service evidence remain separate release gates.
+
+The first complete verifier passed static checks/build but found three browser
+failures. Exact Repository-header selection and awaited workbook-tab text fix
+two asynchronous assertion races. The third reproduced under retained trace:
+a replaced Workspace loading shell finished its old exit after unregistering,
+recreated a stale presence claim, and blocked a later folder-detach dismissal.
+The shared `panelPresence` adapter now forwards completion only for live
+registrations; rejected shells also pair manual registration with cleanup.
+Both pure negative controls fail without that filter. The unchanged five-size
+draft/detach journey and all six cold-panel cases pass with it. UI-204 covers
+this additional lifecycle edge. Final broad UI, rebuilt native and full local
+verification repeat on this corrected revision before landing.
+
+On the corrected revision, the broad UI sweep again passed all 135/135 cells
+with zero violations/skips, and the rebuilt complete `npm run desktop:verify`
+passed. The final Artifact receipt is
+`.data/desktop-artifact-context-smoke/run-0ABtnI/receipt.json` (ASAR SHA-256
+`a147867df6d6f0fb83a256daee9562a7fb510ad2b0b506f7f7b7d66293dd6eb0`).
+The second full local verifier passed checks/build and 591/592 browser tests.
+Its sole failure was the narrow conversation accessibility audit: retained trace
+showed the deferred Repository body mounting after the audit's finite-animation
+snapshot, so axe measured blended entrance paint. E2E-V3 now explicitly sets
+the durable Repository preference, awaits its actual code body, then proves the
+correct tier, full ancestor opacity and stable geometry before scanning. The
+new source lock failed before that repair; all 14 focused WCAG journeys passed
+afterward with unchanged rules, exclusions and budgets. Product runtime is
+unchanged from the accepted visual/native revision. The complete local verifier
+repeats on the final frozen tree with first-failure traces and no automatic
+retries; no GitHub CI is used.
+
+The third full verifier passed checks/build and 591/592 browser tests, including
+the repaired accessibility audit. Its sole failure was a test-only MCP proxy
+connection reset on reload, precisely six idle seconds after the previous
+successful request and before teardown. The installed Node runtime's 5-second
+keep-alive timeout plus 1-second buffer explains the pooled-socket expiry race.
+The in-process fixture now closes each response connection. A new behavioral
+lock failed on the former `keep-alive` response and now proves two successful
+requests use exactly two sockets; the original durable-uncertainty reload
+journey also passes. No request retry, deadline increase or production network
+change was introduced. E2E-O1 owns the rule; the final full gate now includes
+593 browser tests.
+
+The fourth full verifier passed checks/build and 592/593 browser tests. The
+remaining failure captured an old-document session poll during image-download
+reload, before the new document's JavaScript loaded; navigation invalidated its
+response-body handle. E2E-V73 now waits for the newly writable composer and
+reads fresh request-context metadata, retaining the real preview and exact-byte
+download assertions. The source lock failed before repair, and all eight
+image-original browser journeys now pass. Product runtime remains unchanged;
+the complete gate repeats on the frozen final revision.
+
+## Completed checkpoint: conversation download
 
 The previous checkpoint landed at `c6ba70b2`: rebuilt unsigned arm64 package,
 complete native smoke and all five local verifier lanes passed (578 browser

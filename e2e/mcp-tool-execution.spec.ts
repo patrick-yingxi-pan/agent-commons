@@ -194,6 +194,20 @@ test('the in-process router restores ambient state when setup fails', async () =
   }
 })
 
+test('the in-process router owns one socket per exchange instead of racing idle pool expiry', async ({ request }) => {
+  const stack = await startMcpRouterStack()
+  let connections = 0
+  stack.server.on('connection', () => { connections++ })
+  try {
+    for (let index = 0; index < 2; index++) {
+      const response = await request.get(`${stack.url}/api/v1/capabilities`)
+      expect(response.status()).toBe(200)
+      expect(response.headers()['connection']).toBe('close')
+    }
+    expect(connections, 'each request uses a fresh socket, without retries or an idle timer race').toBe(2)
+  } finally { await stack.close() }
+})
+
 test('an attached HTTPS MCP tool requires owner approval and persists its inert result', async ({ page }) => {
   test.setTimeout(ms(120_000))
   const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL

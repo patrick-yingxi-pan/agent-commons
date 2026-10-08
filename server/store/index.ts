@@ -162,6 +162,7 @@ import { randomBytes } from 'node:crypto'
 import { fsReader, type FsReader } from '../fs.ts'
 import { attachmentImageRef, attachmentSnapshotId, isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { buildDiscussionSnapshot, discussionIdFromContextId } from '../../contract/discussionSnapshot.ts'
+import { artifactIdFromContextId, buildArtifactSnapshot } from '../../contract/artifactSnapshot.ts'
 import type { FsCatalog, FsFileContent, FsFolderContents, FsSource, Identity } from '../../contract/index.ts'
 import { fsRecentKey, parseFsRecentKey, docBlockText, MAX_ARTIFACT_BLOCK_CHARS, withDocBlockText } from '../../contract/index.ts'
 import { resolveIdentity, ANONYMOUS_IDENTITY, LOCAL_IDENTITY } from '../identity.ts'
@@ -3881,15 +3882,32 @@ function canAdmitServedImageSnapshot(
 
 /** Capture only through the destination owner's current source-read wall.
  * This synchronous projection commits no state until the whole context validates. */
-function captureDiscussionContext(sessionId: string, attachmentId: string, snapshotId: string): import('../../contract/entities.ts').Attachment {
+function captureDiscussionContext(sessionId: string, attachmentId: string, snapshotId: string, requesterTenantId?: string): import('../../contract/entities.ts').Attachment {
   const session = store.getSession(sessionId)
   const discussionId = discussionIdFromContextId(attachmentId)
   if (!session || !discussionId) throw new NotFoundError('This discussion is unavailable.')
-  const discussion = store.getDiscussion(discussionId, session.tenantId ?? defaultTenantId())
+  if (requesterTenantId && !store.sessionOwnedBy(session, requesterTenantId)) throw new NotFoundError('This discussion is unavailable.')
+  const discussion = store.getDiscussion(discussionId, requesterTenantId ?? session.tenantId ?? defaultTenantId())
   if (!discussion) throw new NotFoundError('This discussion is unavailable.')
   const snapshot = buildDiscussionSnapshot(discussion, snapshotId, new Date().toISOString())
   if (!snapshot) throw new ValidationError('Could not capture a complete discussion of 64 KB or less. The saved copy is unchanged.')
   return { id: attachmentId, kind: 'discussion', label: snapshot.title, discussionSnapshot: snapshot }
+}
+
+/** Capture only an exact current Artifact body behind its current read wall.
+ * No metadata excerpt, compatibility name key, or client body can substitute. */
+function captureArtifactContext(sessionId: string, attachmentId: string, snapshotId: string, requesterTenantId?: string): import('../../contract/entities.ts').Attachment {
+  const session = store.getSession(sessionId)
+  const artifactId = artifactIdFromContextId(attachmentId)
+  if (!session || !artifactId) throw new NotFoundError('This Artifact is unavailable.')
+  if (requesterTenantId && !store.sessionOwnedBy(session, requesterTenantId)) throw new NotFoundError('This Artifact is unavailable.')
+  const tenantId = requesterTenantId ?? session.tenantId ?? defaultTenantId()
+  const source = store.artifactSnapshotSource(artifactId, tenantId)
+  if (!source) throw new NotFoundError('This Artifact is unavailable.')
+  if ('unsupported' in source) throw new ValidationError('This Artifact has no supported saved body to copy.')
+  const snapshot = buildArtifactSnapshot(source, snapshotId, new Date().toISOString())
+  if (!snapshot) throw new ValidationError('Could not capture this complete supported Artifact body within the 64 KB limit. The saved copy is unchanged.')
+  return { id: attachmentId, kind: 'artifact', label: snapshot.title, artifactSnapshot: snapshot }
 }
 
 /** Keep a store-owned saved-copy receipt monotonic across workspace projections.
@@ -3901,6 +3919,7 @@ function preserveSessionWorkspaceSnapshots(
   refreshFolderId?: string,
   refreshLocalFolderId?: string,
   refreshLocalGitFolderId?: string,
+  captureTenantId?: string,
 ): SessionWorkspace {
   if (!validWorkspaceFolders(workspace.workspaces)) throw new ValidationError('Folder snapshots must match their attached source and identity.')
   const previousAttachments = new Map((sessionWorkspaces.get(sessionId)?.attachments ?? []).map((item) => [item.id, item]))
@@ -3931,7 +3950,16 @@ function preserveSessionWorkspaceSnapshots(
         if (!item.discussionCaptureId || item.discussionSnapshot) {
           throw new ValidationError('Attach the discussion from its source to create a saved copy.')
         }
-        return captureDiscussionContext(sessionId, item.id, item.discussionCaptureId)
+        return captureDiscussionContext(sessionId, item.id, item.discussionCaptureId, captureTenantId)
+      }
+      if (item.kind === 'artifact' || previous?.kind === 'artifact') {
+        if (!isAttachmentInput(item) || item.kind !== 'artifact') throw new ValidationError('The Artifact reference is invalid.')
+        if (refreshAttachmentId === item.id) return item
+        if (previous?.artifactSnapshot) return previous
+        if (!item.artifactCaptureId || item.artifactSnapshot) {
+          throw new ValidationError('Attach the Artifact from its source to create a saved copy.')
+        }
+        return captureArtifactContext(sessionId, item.id, item.artifactCaptureId, captureTenantId)
       }
       const savedText = previous?.textSnapshot
       const savedImage = previous?.imageSnapshot
@@ -3967,6 +3995,7 @@ function commitSessionContextState(
   refreshFolderId?: string,
   refreshLocalFolderId?: string,
   refreshLocalGitFolderId?: string,
+  captureTenantId?: string,
 ): SessionContextState {
   let contexts = sessionContextBindings.get(sessionId) ?? []
   const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
@@ -3979,7 +4008,7 @@ function commitSessionContextState(
       throw new ValidationError('Inspect and connect this MCP server before attaching it.')
     }
   }
-  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId, refreshFolderId, refreshLocalFolderId, refreshLocalGitFolderId)
+  const committedWorkspace = preserveSessionWorkspaceSnapshots(sessionId, workspace, refreshAttachmentId, refreshFolderId, refreshLocalFolderId, refreshLocalGitFolderId, captureTenantId)
   for (const operation of operations) {
     if (operation.action === 'detach') {
       contexts = contexts.filter((context) => context.id !== operation.contextId)
@@ -4514,7 +4543,7 @@ export const store = {
         : item),
     }, undefined, undefined, undefined, folderId)
   },
-  refreshSessionAttachment(sessionId: string, attachmentId: string, request: RefreshServedAttachmentRequest): SessionContextState {
+  refreshSessionAttachment(sessionId: string, attachmentId: string, request: RefreshServedAttachmentRequest, requesterTenantId?: string): SessionContextState {
     const workspace = store.sessionWorkspace(sessionId)
     const attachment = workspace?.attachments.find((item) => item.id === attachmentId)
     if (attachment?.kind === 'discussion') {
@@ -4524,11 +4553,23 @@ export const store = {
       // Recover the exact acknowledged copy before requiring source access again.
       if (saved.snapshotId === request.requestId) return { contexts: store.sessionContexts(sessionId), workspace }
       if (saved.snapshotId !== request.expectedSnapshotId) throw new ConflictError('This saved discussion changed. Reopen it before refreshing again.')
-      const refreshed = captureDiscussionContext(sessionId, attachmentId, request.requestId)
+      const refreshed = captureDiscussionContext(sessionId, attachmentId, request.requestId, requesterTenantId)
       return commitSessionContextState(sessionId, [], {
         ...workspace,
         attachments: workspace.attachments.map((item) => item.id === attachmentId ? refreshed : item),
-      }, attachmentId)
+      }, attachmentId, undefined, undefined, undefined, requesterTenantId)
+    }
+    if (attachment?.kind === 'artifact') {
+      if ('snapshot' in request || 'imageSnapshot' in request) throw new ValidationError('Artifact copies are captured by the server; supplied file or image content is not accepted.')
+      const saved = attachment.artifactSnapshot
+      if (!saved) throw new ConflictError('This Artifact has no saved copy to refresh.')
+      if (saved.snapshotId === request.requestId) return { contexts: store.sessionContexts(sessionId), workspace }
+      if (saved.snapshotId !== request.expectedSnapshotId) throw new ConflictError('This saved Artifact changed. Reopen the conversation before refreshing again.')
+      const refreshed = captureArtifactContext(sessionId, attachmentId, request.requestId, requesterTenantId)
+      return commitSessionContextState(sessionId, [], {
+        ...workspace,
+        attachments: workspace.attachments.map((item) => item.id === attachmentId ? refreshed : item),
+      }, attachmentId, undefined, undefined, undefined, requesterTenantId)
     }
     const address = parseFsRecentKey(attachmentId)
     const expectedKind = address?.sourceId === 'cloud' ? 'cloud' : 'runner'
@@ -6782,8 +6823,9 @@ export const store = {
     sessionId: string,
     operations: SessionContextOperation[],
     workspace: SessionWorkspace,
+    captureTenantId?: string,
   ): SessionContextState {
-    return commitSessionContextState(sessionId, operations, workspace)
+    return commitSessionContextState(sessionId, operations, workspace, undefined, undefined, undefined, undefined, captureTenantId)
   },
 
   // ── Dispatch ──
@@ -7029,6 +7071,16 @@ export const store = {
       if (byName.get(name) === 1 && !visible.has(name)) bodies.set(name, body)
     }
     return Object.fromEntries(bodies)
+  },
+  /** Current exact Artifact read for a saved-context capture. `unsupported`
+   * distinguishes a readable metadata row without a canonical saved body from
+   * an absent/unreadable identity, without ever falling back to its name. */
+  artifactSnapshotSource(id: string, tenantId: string): import('../../contract/artifactSnapshot.ts').ArtifactSnapshotSource | { unsupported: true } | undefined {
+    const artifact = findArtifact(id)
+    if (!artifact || !this.artifactVisibleToTenant(artifact, tenantId)) return undefined
+    const body = artifactBodyOf(id)
+    if (!body) return { unsupported: true }
+    return { artifactId: artifact.id, title: artifact.name, artifactKind: artifact.kind, body }
   },
   artifactHistoryPage(artifactId: string, tenantId: string, beforeRevision?: number, limit = 50): ArtifactHistoryPage | undefined {
     const artifact = retainedArtifact(artifactId)

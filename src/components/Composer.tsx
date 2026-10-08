@@ -167,12 +167,15 @@ export function Composer({
   const fileItems = attachments.filter((a) => a.kind === 'file')
   const photoItems = attachments.filter((a) => a.kind === 'photo')
   const discussionItems = attachments.filter((a) => a.kind === 'discussion')
+  const artifactItems = attachments.filter((a) => a.kind === 'artifact')
   const attachmentInput = planAttachmentInput(workspaceInputAttachments({ attachments, workspaces }))
-  const readyAttachmentCount = attachmentInput.filter((item) => item.status === 'ready' && item.attachment.kind !== 'discussion').length
+  const readyAttachmentCount = attachmentInput.filter((item) => item.status === 'ready' && item.attachment.kind !== 'discussion' && item.attachment.kind !== 'artifact').length
   const readyDiscussionCount = attachmentInput.filter((item) => item.status === 'ready' && item.attachment.kind === 'discussion').length
   const queuedDiscussionCount = discussionItems.filter((item) => item.discussionCaptureId).length
+  const readyArtifactCount = attachmentInput.filter((item) => item.status === 'ready' && item.attachment.kind === 'artifact').length
+  const queuedArtifactCount = artifactItems.filter((item) => item.artifactCaptureId).length
   const readyImageCount = attachmentInput.filter((item) => item.status === 'image-ready').length
-  const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount - readyImageCount - readyDiscussionCount - queuedDiscussionCount
+  const omittedAttachmentCount = attachmentInput.length - readyAttachmentCount - readyImageCount - readyDiscussionCount - queuedDiscussionCount - readyArtifactCount - queuedArtifactCount
 
   // Dependency between a GitHub-remote repo and the GitHub connector. It stays
   // invisible until a removal could break it — then the chip's confirm offers to
@@ -181,6 +184,12 @@ export function Composer({
   const remoteRepos = repos.filter((r) => r.remote)
 
   const groups: ChipGroupModel[] = []
+  if (artifactItems.length) {
+    groups.push({
+      key: 'artifacts', label: 'Artifacts', tone: 'file', icon: <FileText size={12} />,
+      items: artifactItems.map((item) => ({ key: item.id, label: item.label, icon: <FileText size={12} />, focus: { kind: 'artifact', id: item.id } })),
+    })
+  }
   if (discussionItems.length) {
     groups.push({
       key: 'discussions', label: 'Discussions', tone: 'file', icon: <MessageSquare size={12} />,
@@ -391,6 +400,8 @@ export function Composer({
             {readyImageCount > 0 && <span data-attachment-image-ready={readyImageCount}> {readyImageCount} saved image{readyImageCount === 1 ? '' : 's'} will be sent if the selected model and connection support images.</span>}
             {readyDiscussionCount > 0 && <span data-discussion-input-ready={readyDiscussionCount}> {readyDiscussionCount} saved discussion {readyDiscussionCount === 1 ? 'copy' : 'copies'} will be sent as reference text.</span>}
             {queuedDiscussionCount > 0 && <span data-discussion-input-queued={queuedDiscussionCount}> {queuedDiscussionCount} discussion {queuedDiscussionCount === 1 ? 'copy' : 'copies'} will be captured on first send if the source is still readable.</span>}
+            {readyArtifactCount > 0 && <span data-artifact-input-ready={readyArtifactCount}> {readyArtifactCount} saved Artifact {readyArtifactCount === 1 ? 'copy' : 'copies'} will be sent as reference text and data.</span>}
+            {queuedArtifactCount > 0 && <span data-artifact-input-queued={queuedArtifactCount}> {queuedArtifactCount} Artifact {queuedArtifactCount === 1 ? 'copy' : 'copies'} will be captured on first send if the source is still readable.</span>}
             <span data-attachment-input-omitted={omittedAttachmentCount}>
               {omittedAttachmentCount > 0 && <> {omittedAttachmentCount} not sent. Open attached context for details.</>}
             </span>

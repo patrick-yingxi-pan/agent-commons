@@ -15,10 +15,11 @@
 import { useEffect } from 'react'
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { PaneChromeContext, type PaneChrome } from './paneChrome'
-import { WorkspacePanel } from './WorkspacePanel'
-import { ConnectorPanel } from './ConnectorPanel'
+import { DeferredWorkspacePanel as WorkspacePanel } from './DeferredWorkspacePanel'
+import { DeferredConnectorContextPanel as ConnectorPanel } from './DeferredConnectorContextPanel'
 import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
 import { DeferredDiscussionContextPanel } from './DeferredDiscussionContextPanel'
+import { DeferredArtifactContextPanel } from './DeferredArtifactContextPanel'
 import { usePaneConversation } from '../controller/usePaneConversation'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { useContextWritable } from '../controller/useContextWritable'
@@ -66,6 +67,10 @@ export function ContextPanelView({
         return c ? (
           <ConnectorPanel connector={c} onClose={noop} onDisconnect={writable ? () => removeContexts([{ kind: 'connector', id: c.id }]) : undefined} />
         ) : null
+      }
+      case 'artifact': {
+        const attachment = live.attachments.find((item) => item.kind === 'artifact' && item.id === panel.id)
+        return attachment ? <DeferredArtifactContextPanel sessionId={sessionId} attachment={attachment} /> : null
       }
       case 'discussion': {
         const attachment = live.attachments.find((item) => item.kind === 'discussion' && item.id === panel.id)

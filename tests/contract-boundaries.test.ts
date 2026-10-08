@@ -17,6 +17,19 @@ import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
+test('Artifact copies share one portable body contract and no renderer source authority', () => {
+  for (const path of ['server/store/index.ts', 'src/components/ArtifactContextPicker.tsx', 'src/controller/servedAttachmentRefreshCore.ts']) {
+    assert.match(stripComments(read(join(ROOT, path))), /from '[^']*contract\/artifactSnapshot\.ts'/, path)
+  }
+  const panel = stripComments(read(join(ROOT, 'src/components/ArtifactContextPanel.tsx')))
+  assert.match(panel, /body=\{snapshot\.body\}/)
+  assert.match(panel, /artifactSnapshotText\(snapshot\)/)
+  assert.doesNotMatch(panel, /useArtifactContent|\bfetch\(|apiGet|textSnapshot:/)
+  const adapter = stripComments(read(join(ROOT, 'src/components/SessionArtifactContextPanel.tsx')))
+  assert.match(adapter, /refreshServedAttachment\(sessionId, item\)/)
+  assert.doesNotMatch(adapter, /readFs|useArtifactContent|artifactContent\(/)
+})
+
 test('conversation downloads share one portable descriptor and never bypass the authorized read door', () => {
   for (const path of ['server/sessionExport.ts', 'src/api/conversationExport.ts', 'src/lib/conversationExport.ts']) {
     assert.match(stripComments(read(join(ROOT, path))), /from '[^']*contract\/conversationExport\.ts'/, path)

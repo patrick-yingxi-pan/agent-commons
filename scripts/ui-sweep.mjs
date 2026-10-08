@@ -374,11 +374,21 @@ const overlayDockLive = (page) =>
  *  has no scrim on narrow (it is a full takeover), so its own Close is the only
  *  exit — and until it is taken, the toggle underneath is unclickable. */
 async function dismissOverlayPanel(page) {
-  if (!(await overlayDockLive(page))) return true
-  const close = page.locator('[data-overlay-dock]').getByRole('button', { name: 'Close', exact: true }).first()
-  if (await close.count()) await close.click({ timeout: 1500 }).catch(() => {})
-  await tick(300)
-  return !(await overlayDockLive(page))
+  if (await overlayDockLive(page)) {
+    const close = page.locator('[data-overlay-dock]').getByRole('button', { name: 'Close', exact: true }).first()
+    if (!(await close.count())) return false
+    try { await close.click({ timeout: 1500 }) } catch { return false }
+  }
+  try {
+    // Narrow exits stop intercepting immediately but remain painted; medium
+    // exits keep their shrinking width until AnimatePresence removes them.
+    // Capture neither halfway through a spring, even if Close already worked.
+    await page.waitForFunction(() => {
+      const dock = document.querySelector('[data-overlay-dock]')
+      return !dock || dock.childElementCount === 0
+    }, null, { timeout: 1500 })
+    return !(await overlayDockLive(page))
+  } catch { return false }
 }
 
 async function openRailIfNarrow(page, vp, cell) {

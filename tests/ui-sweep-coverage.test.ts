@@ -370,3 +370,20 @@ test('the dock detector treats zero-size or pointer-disabled docks as closed', (
   assert.equal(run({ width: 300, height: 0, pointerEvents: 'auto' }), false, 'a zero-height dock is closed')
   assert.equal(run({ width: 300, height: 1024, pointerEvents: 'auto' }), true, 'a rendered hit-testable dock is live')
 })
+
+test('sweep dismissal waits for every exiting panel to unmount before capturing the conversation', () => {
+  const start = SWEEP.indexOf('async function dismissOverlayPanel')
+  const end = SWEEP.indexOf('async function openRailIfNarrow', start)
+  assert.ok(start >= 0 && end > start)
+  const dismiss = SWEEP.slice(start, end)
+  assert.doesNotMatch(dismiss, /await tick\(/, 'elapsed time is not proof that a spring exit finished')
+  const callback = dismiss.match(/page\.waitForFunction\(\(\) => \{([\s\S]*?)\n\s*\}, null, \{ timeout: 1500 \}\)/)?.[1]
+  assert.ok(callback, 'panel disappearance has a bounded DOM-state wait')
+  for (const children of [null, 0, 1, 2]) {
+    const ready = vm.runInNewContext(`() => {${callback}}`, {
+      document: { querySelector: () => children === null ? null : { childElementCount: children } },
+    })
+    assert.equal(ready(), children === null || children === 0,
+      `a dock with ${children} children cannot be considered painted away merely because it is pointer-disabled`)
+  }
+})

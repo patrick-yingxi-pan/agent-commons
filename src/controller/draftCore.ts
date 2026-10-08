@@ -60,6 +60,8 @@ export interface DraftDeps {
   updateContextState: (sessionId: string, request: UpdateSessionContextStateRequest, expectedSessionUserId?: string | null) => Promise<SessionContextState>
   /** Read once at send dispatch; materialization retries and context flush use the same source. */
   captureSessionWriteSourceUserId?: () => string | null | undefined
+  /** Account switches retire every continuation, including abandoned drafts. */
+  accountGeneration?: () => number
   patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
   /** FWD-2: remember the draft's panel choice on the real session. */
   setPanelPref: (sessionId: string, focus: PanelFocus | null, ready?: Promise<unknown>) => void
@@ -177,7 +179,7 @@ export function createDraftController(deps: DraftDeps) {
         const left = ctx.attachments.filter((a) => !attIds.has(a.id))
         return left.length ? { ...ctx, attachments: left } : null
       }
-      if (ctx.kind === 'discussion') return attIds.has(ctx.attachment.id) ? null : ctx
+      if (ctx.kind === 'discussion' || ctx.kind === 'artifact') return attIds.has(ctx.attachment.id) ? null : ctx
       return ctx
     })
     reconcileFocus(next)
@@ -248,6 +250,8 @@ export function createDraftController(deps: DraftDeps) {
     const expectedSessionUserId = deps.captureSessionWriteSourceUserId?.()
     const genAtDispatch = resetGen
     const conversationEpochAtDispatch = deps.store.epoch(DRAFT_ID)
+    const accountAtDispatch = deps.accountGeneration?.()
+    const retired = () => deps.accountGeneration !== undefined && deps.accountGeneration() !== accountAtDispatch
     const creationKey = materializationKey ?? crypto.randomUUID()
     materializationKey = creationKey
     let sid: string = DRAFT_ID
@@ -271,6 +275,7 @@ export function createDraftController(deps: DraftDeps) {
       pending = materializing ?? create().catch(() => create())
       materializing = pending
       const created = await pending
+      if (retired()) return
       createdSession = created
       sid = created.id
       // The draft was RESET while materializing (New session / a seed launch /
@@ -304,6 +309,11 @@ export function createDraftController(deps: DraftDeps) {
           ? [[ctx.attachment.id, ctx.attachment.discussionCaptureId] as const]
           : [],
       ))
+      const submittedArtifactCaptures = new Map(seeded.flatMap((ctx) =>
+        ctx.kind === 'artifact' && ctx.attachment.artifactCaptureId
+          ? [[ctx.attachment.id, ctx.attachment.artifactCaptureId] as const]
+          : [],
+      ))
       if (seeded.length || contextFlushUncertain) {
         const seededLive = seeded.reduce((l, ctx) => addContextToLive(l, ctx), EMPTY_LIVE)
         const desiredBindings = seeded.flatMap(bindingsFor)
@@ -322,6 +332,7 @@ export function createDraftController(deps: DraftDeps) {
           operations,
           workspace: workspaceOf(seededLive),
         }, expectedSessionUserId)
+        if (retired()) return
         if (resetGen !== genAtDispatch) {
           await deps.store.sendTurn(sid, text)
           return
@@ -333,6 +344,9 @@ export function createDraftController(deps: DraftDeps) {
         const captured = new Map(acknowledged.workspace.attachments.map((item) => [item.id, item]))
         deps.store.setLive(DRAFT_ID, { ...current, attachments: current.attachments.map((item) => {
           const saved = captured.get(item.id)
+          if (item.kind === 'artifact' && item.artifactCaptureId &&
+            submittedArtifactCaptures.get(item.id) === item.artifactCaptureId &&
+            saved?.kind === 'artifact' && saved.artifactSnapshot) return saved
           return item.kind === 'discussion' && item.discussionCaptureId &&
             submittedDiscussionCaptures.get(item.id) === item.discussionCaptureId &&
             saved?.kind === 'discussion' && saved.discussionSnapshot ? saved : item
@@ -365,7 +379,7 @@ export function createDraftController(deps: DraftDeps) {
       if (!createdSession && materializing === pending) materializing = null
       // A superseded draft owns neither this failure nor its fallback send.
       // Let the abandoned attempt end without poisoning the newly reset draft.
-      if (resetGen !== genAtDispatch) return
+      if (resetGen !== genAtDispatch || retired()) return
       if (createdSession) {
         // The real row exists, but the atomic context transaction was not confirmed.
         // Keep this exact user turn retryable on the draft; the person can

@@ -36,6 +36,7 @@ function repoCatalogId(ctx: Extract<AddedContext, { kind: 'repo' }>): string | u
  *  safe to call on a re-attach (it just refreshes recency / membership). */
 export function rememberAttached(ctx: AddedContext) {
   switch (ctx.kind) {
+    case 'artifact':
     case 'discussion':
       // Always enumerate current readable discussions, never a stale authority shortcut.
       break

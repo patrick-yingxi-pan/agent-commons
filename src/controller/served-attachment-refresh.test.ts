@@ -8,6 +8,7 @@ import { EMPTY_LIVE, type Live } from '../data/liveSession.ts'
 import { mergeServedAttachmentRefresh } from './servedAttachmentRefreshCore.ts'
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { discussionContextId, type DiscussionSnapshot } from '../../contract/discussionSnapshot.ts'
+import { artifactContextId, type ArtifactSnapshot } from '../../contract/artifactSnapshot.ts'
 
 const source: FsSource = { id: 'cloud', kind: 'cloud', label: 'Cloud storage' }
 const expectedSnapshotId = '11111111-1111-4111-8111-111111111111'
@@ -34,6 +35,29 @@ function state(attachments: Attachment[], connectors = []): SessionContextState 
 
 function live(attachments: Attachment[], connectors: Live['connectors'] = []): Live {
   return { ...EMPTY_LIVE, attachments, connectors }
+}
+
+function artifactSnapshot(snapshotId: string, bodyText = `Saved body ${snapshotId}`): ArtifactSnapshot {
+  return {
+    version: 1,
+    snapshotId,
+    capturedAt: '2026-10-08T12:00:00.000Z',
+    artifactId: 'launch/brief',
+    title: 'Launch brief',
+    artifactKind: 'doc',
+    revision: 4,
+    body: { type: 'doc', title: 'Launch brief', blocks: [{ id: 'launch-body', p: bodyText }] },
+  }
+}
+
+function artifactAttachment(saved?: ArtifactSnapshot, captureId?: string): Attachment {
+  return {
+    id: artifactContextId('launch/brief'),
+    label: 'Launch brief',
+    kind: 'artifact',
+    ...(saved ? { artifactSnapshot: saved } : {}),
+    ...(captureId ? { artifactCaptureId: captureId } : {}),
+  } as Attachment
 }
 
 test('exact refresh acknowledgement updates only its still-current attached target', () => {
@@ -178,4 +202,44 @@ test('Discussion dismissal reconciliation is baseline-fenced and never resurrect
 
   const absent = mergeServedAttachmentRefresh(live([item, other]), state([other]), target)
   assert.deepEqual(absent.attachments, [other], 'authoritative absence removes only the refreshed target')
+})
+
+test('Artifact refresh acknowledges only the exact target receipt and preserves unrelated attachments', () => {
+  const original = artifactSnapshot(expectedSnapshotId)
+  const refreshed = artifactSnapshot(requestId, 'Refreshed saved copy')
+  const item = artifactAttachment(original)
+  const other = attachment(snapshot(expectedSnapshotId))
+  const current = live([item, other])
+  const target = { attachmentId: item.id, expectedSnapshotId, requestId }
+
+  const merged = mergeServedAttachmentRefresh(current, state([artifactAttachment(refreshed)]), target)
+  assert.deepEqual(merged.attachments, [artifactAttachment(refreshed), other])
+  assert.equal(isAttachmentInput(merged.attachments[0]), true)
+  assert.deepEqual(mergeServedAttachmentRefresh(current, state([artifactAttachment(artifactSnapshot(remoteSnapshotId))]), target), current,
+    'an acknowledgement with another snapshot receipt cannot replace the current copy')
+  assert.deepEqual(mergeServedAttachmentRefresh(live([other]), state([artifactAttachment(refreshed)]), target), live([other]),
+    'a late acknowledgement cannot resurrect a locally detached Artifact')
+})
+
+test('Artifact dismissal reconciliation uses its captured baseline and never rewinds or revives a target', () => {
+  const original = artifactSnapshot(expectedSnapshotId)
+  const currentItem = artifactAttachment(original)
+  const serverItem = artifactAttachment(artifactSnapshot(remoteSnapshotId, 'Authoritative current copy'))
+  const other = attachment(snapshot(expectedSnapshotId))
+  const target = {
+    attachmentId: currentItem.id, expectedSnapshotId, requestId,
+    reconciled: true, baselineSnapshotId: expectedSnapshotId,
+  }
+
+  const merged = mergeServedAttachmentRefresh(live([currentItem, other]), state([serverItem, other]), target)
+  assert.deepEqual(merged.attachments, [serverItem, other], 'reconciliation adopts the canonical server copy')
+
+  const newerLocal = artifactAttachment(artifactSnapshot(requestId, 'Newer local copy'))
+  assert.deepEqual(mergeServedAttachmentRefresh(live([newerLocal]), state([serverItem]), target), live([newerLocal]),
+    'a read begun from an older receipt cannot rewind a newer local copy')
+  assert.deepEqual(mergeServedAttachmentRefresh(live([]), state([serverItem]), target), live([]),
+    'reconciliation cannot resurrect a detached Artifact')
+
+  const absent = mergeServedAttachmentRefresh(live([currentItem, other]), state([other]), target)
+  assert.deepEqual(absent.attachments, [other], 'authoritative absence removes only the target copy')
 })

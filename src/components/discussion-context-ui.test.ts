@@ -57,5 +57,5 @@ test('both panel tiers share owner-gated commands, local draft removal, and a wo
   assert.match(host, /else void removeContexts\(focus\)/)
   assert.match(host, /onClose=\{onClose\}/)
   assert.match(source('DiscussionContextPanel.tsx'), /onClose=\{onClose\}/)
-  assert.match(source('SectionView.tsx'), /onAttach=\{attachToProject\}\s+discussionEnabled=\{false\}/)
+  assert.match(source('SectionView.tsx'), /onAttach=\{attachToProject\}\s+referenceCopiesEnabled=\{false\}/)
 })

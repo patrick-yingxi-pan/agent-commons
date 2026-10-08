@@ -7,8 +7,7 @@ Framework-free types and reducers imported verbatim by UI and server; boot map: 
 
 ## Read path
 
-Read the contract module being changed, its sibling suite when present, and
-[`docs/spec/05-portable-contract.md`](../docs/spec/05-portable-contract.md).
+Read the changed module, its sibling suite and [`docs/spec/05-portable-contract.md`](../docs/spec/05-portable-contract.md).
 For cross-layer seams also read
 [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts).
 
@@ -134,6 +133,7 @@ For cross-layer seams also read
 | CONTRACT-D113 | data-access | Document snapshots are wholly legacy or wholly identified by unique bounded opaque block IDs. Shared block admission, history and prose edits retain exact IDs across all five variants; Word exports only content under its own limits. Missing identity never implies positional lineage; restore equality includes identity. This is admission, not assignment or structural-editor rollout. | [`content.ts`](content.ts) · [`artifactHistory.ts`](artifactHistory.ts) · [`../server/artifactDocx.ts`](../server/artifactDocx.ts) | [`content.test.ts`](content.test.ts) · [`artifactHistory.test.ts`](artifactHistory.test.ts) · [`../server/artifactHistory.test.ts`](../server/artifactHistory.test.ts) · [`../server/artifactDocx.test.ts`](../server/artifactDocx.test.ts) | requires CONTRACT-D103; refines CONTRACT-D1 |
 | CONTRACT-D114 | data-access | Complete Document edits require stable unique IDs, a reviewed revision and closed lossless authoring bounds. Stable prose addresses cannot mix with numeric addresses; discussions distinguish legacy ordinal loci from exact block IDs. | [`artifactEditing.ts`](artifactEditing.ts) · [`api.ts`](api.ts) · [`social.ts`](social.ts) | [`artifact-editing.test.ts`](artifact-editing.test.ts) · [`../server/routes/artifact-content.test.ts`](../server/routes/artifact-content.test.ts) · [`../server/routes/discussions.test.ts`](../server/routes/discussions.test.ts) | requires CONTRACT-D113; requires CONTRACT-D88 |
 | CONTRACT-D115 | data-access | Conversation downloads carry exact session identity, a portable Markdown filename, UTF-8 text and current-plus-archived counts. The complete file is limited to 8 MiB; no truncated success descriptor exists. | [`conversationExport.ts`](conversationExport.ts) | [`conversationExport.test.ts`](conversationExport.test.ts) · [`../server/sessionExport.test.ts`](../server/sessionExport.test.ts) · [`../src/lib/conversation-export.test.ts`](../src/lib/conversation-export.test.ts) | refines ROOT-D1; requires CONTRACT-A1 |
+| CONTRACT-D116 | data-access | Artifact snapshots retain one complete canonical body and revision as immutable reference data; model text derives from that body, and no effect binding or client-supplied body is admitted. See CTX-ART-1. | [`artifactSnapshot.ts`](artifactSnapshot.ts) · [`attachmentInput.ts`](attachmentInput.ts) · [`entities.ts`](entities.ts) | [`artifactSnapshot.test.ts`](artifactSnapshot.test.ts) · [`attachment-input.test.ts`](attachment-input.test.ts) | requires CONTRACT-D108; refines ROOT-D1 |
 | CONTRACT-V1 | verification | New boundary seams extend the cross-layer contract scan. | [`index.ts`](index.ts) | [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | refines ROOT-V1 |
 <!-- context-rules:end -->
 ## Details

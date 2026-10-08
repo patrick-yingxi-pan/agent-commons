@@ -8,6 +8,19 @@ const ref = { id: `img-${'a'.repeat(64)}`, mimeType: 'image/png' as const, width
 const bytes = new Uint8Array([0, 1, 127, 128, 255])
 const original = imageOriginal('source.svg', bytes)
 
+test('original-download reload evidence reads fresh metadata after the new document is writable', () => {
+  const spec = readFileSync(new URL('../../e2e/image-original.spec.ts', import.meta.url), 'utf8')
+  const start = spec.indexOf("test('owners download exact local SVG")
+  const end = spec.indexOf('  const legacyBytes = imageFixture()', start)
+  assert.ok(start >= 0 && end > start, 'the local-container reload journey exists')
+  const journey = spec.slice(start, end)
+  assert.doesNotMatch(journey, /waitForResponse/, 'an old-document response cannot satisfy reload readiness')
+  assert.match(journey, /await page\.reload\(\)[\s\S]*?getByRole\('textbox', \{ name: 'Message', exact: true \}\)\)\.toBeEnabled\(\)[\s\S]*?const reloadedSession = await page\.request\.get\(/,
+    'the new rendered composer becomes writable before a fresh request-context metadata read')
+  assert.match(journey, /await downloadAndCompare\(page, reloaded, image\)/,
+    'fresh metadata does not replace the actual restored-preview byte comparison')
+})
+
 test('original privacy disclosure distinguishes attached input from explicit private download on every image surface', () => {
   assert.match(IMAGE_ORIGINAL_PRIVACY_COPY, /Shared views and conversation image input use the preview copy/)
   assert.match(IMAGE_ORIGINAL_PRIVACY_COPY, /Original downloads, including MCP, stay private to the owning account/)

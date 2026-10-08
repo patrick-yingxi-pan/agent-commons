@@ -572,6 +572,18 @@ function Scaffold({ kind, name, size, excerpt }: { kind: ArtifactKind; name: str
  *  Artifacts index deliberately uses a synopsis row instead: an index previews
  *  content without redrawing five different reading surfaces. Looks the body up
  *  by exact identity; name-only fixture previews retain their scaffold. */
+/** Pure saved-body view shared by immutable history and conversation copies.
+ * No source hooks, filesystem reads, or editor/discussion affordances. */
+export function SavedArtifactBodyView({ body, name, size = 'full' }: {
+  body: ArtifactContent
+  name: string
+  size?: Size
+}) {
+  if (body.type === 'doc') return <DocView doc={body} size={size} />
+  if (body.type === 'figure') return <FigureView fig={body} name={name} size={size} />
+  return <StructuredArtifactView body={body} size={size} />
+}
+
 export function ArtifactBodyView({
   kind,
   name,
@@ -621,9 +633,7 @@ export function ArtifactBodyView({
     ? <ArtifactSearchReveal body={body} revision={revision} target={searchTarget} retained={bodyOverride !== undefined}>{rendered}</ArtifactSearchReveal>
     : rendered
   if (bodyOverride) {
-    return reveal(bodyOverride, bodyOverrideRevision ?? -1, bodyOverride.type === 'doc'
-      ? <DocView doc={bodyOverride} size={size} />
-      : <StructuredArtifactView body={bodyOverride} size={size} />)
+    return reveal(bodyOverride, bodyOverrideRevision ?? -1, <SavedArtifactBodyView body={bodyOverride} name={name} size={size} />)
   }
   // Served real content wins over the authored library.
   if (served) {

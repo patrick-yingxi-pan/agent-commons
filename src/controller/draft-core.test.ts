@@ -32,6 +32,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   const createSources: Array<string | null | undefined> = []
   const frozenCreateSources: Array<boolean | undefined> = []
   const contextSources: Array<string | null | undefined> = []
+  let accountVersion = 0
   let currentSource: string | null = 'user-at-dispatch'
   const deps: DraftDeps = {
     createSession: (text, { idempotencyKey, expectedSessionUserId, freezeSessionWriteSource }) => {
@@ -53,6 +54,7 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
         : Promise.resolve({ contexts: [], workspace: request.workspace })
     },
     captureSessionWriteSourceUserId: () => currentSource,
+    accountGeneration: () => accountVersion,
     patchSession: (sid, p) => {
       patches.push({ id: sid, ...p })
       return Promise.resolve()
@@ -92,7 +94,11 @@ function fakeDeps(opts?: { failCreate?: boolean; failContextOnce?: boolean }) {
   return {
     deps, log, prefs, patches, focuses, contextRequests, contextWorkspaces, creationKeys, createSources, frozenCreateSources, contextSources,
     sendFailures,
-    disposeDraftStore: () => { epochs.set(DRAFT_ID, (epochs.get(DRAFT_ID) ?? 0) + 1) },
+    disposeDraftStore: () => {
+      accountVersion += 1
+      epochs.set(DRAFT_ID, (epochs.get(DRAFT_ID) ?? 0) + 1)
+    },
+    accountGeneration: () => accountVersion,
     setCurrentSource: (source: string | null) => { currentSource = source },
     createdCount: () => created,
   }
@@ -294,6 +300,22 @@ test('a failed superseded materialization cannot clear or send into the new draf
     'the abandoned failure never targets the replacement draft')
   attempts[1]!.resolve(session('real-new'))
   await Promise.all([current, coalesced])
+})
+
+test('an account switch while session creation is held retires the old first-send continuation', async () => {
+  const { deps, log, disposeDraftStore } = fakeDeps()
+  let release!: (value: Session) => void
+  deps.createSession = () => new Promise<Session>((resolve) => { release = resolve })
+  const draft = createDraftController(deps)
+  const sending = draft.sendDraftTurn('old account turn', () => ({}))
+  disposeDraftStore()
+  release(session('old-account-session'))
+  await sending
+
+  assert.equal(log.some((line) => line.startsWith('context:')), false)
+  assert.equal(log.some((line) => line.startsWith('adopt:')), false)
+  assert.equal(log.some((line) => line.includes('old account turn')), false,
+    'a create acknowledgement from the retired account cannot flush or send its turn')
 })
 
 test('a failed context transaction retries against the already-created session instead of minting a duplicate', async () => {
@@ -634,4 +656,122 @@ test('a folder snapshot refreshed after draft intake survives first-send materia
   const savedWorkspace = (contextWorkspaces[0] as { workspaces: Array<{ folders?: WorkspaceFolder[]; artifacts: unknown[] }> }).workspaces[0]!
   assert.equal(savedWorkspace.folders?.[0]?.snapshot?.snapshotId, captured.snapshot?.snapshotId)
   assert.deepEqual(savedWorkspace.artifacts, [], 'the refreshed folder is materialized from snapshot.files, not stale intake rows')
+})
+
+test('first-send acknowledgement replaces a queued Artifact capture with the exact saved copy', async () => {
+  const { deps, log, contextRequests, contextWorkspaces } = fakeDeps()
+  const captureId = '11111111-1111-4111-8111-111111111111'
+  const artifactId = 'artifact::insights%2Flaunch'
+  const queued = {
+    id: artifactId,
+    label: 'Launch brief',
+    kind: 'artifact' as const,
+    artifactCaptureId: captureId,
+  }
+  const saved = {
+    id: artifactId,
+    label: 'Launch brief',
+    kind: 'artifact' as const,
+    artifactSnapshot: {
+      version: 1 as const,
+      snapshotId: captureId,
+      capturedAt: '2026-10-08T12:00:00.000Z',
+      artifactId: 'insights/launch',
+      title: 'Launch brief',
+      artifactKind: 'doc' as const,
+      revision: 7,
+      body: { type: 'doc' as const, title: 'Launch brief', blocks: [{ id: 'launch-block', p: 'Saved source text' }] },
+    },
+  }
+  deps.updateContextState = async (sid, request) => {
+    contextRequests.push({ sid, operations: request.operations.length })
+    contextWorkspaces.push(request.workspace)
+    log.push(`context:${sid}:${request.operations.length}`)
+    return { contexts: [], workspace: { ...request.workspace, attachments: [saved] } }
+  }
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'artifact', attachment: queued } as never)
+
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [queued])
+  assert.deepEqual(deps.store.get(DRAFT_ID).focus, { kind: 'artifact', id: artifactId })
+  await draft.sendDraftTurn('review this copy', () => ({}))
+
+  assert.deepEqual(contextRequests, [{ sid: 'real-1', operations: 0 }], 'saved-copy context adds no effect binding')
+  assert.deepEqual((contextWorkspaces[0] as { attachments: unknown[] }).attachments, [queued],
+    'the first durable workspace write carries the explicit capture intent')
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [saved],
+    'only the acknowledgement adopts the immutable saved copy and its receipt')
+  assert.ok(log.indexOf('context:real-1:0') < log.indexOf('send:real-1:review this copy'))
+})
+
+test('removing a queued Artifact copy before retry cannot reattach it after an ambiguous capture', async () => {
+  const { deps, log, contextRequests, contextWorkspaces, createdCount } = fakeDeps()
+  const captureId = '11111111-1111-4111-8111-111111111111'
+  const queued = {
+    id: 'artifact::brief', label: 'Brief', kind: 'artifact' as const, artifactCaptureId: captureId,
+  }
+  deps.updateContextState = (sid, request) => {
+    contextRequests.push({ sid, operations: request.operations.length })
+    contextWorkspaces.push(request.workspace)
+    log.push(`context:${sid}:${request.operations.length}`)
+    return contextRequests.length === 1
+      ? Promise.reject(new Error('capture acknowledgement lost'))
+      : Promise.resolve({ contexts: [], workspace: request.workspace })
+  }
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'artifact', attachment: queued } as never)
+  await draft.sendDraftTurn('first attempt', () => ({}))
+  assert.equal(log.includes('send:draft:first attempt'), false, 'a failed copy capture cannot send against the synthetic draft')
+  assert.equal(createdCount(), 1)
+
+  draft.removeContexts([{ kind: 'artifact', id: queued.id } as never])
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [])
+  assert.equal(deps.store.get(DRAFT_ID).focus, null, 'removal clears the Artifact panel focus')
+  await draft.sendDraftTurn('retry without copy', () => ({}))
+
+  assert.equal(createdCount(), 1, 'retry reuses the materialized session')
+  assert.deepEqual(contextRequests, [{ sid: 'real-1', operations: 0 }, { sid: 'real-1', operations: 0 }])
+  assert.deepEqual((contextWorkspaces[0] as { attachments: unknown[] }).attachments, [queued])
+  assert.deepEqual((contextWorkspaces[1] as { attachments: unknown[] }).attachments, [],
+    'ambiguous recovery persists the user’s removal instead of replaying the pending capture')
+  assert.ok(log.includes('send:real-1:retry without copy'))
+})
+
+test('a late Artifact capture acknowledgement cannot adopt into the replacement account draft', async () => {
+  const { deps, log, disposeDraftStore } = fakeDeps()
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const captureId = '11111111-1111-4111-8111-111111111111'
+  const queued = {
+    id: 'artifact::brief', label: 'Brief', kind: 'artifact' as const, artifactCaptureId: captureId,
+  }
+  const saved = {
+    id: queued.id, label: queued.label, kind: 'artifact' as const,
+    artifactSnapshot: {
+      version: 1 as const, snapshotId: captureId, capturedAt: '2026-10-08T12:00:00.000Z',
+      artifactId: 'brief', title: 'Brief', artifactKind: 'doc' as const, revision: 2,
+      body: { type: 'doc' as const, title: 'Brief', blocks: [{ id: 'old-copy', p: 'Old account copy' }] },
+    },
+  }
+  deps.updateContextState = async (_sid, request) => {
+    await gate
+    return { contexts: [], workspace: { ...request.workspace, attachments: [saved] } }
+  }
+  const draft = createDraftController(deps)
+  draft.attach({ kind: 'artifact', attachment: queued } as never)
+  const sending = draft.sendDraftTurn('old account send', () => ({}))
+  await new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+  disposeDraftStore()
+  deps.store.setLive(DRAFT_ID, {
+    ...EMPTY_LIVE,
+    messages: [{ id: 'new-account-turn', role: 'user', content: 'new account draft' }],
+  })
+  release()
+  await sending
+
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.attachments, [], 'old saved data cannot enter the replacement draft')
+  assert.deepEqual(deps.store.get(DRAFT_ID).live.messages.map((message) => message.content), ['new account draft'])
+  assert.equal(log.some((line) => line.startsWith('adopt:')), false, 'the old acknowledgement cannot adopt the new draft')
+  assert.equal(log.some((line) => line === 'send:real-1:old account send'), false, 'a stale account cannot resume the old turn')
 })
