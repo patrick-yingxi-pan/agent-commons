@@ -16,7 +16,7 @@ test('Contribution model reviews freeze a configured reviewer and keep results d
 
   assert.match(view, /useContributionReviewStatus\(\)/)
   assert.match(view, /const lifecycleHeld =[\s\S]*reviewHeld/)
-  assert.match(view, /<DeferredContributionReviewPanel[\s\S]*latestVersion=\{latestVersion\}[\s\S]*lifecycleHeld=\{lifecycleHeld\}/)
+  assert.match(view, /<DeferredContributionReviewPanel[\s\S]*latestVersion=\{latestVersion\}[\s\S]*lifecycleHeld=\{contributionActionHeld\}/)
   assert.doesNotMatch(view, /import\s+\{\s*ContributionReviewPanel\s*\}/,
     'the heavy review surface remains outside SectionPane until its own module is admitted')
   assert.match(view, /disabled=\{commentHeld\}/,

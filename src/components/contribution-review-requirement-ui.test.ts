@@ -22,6 +22,8 @@ test('Require review is one held monotonic act with exact receipt reconciliation
     'tightening uncertainty excludes every competing lifecycle act')
   assert.match(view, /enqueueContributionReviewRequirement\(\{[\s\S]*tenantId: me\.tenant\.id,[\s\S]*projectId: project\.id,[\s\S]*contributionId: c\.id/)
   assert.match(view, /reviewRequirementHeld \? 'Requiring review…' : 'Require review'/)
+  assert.match(view, /disabled=\{contributionActionHeld\}[\s\S]*Require review/,
+    'a pending or locally unresolved MCP call excludes tightening the review gate')
   assert.match(view, /disabled=\{commentHeld\}/,
     'the orthogonal comment composer remains available while the gate tightens')
 

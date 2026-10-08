@@ -12,6 +12,7 @@ import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
 import { readModelPreferences } from './modelPreferences.ts'
 import { fetchProviderRegistry } from './providerRegistry.ts'
 import { readFsCatalog, readFsSources } from './fsReads.ts'
+export { useContributionMcpEffectAttempt } from '../controller/contributionMcpEffectAttemptState.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
 import type {

@@ -49,6 +49,7 @@ export const isContributionEnvelopeProposalHeld = (
 
 export function enqueueContributionEnvelopeProposal(input: {
   tenantId: string
+  sourceUserId: string | null
   projectId: string
   contributionId: string
   expectedVersion: number
@@ -59,9 +60,20 @@ export function enqueueContributionEnvelopeProposal(input: {
   if (existing) return existing.result
 
   const issuedGeneration = accountGeneration
+  const freezeDeep = <T,>(value: T): T => {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.values(value as Record<string, unknown>).forEach((child) => freezeDeep(child))
+      Object.freeze(value)
+    }
+    return value
+  }
+  const lines = Object.freeze(input.lines.map((line) => freezeDeep({
+    ...line,
+    ...(line.mcp ? { mcp: { ...line.mcp, arguments: structuredClone(line.mcp.arguments) } } : {}),
+  }))) as unknown as ProposeEnvelopeRequest['lines']
   const intent: ContributionEnvelopeProposalIntent = {
     ...input,
-    lines: input.lines.map((line) => ({ ...line })),
+    lines,
     intentId: crypto.randomUUID(),
   }
   const result = loadRuntime().then((loaded) =>

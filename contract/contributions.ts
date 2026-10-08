@@ -28,18 +28,36 @@ export type ContributionStatus = 'open' | 'landed'
  *  is one record — the envelope OBJECT holds the current version; a superseded
  *  version's lines and spend survive in the amendment's timeline event. */
 
-/** The harness a line commits to run under (CW5's ladder) — structural
- *  containment that lowers the trust an approval needs. Phase C records and
- *  displays the harness; the behaviors (escrow holds, cooling timers) land
- *  with their stages in later phases. */
-export type EnvelopeHarness = 'dry-run' | 'draft-escrow' | 'canary' | 'cooling-window' | 'hold-until-landing'
-export const ENVELOPE_HARNESSES: EnvelopeHarness[] = ['dry-run', 'draft-escrow', 'canary', 'cooling-window', 'hold-until-landing']
+/** Explicit-call binds a real inspected MCP call and requires separate Run
+ * consent. The other labels are legacy development declarations only: escrow,
+ * canary and cooling containment are not implemented execution authority. */
+export type EnvelopeHarness = 'dry-run' | 'draft-escrow' | 'canary' | 'cooling-window' | 'hold-until-landing' | 'explicit-call'
+export const ENVELOPE_HARNESSES: EnvelopeHarness[] = ['dry-run', 'draft-escrow', 'canary', 'cooling-window', 'hold-until-landing', 'explicit-call']
 export const EFFECT_ENVELOPE_LINE_MAX = 10
 export const EFFECT_ENVELOPE_CARDINALITY_MAX = 20
 export const CONTRIBUTION_FIELD_MAX = 2000
 
+/** Exact non-secret selection for one explicitly approved MCP act. The server
+ * derives the schema hash from its revision-pinned private connection. */
+export interface ContributionMcpSelection {
+  connectionId: string
+  connectionRevision: number
+  toolName: string
+  arguments: Record<string, import('./mcpExecution.ts').McpJsonValue>
+}
+
+/** Project-visible MCP preview. Connection identity and schema authority stay
+ * private; the preview contains only a label and the exact reviewed arguments. */
+export interface ContributionMcpPreview {
+  connectionLabel: string
+  toolName: string
+  arguments: Record<string, import('./mcpExecution.ts').McpJsonValue>
+  canRun?: true
+}
+
 /** One authorized act class: "≤ cardinality acts of `type` on `target`, under
- *  `harness`". `used` counts executed acts (the match ledger's public face). */
+ *  `harness`". Real MCP `used` includes pending and uncertain calls and returned
+ *  tool errors; only a known pre-submission failure releases its reserved slot. */
 export interface EffectEnvelopeLine {
   id: string
   type: ProjectEffectType
@@ -49,6 +67,8 @@ export interface EffectEnvelopeLine {
   /** Free-text scope note ("re: launch timeline"). `''` when none. */
   note: string
   used: number
+  /** Present only for a per-call explicitly approved MCP line. */
+  mcp?: ContributionMcpPreview
 }
 
 export interface EffectEnvelope {
@@ -125,10 +145,10 @@ export interface CrystallizeRequest {
 
 /** Body of `POST .../contributions/:cid/envelope` — propose or amend. */
 export interface ProposeEnvelopeRequest {
-  lines: { type: ProjectEffectType; target: string; cardinality?: number; harness?: EnvelopeHarness; note?: string }[]
+  lines: { type: ProjectEffectType; target: string; cardinality?: number; harness?: EnvelopeHarness; note?: string; mcp?: ContributionMcpSelection }[]
   /** Compare-and-swap boundary for first-party authoring: 0 means no envelope
-   * exists yet and N means the visible current version is N. Absence preserves
-   * legacy/delegated best-effort proposal semantics. */
+   * exists yet and N means the visible current version is N. Required for MCP
+   * selections; absence preserves only legacy/delegated proposal semantics. */
   expectedVersion?: number
 }
 
@@ -151,6 +171,8 @@ export interface ReviewContributionRequest {
 /** Body of `POST .../contributions/:cid/effects` — fire one act against a line. */
 export interface RunEnvelopeEffectRequest {
   lineId: string
+  /** Real MCP calls require the exact envelope version the person reviewed. */
+  expectedVersion?: number
 }
 
 /** One event on a Contribution's timeline — the append-only record the page
@@ -257,6 +279,8 @@ export interface Contribution {
   /** The effect envelope (CW1, Phase C) — absent = the contribution declares
    *  no external acts (the common mergeable-only case; INV-9 fixed absence). */
   envelope?: EffectEnvelope
+  /** Public receipts for explicitly approved MCP effect attempts. */
+  effects?: import('./contributionExecution.ts').ContributionEffectRun[]
   /** The changeset (CW3/CW4, Phase D) — EVERY crystallized version, append-only
    *  oldest-first (no force-push: the whole revision history is the record).
    *  Absent = nothing crystallized yet (INV-9 fixed absence). */

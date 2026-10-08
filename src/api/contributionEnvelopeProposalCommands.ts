@@ -8,6 +8,7 @@ import { keys, paths } from './keys.ts'
 export interface ContributionEnvelopeProposalIntent {
   readonly intentId: string
   readonly tenantId: string
+  readonly sourceUserId: string | null
   readonly projectId: string
   readonly contributionId: string
   readonly expectedVersion: number
@@ -23,6 +24,14 @@ const receiptFor = (
   Number.isSafeInteger(event.envelopeVersion) &&
   (event.envelopeVersion ?? 0) > 0)
 
+function canonicalJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJson)
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson((value as Record<string, unknown>)[key])]))
+  }
+  return value
+}
+
 const envelopeMatchesIntent = (
   intent: ContributionEnvelopeProposalIntent,
   contribution: Contribution,
@@ -33,7 +42,11 @@ const envelopeMatchesIntent = (
   if (envelope.lines.length !== intent.lines.length) return false
   return intent.lines.every((line, index) => {
     const stored = envelope.lines[index]
-    return stored !== undefined &&
+    const mcpMatches = line.mcp
+      ? stored?.mcp?.toolName === line.mcp.toolName &&
+        JSON.stringify(canonicalJson(stored.mcp.arguments)) === JSON.stringify(canonicalJson(line.mcp.arguments))
+      : stored?.mcp === undefined
+    return stored !== undefined && mcpMatches &&
       line.type === stored.type &&
       line.target.trim() === stored.target &&
       (line.cardinality ?? 1) === stored.cardinality &&
@@ -93,7 +106,7 @@ export async function applyContributionEnvelopeProposal(
   const contribution = await apiPost<Contribution>(
     paths.contributionEnvelope(intent.projectId, intent.contributionId),
     { lines: intent.lines, expectedVersion: intent.expectedVersion } satisfies ProposeEnvelopeRequest,
-    { idempotencyKey },
+    { idempotencyKey, expectedSessionUserId: intent.sourceUserId },
   )
   if (!receiptFor(contribution, expectedId)) {
     throw new Error('The envelope acknowledgement did not match the exact proposal that was submitted.')
@@ -112,7 +125,9 @@ export async function reconcileContributionEnvelopeProposal(
     intent.contributionId,
     idempotencyKey,
   )
-  const incoming = await apiGet<Contribution[]>(paths.contributions(intent.projectId))
+  const incoming = await apiGet<Contribution[]>(paths.contributions(intent.projectId), {
+    expectedSessionUserId: intent.sourceUserId,
+  })
   const contribution = incoming.find((candidate) => candidate.id === intent.contributionId)
   const receipt = contribution ? receiptFor(contribution, expectedId) : undefined
   if (!peek<Contribution[]>(keys.contributions(intent.projectId))) {

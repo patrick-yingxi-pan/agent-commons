@@ -8,6 +8,7 @@ import { keys, paths } from './keys.ts'
 export interface ContributionEnvelopeApprovalIntent {
   readonly intentId: string
   readonly tenantId: string
+  readonly sourceUserId: string | null
   readonly projectId: string
   readonly contributionId: string
   readonly envelopeVersion: number
@@ -68,7 +69,7 @@ export async function applyContributionEnvelopeApproval(
   const contribution = await apiPost<Contribution>(
     paths.contributionEnvelopeApprove(intent.projectId, intent.contributionId),
     { expectedVersion: intent.envelopeVersion } satisfies ApproveEnvelopeRequest,
-    { idempotencyKey },
+    { idempotencyKey, expectedSessionUserId: intent.sourceUserId },
   )
   if (!receiptFor(contribution, expectedId, intent.envelopeVersion)) {
     throw new Error('The approval acknowledgement did not match the envelope version that was reviewed.')
@@ -87,7 +88,9 @@ export async function reconcileContributionEnvelopeApproval(
     intent.contributionId,
     idempotencyKey,
   )
-  const incoming = await apiGet<Contribution[]>(paths.contributions(intent.projectId))
+  const incoming = await apiGet<Contribution[]>(paths.contributions(intent.projectId), {
+    expectedSessionUserId: intent.sourceUserId,
+  })
   const contribution = incoming.find((candidate) => candidate.id === intent.contributionId)
   const receipt = contribution
     ? receiptFor(contribution, expectedId, intent.envelopeVersion)

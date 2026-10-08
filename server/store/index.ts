@@ -15,6 +15,9 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
+import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, prepareContributionMcpLines, currentContributionMcpLine, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
+import { createContributionEffectAttempt, settleContributionEffectAttempt, interruptContributionEffectAttempt, publicContributionEffectRun, contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX } from '../contributionEffectState.ts'
+import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
 import { publicReviewRun, reviewChangesetHash, sameReviewerBinding, validReviewerBinding, type StoredContributionReview } from '../contributionReviewState.ts'
 import { MAX_CONTRIBUTION_REVIEWS, type ContributionReviewerBinding } from '../../contract/contributionReview.ts'
 import { ContributionReviewGenerationError } from '../contributionReviewResult.ts'
@@ -177,7 +180,7 @@ import { ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
 import { MAX_DISCUSSION_POSTS, MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
-import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, PROJECT_EFFECT_TYPES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, ENVELOPE_HARNESSES, EFFECT_ENVELOPE_LINE_MAX as MAX_ENVELOPE_LINES, EFFECT_ENVELOPE_CARDINALITY_MAX as MAX_ENVELOPE_CARDINALITY, CONTRIBUTION_FIELD_MAX as MAX_CONTRIBUTION_FIELD_CHARS, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, SEARCH_PAGE_SIZE, NOTIFICATION_CAP } from '../../contract/index.ts'
+import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, CONTRIBUTION_FIELD_MAX as MAX_CONTRIBUTION_FIELD_CHARS, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, SEARCH_PAGE_SIZE, NOTIFICATION_CAP } from '../../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchPage, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 import { endpointExecution } from '../model/endpointExecution.ts'
@@ -542,6 +545,7 @@ const contributions: StoredContribution[] = []
 // clears these fences: persisted pending attempts become uncertain, never retries.
 const activeContributionReviews = new Map<string, object>()
 const activeDelegatedJudgments = new Map<string, object>()
+const activeContributionEffects = new Map<string, object>()
 let contributionSeq = 0
 // Ledger bounds — a queue, not a blob store (the MAX_OPEN_WORK rationale). The
 // TOTAL cap exists because landing is contributor-or-owner and the contributor
@@ -609,60 +613,6 @@ function crystallizationMatchesVersion(
       entry.target === stored.target &&
       entry.before === stored.before &&
       entry.after === stored.after
-  })
-}
-
-type NormalizedEnvelopeProposalLine = Omit<import('../../contract/index.ts').EffectEnvelopeLine, 'id' | 'used'>
-
-/** One strict canonical envelope payload feeds both first application and
- * durable replay. Duplicate acts collapse consent semantics, so authors use
- * cardinality instead of repeating an indistinguishable line. */
-function normalizedEnvelopeProposalLines(
-  req: import('../../contract/index.ts').ProposeEnvelopeRequest,
-): NormalizedEnvelopeProposalLine[] | undefined {
-  const lines = req.lines
-  if (!Array.isArray(lines) || lines.length === 0 || lines.length > MAX_ENVELOPE_LINES) return undefined
-  const normalized: NormalizedEnvelopeProposalLine[] = []
-  const seen = new Set<string>()
-  for (const line of lines) {
-    if (!line || typeof line !== 'object') return undefined
-    const cardinality = line.cardinality ?? 1
-    const harness = line.harness ?? 'draft-escrow'
-    if (
-      !PROJECT_EFFECT_TYPES.includes(line.type) ||
-      typeof line.target !== 'string' || !line.target.trim() ||
-      !Number.isInteger(cardinality) || cardinality < 1 || cardinality > MAX_ENVELOPE_CARDINALITY ||
-      !ENVELOPE_HARNESSES.includes(harness) ||
-      (line.note !== undefined && typeof line.note !== 'string')
-    ) return undefined
-    const next: NormalizedEnvelopeProposalLine = {
-      type: line.type,
-      target: line.target.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-      cardinality,
-      harness,
-      note: (line.note ?? '').trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-    }
-    const key = JSON.stringify([next.type, next.target, next.harness, next.note])
-    if (seen.has(key)) return undefined
-    seen.add(key)
-    normalized.push(next)
-  }
-  return normalized
-}
-
-function envelopeProposalLinesMatch(
-  left: NormalizedEnvelopeProposalLine[],
-  right: NormalizedEnvelopeProposalLine[],
-): boolean {
-  if (left.length !== right.length) return false
-  return left.every((line, index) => {
-    const candidate = right[index]
-    return candidate !== undefined &&
-      line.type === candidate.type &&
-      line.target === candidate.target &&
-      line.cardinality === candidate.cardinality &&
-      line.harness === candidate.harness &&
-      line.note === candidate.note
   })
 }
 
@@ -1475,10 +1425,20 @@ function tierFor(c: StoredContribution): import('../../contract/index.ts').Contr
 }
 
 function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
-  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, reviewAttempts, judgmentAttempts, ...pub } = c
+  const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, reviewAttempts, judgmentAttempts, effectAttempts, envelope, ...pub } = c
   const effectiveReview = c.status === 'open' || reviewAttempts?.length ? contributionReviewVersion(c) : reviewedVersion
+  const pendingEffect = effectAttempts?.some((run) => run.status === 'pending')
   return {
     ...pub,
+    ...(envelope ? { envelope: { ...envelope, lines: envelope.lines.map(({ mcpAuthority: _authority, mcp, ...line }) => ({
+      ...line,
+      ...(mcp ? { mcp: { connectionLabel: mcp.connectionLabel, toolName: mcp.toolName, arguments: structuredClone(mcp.arguments),
+        ...(viewerTenant && c.status === 'open' && !pendingEffect && envelope.status === 'approved' && envelope.approvedVersion === envelope.version &&
+          line.used < line.cardinality && (effectAttempts?.length ?? 0) < CONTRIBUTION_EFFECT_ATTEMPT_MAX &&
+          contributionEffectActor(c, viewerTenant) && currentContributionMcpLine(store, viewerTenant, { ...line, mcp, mcpAuthority: _authority })
+          ? { canRun: true as const } : {}),
+      } } : {}),
+    })) } } : {}),
     ...(effectiveReview !== undefined ? { reviewedVersion: effectiveReview } : {}),
     ...(contributorPrincipal ? { contributorKind: contributorPrincipal.kind } : {}),
     // Viewer-relative, never stored: display names aren't unique, so the client
@@ -1491,7 +1451,13 @@ function publicContribution(c: StoredContribution, viewerTenant?: string): Contr
     events: events.map(publicContributionEvent),
     ...(reviewAttempts ? { reviews: reviewAttempts.map(publicReviewRun) } : {}),
     ...(judgmentAttempts ? { judgments: judgmentAttempts.map((run) => publicJudgmentRun(run, viewerTenant)) } : {}),
+    ...(effectAttempts ? { effects: effectAttempts.map(publicContributionEffectRun) } : {}),
   }
+}
+
+function contributionEffectActor(c: StoredContribution, tenantId: string): boolean {
+  return store.grantSubjectVisible({ kind: 'project', id: c.projectId }, tenantId) &&
+    (c.contributorTenant === tenantId || tenantWritesAs(tenantId, findProject(c.projectId)?.tenantId ?? defaultTenantId()))
 }
 // D23 discussion bounds — enough to coordinate, not a blob store (a hostile poster
 // gets a cap, not a forum). Coarse by design; the design log records the trade-off.
@@ -3565,8 +3531,14 @@ function rehydrate(s: PersistedState): boolean {
   contributions.splice(0, contributions.length, ...(s.contributions ?? []))
   activeContributionReviews.clear()
   activeDelegatedJudgments.clear()
+  activeContributionEffects.clear()
   let recoveredContributionAttempts = false
   for (const contribution of contributions) {
+    contribution.effectAttempts = contribution.effectAttempts?.map((run) => {
+      if (run.status !== 'pending') return run
+      recoveredContributionAttempts = true
+      return interruptContributionEffectAttempt(run, Math.max(Date.now(), run.startedAt))
+    })
     for (const run of contribution.judgmentAttempts ?? []) {
       if (run.status !== 'pending') continue
       run.status = 'uncertain'
@@ -10363,7 +10335,7 @@ export const store = {
     tenantId: string,
     principal: PrincipalRef | undefined,
     options: { eventActor?: string; logicalId?: string } = {},
-  ): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | undefined {
+  ): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | 'pending-effect' | undefined {
     if (options.logicalId) {
       const represented = this.getContributionLanding(options.logicalId, projectId, cid, tenantId)
       if (typeof represented === 'object') return represented
@@ -10378,6 +10350,7 @@ export const store = {
     const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
     if (!isContributor && !ownerActs) return 'forbidden'
     if (c.status !== 'open') return 'closed'
+    if (c.effectAttempts?.some((run) => run.status === 'pending')) return 'pending-effect'
     // CW5 — the tier gates the CONTRIBUTOR's self-land; the owner may always
     // land (the human authority the tiers exist to spend wisely, not to bind).
     if (!ownerActs) {
@@ -10424,6 +10397,11 @@ export const store = {
     // self-proposed optimization watches for.
     let manualMonotonicApprovals = 0
     for (const c of rows) {
+      // Explicit MCP runs have their own append-only receipts, not duplicate
+      // fixture events. Count the per-call human act, and conservatively count
+      // any execution whose slot may have been consumed.
+      humanActs += c.effectAttempts?.length ?? 0
+      machineActs += c.effectAttempts?.filter(contributionEffectConsumesSlot).length ?? 0
       for (const ev of c.events) {
         // The dual stamp (" · delegation-N") marks a delegate's execution —
         // our own stable format (locked by the delegations test). Display
@@ -10842,7 +10820,7 @@ export const store = {
         ...(d.expiresAt === undefined ? {} : { expiresAt: d.expiresAt }),
       },
       changeset: c.changeset?.at(-1) ?? null,
-      envelope: c.envelope ?? null,
+      envelope: publicContribution(c).envelope ?? null,
       risk: {
         effectful: isEffectfulContribution(c),
         unreviewed: !c.changeset?.length || contributionReviewVersion(c) !== c.changeset.at(-1)!.version,
@@ -11309,13 +11287,38 @@ export const store = {
     ) return 'invalid'
     return publicContribution(contribution, tenantId)
   },
-  proposeEnvelope(
+  /** Inspection/schema work is local and may await. Re-enter the synchronous
+   * proposal funnel only if the original world and exact authority still hold. */
+  async proposeMcpEnvelope(
     projectId: string,
     cid: string,
     req: import('../../contract/index.ts').ProposeEnvelopeRequest,
     tenantId: string,
     principal: PrincipalRef | undefined,
     options: { logicalId?: string } = {},
+  ): Promise<Contribution | 'closed' | 'invalid' | 'forbidden' | 'conflict' | 'capped' | undefined> {
+    if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return undefined
+    if (!options.logicalId || !Number.isSafeInteger(req.expectedVersion) || (req.expectedVersion ?? -1) < 0) return 'invalid'
+    const represented = this.getContributionEnvelopeProposal(options.logicalId, projectId, cid, req, tenantId)
+    if (represented !== undefined) return represented
+    const c = contributions.find((entry) => entry.id === cid && entry.projectId === projectId)
+    if (!c) return undefined
+    const lines = normalizedEnvelopeProposalLines(req)
+    if (!lines || !lines.some((line) => line.mcp)) return 'invalid'
+    const request = { lines, expectedVersion: req.expectedVersion }
+    const preparedLines = await prepareContributionMcpLines(this, tenantId, lines)
+    if (!preparedLines) return 'invalid'
+    if (!contributions.includes(c)) return 'conflict'
+    if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return undefined
+    return this.proposeEnvelope(projectId, cid, request, tenantId, principal, { ...options, preparedLines })
+  },
+  proposeEnvelope(
+    projectId: string,
+    cid: string,
+    req: import('../../contract/index.ts').ProposeEnvelopeRequest,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string; preparedLines?: Array<Omit<StoredContributionEnvelopeLine, 'id' | 'used'>> } = {},
   ): Contribution | 'closed' | 'invalid' | 'forbidden' | 'conflict' | 'capped' | undefined {
     if (
       req.expectedVersion !== undefined &&
@@ -11337,6 +11340,7 @@ export const store = {
     const c = contributions.find((x) => x.id === cid && x.projectId === projectId)
     if (!c) return undefined
     if (c.status !== 'open') return 'closed'
+    if (c.effectAttempts?.some((run) => run.status === 'pending')) return 'conflict'
     const currentVersion = c.envelope?.version ?? 0
     if (req.expectedVersion !== undefined && currentVersion !== req.expectedVersion) return 'conflict'
     // Deliberation is open while the envelope is UNAPPROVED — but amending an
@@ -11351,6 +11355,11 @@ export const store = {
     if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'capped'
     const lines = normalizedEnvelopeProposalLines(req)
     if (!lines) return 'invalid'
+    const bound = lines.some((line) => line.mcp)
+    if (bound && (!options.preparedLines || req.expectedVersion === undefined || !options.logicalId)) return 'invalid'
+    const storedLines = options.preparedLines ?? lines.map(({ mcp: _mcp, ...line }) => line)
+    if (storedLines.length !== lines.length || !storedLines.every((line) =>
+      currentContributionMcpLine(this, tenantId, { ...line, id: 'preparing', used: 0 }))) return 'invalid'
     const now = Date.now()
     const actor = tenantName(tenantId)
     const version = currentVersion + 1
@@ -11367,9 +11376,9 @@ export const store = {
         status: 'proposed',
         proposedBy: actor,
         proposedAt: now,
-        lines: lines.map((line) => ({
+        lines: storedLines.map((line) => ({
           id: `cev-${(contributionSeq += 1)}`,
-          ...line,
+          ...structuredClone(line),
           used: 0,
         })),
       }
@@ -11382,7 +11391,7 @@ export const store = {
         body: `v${version} · ${lines.length} act${lines.length === 1 ? '' : 's'}${superseded}`,
         ...(options.logicalId ? {
           proposedByTenant: tenantId,
-          envelopeProposalLines: lines.map((line) => ({ ...line })),
+          envelopeProposalLines: structuredClone(lines),
           ...(req.expectedVersion !== undefined
             ? { envelopeProposalExpectedVersion: req.expectedVersion }
             : {}),
@@ -11454,6 +11463,7 @@ export const store = {
     const ownerTenant = findProject(projectId)?.tenantId ?? defaultTenantId()
     if (!tenantWritesAs(tenantId, ownerTenant)) return 'forbidden'
     if (c.status !== 'open' || c.envelope.status !== 'proposed') return 'conflict'
+    if (c.envelope.lines.some((line) => line.mcp) && options.expectedVersion === undefined) return 'conflict'
     if (options.expectedVersion !== undefined && c.envelope.version !== options.expectedVersion) return 'conflict'
     if (c.events.length >= MAX_CONTRIBUTION_EVENTS) return 'conflict'
     const now = Date.now()
@@ -11509,6 +11519,74 @@ export const store = {
       event.effectResult === undefined
     ) return 'invalid'
     return { contribution: publicContribution(contribution, tenantId), result: event.effectResult }
+  },
+  /** Reserve one exact call durably before any external work. Repeated request
+   * identities read receipts, including pending/uncertain; they never dispatch. */
+  async runContributionMcpEffect(
+    projectId: string,
+    cid: string,
+    lineId: string,
+    tenantId: string,
+    options: { logicalId: string; expectedVersion: number },
+  ): Promise<Contribution | 'forbidden' | 'invalid' | 'conflict' | undefined> {
+    if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return undefined
+    const { logicalId, expectedVersion } = options
+    if (!isContributionEffectExecutionId(logicalId) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !lineId) return 'invalid'
+    const c = contributions.find((entry) => entry.id === cid && entry.projectId === projectId)
+    if (!c) return undefined
+    const represented = c.effectAttempts?.find((run) => run.id === logicalId)
+    if (represented) return represented.tenantId === tenantId && represented.lineId === lineId && represented.envelopeVersion === expectedVersion
+      ? publicContribution(c, tenantId) : 'conflict'
+    if (contributions.some((entry) => entry.events.some((event) => event.id === logicalId) ||
+      entry.effectAttempts?.some((run) => run.id === logicalId) || entry.reviewAttempts?.some((run) => run.id === logicalId) ||
+      entry.judgmentAttempts?.some((run) => run.id === logicalId))) return 'conflict'
+    if (!contributionEffectActor(c, tenantId)) return 'forbidden'
+    const envelope = c.envelope
+    const line = envelope?.lines.find((entry) => entry.id === lineId)
+    if (c.status !== 'open' || !envelope || envelope.status !== 'approved' || envelope.version !== expectedVersion ||
+      envelope.approvedVersion !== expectedVersion || !line?.mcpAuthority || !line.mcp || line.used >= line.cardinality ||
+      (c.effectAttempts?.length ?? 0) >= CONTRIBUTION_EFFECT_ATTEMPT_MAX || c.effectAttempts?.some((run) => run.status === 'pending')) return 'conflict'
+    if (!currentContributionMcpLine(this, tenantId, line)) return 'forbidden'
+    const run = createContributionEffectAttempt({ id: logicalId, tenantId, projectId, contributionId: cid,
+      envelopeVersion: expectedVersion, lineId, actor: tenantName(tenantId), connectionLabel: line.mcp.connectionLabel,
+      call: line.mcpAuthority.call, startedAt: Date.now() })
+    const fence = {}
+    commitMutationBatch(() => {
+      c.effectAttempts ??= []
+      c.effectAttempts.push(run)
+      line.used += 1
+      // Permanent conservative floor: an admitted external call is never made
+      // low-risk by replacing its envelope or losing the acknowledgement.
+      c.effectsFired = true
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+    })
+    activeContributionEffects.set(logicalId, fence)
+    try {
+      let outcome: McpBoundExecutionOutcome
+      try {
+        outcome = await executeBoundMcpCall(this, tenantId, run.call, () =>
+          activeContributionEffects.get(logicalId) === fence && contributions.includes(c) &&
+          contributionEffectActor(c, tenantId) && c.status === 'open' && c.envelope === envelope &&
+          envelope.status === 'approved' && envelope.approvedVersion === expectedVersion &&
+          c.effectAttempts?.includes(run) === true && run.status === 'pending' && currentContributionMcpLine(this, tenantId, line))
+      } catch {
+        outcome = { status: 'uncertain', summary: '' }
+      }
+      if (activeContributionEffects.get(logicalId) !== fence) return 'conflict'
+      const settled = settleContributionEffectAttempt(run, outcome, Math.max(Date.now(), run.startedAt))
+      return commitMutationBatch(() => {
+        c.effectAttempts![c.effectAttempts!.indexOf(run)] = settled
+        if (!contributionEffectConsumesSlot(settled)) line.used -= 1
+        emit({ type: 'contribution.changed', projectId })
+        persist()
+        // A revoked caller receives no fresh content even if their submitted
+        // call completed; its receipt remains available to current readers.
+        return this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId) ? publicContribution(c, tenantId) : undefined
+      })
+    } finally {
+      if (activeContributionEffects.get(logicalId) === fence) activeContributionEffects.delete(logicalId)
+    }
   },
   /** Fire ONE act against an envelope line — the MECHANICAL match (CW1/CW6):
    *  envelope approved, line exists, cardinality remaining; a matching act
@@ -11578,6 +11656,7 @@ export const store = {
     if (!c.envelope || c.envelope.status !== 'approved') return refuse('no approved envelope covers this act')
     const line = c.envelope.lines.find((l) => l.id === lineId)
     if (!line) return refuse('outside the approved envelope — amend and re-approve')
+    if (line.mcp || line.mcpAuthority || line.harness === 'explicit-call') return 'refused'
     if (line.used >= line.cardinality) return refuse(`${line.type} → ${line.target}: cardinality exhausted (${line.cardinality} of ${line.cardinality} used)`)
     return commitMutationBatch(() => {
       line.used += 1

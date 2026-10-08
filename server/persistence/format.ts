@@ -19,7 +19,6 @@ import type {
   Commission,
   Contribution,
   ContributionEvent,
-  EffectEnvelopeLine,
   Delegation,
   Discussion,
   DiscussionPost,
@@ -45,6 +44,11 @@ import type {
 import { isAttachmentInput } from '../../contract/attachmentInput.ts'
 import { validStoredReviews, type StoredContributionReview } from '../contributionReviewState.ts'
 import { validStoredJudgments, type StoredDelegatedJudgment } from '../delegatedJudgmentState.ts'
+import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, type NormalizedEnvelopeProposalLine, type StoredContributionEnvelope, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
+import { contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX, parseStoredContributionEffectAttempt, type StoredContributionEffectAttempt } from '../contributionEffectState.ts'
+import { snapshotMcpBoundToolCall } from '../mcpBoundCall.ts'
+import { PROJECT_EFFECT_TYPES } from '../../contract/coordination.ts'
+import { CONTRIBUTION_FIELD_MAX, EFFECT_ENVELOPE_CARDINALITY_MAX, EFFECT_ENVELOPE_LINE_MAX, ENVELOPE_HARNESSES } from '../../contract/contributions.ts'
 import { validStoredDelegations, validDelegationRetirements } from '../delegationPolicy.ts'
 import { imageAssetRefMatches } from '../../contract/imageAssets.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
@@ -174,9 +178,11 @@ export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments
  *  D23 lesson: display names are attacker-controlled, authorization compares
  *  tenant ids) and the acting principals. Server-private; `publicContribution`
  *  strips all of it and serves display names + principal KINDs only. */
-export interface StoredContribution extends Omit<Contribution, 'events' | 'reviews' | 'judgments'> {
+export interface StoredContribution extends Omit<Contribution, 'events' | 'reviews' | 'judgments' | 'effects' | 'envelope'> {
   reviewAttempts?: StoredContributionReview[]
   judgmentAttempts?: StoredDelegatedJudgment[]
+  effectAttempts?: StoredContributionEffectAttempt[]
+  envelope?: StoredContributionEnvelope
   contributorTenant?: string
   contributorPrincipal?: PrincipalRef
   /** Private acknowledgement anchor for a keyed native landing. */
@@ -204,7 +210,7 @@ export type StoredContributionEvent = ContributionEvent & {
   /** Canonical authored payload and compare boundary for durable proposal
    * replay. Private because the current/superseded public story belongs to the
    * envelope and timeline, not to transport metadata. */
-  envelopeProposalLines?: Omit<EffectEnvelopeLine, 'id' | 'used'>[]
+  envelopeProposalLines?: NormalizedEnvelopeProposalLine[]
   envelopeProposalExpectedVersion?: number
 }
 
@@ -623,6 +629,201 @@ export interface PersistenceBackend {
   close(): void
 }
 
+function persistedRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function exactFieldSet(value: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []): boolean {
+  const allowed = new Set([...required, ...optional])
+  return required.every((key) => Object.hasOwn(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key))
+}
+
+function canonicalMcpJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalMcpJson)
+  if (persistedRecord(value)) return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalMcpJson(value[key])]))
+  return value
+}
+
+function sameMcpJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalMcpJson(left)) === JSON.stringify(canonicalMcpJson(right))
+}
+
+function validNormalizedEnvelopeProposalLines(value: unknown): value is NormalizedEnvelopeProposalLine[] {
+  if (!Array.isArray(value)) return false
+  for (const line of value) {
+    if (!persistedRecord(line) || !exactFieldSet(line, ['type', 'target', 'cardinality', 'harness', 'note'], ['mcp'])) return false
+    if (line.mcp !== undefined && (!persistedRecord(line.mcp) ||
+        !exactFieldSet(line.mcp, ['connectionId', 'connectionRevision', 'toolName', 'arguments']) ||
+        !persistedRecord(line.mcp.arguments))) return false
+  }
+  try {
+    const normalized = normalizedEnvelopeProposalLines({ lines: value } as never)
+    return normalized !== undefined && envelopeProposalLinesMatch(normalized, value as NormalizedEnvelopeProposalLine[])
+  } catch { return false }
+}
+
+function validStoredContributionEnvelope(value: unknown): value is StoredContributionEnvelope {
+  if (!persistedRecord(value) || !exactFieldSet(value,
+    ['version', 'status', 'proposedBy', 'proposedAt', 'lines'], ['approvedBy', 'approvedAt', 'approvedVersion']) ||
+      !Number.isSafeInteger(value.version) || (value.version as number) < 1 ||
+      !['proposed', 'approved'].includes(String(value.status)) || typeof value.proposedBy !== 'string' ||
+      !value.proposedBy.trim() || value.proposedBy.length > CONTRIBUTION_FIELD_MAX ||
+      !Number.isSafeInteger(value.proposedAt) || (value.proposedAt as number) < 0 ||
+      !Array.isArray(value.lines) || value.lines.length < 1 || value.lines.length > EFFECT_ENVELOPE_LINE_MAX) return false
+  if (value.status === 'approved') {
+    if (typeof value.approvedBy !== 'string' || !value.approvedBy.trim() || value.approvedBy.length > CONTRIBUTION_FIELD_MAX ||
+        !Number.isSafeInteger(value.approvedAt) || (value.approvedAt as number) < 0 ||
+        value.approvedVersion !== value.version) return false
+  } else if (['approvedBy', 'approvedAt', 'approvedVersion'].some((key) => Object.hasOwn(value, key))) return false
+
+  const lineIds = new Set<string>()
+  for (const line of value.lines) {
+    if (!persistedRecord(line) || !exactFieldSet(line,
+      ['id', 'type', 'target', 'cardinality', 'harness', 'note', 'used'], ['mcp', 'mcpAuthority']) ||
+        typeof line.id !== 'string' || !line.id.trim() || lineIds.has(line.id) ||
+        !PROJECT_EFFECT_TYPES.includes(line.type as never) || typeof line.target !== 'string' ||
+        !line.target.trim() || line.target.length > CONTRIBUTION_FIELD_MAX ||
+        !Number.isSafeInteger(line.cardinality) || (line.cardinality as number) < 1 ||
+        (line.cardinality as number) > EFFECT_ENVELOPE_CARDINALITY_MAX ||
+        typeof line.harness !== 'string' || !ENVELOPE_HARNESSES.includes(line.harness as never) ||
+        typeof line.note !== 'string' || line.note.length > CONTRIBUTION_FIELD_MAX ||
+        !Number.isSafeInteger(line.used) || (line.used as number) < 0 || (line.used as number) > (line.cardinality as number)) return false
+    lineIds.add(line.id)
+
+    const hasPreview = Object.hasOwn(line, 'mcp')
+    const hasAuthority = Object.hasOwn(line, 'mcpAuthority')
+    if (!hasPreview && !hasAuthority) {
+      if (line.harness === 'explicit-call') return false
+      continue
+    }
+    if (!hasPreview || !hasAuthority || line.harness !== 'explicit-call' || line.type !== 'mcp.mutate' ||
+        !persistedRecord(line.mcp) ||
+        !exactFieldSet(line.mcp, ['connectionLabel', 'toolName', 'arguments']) ||
+        typeof line.mcp.connectionLabel !== 'string' || !line.mcp.connectionLabel.trim() ||
+        line.mcp.connectionLabel.length > CONTRIBUTION_FIELD_MAX || typeof line.mcp.toolName !== 'string' ||
+        !persistedRecord(line.mcp.arguments) || !persistedRecord(line.mcpAuthority) ||
+        !exactFieldSet(line.mcpAuthority, ['tenantId', 'call']) || typeof line.mcpAuthority.tenantId !== 'string' ||
+        !line.mcpAuthority.tenantId.trim()) return false
+    const boundCall = snapshotMcpBoundToolCall(line.mcpAuthority.call)
+    if (!boundCall || line.target !== boundCall.toolName || line.mcp.toolName !== boundCall.toolName ||
+        !sameMcpJson(line.mcp.arguments, boundCall.arguments)) return false
+  }
+  return true
+}
+
+function currentEnvelopeApprovalMatches(contribution: StoredContribution): boolean {
+  const envelope = contribution.envelope
+  if (!envelope || envelope.status !== 'approved') return true
+  const approvals = contribution.events.filter((event) => event.kind === 'envelope-approved' &&
+    event.envelopeVersion === envelope.version)
+  return approvals.length === 1 && approvals[0].at === envelope.approvedAt &&
+    approvals[0].body === `v${envelope.version}` && typeof approvals[0].actor === 'string' &&
+    Boolean(approvals[0].actor.trim())
+}
+
+function approvedEnvelopeVersion(contribution: StoredContribution, version: number): boolean {
+  if (contribution.envelope?.version === version) {
+    return contribution.envelope.status === 'approved' && contribution.envelope.approvedVersion === version &&
+      currentEnvelopeApprovalMatches(contribution)
+  }
+  return contribution.events.some((event) => event.kind === 'envelope-approved' && event.envelopeVersion === version)
+}
+
+function proposalForEffectVersion(
+  contribution: StoredContribution,
+  attempt: StoredContributionEffectAttempt,
+): NormalizedEnvelopeProposalLine | undefined {
+  const proposal = contribution.events.find((event) => event.kind === 'envelope-proposed' &&
+    event.envelopeVersion === attempt.envelopeVersion && event.envelopeProposalLines !== undefined)
+  if (!proposal || proposal.proposedByTenant !== attempt.tenantId ||
+      !validNormalizedEnvelopeProposalLines(proposal.envelopeProposalLines)) return undefined
+  return proposal.envelopeProposalLines.find((line) => line.mcp !== undefined &&
+    line.mcp.connectionId === attempt.call.connectionId && line.mcp.connectionRevision === attempt.call.connectionRevision &&
+    line.mcp.toolName === attempt.call.toolName && sameMcpJson(line.mcp.arguments, attempt.call.arguments) &&
+    line.type === 'mcp.mutate' && line.harness === 'explicit-call' && line.target === attempt.call.toolName)
+}
+
+/** Current MCP authority must still be the exact selection preserved by the
+ * version's keyed proposal receipt. The public proposal intentionally omits
+ * the private schema hash and line id; those remain bound by the stored call
+ * and are revalidated against the current connection at runtime. */
+function currentMcpProposalMatches(contribution: StoredContribution): boolean {
+  const envelope = contribution.envelope
+  if (!envelope || !envelope.lines.some((line) => line.harness === 'explicit-call')) return true
+  if (!Array.isArray(contribution.events)) return false
+  if (!currentEnvelopeApprovalMatches(contribution)) return false
+  const proposals = contribution.events.filter((event) => event.kind === 'envelope-proposed' &&
+    event.envelopeVersion === envelope.version)
+  if (proposals.length !== 1) return false
+  const proposal = proposals[0]
+  if (typeof proposal.proposedByTenant !== 'string' || !proposal.proposedByTenant.trim() ||
+      !validNormalizedEnvelopeProposalLines(proposal.envelopeProposalLines)) return false
+  const projected: NormalizedEnvelopeProposalLine[] = []
+  for (const line of envelope.lines) {
+    const base = {
+      type: line.type,
+      target: line.target,
+      cardinality: line.cardinality,
+      harness: line.harness,
+      note: line.note,
+    }
+    if (line.harness !== 'explicit-call') {
+      projected.push(base)
+      continue
+    }
+    if (!line.mcpAuthority || line.mcpAuthority.tenantId !== proposal.proposedByTenant) return false
+    const call = snapshotMcpBoundToolCall(line.mcpAuthority.call)
+    if (!call) return false
+    projected.push({ ...base, mcp: {
+      connectionId: call.connectionId,
+      connectionRevision: call.connectionRevision,
+      toolName: call.toolName,
+      arguments: call.arguments,
+    } })
+  }
+  return envelopeProposalLinesMatch(projected, proposal.envelopeProposalLines)
+}
+
+function validStoredContributionEffectAttempts(contribution: StoredContribution): boolean {
+  const attempts = contribution.effectAttempts
+  if (attempts === undefined) {
+    const lines = Array.isArray(contribution.envelope?.lines) ? contribution.envelope.lines : []
+    return !lines.some((line) => line.harness === 'explicit-call' && line.used !== 0)
+  }
+  if (!Array.isArray(attempts) || attempts.length > CONTRIBUTION_EFFECT_ATTEMPT_MAX || !contribution.envelope ||
+      (attempts.length > 0 && contribution.effectsFired !== true)) return false
+  const ids = new Set<string>()
+  const parsed: StoredContributionEffectAttempt[] = []
+  for (const raw of attempts) {
+    let attempt: StoredContributionEffectAttempt
+    try { attempt = parseStoredContributionEffectAttempt(raw) } catch { return false }
+    if (ids.has(attempt.id) || attempt.projectId !== contribution.projectId || attempt.contributionId !== contribution.id ||
+        attempt.envelopeVersion > contribution.envelope.version || !approvedEnvelopeVersion(contribution, attempt.envelopeVersion)) return false
+    if (attempt.status === 'pending' && (contribution.status !== 'open' ||
+        attempt.envelopeVersion !== contribution.envelope.version || contribution.envelope.status !== 'approved' ||
+        contribution.envelope.approvedVersion !== contribution.envelope.version)) return false
+    ids.add(attempt.id)
+    parsed.push(attempt)
+    if (attempt.envelopeVersion === contribution.envelope.version) {
+      const line = contribution.envelope.lines.find((candidate) => candidate.id === attempt.lineId)
+      const call = line?.mcpAuthority && snapshotMcpBoundToolCall(line.mcpAuthority.call)
+      if (!line || !call || line.harness !== 'explicit-call' || line.type !== 'mcp.mutate' ||
+          line.mcpAuthority?.tenantId !== attempt.tenantId ||
+          call.connectionId !== attempt.call.connectionId || call.connectionRevision !== attempt.call.connectionRevision ||
+          call.toolName !== attempt.call.toolName || call.schemaHash !== attempt.call.schemaHash ||
+          !sameMcpJson(call.arguments, attempt.call.arguments)) return false
+    } else if (!proposalForEffectVersion(contribution, attempt)) return false
+  }
+  for (const line of contribution.envelope.lines) {
+    if (line.harness !== 'explicit-call') continue
+    const used = parsed.filter((attempt) => attempt.envelopeVersion === contribution.envelope!.version &&
+      attempt.lineId === line.id && contributionEffectConsumesSlot(attempt)).length
+    if (line.used !== used || used > line.cardinality) return false
+  }
+  return true
+}
+
 /** Runtime guard for the core slices every rehydrate reads unconditionally.
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
@@ -634,7 +835,22 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     const reviewIds = new Set<string>()
     for (const contribution of state.contributions) {
       if (!contribution || Object.hasOwn(contribution, 'reviews') || Object.hasOwn(contribution, 'judgments') ||
-        !validStoredReviews(contribution.reviewAttempts, contribution.changeset) || !validStoredJudgments(contribution.judgmentAttempts)) return false
+        Object.hasOwn(contribution, 'effects')) return false
+      if (contribution.envelope !== undefined) {
+        const rawEnvelope = contribution.envelope as unknown
+        const lines = persistedRecord(rawEnvelope) && Array.isArray(rawEnvelope.lines) ? rawEnvelope.lines : undefined
+        const hasMcpState = contribution.effectAttempts !== undefined || (Array.isArray(lines) && lines.some((line) =>
+          persistedRecord(line) && (Object.hasOwn(line, 'mcp') || Object.hasOwn(line, 'mcpAuthority') ||
+            Object.hasOwn(line, 'canRun') || line.harness === 'explicit-call')))
+        if (hasMcpState && (!validStoredContributionEnvelope(contribution.envelope) ||
+            !currentMcpProposalMatches(contribution))) return false
+      }
+      if (!validStoredReviews(contribution.reviewAttempts, contribution.changeset) ||
+          !validStoredJudgments(contribution.judgmentAttempts) || !validStoredContributionEffectAttempts(contribution)) return false
+      for (const event of contribution.events ?? []) {
+        if (event.envelopeProposalLines !== undefined &&
+            (event.kind !== 'envelope-proposed' || !validNormalizedEnvelopeProposalLines(event.envelopeProposalLines))) return false
+      }
       for (const run of contribution.reviewAttempts ?? []) {
         if (reviewIds.has(run.id)) return false
         reviewIds.add(run.id)
@@ -642,6 +858,17 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       for (const run of contribution.judgmentAttempts ?? []) {
         if (reviewIds.has(run.id)) return false
         reviewIds.add(run.id)
+      }
+    }
+    const receiptCollisionIds = new Set<string>(reviewIds)
+    for (const contribution of state.contributions) {
+      for (const event of contribution.events ?? []) if (typeof event?.id === 'string') receiptCollisionIds.add(event.id)
+    }
+    const effectIds = new Set<string>()
+    for (const contribution of state.contributions) {
+      for (const attempt of contribution.effectAttempts ?? []) {
+        if (receiptCollisionIds.has(attempt.id) || effectIds.has(attempt.id)) return false
+        effectIds.add(attempt.id)
       }
     }
   }

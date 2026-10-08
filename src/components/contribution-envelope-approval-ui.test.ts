@@ -6,6 +6,7 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('envelope approval is one exact shell-owned consent with a held lifecycle', () => {
   const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const envelope = stripComments(read(join(ROOT, 'src', 'components', 'ContributionEnvelopeCard.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'contributionEnvelopeApprovalCommands.ts')))
   const legacyCommands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'contributionEnvelopeApprovalMutations.ts')))
@@ -19,16 +20,17 @@ test('envelope approval is one exact shell-owned consent with a held lifecycle',
   assert.match(view, /useContributionEnvelopeApprovalStatus\(\)/)
   assert.match(view, /isContributionEnvelopeApprovalHeld\(project\.id, contributionId\)/)
   assert.match(view, /landingHeld \|\| effectExecutionHeld \|\| crystallizationHeld \|\| envelopeApprovalHeld/)
-  assert.match(view, /enqueueContributionEnvelopeApproval\(/)
-  assert.match(view, /envelopeVersion: env\.version/)
-  assert.match(view, /heldApproval\?\.envelopeVersion === env\.version \? 'Approving…' : 'Approve'/)
+  assert.match(view, /onApprove=\{enqueueContributionEnvelopeApproval\}/)
+  assert.match(envelope, /onApprove\(\{/)
+  assert.match(envelope, /envelopeVersion: env\.version/)
+  assert.match(envelope, /heldApproval\?\.envelopeVersion === env\.version \? 'Approving…' : 'Approve'/)
   assert.doesNotMatch(view, /confirmLabel=["'{]Approve/,
     'the envelope row is the substantive review surface')
 
   assert.match(facade, /const existing = heldApprovals\.get\(key\)[\s\S]*if \(existing\) return existing\.result/)
   assert.match(facade, /intentId: crypto\.randomUUID\(\)/)
   assert.match(commands, /expectedVersion: intent\.envelopeVersion/)
-  assert.match(commands, /apiPost<Contribution>[\s\S]*\{ idempotencyKey \}/)
+  assert.match(commands, /apiPost<Contribution>[\s\S]*\{ idempotencyKey, expectedSessionUserId: intent\.sourceUserId \}/)
   assert.match(commands, /event\.id === expectedId[\s\S]*event\.kind === 'envelope-approved'[\s\S]*event\.envelopeVersion === envelopeVersion/)
   assert.match(runtime, /createAcknowledgedActionMutationController/)
 

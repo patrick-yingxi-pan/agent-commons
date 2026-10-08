@@ -235,7 +235,7 @@ test('the consumers source the face from the module', () => {
     // more important scenarios"). It is a quiet rail row now, findable by
     // POSITION rather than fill; the scan below fails if a solid reappears in
     // the rail, which is the half of this decision worth locking.
-    ['src/components/SectionView.tsx', 'SECONDARY_BUTTON_CLASS', 2],
+    ['src/components/SectionView.tsx', 'SECONDARY_BUTTON_CLASS', 1],
     ['src/lib/authFlow.ts', 'SOLID_BUTTON_CLASS', 1],
   ]
   // The rail carries NO solid: navigation chrome may not wear the loudest ink

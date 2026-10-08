@@ -512,6 +512,7 @@ import {
   isContributionReviewHeld,
   useContributionReviewStatus,
 } from '../controller/contributionReviewMutations.ts'
+import { useContributionMcpEffectAttempt } from '../api/hooks.ts'
 import {
   enqueueContributionReviewRequirement,
   isContributionReviewRequirementHeld,
@@ -638,6 +639,7 @@ import {
   SELF_PROJECT_HOLDER,
   SHARE_TIERS,
   discussionTitle,
+  CONTRIBUTION_FIELD_MAX,
   type CommonsItem,
   type FollowRow,
   type Discussion,
@@ -645,13 +647,8 @@ import {
   type ShareTier,
   type SocialAnchor,
   type SocialEntityRef,
-  ENVELOPE_HARNESSES,
-  EFFECT_ENVELOPE_LINE_MAX,
-  EFFECT_ENVELOPE_CARDINALITY_MAX,
-  CONTRIBUTION_FIELD_MAX,
   CHANGE_ENTRY_KINDS,
   AUDIT_CHANNEL_LABEL,
-  type EnvelopeHarness,
   type ChangeEntryKind,
   type A2aAgentCard,
   type Agent,
@@ -674,7 +671,6 @@ import {
   type CreatedProvider,
   type ModelProvider,
   type ProjectEffectType,
-  type ProposeEnvelopeRequest,
   type ProjectRole,
   type PromptProbeResult,
   type SystemPromptEntry,
@@ -695,6 +691,7 @@ import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
 import { DeferredContributionReviewPanel } from './DeferredContributionReviewPanel.tsx'
+import { DeferredContributionEnvelopeCard } from './DeferredContributionEnvelopeCard.tsx'
 import { DeferredDelegatedJudgmentPanel } from './DeferredDelegatedJudgmentPanel.tsx'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
@@ -6644,6 +6641,7 @@ function ContributionPage({
   useContributionReviewStatus()
   useContributionReviewRequirementStatus()
   useDelegatedJudgmentStatus()
+  const localMcpAttempt = useContributionMcpEffectAttempt(project.id, contributionId)
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
   // promises a number the server won't assign.
@@ -6663,6 +6661,9 @@ function ContributionPage({
   const envelopeApprovalHeld = isContributionEnvelopeApprovalHeld(project.id, contributionId)
   const envelopeProposalHeld = isContributionEnvelopeProposalHeld(project.id, contributionId)
   const lifecycleHeld = landingHeld || effectExecutionHeld || crystallizationHeld || envelopeApprovalHeld || envelopeProposalHeld || reviewHeld || reviewRequirementHeld || delegatedJudgmentHeld || delegatedJudgmentPending
+  const mcpEffectPending = c?.effects?.some((effect) => effect.status === 'pending') === true ||
+    (localMcpAttempt !== null && (localMcpAttempt.state !== 'receipt' || localMcpAttempt.receipt?.status === 'pending'))
+  const contributionActionHeld = lifecycleHeld || mcpEffectPending
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -6712,7 +6713,7 @@ function ContributionPage({
     }
   }
   const land = () => {
-    if (lifecycleHeld || !me) return
+    if (contributionActionHeld || !me) return
     setError(null)
     void enqueueContributionLanding({
       tenantId: me.tenant.id,
@@ -6723,7 +6724,7 @@ function ContributionPage({
     })
   }
   const tighten = () => {
-    if (lifecycleHeld || !me) return
+    if (contributionActionHeld || !me) return
     setError(null)
     void enqueueContributionReviewRequirement({
       tenantId: me.tenant.id,
@@ -6795,7 +6796,7 @@ function ContributionPage({
             {mayRequire && (
               <button
                 onClick={() => tighten()}
-                disabled={lifecycleHeld}
+                disabled={contributionActionHeld}
                 title="Tighten the gate: force adversarial review before this can land (there is no un-require)"
                 className="rounded-md border border-line px-2.5 py-1 text-[12px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink disabled:opacity-45"
               >
@@ -6805,13 +6806,15 @@ function ContributionPage({
             {mayLand && (
               <button
                 onClick={() => void land()}
-                disabled={lifecycleHeld}
-                title={`Land this contribution — it becomes L${
-                  Math.max(
-                    list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
-                    proposalLandings.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
-                  ) + 1
-                } in ${project.name}’s history`}
+                disabled={lifecycleHeld || mcpEffectPending}
+                title={mcpEffectPending
+                  ? 'Resolve the pending MCP receipt before landing this Contribution'
+                  : `Land this contribution — it becomes L${
+                    Math.max(
+                      list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
+                      proposalLandings.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
+                    ) + 1
+                  } in ${project.name}’s history`}
                 className={`${SOFT_BUTTON_CLASS} px-3 py-1 text-[12px] disabled:opacity-45`}
               >
                 {landingHeld ? 'Landing…' : 'Land'}
@@ -6822,24 +6825,40 @@ function ContributionPage({
 
         {/* The changeset (CW3/CW4, Phase D) — the work's mergeable payload as
             before→after diffs, versioned append-only. */}
-        <ChangesetCard project={project} c={c} lifecycleHeld={lifecycleHeld} />
+        <ChangesetCard project={project} c={c} lifecycleHeld={contributionActionHeld} />
 
         {/* The effect envelope (CW1, Phase C) — the plan's authorization,
             visually its own block: an external act must never hide inside the
             prose/diff idiom (CW3). */}
-        <EnvelopeCard project={project} c={c} lifecycleHeld={lifecycleHeld} />
+        <DeferredContributionEnvelopeCard
+          project={project}
+          c={c}
+          lifecycleHeld={contributionActionHeld}
+          me={me}
+          heldExecution={heldContributionEffectExecutionIntent(project.id, c.id)}
+          heldApproval={heldContributionEnvelopeApprovalIntent(project.id, c.id)}
+          heldProposal={heldContributionEnvelopeProposalIntent(project.id, c.id)}
+          onRun={enqueueContributionEffectExecution}
+          onApprove={enqueueContributionEnvelopeApproval}
+          onPropose={enqueueContributionEnvelopeProposal}
+        />
+        {mcpEffectPending && (
+          <p role="status" className="mt-2 rounded-md border border-warn-strong/30 bg-warn-strong/5 px-3 py-2 text-[11px] leading-relaxed text-warn-text">
+            An MCP call is still pending or its acknowledgement is unresolved. Check its saved receipt before amending or landing this Contribution.
+          </p>
+        )}
 
         <DeferredContributionReviewPanel
           project={project}
           contribution={c}
           latestVersion={latestVersion}
-          lifecycleHeld={lifecycleHeld}
+          lifecycleHeld={contributionActionHeld}
         />
 
         <DeferredDelegatedJudgmentPanel
           project={project}
           contribution={c}
-          lifecycleHeld={lifecycleHeld}
+          lifecycleHeld={contributionActionHeld}
         />
 
         {/* The timeline — lifecycle transitions + the conversation, one record
@@ -7247,329 +7266,6 @@ function ChangesetCard({ project, c, lifecycleHeld }: { project: Project; c: Con
           {error && <p className="text-[11px] text-removed">{error}</p>}
         </div>
       )}
-    </div>
-  )
-}
-
-/** The envelope card (CW1, Phase C) — the contribution page's authorization
- *  block: what external acts this work may fire, under which harness, how many
- *  used. Consent-card-shaped rows; the approve act is the owner's one human
- *  judgment (the floor rule), after which Run is a mechanical match. */
-type EnvelopeDraftLine = Required<ProposeEnvelopeRequest['lines'][number]>
-
-const emptyEnvelopeDraftLine = (): EnvelopeDraftLine => ({
-  type: 'connector.write',
-  target: '',
-  cardinality: 1,
-  harness: 'draft-escrow',
-  note: '',
-})
-
-function EnvelopeCard({ project, c, lifecycleHeld }: { project: Project; c: Contribution; lifecycleHeld: boolean }) {
-  const own = project.own !== false
-  const mayAct = c.mine === true || own
-  const me = useMe().data
-  const env = c.envelope
-  const mayPropose = c.status === 'open' && (env?.status !== 'approved' || mayAct)
-  const [composing, setComposing] = useState(false)
-  const [draftBaseVersion, setDraftBaseVersion] = useState(0)
-  const [draftLines, setDraftLines] = useState<EnvelopeDraftLine[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const heldExecution = heldContributionEffectExecutionIntent(project.id, c.id)
-  const heldApproval = heldContributionEnvelopeApprovalIntent(project.id, c.id)
-  const heldProposal = heldContributionEnvelopeProposalIntent(project.id, c.id)
-  // No envelope and nothing left to declare (landed) — nothing to show.
-  if (!env && !mayPropose) return null
-
-  const toggleComposer = () => {
-    if (lifecycleHeld) return
-    if (composing) {
-      setComposing(false)
-      return
-    }
-    setDraftBaseVersion(env?.version ?? 0)
-    setDraftLines(
-      env?.lines.map((line) => ({
-        type: line.type,
-        target: line.target,
-        cardinality: line.cardinality,
-        harness: line.harness,
-        note: line.note,
-      })) ?? [emptyEnvelopeDraftLine()],
-    )
-    setError(null)
-    setComposing(true)
-  }
-  const updateDraftLine = (index: number, patch: Partial<EnvelopeDraftLine>) => {
-    if (lifecycleHeld) return
-    setDraftLines((current) => current.map((line, candidate) => candidate === index ? { ...line, ...patch } : line))
-  }
-  const propose = async () => {
-    if (lifecycleHeld || !me || draftLines.length === 0) return
-    const lines = draftLines.map((line) => ({
-      ...line,
-      target: line.target.trim().slice(0, CONTRIBUTION_FIELD_MAX),
-      note: line.note.trim().slice(0, CONTRIBUTION_FIELD_MAX),
-    }))
-    if (lines.some((line) => !line.target)) return
-    const coordinates = lines.map((line) => JSON.stringify([line.type, line.target, line.harness, line.note]))
-    if (new Set(coordinates).size !== coordinates.length) {
-      setError('Combine duplicate acts by increasing Max acts on one line.')
-      return
-    }
-    setError(null)
-    try {
-      const outcome = await enqueueContributionEnvelopeProposal({
-        tenantId: me.tenant.id,
-        projectId: project.id,
-        contributionId: c.id,
-        expectedVersion: draftBaseVersion,
-        lines,
-      })
-      if (outcome === 'applied') {
-        setDraftLines([])
-        setComposing(false)
-      } else {
-        setError('Envelope proposal was dismissed. Your draft is still here for review.')
-      }
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not prepare this envelope proposal for recovery.')
-    }
-  }
-  const run = (lineId: string) => {
-    if (lifecycleHeld || !me) return
-    setError(null)
-    void enqueueContributionEffectExecution({
-      tenantId: me.tenant.id,
-      projectId: project.id,
-      contributionId: c.id,
-      lineId,
-    }).then((outcome) => {
-      if (outcome === 'discarded') {
-        setError('Effect execution was dismissed. Review the current envelope before trying again.')
-      }
-    })
-  }
-  const approve = () => {
-    if (lifecycleHeld || !me || !env) return
-    setError(null)
-    void enqueueContributionEnvelopeApproval({
-      tenantId: me.tenant.id,
-      projectId: project.id,
-      contributionId: c.id,
-      envelopeVersion: env.version,
-    }).then((outcome) => {
-      if (outcome === 'discarded') {
-        setError('Envelope approval was dismissed. Review the current version before trying again.')
-      }
-    })
-  }
-
-  return (
-    <div
-      data-contribution-envelope-version={env?.version ?? 0}
-      className="mt-5 rounded-xl border border-line bg-surface"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-          Effect envelope{env ? ` · v${env.version}` : ''}
-        </div>
-        <div className="flex items-center gap-1.5">
-          {env &&
-            (env.status === 'approved' ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-ok-strong/10 px-2 py-0.5 text-[11px] font-medium text-ok-text">
-                <CheckCircle2 size={12} /> Approved by {env.approvedBy}
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 rounded-full bg-warn-strong/10 px-2 py-0.5 text-[11px] font-medium text-warn-text">
-                <AlertCircle size={12} /> Awaiting approval
-              </span>
-            ))}
-          {env && env.status === 'proposed' && own && c.status === 'open' && (
-            <button
-              onClick={approve}
-              disabled={lifecycleHeld}
-              title="Approve these acts as proposed — matching acts then run without re-asking"
-              className={`${SOFT_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
-            >
-              {heldApproval?.envelopeVersion === env.version ? 'Approving…' : 'Approve'}
-            </button>
-          )}
-          {mayPropose && (
-            <button
-              onClick={toggleComposer}
-              disabled={lifecycleHeld}
-              className="rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
-            >
-              {heldProposal ? 'Proposing…' : env ? 'Amend' : 'Declare effects'}
-            </button>
-          )}
-        </div>
-      </div>
-      {env ? (
-        env.lines.map((l) => (
-          <div key={l.id} className="flex items-center gap-2.5 border-b border-line px-3 py-2 last:border-b-0">
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-[13px] text-ink">
-                {l.type} → <span className="font-medium">{l.target}</span>
-              </div>
-              <div className="truncate text-[11px] text-ink-faint">
-                ≤{l.cardinality} · {l.harness}
-                {l.note ? ` · ${l.note}` : ''}
-              </div>
-            </div>
-            <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">
-              {l.used}/{l.cardinality} used
-            </span>
-            {env.status === 'approved' && c.status === 'open' && mayAct && (
-              <button
-                onClick={() => run(l.id)}
-                disabled={lifecycleHeld || l.used >= l.cardinality}
-                title={
-                  l.used >= l.cardinality
-                    ? 'Cardinality exhausted — amend the envelope for more'
-                    : `Fire one ${l.type} act on ${l.target} (mechanically matched against this line)`
-                }
-                className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-0.5 text-[11px] disabled:opacity-45`}
-              >
-                {heldExecution?.lineId === l.id ? 'Running…' : 'Run'}
-              </button>
-            )}
-          </div>
-        ))
-      ) : (
-        <p className="px-3 py-2 text-[12px] text-ink-faint">
-          No external acts declared. If this work needs to send, charge, or reach outside the project,
-          declare the envelope <em>before</em> acting — approval happens here, not after the fact.
-        </p>
-      )}
-      {heldProposal ? (
-        <div
-          data-contribution-envelope-proposal-draft
-          aria-busy="true"
-          className="space-y-2 border-t border-line px-3 py-2"
-        >
-          <p className="text-[11px] text-ink-faint">
-            Proposing v{heldProposal.expectedVersion + 1} as one exact envelope — all acts stay frozen until acknowledgement.
-          </p>
-          {heldProposal.lines.map((line, index) => (
-            <div key={`${line.type}:${line.target}:${index}`} className="rounded-lg border border-line bg-panel-2 px-2.5 py-2">
-              <div className="text-[12px] text-ink">
-                {line.type} → <span className="font-medium">{line.target}</span>
-              </div>
-              <div className="text-[11px] text-ink-faint">
-                ≤{line.cardinality ?? 1} · {line.harness ?? 'draft-escrow'}
-                {line.note ? ` · ${line.note}` : ''}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : composing && (
-        <div data-contribution-envelope-editor className="space-y-2 border-t border-line px-3 py-2">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-[11px] text-ink-faint">
-              Draft v{draftBaseVersion + 1}. A new version resets usage and needs fresh approval; repeated acts belong in Max acts.
-            </p>
-            <button
-              onClick={() => setDraftLines((current) => [...current, emptyEnvelopeDraftLine()])}
-              disabled={lifecycleHeld || draftLines.length >= EFFECT_ENVELOPE_LINE_MAX}
-              className="rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-ink-soft transition enabled:hover:border-line-strong enabled:hover:text-ink disabled:opacity-45"
-            >
-              Add act
-            </button>
-          </div>
-          {draftLines.map((line, index) => (
-            <div key={index} className="space-y-1.5 rounded-lg border border-line bg-panel-2 px-2.5 py-2">
-              <div className="grid gap-1.5 sm:grid-cols-[minmax(8rem,0.8fr)_minmax(12rem,2fr)_5rem_minmax(9rem,1fr)_auto]">
-                <select
-                  value={line.type}
-                  onChange={(e) => updateDraftLine(index, { type: e.target.value as ProjectEffectType })}
-                  disabled={lifecycleHeld}
-                  aria-label={`Effect type ${index + 1}`}
-                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-                >
-                  {PROJECT_EFFECT_TYPES.map((candidate) => (
-                    <option key={candidate} value={candidate}>{candidate}</option>
-                  ))}
-                </select>
-                <input
-                  autoFocus={index === 0 && draftBaseVersion === 0}
-                  value={line.target}
-                  onChange={(e) => updateDraftLine(index, { target: e.target.value })}
-                  maxLength={CONTRIBUTION_FIELD_MAX}
-                  disabled={lifecycleHeld}
-                  placeholder="Target (connector / descriptor)…"
-                  aria-label={`Effect target ${index + 1}`}
-                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-                />
-                <input
-                  type="number"
-                  min={1}
-                  max={EFFECT_ENVELOPE_CARDINALITY_MAX}
-                  value={line.cardinality}
-                  onChange={(e) => updateDraftLine(index, { cardinality: Math.max(1, Math.min(EFFECT_ENVELOPE_CARDINALITY_MAX, Number(e.target.value) || 1)) })}
-                  disabled={lifecycleHeld}
-                  aria-label={`Max acts ${index + 1}`}
-                  title="How many acts this line authorizes (≤)"
-                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-                />
-                <select
-                  value={line.harness}
-                  onChange={(e) => updateDraftLine(index, { harness: e.target.value as EnvelopeHarness })}
-                  disabled={lifecycleHeld}
-                  aria-label={`Safety harness ${index + 1}`}
-                  title="The containment this line runs under"
-                  className="min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none focus:border-line-strong"
-                >
-                  {ENVELOPE_HARNESSES.map((candidate) => (
-                    <option key={candidate} value={candidate}>{candidate}</option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setDraftLines((current) => current.filter((_, candidate) => candidate !== index))}
-                  disabled={lifecycleHeld}
-                  aria-label={`Remove effect ${index + 1}`}
-                  title="Remove this act from the next envelope version"
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition enabled:hover:bg-removed-bg enabled:hover:text-removed disabled:opacity-45"
-                >
-                  <Trash2 size={13} />
-                </button>
-              </div>
-              <input
-                value={line.note}
-                onChange={(e) => updateDraftLine(index, { note: e.target.value })}
-                maxLength={CONTRIBUTION_FIELD_MAX}
-                disabled={lifecycleHeld}
-                placeholder="Scope note (optional)…"
-                aria-label={`Scope note ${index + 1}`}
-                className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-              />
-            </div>
-          ))}
-          {draftLines.length === 0 && (
-            <p className="rounded-lg border border-dashed border-line px-3 py-2 text-[11px] text-ink-faint">
-              An envelope needs at least one act. Add one, or Cancel to keep the current version.
-            </p>
-          )}
-          <div className="flex items-center justify-end gap-1.5">
-            <button
-              onClick={() => setComposing(false)}
-              disabled={lifecycleHeld}
-              className={`${SECONDARY_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => void propose()}
-              disabled={lifecycleHeld || !me || draftLines.length === 0 || draftLines.some((line) => !line.target.trim())}
-              className={`${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-            >
-              Propose v{draftBaseVersion + 1}
-            </button>
-          </div>
-        </div>
-      )}
-      {error && <p className="px-3 pb-2 text-[11px] text-removed">{error}</p>}
     </div>
   )
 }

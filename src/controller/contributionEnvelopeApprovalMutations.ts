@@ -48,6 +48,7 @@ export const isContributionEnvelopeApprovalHeld = (
 
 export function enqueueContributionEnvelopeApproval(input: {
   tenantId: string
+  sourceUserId: string | null
   projectId: string
   contributionId: string
   envelopeVersion: number

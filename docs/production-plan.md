@@ -8,10 +8,14 @@ milestones or address a demonstrated defect.
 
 ## Current checkpoint: real Contribution execution
 
-Artifact saved context landed and was pushed at `78d3e80a`. The exact committed
-revision passed all five local verifier lanes (593 browser tests); the accepted
-runtime also passed the 135/135-cell UI sweep and rebuilt unsigned arm64 Electron
-suite. The final native receipt is recorded below. No GitHub CI was used.
+The exact-bound Contribution execution foundation was pushed at `576bbce7`
+after its final local run passed 4,800 Node tests and 593 browser tests. The
+current checkpoint integrates that foundation with the Contribution store,
+HTTP route, strict durable attempts, restart recovery and explicit first-party
+Run flow. Focused JSON/SQLite, route, restore, durable-commit and controller
+locks pass. The final frozen revision must pass the complete local verifier,
+broad UI sweep and packaged/native regression acceptance before landing.
+No public or paid MCP service has been used.
 
 The owner has approved Project-reader visibility for Contribution tool arguments
 and results. Credentials stay private. Proposal review must disclose that the
@@ -19,41 +23,62 @@ arguments will be shared, and each separate Run confirmation must disclose the
 result's sharing scope. Execution uses only the initiating person's existing
 connection, never another Project member's credentials.
 
-The first implementation checkpoint extracts one reusable exact-bound MCP
-executor and adds strict pure Contribution receipt transitions. Arguments and
-reviewed schemas are detached before asynchronous work; current owner,
-connection, schema and caller-specific authority are checked before credential
-resolution and immediately before dispatch. Pending, uncertain and returned
-tool errors conservatively reserve a slot; only known pre-submission failures
-release it. Public receipts contain reviewed arguments and bounded inert results,
-not private connection/tenant authority. Invalid or oversized results become
-uncertain, without truncated success or automatic replay.
+The real path selects one existing MCP tool on the initiating person's own
+connection, binds its reviewed schema and exact arguments to an approved
+envelope line, and requires a separate human Run confirmation for each call.
+Arguments and bounded results are Project-reader-visible; credentials and
+private connection authority are not. The server commits a pending receipt and
+slot reservation before I/O. Only a known pre-submit failure releases a slot;
+pending blocks amendment and landing, restart converts it to durable
+uncertainty, and exact retries only read the existing receipt. Receipts are
+append-only and capped at 100. Invalid or oversized results become uncertain,
+without truncation or automatic replay.
 
-This is groundwork, not the completed Contribution feature. Release effect
-routes stay closed. Next: persist the approved exact binding and pending attempt
-atomically with cardinality reservation, wire restart recovery and read-only
-receipt reconciliation, then deliver the tool picker, argument review and
-separate per-call confirmation with browser/native acceptance. Legacy harness
-labels (dry-run, escrow, canary, cooling and hold-until-landing) are not implemented
-containment and must not authorize real effects. Signed/notarized, Intel and
-real-service acceptance remain independent release gates.
+Adversarial persistence review added approval-event correlation, a permanent
+effects-fired floor and strict pending-state admission. Browser review found
+pane-width clipping and insufficient contrast on tinted consent panels; UI-9
+and UI-205 now name the shared layout and readable-ink funnels. Transport is
+loaded before admitting effect controls, so a failed code import is not mistaken
+for an uncertain submitted call. A lost acknowledgement offers receipt-only
+checks; dismissing local recovery never suppresses the next call's duplicate-risk
+warning. Optional extraction preserves the existing bundle budgets.
 
-The first complete local run passed all four browser shards and 4,799/4,800 Node
-tests. Its only failure was repository path hygiene in a new negative-control
-test: an intentionally wrong import named a nonexistent file. The mutation now
-uses a real, deliberately wrong module, retaining the fail-first assertion
-without a dead path or lint exemption. Focused guards pass; the complete local
-verifier repeats on the corrected frozen tree before landing.
+All four focused browser journeys passed, with 41 reviewed screenshots spanning
+proposal, separate confirmation, owner/reader/foreign views, durable uncertainty,
+and module loading/recovery across the five viewport tiers. The rebuilt unsigned
+arm64 Electron regression suite also passed. Final review then found that
+switching an MCP draft back to a simulated act retained the incompatible
+`explicit-call` harness; the shared transition now clears MCP authority and
+restores a valid simulated harness, with pure and rendered regression locks.
+Final acceptance repeats on that correction, including unresolved-acknowledgement
+controls at all five sizes. The incomplete pre-correction broad sweep was stopped
+before editing and does not count as acceptance evidence.
+
+On the corrected implementation, all four focused journeys pass with 46 reviewed
+captures. The complete broad sweep passes 135/135 cells with zero violations or
+skips; every viewport column has been visually reviewed. The rebuilt complete
+unsigned arm64 `desktop:verify` suite also passes, including existing OS-storage,
+SQLite, sharing, restore and signed-in relaunch regressions. The first full local
+verifier passes all four browser shards, but its checks lane finds two context
+documentation defects: a one-line budget excess and an invalid rule relation.
+These are corrected without changing runtime code, and the complete local gate
+repeats on the final frozen tree before landing. No GitHub CI is used.
+
+The legacy simulated envelope-effect path remains a deterministic development
+fixture and is refused in release profiles. Harness labels (dry-run, escrow,
+canary, cooling and hold-until-landing) do not authorize real effects. Local
+loopback fixtures validate the implemented exact-bound workflow, not a public
+service or packaged/native execution. Signed/notarized, Intel and real-service
+acceptance remain independent release gates.
 
 ## Completed checkpoint: Artifact saved context
 
 The owner approved both pending defaults on 2026-10-08. Artifact context is an
 explicit saved copy governed by the destination conversation's sharing; only
 explicit Refresh reads the current source again, and source revocation does not
-erase an existing copy. Contribution execution will use an explicitly selected
-existing MCP tool and exact reviewed arguments, a separate Run action, and no
-automatic retry after an uncertain execution. Approval does not supply signing
-credentials or authorize executing any external tool during development.
+erase an existing copy. The current Contribution execution checkpoint is
+tracked separately above; these Artifact-context permissions do not authorize
+public MCP service use.
 
 Conversation download landed at `86ef5e73`: all five local verifier lanes passed
 (583 browser tests), the broad UI sweep covered 135/135 cells without violations

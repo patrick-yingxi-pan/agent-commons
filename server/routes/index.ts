@@ -3204,6 +3204,7 @@ export function buildRouter(): Router {
   // (the post-an-item analog); landing is contributor-or-owner (the store
   // enforces on raw tenant ids — the Phase-A stand-in for CW5 tiers).
   r.get('/projects/:id/contributions', ({ req, res, params }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     sendJson(res, store.listContributions(params.id, store.identity(req.headers).tenant.id))
   })
@@ -3469,6 +3470,7 @@ export function buildRouter(): Router {
   // (deliberation, behind the same wall); approve is owner-only; an act is a
   // MECHANICAL match against the approved envelope (refusals recorded, 409).
   r.post('/projects/:id/contributions/:cid/envelope', async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     const input = await body<ProposeEnvelopeRequest>()
     if (!Array.isArray(input?.lines)) return sendError(res, 'bad_request', 'lines (array) is required')
     if (
@@ -3496,14 +3498,16 @@ export function buildRouter(): Router {
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This envelope proposal identity is not valid for this account, Contribution, base version, and exact payload')
     }
-    const out = store.proposeEnvelope(
+    const proposalArgs = [
       params.id,
       params.cid,
       input!,
       who.tenant.id,
       userPrincipal(who),
       { logicalId: logicalProposalId },
-    )
+    ] as const
+    const out = input!.lines.some((line) => line && Object.hasOwn(line, 'mcp'))
+      ? await store.proposeMcpEnvelope(...proposalArgs) : store.proposeEnvelope(...proposalArgs)
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'closed') return sendError(res, 'conflict', 'A landed contribution’s plan is immutable history')
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the contributor or the project owner may amend an APPROVED envelope')
@@ -3513,6 +3517,7 @@ export function buildRouter(): Router {
     sendJson(res, out)
   })
   r.post('/projects/:id/contributions/:cid/envelope/approve', async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
     const input = await body<ApproveEnvelopeRequest>()
@@ -3553,11 +3558,9 @@ export function buildRouter(): Router {
     if (out === 'conflict') return sendError(res, 'conflict', 'The reviewed envelope version is no longer awaiting approval')
     sendJson(res, out)
   })
-  r.post('/projects/:id/contributions/:cid/effects', idempotent(async ({ req, res, params, body }) => {
+  r.post('/projects/:id/contributions/:cid/effects', async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    if (contributionRuntimeMode() === 'unconfigured') {
-      return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.effect)
-    }
     const input = await body<RunEnvelopeEffectRequest>()
     if (typeof input?.lineId !== 'string' || !input.lineId) return sendError(res, 'bad_request', 'lineId is required')
     const who = store.identity(req.headers)
@@ -3565,6 +3568,23 @@ export function buildRouter(): Router {
     const logicalExecutionId = idempotencyKey
       ? contributionEffectExecutionId(who.tenant.id, params.id, params.cid, idempotencyKey)
       : undefined
+    if (input.expectedVersion !== undefined) {
+      if (!logicalExecutionId || !idempotencyKey || idempotencyKey.length > 200 ||
+        !Number.isSafeInteger(input.expectedVersion) || input.expectedVersion < 1 ||
+        Object.keys(input).some((key) => key !== 'lineId' && key !== 'expectedVersion')) {
+        return sendError(res, 'bad_request', 'A real MCP Run requires lineId, a positive expectedVersion, and an Idempotency-Key of at most 200 characters')
+      }
+      const out = await store.runContributionMcpEffect(params.id, params.cid, input.lineId, who.tenant.id,
+        { logicalId: logicalExecutionId, expectedVersion: input.expectedVersion })
+      if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
+      if (out === 'forbidden') return sendError(res, 'forbidden', 'Run requires your own current MCP connection and contributor or Project owner permission')
+      if (out === 'invalid') return sendError(res, 'bad_request', 'This MCP Run identity or reviewed version is invalid')
+      if (out === 'conflict') return sendError(res, 'conflict', 'This exact approved call is no longer available, is already pending, or has no remaining capacity')
+      return sendJson(res, out)
+    }
+    if (contributionRuntimeMode() === 'unconfigured') {
+      return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.effect)
+    }
     const represented = logicalExecutionId
       ? store.getContributionEffectExecution(
           logicalExecutionId,
@@ -3599,7 +3619,7 @@ export function buildRouter(): Router {
     if (out === 'refused') return sendError(res, 'conflict', 'Outside the approved envelope — the refusal is on the timeline; amend and re-approve')
     if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.effect)
     sendJson(res, out)
-  }))
+  })
   r.post('/projects/:id/contributions/:cid/land', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
@@ -3626,6 +3646,7 @@ export function buildRouter(): Router {
     if (out === 'closed') return sendError(res, 'conflict', 'This contribution already landed')
     if (out === 'needs-owner') return sendError(res, 'forbidden', 'Tier 2 — irreversible effects land only by the project owner (the floor; no record buys past it)')
     if (out === 'needs-review') return sendError(res, 'conflict', 'Tier 1 — the adversarial review must pass over the latest crystallized version before landing')
+    if (out === 'pending-effect') return sendError(res, 'conflict', 'Wait for the pending MCP call to settle before landing this Contribution')
     sendJson(res, out)
   })
   // The tier machinery (CW5, Phase E): the owner's tighten-only act, and the

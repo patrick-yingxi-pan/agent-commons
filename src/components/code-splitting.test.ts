@@ -295,8 +295,8 @@ test('Contribution review admits its panel and exact mutation runtime behind a l
   const mutations = stripComments(read(join(ROOT, 'src/controller/contributionReviewMutations.ts')))
   assert.doesNotMatch(section, /import\s+\{\s*ContributionReviewPanel\s*\}/,
     'the review UI does not inflate the section pane')
-  assert.match(section, /<DeferredContributionReviewPanel[\s\S]*lifecycleHeld=\{lifecycleHeld\}/,
-    'eager held-state exclusion is retained while the display panel is deferred')
+  assert.match(section, /<DeferredContributionReviewPanel[\s\S]*lifecycleHeld=\{contributionActionHeld\}/,
+    'eager held-state exclusion, including a pending MCP receipt, is retained while the display panel is deferred')
   assert.match(deferred, /lazy\(loadReviewPanel\)/)
   assert.match(deferred, /Promise\.all\(\[[\s\S]*import\('\.\/ContributionReviewPanel\.tsx'\),[\s\S]*prepareContributionReviewRuntime\(\)/,
     'the first review control waits for both its module and exact recovery runtime')

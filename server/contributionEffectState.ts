@@ -1,7 +1,6 @@
 /** Pure preparation and receipt transitions for real Contribution effects.
- * Not yet installed in the store/routes: callers still need current Project
- * authority, atomic cardinality reservation, commit-before-I/O and per-call
- * consent. A value constructed here is not proof of any of those operations. */
+ * The store owns current Project authority, atomic cardinality reservation and
+ * commit-before-I/O. A value constructed here alone proves none of those acts. */
 import { createHash } from 'node:crypto'
 import { CONTRIBUTION_EFFECT_RESULT_MAX_BYTES, type ContributionEffectRun, type ContributionEffectRunState } from '../contract/contributionExecution.ts'
 import type { McpBoundToolCall, McpJsonValue, McpToolResult } from '../contract/mcpExecution.ts'
@@ -28,6 +27,10 @@ export interface ContributionEffectIntent {
 export type StoredContributionEffectAttempt = ContributionEffectIntent & {
   callHash: string
 } & ContributionEffectRunState
+
+/** Receipt identities are append-only: admission closes at this bound instead
+ * of pruning an old key that could otherwise become executable after restart. */
+export const CONTRIBUTION_EFFECT_ATTEMPT_MAX = 100
 
 const INTENT_FIELDS = ['id', 'tenantId', 'projectId', 'contributionId', 'envelopeVersion', 'lineId', 'actor', 'connectionLabel', 'call', 'startedAt']
 const TERMINAL_FIELDS = ['callHash', 'status', 'finishedAt', 'summary', 'result']

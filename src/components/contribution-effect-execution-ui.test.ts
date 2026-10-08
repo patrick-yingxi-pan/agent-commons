@@ -6,6 +6,7 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('Contribution effect execution is one exact shell-owned act with a held lifecycle', () => {
   const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const envelope = stripComments(read(join(ROOT, 'src', 'components', 'ContributionEnvelopeCard.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'contributionEffectExecutionCommands.ts')))
   const legacyCommands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'contributionEffectExecutionMutations.ts')))
@@ -19,10 +20,11 @@ test('Contribution effect execution is one exact shell-owned act with a held lif
   assert.match(view, /useContributionEffectExecutionStatus\(\)/)
   assert.match(view, /isContributionEffectExecutionHeld\(project\.id, contributionId\)/)
   assert.match(view, /const lifecycleHeld = landingHeld \|\| effectExecutionHeld/)
-  assert.match(view, /enqueueContributionEffectExecution\(/)
-  assert.match(view, /heldExecution\?\.lineId === l\.id \? 'Running…' : 'Run'/)
-  assert.match(view, /ChangesetCard project=\{project\} c=\{c\} lifecycleHeld=\{lifecycleHeld\}/)
-  assert.match(view, /EnvelopeCard project=\{project\} c=\{c\} lifecycleHeld=\{lifecycleHeld\}/)
+  assert.match(view, /<DeferredContributionEnvelopeCard[\s\S]*onRun=\{enqueueContributionEffectExecution\}/)
+  assert.match(envelope, /onRun\(\{/)
+  assert.match(envelope, /heldExecution\?\.lineId === l\.id \? 'Running…' : 'Run'/)
+  assert.match(view, /ChangesetCard project=\{project\} c=\{c\} lifecycleHeld=\{contributionActionHeld\}/)
+  assert.match(view, /<DeferredContributionEnvelopeCard/)
   assert.doesNotMatch(view, /confirmLabel=["'{]Run/,
     'the envelope row already presents the approved type, target, harness, and cardinality')
 
@@ -37,8 +39,11 @@ test('Contribution effect execution is one exact shell-owned act with a held lif
   const routeStart = routes.indexOf("r.post('/projects/:id/contributions/:cid/effects'")
   const routeEnd = routes.indexOf("r.post('/projects/:id/contributions/:cid/land'", routeStart)
   assert.ok(routeStart >= 0 && routeEnd > routeStart)
-  assert.match(routes.slice(routeStart, routeEnd), /idempotent\(async/)
-  assert.match(routes.slice(routeStart, routeEnd), /getContributionEffectExecution[\s\S]*logicalId: logicalExecutionId/)
+  assert.match(routes.slice(routeStart, routeEnd), /if \(input\.expectedVersion !== undefined\)[\s\S]*store\.runContributionMcpEffect[\s\S]*expectedVersion: input\.expectedVersion/,
+    'real MCP acts use the explicit version-bound, keyed path')
+  assert.match(routes.slice(routeStart, routeEnd), /store\.getContributionEffectExecution/)
+  assert.match(routes.slice(routeStart, routeEnd), /store\.runEnvelopeEffect\(/,
+    'legacy fixture acts remain on their separate compatibility path')
   const storeStart = store.indexOf('  getContributionEffectExecution(')
   const storeEnd = store.indexOf('  createA2aPeer(', storeStart)
   assert.ok(storeStart >= 0 && storeEnd > storeStart)
