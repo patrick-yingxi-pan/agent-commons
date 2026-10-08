@@ -6,7 +6,46 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: Artifact saved context
+## Current checkpoint: real Contribution execution
+
+Artifact saved context landed and was pushed at `78d3e80a`. The exact committed
+revision passed all five local verifier lanes (593 browser tests); the accepted
+runtime also passed the 135/135-cell UI sweep and rebuilt unsigned arm64 Electron
+suite. The final native receipt is recorded below. No GitHub CI was used.
+
+The owner has approved Project-reader visibility for Contribution tool arguments
+and results. Credentials stay private. Proposal review must disclose that the
+arguments will be shared, and each separate Run confirmation must disclose the
+result's sharing scope. Execution uses only the initiating person's existing
+connection, never another Project member's credentials.
+
+The first implementation checkpoint extracts one reusable exact-bound MCP
+executor and adds strict pure Contribution receipt transitions. Arguments and
+reviewed schemas are detached before asynchronous work; current owner,
+connection, schema and caller-specific authority are checked before credential
+resolution and immediately before dispatch. Pending, uncertain and returned
+tool errors conservatively reserve a slot; only known pre-submission failures
+release it. Public receipts contain reviewed arguments and bounded inert results,
+not private connection/tenant authority. Invalid or oversized results become
+uncertain, without truncated success or automatic replay.
+
+This is groundwork, not the completed Contribution feature. Release effect
+routes stay closed. Next: persist the approved exact binding and pending attempt
+atomically with cardinality reservation, wire restart recovery and read-only
+receipt reconciliation, then deliver the tool picker, argument review and
+separate per-call confirmation with browser/native acceptance. Legacy harness
+labels (dry-run, escrow, canary, cooling and hold-until-landing) are not implemented
+containment and must not authorize real effects. Signed/notarized, Intel and
+real-service acceptance remain independent release gates.
+
+The first complete local run passed all four browser shards and 4,799/4,800 Node
+tests. Its only failure was repository path hygiene in a new negative-control
+test: an intentionally wrong import named a nonexistent file. The mutation now
+uses a real, deliberately wrong module, retaining the fail-first assertion
+without a dead path or lint exemption. Focused guards pass; the complete local
+verifier repeats on the corrected frozen tree before landing.
+
+## Completed checkpoint: Artifact saved context
 
 The owner approved both pending defaults on 2026-10-08. Artifact context is an
 explicit saved copy governed by the destination conversation's sharing; only

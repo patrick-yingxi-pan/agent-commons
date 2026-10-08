@@ -51,3 +51,10 @@ export interface McpToolExecutionAnchor {
   toolName: string
   schemaHash: string
 }
+
+/** One exact, non-credential MCP invocation bound to a tenant-owned inspected
+ * connection. This is intent data, not authority or permission to execute. */
+export interface McpBoundToolCall extends McpToolExecutionAnchor {
+  connectionId: string
+  arguments: Record<string, McpJsonValue>
+}

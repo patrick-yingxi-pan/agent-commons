@@ -313,6 +313,17 @@ exact lost-response acknowledgement and nonterminal rows retain no execution aut
 
 ## Required next work
 
+Contribution effects will reuse the same exact-bound call engine through
+`server/mcpBoundExecution.ts`, not the conversation-specific attachment authority
+in `server/mcpExecution.ts`. `server/contributionEffectState.ts` supplies strict
+pure receipt preparation and terminal transitions, including a 256 KiB saved
+result limit and conservative pending/uncertain/returned-error slot consumption.
+These helpers do not persist or dispatch Contribution work. The current release
+effect route remains closed until approved binding, atomic reservation,
+restart recovery and per-call UI confirmation are complete. The approved sharing
+choice makes reviewed arguments and results Project-reader-visible; private
+connection identity and credentials do not enter that public projection.
+
 - Complete protocol execution: discovery supports the
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),

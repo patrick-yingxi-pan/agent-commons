@@ -17,6 +17,25 @@ import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
+test('Contribution receipts and bound MCP execution share contract identity without session authority', () => {
+  const check = (source: string) => assert.match(source, /from '\.\.\/contract\/mcpExecution\.ts'/,
+    'the bound call must use the framework-free shared contract')
+  for (const path of ['server/mcpBoundExecution.ts', 'server/contributionEffectState.ts']) {
+    const source = stripComments(read(join(ROOT, path)))
+    check(source)
+    const mutated = source.replace("from '../contract/mcpExecution.ts'", "from '../server/mcpToolCall.ts'")
+    assert.notEqual(mutated, source)
+    assert.throws(() => check(mutated), /framework-free shared contract/)
+  }
+  const core = stripComments(read(join(ROOT, 'server/mcpBoundExecution.ts')))
+  assert.doesNotMatch(core, /sessionContexts|ToolActivity|toolActivityDecisionIdentity/,
+    'the common executor must not borrow conversation-specific authority')
+  const receipt = stripComments(read(join(ROOT, 'server/contributionEffectState.ts')))
+  assert.match(receipt, /from '\.\.\/contract\/contributionExecution\.ts'/)
+  assert.doesNotMatch(receipt, /executeBoundMcpCall\(|callMcpToolWithSession\(|commitMutationBatch\(|persist\(/,
+    'pure receipt construction grants neither execution nor durable admission')
+})
+
 test('Artifact copies share one portable body contract and no renderer source authority', () => {
   for (const path of ['server/store/index.ts', 'src/components/ArtifactContextPicker.tsx', 'src/controller/servedAttachmentRefreshCore.ts']) {
     assert.match(stripComments(read(join(ROOT, path))), /from '[^']*contract\/artifactSnapshot\.ts'/, path)

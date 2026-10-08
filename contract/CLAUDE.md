@@ -134,6 +134,7 @@ For cross-layer seams also read
 | CONTRACT-D114 | data-access | Complete Document edits require stable unique IDs, a reviewed revision and closed lossless authoring bounds. Stable prose addresses cannot mix with numeric addresses; discussions distinguish legacy ordinal loci from exact block IDs. | [`artifactEditing.ts`](artifactEditing.ts) · [`api.ts`](api.ts) · [`social.ts`](social.ts) | [`artifact-editing.test.ts`](artifact-editing.test.ts) · [`../server/routes/artifact-content.test.ts`](../server/routes/artifact-content.test.ts) · [`../server/routes/discussions.test.ts`](../server/routes/discussions.test.ts) | requires CONTRACT-D113; requires CONTRACT-D88 |
 | CONTRACT-D115 | data-access | Conversation downloads carry exact session identity, a portable Markdown filename, UTF-8 text and current-plus-archived counts. The complete file is limited to 8 MiB; no truncated success descriptor exists. | [`conversationExport.ts`](conversationExport.ts) | [`conversationExport.test.ts`](conversationExport.test.ts) · [`../server/sessionExport.test.ts`](../server/sessionExport.test.ts) · [`../src/lib/conversation-export.test.ts`](../src/lib/conversation-export.test.ts) | refines ROOT-D1; requires CONTRACT-A1 |
 | CONTRACT-D116 | data-access | Artifact snapshots retain one complete canonical body and revision as immutable reference data; model text derives from that body, and no effect binding or client-supplied body is admitted. See CTX-ART-1. | [`artifactSnapshot.ts`](artifactSnapshot.ts) · [`attachmentInput.ts`](attachmentInput.ts) · [`entities.ts`](entities.ts) | [`artifactSnapshot.test.ts`](artifactSnapshot.test.ts) · [`attachment-input.test.ts`](attachment-input.test.ts) | requires CONTRACT-D108; refines ROOT-D1 |
+| CONTRACT-D117 | data-access | Contribution execution receipts distinguish pending, known result, pre-submission failure and uncertainty. Their public shape contains reviewed arguments and bounded inert results but no private connection authority; the foundational state parser grants no execution or persistence authority. | [`contributionExecution.ts`](contributionExecution.ts) · [`mcpExecution.ts`](mcpExecution.ts) · [`../server/contributionEffectState.ts`](../server/contributionEffectState.ts) | [`../server/contribution-effect-state.test.ts`](../server/contribution-effect-state.test.ts) · [`../tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | requires CONTRACT-D90; refines CONTRACT-A1 |
 | CONTRACT-V1 | verification | New boundary seams extend the cross-layer contract scan. | [`index.ts`](index.ts) | [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | refines ROOT-V1 |
 <!-- context-rules:end -->
 ## Details
@@ -142,8 +143,7 @@ For cross-layer seams also read
   The cross-layer import scan stays in `tests/contract-boundaries.test.ts`
   because it verifies a boundary, not one contract module.
 - **The contract is load-bearing.** `contract/*.ts` is imported *verbatim* by both the Vite UI and the Node server — that type-identity **is** the portability guarantee (spec pillar [`docs/spec/05-portable-contract.md`](../docs/spec/05-portable-contract.md)).
-  Don't add framework or Node-only types to `contract/`, and keep the client
-  and server reducers (`contract/graph.ts`) in agreement.
+  Keep it framework-/Node-free and client/server reducers (`contract/graph.ts`) identical.
 - **Capabilities gate native-only surface.** `GET /v1/capabilities` declares
   what a backend can do; a remote backend answers native-only endpoints with
   `409 capability_unavailable`. The UI must read the flags, never assume the
@@ -155,5 +155,4 @@ For cross-layer seams also read
 - **Boundary seams are tested.** New cross-component seams extend `tests/contract-boundaries.test.ts`.
 
 ## Verification
-Run `npm run typecheck`, the changed module's sibling suite, and
-[`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts).
+Run `npm run typecheck`, the module's sibling suite, and [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts).
