@@ -22,3 +22,11 @@ test('turn navigation distinguishes loaded, unloaded, interrupted and missing me
   assert.equal(conversationFocusState('old', messages), 'missing')
   assert.equal(conversationFocusState('found', messages, { ...idle, error: 'unrelated earlier read' }), 'ready')
 })
+
+test('an initial pane read stays pending, reports its failure, then reserves missing for authoritative absence', () => {
+  const messages = [{ id: 'other' }]
+  const idle = { loading: false, error: null, olderCursor: null }
+  assert.equal(conversationFocusState('target', messages, idle, { reconciled: false }), 'loading')
+  assert.equal(conversationFocusState('target', messages, idle, { reconciled: false, error: 'offline' }), 'initial-error')
+  assert.equal(conversationFocusState('target', messages, idle, { reconciled: true }), 'missing')
+})

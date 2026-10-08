@@ -112,7 +112,8 @@ import { searchArtifactVersions } from '../artifactVersionSearch.ts'
 import { findArtifactBodySearchMatch } from '../artifactBodySearch.ts'
 import { identifyDocumentBody } from '../documentIdentity.ts'
 import { literalSearchSnippet } from '../../contract/literalSearch.ts'
-import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS } from '../../contract/search.ts'
+import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS, MAX_SEARCH_QUERY_CHARS } from '../../contract/search.ts'
+import { firstConversationMessageMatch } from '../../contract/conversationSearch.ts'
 import type { ArtifactDeletionPreview, ArtifactDeletionRequest, ArtifactDeletionResult } from '../../contract/artifactDeletion.ts'
 import { parseArtifactRetirements, type ArtifactRetirement, type StoredArtifactDeletionReceipt } from '../artifactDeletion.ts'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
@@ -8338,8 +8339,11 @@ export const store = {
    *  you; your registry vs the published directory), so nothing appears twice. */
   searchAll(tenantId: string, q?: string, page?: SearchPage): SearchResponse {
     const needle = (q ?? '').trim().toLowerCase()
-    if (page?.type === 'artifactVersion' && (q ?? '').trim().length > MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS) {
+    if (page?.type === 'artifactVersion' && (q ?? '').length > MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS) {
       throw new ValidationError(`Artifact version search queries are limited to ${MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS} characters.`)
+    }
+    if ((q ?? '').length > MAX_SEARCH_QUERY_CHARS) {
+      throw new ValidationError(`Search queries are limited to ${MAX_SEARCH_QUERY_CHARS} characters.`)
     }
     if (!needle && !page) return { query: '', groups: [] }
     const hit = (...fields: (string | undefined)[]) => !!needle && fields.some((f) => f?.toLowerCase().includes(needle))
@@ -8407,13 +8411,27 @@ export const store = {
       }]
     })
 
+    // Global message search only applies to the conversation group. Avoid walking
+    // every transcript at all when paging another category.
+    const sessionHits: SearchHit[] = !page || page.type === 'session'
+      ? SESSIONS
+        .filter((s) => !s.scheduledRunOf && this.sessionVisibleToTenant(s, tenantId))
+        .flatMap((s): SearchHit[] => {
+          const messageMatch = needle ? firstConversationMessageMatch(s.messages ?? [], needle) : undefined
+          if (messageMatch) return [{
+            type: 'session', id: s.id, title: s.title, subtitle: messageMatch.snippet,
+            match: { messageId: messageMatch.messageId, role: messageMatch.role },
+          }]
+          if (!hit(s.title, s.preview)) return []
+          return [{ type: 'session', id: s.id, title: s.title, subtitle: s.preview }]
+        })
+      : []
+
     return {
       query: needle,
       ...(page ? { page } : {}),
       groups: [
-        ...group('session', 'Sessions', this.listSessions(tenantId)
-          .filter((s) => hit(s.title, s.preview))
-          .map((s): SearchHit => ({ type: 'session', id: s.id, title: s.title, subtitle: s.preview }))),
+        ...group('session', 'Sessions', sessionHits),
         ...group('project', 'Your projects', ownProjects
           .filter((p) => hit(p.name, p.description))
           .map((p): SearchHit => ({ type: 'project', id: p.id, title: p.name, subtitle: p.description }))),

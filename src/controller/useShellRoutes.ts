@@ -108,7 +108,7 @@ export function useShellRoutes({
   // bare-section door land in the focused pane the same way.
   const routeSession = useCallback(
     (id: string): void => {
-      routeToFocused({ kind: 'msession', id })
+      notifPaneRef.current = routeToFocused({ kind: 'msession', id })
     },
     [routeToFocused],
   )

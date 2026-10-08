@@ -96,6 +96,7 @@ function route(e: ServerEvent): void {
     }
     case 'session.updated':
       invalidate(keys.sessions)
+      invalidatePrefix(keys.search())
       // The full session (its thread) changed too — a persisted turn, a rename.
       // No-op unless some view has read this session (then it refetches).
       invalidate(keys.session(e.session.id))
@@ -121,6 +122,7 @@ function route(e: ServerEvent): void {
     // split controller so every pane hosting it collapses (live prune).
     case 'session.removed':
       evictPrefix(keys.conversationSearch(e.session.id))
+      evictPrefix(keys.search())
       invalidate(keys.sessions)
       invalidate(keys.session(e.session.id))
       // Deletion also removes the canonical session→Project join. Re-read the

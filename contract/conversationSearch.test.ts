@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import {
   CONVERSATION_SEARCH_PAGE_SIZE,
   MAX_CONVERSATION_SEARCH_QUERY_CHARS,
+  firstConversationMessageMatch,
   parseConversationSearchQuery,
   searchConversationMessages,
 } from './conversationSearch.ts'
@@ -33,6 +34,31 @@ test('conversation search pages chronological literal matches and bounds centere
   const next = searchConversationMessages(messages, 'needle', 20)
   assert.deepEqual(next.hits.map((hit) => hit.messageId), ['m20', 'm21', 'regex'])
   assert.equal(searchConversationMessages(messages, 'needl.', 0).total, 0, 'query metacharacters are literal')
+})
+
+test('first conversation match returns without scanning later messages', () => {
+  let visited = 0
+  const messages = {
+    [Symbol.iterator]() {
+      let index = 0
+      const rows = [
+        { id: 'first', role: 'user', content: 'needle first' },
+        { id: 'later', role: 'assistant', content: 'needle later' },
+      ]
+      return {
+        next() {
+          visited += 1
+          return index < rows.length
+            ? { value: rows[index++]!, done: false as const }
+            : { value: undefined, done: true as const }
+        },
+      }
+    },
+  } as unknown as readonly { id: string; role: string; content: string }[]
+  assert.deepEqual(firstConversationMessageMatch(messages, 'needle'), {
+    messageId: 'first', role: 'user', snippet: 'needle first',
+  })
+  assert.equal(visited, 1, 'the global session projection needs only the first eligible message')
 })
 
 test('conversation search returns no matches for an empty normalized query', () => {

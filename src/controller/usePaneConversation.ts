@@ -7,7 +7,7 @@
  *  primary already holds finds a non-pristine entry and simply shares it (the
  *  store dedupes by key); mounting never resets an entry that has state, so a
  *  duplicate pane can't stale its twin's stream. */
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { DRAFT_ID, focusValidIn, liveFromSession, unresolvedEscalation, type Live } from '../data/liveSession'
 import { keys, loadEarlierSession, loadSession, onSessionPush, peek } from '../api'
 import { getPanelPref } from '../lib/panelPrefs'
@@ -42,7 +42,10 @@ function reconcilePanelPreference(sessionId: string, session: Session, live: Liv
  *  the session, refuse to stomp a mid-stream entry, land the reconciled live,
  *  and resurface a persisted-but-unresolved escalation proposal (C28 — the
  *  record is the authority; holdEscalation never stomps a held prompt). */
-function reconcileNow(sessionId: string, after?: (s: Session, receipt: PaneReadReceipt) => void): void {
+function reconcileNow(
+  sessionId: string,
+  after?: (s: Session, receipt: PaneReadReceipt) => void,
+): void {
   const receipt = conversations.beginPaneRead(sessionId)
   loadSession(sessionId)
     .then((s) => {
@@ -73,11 +76,23 @@ function reconcileNow(sessionId: string, after?: (s: Session, receipt: PaneReadR
       if (held) conversations.holdEscalation(sessionId, held)
       if (conversations.isPaneReadLatest(sessionId, receipt)) after?.(s, receipt)
     })
-    .catch(() => {})
+    .catch((error: unknown) => {
+      if (!conversations.isPaneReadCurrent(sessionId, receipt)) return
+      const message = error instanceof Error && error.message ? error.message : 'Could not load this conversation'
+      conversations.setPaneReadError(sessionId, receipt, message)
+    })
 }
 
-export function usePaneConversation(sessionId: string): ConversationState & { loadEarlier: () => Promise<string | null> } {
+export function usePaneConversation(sessionId: string): ConversationState & {
+  loadEarlier: () => Promise<string | null>
+  retryInitialRead: () => void
+} {
   const conv = useConversation(sessionId)
+  const [readRetry, setReadRetry] = useState(0)
+  const retryInitialRead = useCallback(() => {
+    conversations.clearPaneReadError(sessionId)
+    setReadRetry((attempt) => attempt + 1)
+  }, [sessionId])
 
   const loadEarlier = useCallback(async (): Promise<string | null> => {
     const current = conversations.get(sessionId)
@@ -109,6 +124,7 @@ export function usePaneConversation(sessionId: string): ConversationState & { lo
     // draft funnel) — nothing to seed or reconcile; the pane just renders the
     // store entry the New-session door reset.
     if (sessionId === DRAFT_ID) return
+    conversations.clearPaneReadError(sessionId)
     const entry = conversations.get(sessionId)
     // Only this account's previously read detail can seed an initial paint.
     // Bundled demo transcripts are never evidence of access or saved content.
@@ -162,7 +178,11 @@ export function usePaneConversation(sessionId: string): ConversationState & { lo
       unsubscribe()
       unsubscribeIdle()
     }
-  }, [sessionId])
+  }, [sessionId, readRetry])
 
-  return { ...conv, loadEarlier }
+  return {
+    ...conv,
+    loadEarlier,
+    retryInitialRead,
+  }
 }

@@ -167,7 +167,7 @@ test('explicit saved-version search opens the exact read-only revision, compares
   }
 })
 
-test('an overlength current search explains the saved-version limit without requesting history and recovers when shortened', async ({ page }) => {
+test('an overlength search explains the shared limit without requesting history and recovers when shortened', async ({ page }) => {
   test.setTimeout(ms(90_000))
   page.setDefaultTimeout(ms(15_000))
   const stamp = Date.now().toString(36)
@@ -187,7 +187,7 @@ test('an overlength current search explains the saved-version limit without requ
     await input.fill('q'.repeat(257))
     await page.waitForTimeout(250)
     await page.getByRole('button', { name: 'Search saved versions', exact: true }).click()
-    await expect(page.getByRole('status').filter({ hasText: 'Shorten your query to 256 characters to search saved versions.' })).toHaveText('Shorten your query to 256 characters to search saved versions.')
+    await expect(page.getByRole('status').filter({ hasText: 'Shorten your query to 256 characters to search.' })).toHaveText('Shorten your query to 256 characters to search.')
     await page.waitForTimeout(250)
     expect(historicalRequests).toEqual([], 'an overlength query does not issue any saved-version search request')
 

@@ -60,6 +60,9 @@ export function ConversationView({
   contextMutation,
   pendingApproval,
   history,
+  reconciled,
+  initialReadError,
+  onRetryInitialRead,
   onLoadEarlier,
   onApprove,
   onSend,
@@ -107,6 +110,10 @@ export function ConversationView({
   /** Cursor state for the still-unloaded prefix. Undefined cursor means a draft
    *  or a legacy full read; null means the beginning has been reached. */
   history?: { olderCursor?: string | null; olderTokens: number; loading: boolean; error: string | null }
+  /** The first exact session read is authoritative for declaring a target absent. */
+  reconciled: boolean
+  initialReadError: string | null
+  onRetryInitialRead: () => void
   onLoadEarlier?: () => Promise<string | null>
   onApprove: (workspaceRoot?: string) => void
   onSend: (text: string) => void
@@ -146,7 +153,7 @@ export function ConversationView({
   // in a child effect, which runs before this parent one.
   const pendingFocus = usePendingFocus()
   const focusedTurn = pendingFocus.pending?.messageId
-  const focusState = conversationFocusState(focusedTurn, live.messages, history)
+  const focusState = conversationFocusState(focusedTurn, live.messages, history, { reconciled, error: initialReadError })
   const window = useMemo(
     () => messageWindow(live.messages, windowAnchor, MESSAGE_PAGE_SIZE),
     [live.messages, windowAnchor],
@@ -271,10 +278,21 @@ export function ConversationView({
       {focusState !== 'none' && focusState !== 'ready' && <InlineOperationStatus
         tone={focusState === 'loading' ? 'status' : 'alert'}
         message={focusState === 'loading' ? 'Finding message in earlier history…'
-          : focusState === 'error' ? 'Couldn’t load the selected message.'
+          : focusState === 'initial-error' ? 'Couldn’t load this conversation yet.'
+            : focusState === 'error' ? 'Couldn’t load the selected message.'
             : 'This message is no longer in the current conversation. It may have been compacted or removed.'}
-        action={{ label: focusState === 'loading' ? 'Cancel finding' : 'Dismiss', onClick: pendingFocus.consume }}
-        secondaryAction={focusState === 'error' && onLoadEarlier ? { label: 'Retry finding message', onClick: () => { void onLoadEarlier() } } : undefined}
+        action={{
+          label: focusState === 'loading' ? 'Cancel finding'
+            : focusState === 'initial-error' ? 'Retry loading conversation'
+              : 'Dismiss',
+          onClick: focusState === 'initial-error' ? onRetryInitialRead
+            : pendingFocus.consume,
+        }}
+        secondaryAction={focusState === 'initial-error'
+          ? { label: 'Dismiss', onClick: pendingFocus.consume }
+          : focusState === 'error' && onLoadEarlier
+            ? { label: 'Retry finding message', onClick: () => { void onLoadEarlier() } }
+            : undefined}
       />}
       <div ref={scrollRef} className="flex-1 overflow-y-auto">
         {live.messages.length === 0 && !typing && empty !== undefined ? (

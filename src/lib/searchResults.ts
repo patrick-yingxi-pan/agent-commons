@@ -8,19 +8,19 @@ export function searchResultSubtitleClass(active: boolean): string {
   return active ? 'text-accent-strong' : 'text-ink-faint'
 }
 
-/** Current and historical Artifact hits carry readable body context. */
+/** Conversation and Artifact hits carry readable body context. */
 export function searchResultHasTextPreview(type: SearchHitType): boolean {
-  return type === 'artifact' || type === 'artifactVersion'
+  return type === 'session' || type === 'artifact' || type === 'artifactVersion'
 }
 
 export type SearchDestination =
-  | { kind: 'session'; id: string }
+  | { kind: 'session'; id: string; messageId?: string }
   | { kind: 'section'; section: SectionId; id: string; subId?: string }
 
 /** Result identity is navigation identity, never a generic collection fallback. */
 export function searchHitDestination(hit: SearchHit): SearchDestination | undefined {
   switch (hit.type) {
-    case 'session': return { kind: 'session', id: hit.id }
+    case 'session': return { kind: 'session', id: hit.id, ...(hit.match ? { messageId: hit.match.messageId } : {}) }
     case 'project':
     case 'sharedProject': return { kind: 'section', section: 'projects', id: hit.id }
     case 'artifact': {

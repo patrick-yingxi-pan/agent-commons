@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowRight, FileText, Globe, History, ListChecks, MessageSquare, Search, X, type LucideIcon } from 'lucide-react'
-import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS, SEARCH_PAGE_SIZE, type SearchHitType, type SearchPage } from '../../contract/index.ts'
+import { MAX_SEARCH_QUERY_CHARS, SEARCH_PAGE_SIZE, type SearchHitType, type SearchPage } from '../../contract/index.ts'
 import type { Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
 import { useFocusTrap } from '../lib/useFocusTrap'
@@ -33,7 +33,7 @@ interface Result {
   key: string
   title: string
   subtitle: string
-  versionLabel?: string
+  detailLabel?: string
   textPreview?: boolean
   Icon: LucideIcon
   run: () => void
@@ -59,7 +59,7 @@ export function SearchPanel({
   onClose,
 }: {
   sessions: Session[]
-  onSelectSession: (id: string) => void
+  onSelectSession: (id: string, messageId?: string) => void
   onOpenSection: (s: SectionId, id?: string, subId?: string) => void
   onClose: () => void
 }) {
@@ -73,13 +73,13 @@ export function SearchPanel({
 
   // Debounced server query — one request per typing pause, cached per query.
   const [debouncedQ, setDebouncedQ] = useState('')
-  const queryTooLong = searchingVersions && q.trim().length > MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS
+  const queryTooLong = q.trim().length > MAX_SEARCH_QUERY_CHARS
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 160)
     return () => clearTimeout(t)
   }, [q])
-  const blockedVersionQuery = queryTooLong || (searchingVersions && debouncedQ.length > MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS)
-  const server = useGlobalSearch(blockedVersionQuery ? '' : debouncedQ, blockedVersionQuery ? undefined : page)
+  const blockedQuery = queryTooLong || debouncedQ.length > MAX_SEARCH_QUERY_CHARS
+  const server = useGlobalSearch(blockedQuery ? '' : debouncedQ, blockedQuery ? undefined : page)
 
   // Focus the search input on open, trap Tab within the palette, close on
   // Escape, restore focus on close.
@@ -148,11 +148,13 @@ export function SearchPanel({
           key: searchHitKey(h),
           title: h.title,
           subtitle: h.subtitle,
-          versionLabel: searchHitVersionLabel(h),
+          detailLabel: h.type === 'session' && h.match
+            ? h.match.role === 'user' ? 'User message' : 'Assistant message'
+            : searchHitVersionLabel(h),
           textPreview: searchResultHasTextPreview(h.type),
           Icon: HIT_ICON[h.type],
           run: () => {
-            if (destination.kind === 'session') onSelectSession(destination.id)
+            if (destination.kind === 'session') onSelectSession(destination.id, destination.messageId)
             else onOpenSection(destination.section, destination.id, destination.subId)
             onClose()
           },
@@ -222,7 +224,6 @@ export function SearchPanel({
             aria-label="Search everything"
             aria-describedby="search-help"
             placeholder={searchingVersions ? 'Find text in your saved artifact versions…' : 'Search everything — sessions, projects, agents, people…'}
-            maxLength={searchingVersions ? MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS : undefined}
             className="min-w-0 flex-1 bg-transparent py-3 text-[15px] text-ink outline-none placeholder:text-ink-faint"
           />
           <button type="button" aria-label="Close search" onClick={onClose} className="shrink-0 rounded-md p-1 text-ink-faint hover:bg-panel-2"><X size={16} /></button>
@@ -230,9 +231,9 @@ export function SearchPanel({
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-3.5 py-2">
           {page && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => changePage(undefined)}>{searchingVersions ? 'Current resources' : 'All categories'}</button>}
           {!searchingVersions && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => changePage({ type: 'artifactVersion', offset: 0 })}>Search saved versions</button>}
-          <span className="text-[11px] text-ink-faint">{searchingVersions ? 'Only your retained artifact versions, including Trash. Opening a result changes nothing.' : page ? 'Results reflect current access; changes may shift pages.' : 'Saved versions are searched separately.'}</span>
+          <span className="text-[11px] text-ink-faint">{searchingVersions ? 'Only your retained artifact versions, including Trash. Opening a result changes nothing.' : page?.type === 'session' || !page ? 'Matches in message text open the first matching message. Archived originals and tool output aren’t searched. Artifact versions are searched separately.' : 'Results reflect current access; changes may shift pages.'}</span>
         </div>
-        {queryTooLong && <p role="status" className="px-3.5 py-2 text-[12px] text-ink-soft">Shorten your query to {MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS} characters to search saved versions.</p>}
+        {queryTooLong && <p role="status" className="px-3.5 py-2 text-[12px] text-ink-soft">Shorten your query to {MAX_SEARCH_QUERY_CHARS} characters to search.</p>}
         {needle && !queryTooLong && !settled && <div role="status" className="flex shrink-0 flex-wrap items-center gap-2 px-3.5 py-2 text-[12px] text-ink-soft">
           <span>{failed ? 'Search is unavailable right now.' : 'Searching…'}</span>
           {failed && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => retryGlobalSearch(debouncedQ, page)}>Retry search</button>}
@@ -271,7 +272,7 @@ export function SearchPanel({
                       />
                       <span className="min-w-0 flex-1">
                         <span title={r.title} className="block truncate text-[13px] font-medium text-ink">{r.title}</span>
-                        {r.versionLabel && <span className={`block break-words text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.versionLabel}</span>}
+                        {r.detailLabel && <span className={`block break-words text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.detailLabel}</span>}
                         <span title={r.subtitle} className={`${r.textPreview ? 'line-clamp-3 break-words [overflow-wrap:anywhere]' : 'block truncate'} text-[11px] ${searchResultSubtitleClass(isActive)}`}>{r.subtitle}</span>
                       </span>
                     </button>

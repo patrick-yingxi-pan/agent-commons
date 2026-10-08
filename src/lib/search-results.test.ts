@@ -82,13 +82,26 @@ test('search response matching pins normalized query, category and exact page of
   assert.equal(searchResponseMatches(page, 'needle', { type: 'artifact', offset: 0 }), false)
 })
 
-test('current and historical Artifact results use the same wrapped text-preview role', () => {
+test('conversation and Artifact results use the same wrapped text-preview role', () => {
   for (const type of SEARCH_HIT_TYPES) {
-    assert.equal(searchResultHasTextPreview(type), type === 'artifact' || type === 'artifactVersion', type)
+    assert.equal(searchResultHasTextPreview(type), type === 'session' || type === 'artifact' || type === 'artifactVersion', type)
   }
   const panel = readFileSync(new URL('../components/SearchPanel.tsx', import.meta.url), 'utf8')
   assert.match(panel, /textPreview: searchResultHasTextPreview\(h.type\)/)
   assert.match(panel, /r.textPreview \? 'line-clamp-3 break-words \[overflow-wrap:anywhere\]'/)
+})
+
+test('conversation matches preserve opaque turn identity without guessing from snippet text', () => {
+  const hit = { type: 'session' as const, id: 'session/one', title: 'Same title', subtitle: 'Same text', match: { messageId: 'message/two', role: 'assistant' as const } }
+  assert.deepEqual(searchHitDestination(hit), { kind: 'session', id: hit.id, messageId: hit.match.messageId })
+  assert.deepEqual(searchHitDestination({ ...hit, match: undefined }), { kind: 'session', id: hit.id })
+  const panel = readFileSync(new URL('../components/SearchPanel.tsx', import.meta.url), 'utf8')
+  assert.match(panel, /onSelectSession\(destination.id, destination.messageId\)/)
+  assert.match(panel, /Matches in message text open the first matching message\./, 'help distinguishes exact message matches from title-only conversation doors')
+  const workspace = readFileSync(new URL('../controller/useSessionWorkspace.ts', import.meta.url), 'utf8')
+  assert.match(workspace, /setPendingFocus\(messageId \? \{ messageId \} : null\)/)
+  const routes = readFileSync(new URL('../controller/useShellRoutes.ts', import.meta.url), 'utf8')
+  assert.ok(routes.includes("notifPaneRef.current = routeToFocused({ kind: 'msession', id })"), 'record the actual landing pane for a session door')
 })
 
 test('the palette binds exact destinations and current response matching to its rendered result rows', () => {

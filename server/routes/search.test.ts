@@ -9,6 +9,7 @@ import assert from 'node:assert/strict'
 import { store } from '../store/index.ts'
 import { call } from '../testkit/http.ts'
 import { artifactCreationId } from '../artifactCreationIdentity.ts'
+import { runSessionId } from '../../contract/ids.ts'
 
 const A = 'tenant-srch-A'
 const B = 'tenant-srch-B'
@@ -119,6 +120,127 @@ test('category paging returns live 20-hit slices, true totals, and stable empty 
   const empty = await call('GET', '/search?type=agent', undefined, { 'x-tenant-id': B })
   assert.deepEqual(empty.json.groups, [{ type: 'agent', label: 'Your agents', total: 0, hits: [] }])
   assert.deepEqual(empty.json.page, { type: 'agent', offset: 0 })
+})
+
+test('session search returns one readable conversation hit with the first current message match', async () => {
+  const needle = `message-only-${(n += 1)}`
+  const session = store.createSession(`Title without needle ${n}`, A)
+  store.appendMessage(session.id, { id: `first-${n}`, role: 'user', content: `前置語 ${needle} 本文` })
+  store.appendMessage(session.id, { id: `later-${n}`, role: 'assistant', content: `later ${needle}` })
+  store.appendMessage(session.id, { id: `latest-${n}`, role: 'assistant', content: 'latest preview without the term' })
+
+  const response = await call('GET', `/search?q=${encodeURIComponent(needle)}&type=session`, undefined, { 'x-tenant-id': A })
+  assert.equal(response.status, 200)
+  const hits = groupOf(response.json, 'session')
+  assert.equal(hits.total, 1, 'a conversation is counted once even if multiple messages match')
+  assert.deepEqual(hits.hits, [{
+    type: 'session', id: session.id, title: session.title,
+    subtitle: `前置語 ${needle} 本文`, match: { messageId: `first-${n}`, role: 'user' },
+  }], 'the first current user/assistant match supplies the bounded preview and identity')
+})
+
+test('session global search retains title/preview fallback and follows grants without crossing foreign walls', async () => {
+  const needle = `session-fallback-${(n += 1)}`
+  const fallback = store.createSession(`Title ${needle}`, A)
+  const owner = store.defaultTenantId()
+  const reader = 'tenant-beta'
+  const shared = store.createSession(`Shared title ${n}`, owner)
+  store.appendMessage(shared.id, { id: `shared-message-${n}`, role: 'assistant', content: needle })
+  const grant = store.createGrant({
+    subject: { kind: 'session', id: shared.id }, audience: { kind: 'org', orgId: reader }, tier: 'view',
+  }, owner)
+  assert.equal(typeof grant, 'object')
+
+  const ownerResults = await search(needle, A)
+  const fallbackHit = groupOf(ownerResults, 'session')?.hits.find((hit: any) => hit.id === fallback.id)
+  assert.ok(fallbackHit)
+  assert.equal(fallbackHit.match, undefined, 'metadata-only matches keep the existing session preview without message identity')
+
+  const sharedResults = await call('GET', `/search?q=${encodeURIComponent(needle)}&type=session`, undefined, { 'x-tenant-id': reader })
+  assert.equal(sharedResults.json.groups[0].total, 1, 'a reader grant makes the matching message globally findable')
+  assert.equal(sharedResults.json.groups[0].hits[0].id, shared.id)
+  assert.equal(sharedResults.json.groups[0].hits[0].match.messageId, `shared-message-${n}`)
+
+  const foreign = await call('GET', `/search?q=${encodeURIComponent(needle)}&type=session`, undefined, { 'x-tenant-id': 'tenant-search-foreign' })
+  assert.equal(foreign.json.groups[0].total, 0, 'an ungranted foreign tenant cannot discover the session')
+
+  assert.ok(grant && typeof grant === 'object')
+  store.revokeGrant(grant.id, owner)
+  const revoked = await call('GET', `/search?q=${encodeURIComponent(needle)}&type=session`, undefined, { 'x-tenant-id': reader })
+  assert.equal(revoked.json.groups[0].total, 0, 'the live grant is rechecked for each global query')
+})
+
+test('session message hits keep conversation ordering, overview cap, and 20-row category paging', async () => {
+  const needle = `session-page-${(n += 1)}`
+  const created: string[] = []
+  for (let index = 0; index < 23; index += 1) {
+    const session = store.createSession(`Conversation ${index}`, A)
+    store.appendMessage(session.id, { id: `page-message-${n}-${index}`, role: 'assistant', content: `${needle} row-${index}` })
+    created.push(session.id)
+  }
+  const expected = [...created].reverse()
+  const overview = await search(needle, A)
+  const overviewGroup = groupOf(overview, 'session')
+  assert.equal(overviewGroup.total, 23)
+  assert.equal(overviewGroup.hits.length, 5, 'overview stays capped at SEARCH_GROUP_CAP')
+  assert.deepEqual(overviewGroup.hits.map((hit: any) => hit.id), expected.slice(0, 5))
+
+  const pages = await Promise.all([0, 20, 40].map((offset) => call(
+    'GET', `/search?q=${encodeURIComponent(needle)}&type=session&offset=${offset}`, undefined, { 'x-tenant-id': A },
+  )))
+  assert.deepEqual(pages.map((page) => page.json.groups[0].hits.length), [20, 3, 0])
+  assert.deepEqual(pages.map((page) => page.json.groups[0].total), [23, 23, 23])
+  assert.deepEqual(pages.flatMap((page) => page.json.groups[0].hits.map((hit: any) => hit.id)), expected)
+})
+
+test('global search bounds every query at the declared shared search limit', async () => {
+  const tooLong = await call('GET', `/search?q=${'x'.repeat(257)}`, undefined, { 'x-tenant-id': A })
+  assert.equal(tooLong.status, 400)
+  const allowed = await call('GET', `/search?q=${'x'.repeat(256)}`, undefined, { 'x-tenant-id': A })
+  assert.equal(allowed.status, 200)
+  assert.throws(() => store.searchAll(A, 'x'.repeat(257)), /limited to 256 characters/)
+  const padded = ` ${'x'.repeat(256)}`
+  assert.equal((await call('GET', `/search?q=${encodeURIComponent(padded)}`, undefined, { 'x-tenant-id': A })).status, 400)
+  assert.throws(() => store.searchAll(A, padded), /limited to 256 characters/)
+
+  const { catalogOf } = await import('../apiSurface.ts')
+  const { buildRouter } = await import('./index.ts')
+  const operation = catalogOf(buildRouter()).find((item) => item.method === 'GET' && item.pattern === '/search')
+  assert.equal(operation?.query?.q && (operation.query.q as any).maxLength, 256, 'HTTP/MCP share the same bounded route schema')
+})
+
+test('global session search excludes attachments, tool details, archived originals, and scheduled runs', async () => {
+  const needle = `excluded-transcript-source-${(n += 1)}`
+  const session = store.createSession('No indexed text here', A)
+  store.appendMessage(session.id, { id: `plain-${n}`, role: 'user', content: 'ordinary user text' })
+  store.appendMessage(session.id, { id: `latest-${n}`, role: 'assistant', content: 'ordinary assistant text' })
+  session.compactedMessages = [{ id: `archive-${n}`, role: 'assistant', content: needle }]
+  session.workspace = {
+    workspaces: [], repos: [], connectors: [],
+    attachments: [{ id: `attachment-${n}`, kind: 'file', label: needle, previewText: needle }],
+  }
+  session.messages[1]!.toolActivities = [{ tool: needle, summary: needle }] as any
+  session.messages.push({ id: `tool-${n}`, role: 'tool', content: needle } as any)
+
+  const source = store.listSchedules()[0]
+  assert.ok(source, 'a fixture routine is available to materialize a run conversation')
+  const { id: _id, tenantId: _tenantId, ...seed } = structuredClone(source)
+  const task = store.addSchedule({
+    ...seed, name: `Search exclusion routine ${n}`, tenantId: A, runs: [], enabled: false,
+  })
+  try {
+    const run = store.runSchedule(task.id, { manualRunId: `run-search-exclusion-${n}` })
+    assert.ok(run)
+    const runSession = store.getSession(runSessionId(task.id, run.id))
+    assert.ok(runSession)
+    store.appendMessage(runSession.id, { id: `scheduled-hit-${n}`, role: 'assistant', content: needle })
+
+    const response = await call('GET', `/search?q=${encodeURIComponent(needle)}&type=session`, undefined, { 'x-tenant-id': A })
+    assert.equal(response.status, 200)
+    assert.equal(response.json.groups[0].total, 0, 'only current user/assistant body text is indexed in human sessions')
+  } finally {
+    store.removeSchedule(task.id)
+  }
 })
 
 test('search page inputs reject absent type, malformed offsets, unsupported types, and duplicates', async () => {

@@ -115,6 +115,13 @@ function deref(t: Record<string, string>): Record<string, string> {
 const MODES = ['light', 'dark'] as const
 const COMBOS = PALETTES.flatMap(({ id }) => MODES.map((m) => [id, m] as const))
 
+test('focus highlights pair muted descendants with the co-tint foreground seat', () => {
+  const source = read(join(ROOT, 'src', 'lib', 'focusContext.ts'))
+  const classes = source.match(/FOCUS_FLASH_CLASS = '([^']+)'/)?.[1]
+  assert.ok(classes?.includes('bg-co-tint'), 'the shared highlight owns its actual background')
+  assert.ok(classes.includes('[&_.text-ink-faint]:text-co-strong'), 'muted labels and controls need a readable highlight foreground')
+})
+
 test('every palette x mode resolves a complete token set', () => {
   assert.equal(COMBOS.length, PALETTES.length * 2)
   for (const [palette, mode] of COMBOS) {

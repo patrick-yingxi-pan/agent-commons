@@ -6,7 +6,48 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: draft-local Artifact Undo/Redo
+## Current checkpoint: search saved conversation text
+
+Global search now includes current user/assistant text in human-initiated
+conversations, including conversations readable through an explicit grant.
+One result per conversation previews its first matching message and opens that
+exact turn in the landing pane, loading earlier history through the existing
+Find mechanism. Metadata-only matches retain the ordinary conversation door.
+Archived originals, tool output, attachments and scheduled-run conversations
+remain outside this search. Existing category paging counts conversations, not
+messages; Find in conversation remains the way to inspect every matching turn.
+
+All global queries share a 256-character bound. Saves refresh open results;
+deletion and sharing changes evict obsolete snippets. The projection shares its
+literal matcher and read permission with conversation Find, introduces no index
+or new backend operation, and preserves transient highlight semantics (the
+conversation URL remains canonical; highlights are not persisted in history).
+Fail-first route, navigation and freshness locks precede implementation. Browser
+acceptance covers older-message landing, duplicate panes, shared/foreign access,
+revocation, live arrivals and stale targets. Full local verification and the
+135-cell UI sweep remain required before landing; no GitHub CI is used.
+
+The first affected browser run passed 20/21 journeys and caught low-contrast
+muted text on highlighted turns. The shared arrival-highlight class now uses its
+paired foreground, locked across palettes/modes and by the rendered WCAG walk.
+Read-only review also found an initial-read false missing-message announcement;
+arrival loading/failure must settle before absence is asserted, with an explicit
+Retry retaining the same target. These are checkpoint acceptance findings, not
+new product directions.
+
+The broad responsive sweep completed 135/135 cells with zero violations or
+skips. Subsequent review narrowed the search help to message-text matches so it
+does not promise exact-turn focus for title-only results; its source lock failed
+before the correction. The final local verifier repeats the affected five-viewport
+journey after that wording change, with the entire tree frozen during each run.
+
+The previous draft-local Undo/Redo checkpoint landed at `a48c9eaa` with all five
+local verification lanes green (574 browser tests), 135/135 UI cells and complete
+unsigned arm64 packaged smoke. Artifact-as-context and real Contribution
+execution still await their separate sharing/execution-policy decisions.
+Signed/notarized distribution, Intel and real-provider acceptance remain open.
+
+## Completed checkpoint: draft-local Artifact Undo/Redo
 
 Complete Document, Sheet, workbook and Slides editors now share bounded,
 memory-only Undo/Redo: up to 50 recent states and 2 MiB serialized history per

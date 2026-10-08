@@ -11,6 +11,7 @@
 
 import type { ArtifactHistoryVersionMetadata } from './artifactHistory.ts'
 import type { ArtifactSearchTarget } from './artifactSearch.ts'
+import type { ConversationSearchHit } from './conversationSearch.ts'
 
 export const SEARCH_HIT_TYPES = [
   'session', 'project', 'artifact', 'schedule', 'agent', 'prompt', 'model', 'context',
@@ -25,8 +26,10 @@ export interface SearchPage {
 }
 /** Fixed page size for category browsing; overview groups retain their smaller cap. */
 export const SEARCH_PAGE_SIZE = 20
-/** Historical content is searched only by an explicit artifactVersion category. */
-export const MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS = 256
+/** Bound literal text scans across all current resources and explicit history. */
+export const MAX_SEARCH_QUERY_CHARS = 256
+/** Compatibility name for clients of the explicit historical search category. */
+export const MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS = MAX_SEARCH_QUERY_CHARS
 
 /** Parse strict URL query values. `undefined` means overview mode; `null` means invalid. */
 export function parseSearchPage(type?: string, offset?: string): SearchPage | null | undefined {
@@ -56,8 +59,9 @@ export type ArtifactVersionSearchHit = SearchHitBase & ArtifactHistoryVersionMet
 }
 
 export type SearchHit =
+  | (SearchHitBase & { type: 'session'; match?: Pick<ConversationSearchHit, 'messageId' | 'role'> })
   | (SearchHitBase & { type: 'artifact'; match?: ArtifactSearchTarget })
-  | (SearchHitBase & { type: Exclude<SearchHitType, 'artifactVersion' | 'artifact'> })
+  | (SearchHitBase & { type: Exclude<SearchHitType, 'artifactVersion' | 'artifact' | 'session'> })
   | ArtifactVersionSearchHit
 
 export interface SearchGroup {

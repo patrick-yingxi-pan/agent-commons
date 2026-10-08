@@ -202,6 +202,9 @@ export function ConversationPane({
         contextMutation={conv.contextMutation}
         pendingApproval={conv.pendingEscalation ? approvalView(conv.pendingEscalation.escalation) : null}
         history={conv.history}
+        reconciled={conv.reconciled}
+        initialReadError={conv.initialReadError}
+        onRetryInitialRead={conv.retryInitialRead}
         onLoadEarlier={isDraft ? undefined : conv.loadEarlier}
         onApprove={approve}
         onSend={isDraft ? sendDraft : (text) => void conversations.dispatchTurn(sessionId, text)}

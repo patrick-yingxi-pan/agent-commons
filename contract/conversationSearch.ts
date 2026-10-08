@@ -25,6 +25,30 @@ export interface ConversationSearchMessage {
   content: string
 }
 
+function messageContainsQuery(message: ConversationSearchMessage, query: string): boolean {
+  return (message.role === 'user' || message.role === 'assistant') &&
+    typeof message.content === 'string' && message.content.toLowerCase().includes(query)
+}
+
+function projectConversationHit(message: ConversationSearchMessage, query: string): ConversationSearchHit | undefined {
+  if (!messageContainsQuery(message, query)) return undefined
+  const snippet = literalSearchSnippet(message.content, query, CONVERSATION_SEARCH_SNIPPET_CHARS)
+  return snippet === undefined ? undefined : { messageId: message.id, role: message.role as 'user' | 'assistant', snippet }
+}
+
+/** Return the earliest eligible current-transcript match without scanning later messages. */
+export function firstConversationMessageMatch(
+  messages: Iterable<ConversationSearchMessage>,
+  query: string,
+): ConversationSearchHit | undefined {
+  if (!query) return undefined
+  for (const message of messages) {
+    const hit = projectConversationHit(message, query)
+    if (hit) return hit
+  }
+  return undefined
+}
+
 export function parseConversationSearchQuery(q: string | undefined, offset: string | undefined): { query: string; offset: number } | null {
   if (q === undefined) return null
   const trimmed = q.trim()
@@ -47,17 +71,10 @@ export function searchConversationMessages(
   const hits: ConversationSearchHit[] = []
   let total = 0
   for (const message of messages) {
-    if ((message.role !== 'user' && message.role !== 'assistant') || typeof message.content !== 'string') continue
-    const lowerAt = message.content.toLowerCase().indexOf(query)
-    if (lowerAt < 0) continue
+    if (!messageContainsQuery(message, query)) continue
     if (total >= offset && hits.length < CONVERSATION_SEARCH_PAGE_SIZE) {
-      const snippet = literalSearchSnippet(message.content, query, CONVERSATION_SEARCH_SNIPPET_CHARS)
-      if (snippet === undefined) continue
-      hits.push({
-        messageId: message.id,
-        role: message.role,
-        snippet,
-      })
+      const hit = projectConversationHit(message, query)
+      if (hit) hits.push(hit)
     }
     total += 1
   }

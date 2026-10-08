@@ -37,7 +37,7 @@ export const FOCUS_FLASH_MS = 1600
  *  src/CLAUDE.md); callers supply their own resting border/ring. Wears the
  *  CO-COLOR: "you were brought here" is a PLACE cue (the Bindery seat law,
  *  src/index.css), so under the duet it flashes Prussian, not claret. */
-export const FOCUS_FLASH_CLASS = 'bg-co-tint ring-1 ring-co/40'
+export const FOCUS_FLASH_CLASS = 'bg-co-tint ring-1 ring-co/40 [&_.text-ink-faint]:text-co-strong'
 
 /** Delays (ms) between scroll re-assertions while a page's layout settles —
  *  the first is immediate, the rest back off. The whole sequence finishes well

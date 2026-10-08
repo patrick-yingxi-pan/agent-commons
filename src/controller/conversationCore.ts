@@ -121,6 +121,8 @@ export interface ConversationState {
   contextMutation: ContextMutationStatus
   pendingEscalation: PendingEscalation | null
   history: ConversationHistory
+  /** Latest eligible initial detail-read failure, shared across duplicate panes. */
+  initialReadError: string | null
   /** Which attached context this session's right panel is showing (null = closed).
    *  Per-session so EVERY pane derives its OWN context panel (universal split
    *  Phase 6) — remembered across reopen by `panelPrefs` (FWD-2). */
@@ -225,6 +227,7 @@ export function createConversationStore(
     contextMutation: { busy: false, error: null, retryable: false },
     pendingEscalation: null,
     history: { olderTokens: 0, loading: false, error: null },
+    initialReadError: null,
     focus: null,
     reconciled: false,
   })
@@ -303,6 +306,15 @@ export function createConversationStore(
    * fence, without treating that accepted projection as stale. */
   const isPaneReadLatest = (id: string, receipt: PaneReadReceipt): boolean =>
     receipt.sessionId === id && epoch(id) === receipt.epoch && (paneReadSequences.get(id) ?? 0) === receipt.sequence
+
+  const setPaneReadError = (id: string, receipt: PaneReadReceipt, error: string): boolean => {
+    if (!isPaneReadCurrent(id, receipt) || get(id).reconciled) return false
+    update(id, (s) => ({ ...s, initialReadError: error }))
+    return true
+  }
+
+  const clearPaneReadError = (id: string): void =>
+    update(id, (s) => s.initialReadError === null ? s : { ...s, initialReadError: null })
 
   const bump = (id: string): void => {
     epochs.set(id, epoch(id) + 1)
@@ -412,6 +424,7 @@ export function createConversationStore(
             : { ...history, loading: false, error: null }
           : { olderTokens: 0, loading: false, error: null },
         reconciled: true,
+        initialReadError: null,
       }
     })
     return true
@@ -851,6 +864,8 @@ export function createConversationStore(
     update,
     epoch,
     beginPaneRead,
+    setPaneReadError,
+    clearPaneReadError,
     isPaneReadCurrent,
     isPaneReadLatest,
     reset,

@@ -12,6 +12,29 @@ test('a conversation pane seeds only exact account-scoped API truth, never bundl
   assert.match(source, /if \(canSeedConversationFromCache\(entry\)\)/)
 })
 
+test('initial-read Retry reuses the fenced pane recipe and stale failures cannot publish', () => {
+  const source = readFileSync(new URL('./usePaneConversation.ts', import.meta.url), 'utf8')
+  assert.match(source, /setReadRetry\(\(attempt\) => attempt \+ 1\)/)
+  assert.match(source, /\}, \[sessionId, readRetry\]\)/, 'Retry re-enters the ordinary mount read recipe')
+  assert.match(source, /if \(!conversations\.isPaneReadCurrent\(sessionId, receipt\)\) return[\s\S]*?conversations\.setPaneReadError\(sessionId, receipt, message\)/)
+  assert.match(source, /retryInitialRead,/, 'the pane exposes an explicit retry command')
+})
+
+test('initial read failures are shared across panes but only the latest unreconciled receipt can publish', () => {
+  const store = createConversationStore({ sendMessage: async () => {}, cancelTurn: async () => {} }, () => EMPTY_LIVE)
+  const first = store.beginPaneRead('s')
+  const latest = store.beginPaneRead('s')
+  assert.equal(store.setPaneReadError('s', first, 'stale failure'), false)
+  assert.equal(store.get('s').initialReadError, null)
+  assert.equal(store.setPaneReadError('s', latest, 'offline'), true)
+  assert.equal(store.get('s').initialReadError, 'offline')
+  assert.equal(store.reconcile('s', latest, EMPTY_LIVE), true)
+  assert.equal(store.get('s').initialReadError, null, 'successful shared reconciliation clears the error')
+  const afterReconcile = store.beginPaneRead('s')
+  assert.equal(store.setPaneReadError('s', afterReconcile, 'late failure'), false)
+  assert.equal(store.get('s').initialReadError, null, 'a later failed refresh cannot poison reconciled history')
+})
+
 test('pane remount cannot reseed an authoritative empty conversation or erase held operations', () => {
   const store = createConversationStore({ sendMessage: async () => {}, cancelTurn: async () => {} }, () => EMPTY_LIVE)
   const blank = store.get('empty')

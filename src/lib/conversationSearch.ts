@@ -14,10 +14,12 @@ export function conversationFocusState(
   target: string | undefined,
   messages: ReadonlyArray<{ id: string }>,
   history?: { olderCursor?: string | null; loading: boolean; error: string | null },
-): 'none' | 'ready' | 'loading' | 'error' | 'missing' {
+  initialRead?: { reconciled: boolean; error?: string | null },
+): 'none' | 'ready' | 'loading' | 'error' | 'initial-error' | 'missing' {
   if (!target) return 'none'
   if (messages.some((message) => message.id === target)) return 'ready'
   if (history?.error) return 'error'
   if (history?.loading || history?.olderCursor) return 'loading'
+  if (initialRead && !initialRead.reconciled) return initialRead.error ? 'initial-error' : 'loading'
   return 'missing'
 }

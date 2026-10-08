@@ -270,8 +270,9 @@ export function useSessionWorkspace(split?: {
   // deep-links, panel breadcrumbs) lands its target in the FOCUSED pane,
   // detail open. Plain doors drop any stale highlight target; the
   // notification doors (below) set one after routing.
-  const openSession = useCallback((id: string) => {
+  const openSession = useCallback((id: string, messageId?: string) => {
     splitRef.current?.routeSession?.(id)
+    setPendingFocus(messageId ? { messageId } : null)
   }, [])
   const newSession = useCallback(() => {
     // Reset the shared draft entry FIRST (a lingering coalesce handle would
@@ -280,6 +281,7 @@ export function useSessionWorkspace(split?: {
     // first pane.
     draft.reset()
     splitRef.current?.routeSession?.(DRAFT_ID)
+    setPendingFocus(null)
   }, [])
   const openSection = useCallback((s: SectionId, sub?: string | null) => {
     splitRef.current?.routeSection?.(s, sub ?? null)

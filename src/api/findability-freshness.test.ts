@@ -76,6 +76,15 @@ test('body and access changes refresh every current and saved-version search pag
   }
 })
 
+test('conversation saves refresh global results and deletion evicts obsolete snippets', () => {
+  const cases = src('./events.ts').split(/case '/)
+  for (const [type, method] of [['session.updated', 'invalidatePrefix'], ['session.removed', 'evictPrefix']]) {
+    const block = cases.find((candidate) => candidate.startsWith(`${type}':`))
+    assert.ok(block, `${type} is handled`)
+    assert.ok(block.includes(`${method}(keys.search())`), `${type} refreshes every global query and category`)
+  }
+})
+
 test('grant-change eviction removes every cached search variant without crossing other families', () => {
   const variants = [keys.search('private'), keys.search('private', { type: 'artifact', offset: 20 }),
     keys.search('private', { type: 'artifactVersion', offset: 0 }), keys.search('other')]
