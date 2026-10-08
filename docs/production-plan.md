@@ -6,7 +6,35 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: packaged Document editing and migration
+## Current checkpoint: draft-local Artifact Undo/Redo
+
+Complete Document, Sheet, workbook and Slides editors now share bounded,
+memory-only Undo/Redo: up to 50 recent states and 2 MiB serialized history per
+draft. Focused typing coalesces; paste and structural actions are separate steps.
+Exact block/worksheet identities survive traversal. History follows the shared
+draft through navigation and duplicate panes, but never rewrites saved versions.
+Save acknowledgement, Cancel and account disposal clear it; held uncertain or
+conflicting saves disable traversal until the existing recovery releases them.
+The opening revision and explicit whole-body Retry consent remain unchanged.
+
+Visible controls and scoped keyboard commands replace competing paste/removal
+undo controls only in saved editors. Creation dialogs retain their existing
+one-step reversals. Read surfaces and remote MCP gain no new operation or access.
+Unit/controller/source locks were watched fail before implementation. The new
+browser journeys cover four formats at all five viewports, structural identity,
+typing/paste grouping, duplicate panes, navigation and held recovery.
+An intentional disconnected-Undo mutation failed the exact browser value check
+before the original implementation was restored. Packaged
+Document and Sheet import acceptance also exercise exact Undo/Redo restoration.
+Final full local verifier, UI sweep and unsigned native outcomes are recorded in
+the checkpoint handoff; they remain mandatory before landing.
+
+Artifact-as-conversation-context and real Contribution execution remain separate
+pending sharing/execution-policy decisions. Neither is implicitly authorized by
+this draft-recovery feature. Signed/notarized distribution, Intel and real-provider
+acceptance remain open production gates; GitHub CI is not used.
+
+## Completed checkpoint: packaged Document editing and migration
 
 The full editor shipped at `3ce125a4` after the local verifier passed all five
 lanes, including 570 browser tests, and the 135/135-cell UI sweep passed with no
@@ -44,7 +72,8 @@ preceded the async route observer's saved-state read. That walk now waits for th
 same POST's successful response before checking the exact pre-send empty copy;
 no assertion, deadline or retry policy was relaxed. The focused regression and
 all six discussion-context browser tests passed. A fresh trace-enabled full local
-verifier remains the final mandatory landing gate for this tree.
+verifier passed all five lanes with 570 browser tests in 552.5 seconds; the
+checkpoint landed as `dd18374b` and was pushed to `main`.
 This milestone is unsigned Apple Silicon evidence, not signed/notarized,
 Intel, paid-provider, or public-release acceptance. Those production gates remain
 open; no GitHub CI is used.

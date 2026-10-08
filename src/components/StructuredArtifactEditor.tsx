@@ -17,6 +17,7 @@ import {
 } from '../../contract/index.ts'
 import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 import { DocumentArtifactEditor, DocumentBodyLiteral } from './DocumentArtifactEditor'
+import { ArtifactDraftHistory, type ArtifactDraftHistoryActions } from './ArtifactDraftHistory'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { WorkbookTabs } from './WorkbookTabs'
@@ -24,7 +25,8 @@ import { pasteSheetCells, reconcileSheetPasteFeedback, type SheetPasteFeedback, 
 
 type Props = {
   body: EditableArtifactBody
-  onChange: (body: EditableArtifactBody) => void
+  onChange: (body: EditableArtifactBody, group?: symbol) => void
+  history: ArtifactDraftHistoryActions
   latestBody?: EditableArtifactBody
   onSave: () => void
   onCancel: () => void
@@ -39,53 +41,56 @@ const buttonClass = INLINE_ACTION_CLASS
 /** Owner-only full-page editor for one complete structured body. Previews keep
  * using StructuredArtifactView; the account-scoped draft store owns lifetime
  * across navigation and duplicate panes. Save emits one complete replacement. */
-export function StructuredArtifactEditor({ body, onChange, latestBody, onSave, onCancel, saving = false, error, showLatest = false }: Props) {
-  if (body.type === 'doc') {
-    return <DocumentArtifactEditor body={body} onChange={onChange} latestBody={latestBody?.type === 'doc' ? latestBody : undefined}
-      onSave={onSave} onCancel={onCancel} saving={saving} error={error} showLatest={showLatest} />
-  }
+export function StructuredArtifactEditor({ body, onChange, history, latestBody, onSave, onCancel, saving = false, error, showLatest = false }: Props) {
   const valid = parseEditableArtifactBody(body) !== undefined
 
   return (
-    <div className="space-y-3" data-structured-artifact-editor={body.type}>
-      <StructuredArtifactFields body={body} onChange={onChange} disabled={saving} />
-      <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
-        <button type="button" data-inline-action className={buttonClass} disabled={saving || !valid} onClick={onSave}>
-          <Save size={13} /> {saving ? 'Saving…' : 'Save changes'}
-        </button>
-        <button type="button" data-inline-action className={buttonClass} disabled={saving} onClick={onCancel}>
-          <X size={13} /> Cancel
-        </button>
-      </div>
-      {error && <p className="text-[11px] text-danger-text" role="status">{error}</p>}
-      {!valid && <p className="text-[11px] text-danger-text" role="alert">Review blank labels, duplicate or invalid worksheet names, or the saved size limits before saving.</p>}
-      {showLatest && latestBody && (
-        <div className="space-y-1.5 rounded-lg border border-line bg-panel-2/40 p-2.5" role="status">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Latest saved version</div>
-          {latestBody.type === 'doc' ? <DocumentBodyLiteral body={latestBody} /> : <StructuredArtifactView body={latestBody} size="compact" />}
-          <p className="text-[11px] text-ink-faint">Retry replaces the entire saved structure with your held draft.</p>
+    <ArtifactDraftHistory body={body} onChange={onChange} history={history} disabled={saving}>{onChange => body.type === 'doc'
+      ? <DocumentArtifactEditor body={body} onChange={onChange} latestBody={latestBody?.type === 'doc' ? latestBody : undefined}
+          onSave={onSave} onCancel={onCancel} saving={saving} error={error} showLatest={showLatest} />
+      : (
+        <div className="space-y-3" data-structured-artifact-editor={body.type}>
+          <StructuredArtifactFields body={body} onChange={onChange} disabled={saving} undoManaged />
+          <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
+            <button type="button" data-inline-action className={buttonClass} disabled={saving || !valid} onClick={onSave}>
+              <Save size={13} /> {saving ? 'Saving…' : 'Save changes'}
+            </button>
+            <button type="button" data-inline-action className={buttonClass} disabled={saving} onClick={onCancel}>
+              <X size={13} /> Cancel
+            </button>
+          </div>
+          {error && <p className="text-[11px] text-danger-text" role="status">{error}</p>}
+          {!valid && <p className="text-[11px] text-danger-text" role="alert">Review blank labels, duplicate or invalid worksheet names, or the saved size limits before saving.</p>}
+          {showLatest && latestBody && (
+            <div className="space-y-1.5 rounded-lg border border-line bg-panel-2/40 p-2.5" role="status">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Latest saved version</div>
+              {latestBody.type === 'doc' ? <DocumentBodyLiteral body={latestBody} /> : <StructuredArtifactView body={latestBody} size="compact" />}
+              <p className="text-[11px] text-ink-faint">Retry replaces the entire saved structure with your held draft.</p>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      )}</ArtifactDraftHistory>
   )
 }
 
 /** Controlled fields shared by creation and correction. The enclosing workflow
  * owns draft lifetime and its single submit/cancel pair. */
-export function StructuredArtifactFields({ body, onChange, disabled = false }: {
+export function StructuredArtifactFields({ body, onChange, disabled = false, undoManaged = false }: {
   body: StructuredArtifactBody
   onChange: (body: StructuredArtifactBody) => void
   disabled?: boolean
+  undoManaged?: boolean
 }) {
   return body.type === 'slides'
     ? <SlidesEditor body={body} onChange={onChange} disabled={disabled} />
-    : <WorkbookEditor body={body} onChange={onChange} disabled={disabled} />
+    : <WorkbookEditor body={body} onChange={onChange} disabled={disabled} undoManaged={undoManaged} />
 }
 
-function WorkbookEditor({ body, onChange, disabled }: {
+function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
   body: Exclude<StructuredArtifactBody, { type: 'slides' }>
   onChange: (body: StructuredArtifactBody) => void
   disabled: boolean
+  undoManaged: boolean
 }) {
   const sheets = spreadsheetSheets(body)
   const [selected, select] = useState(sheets[0]!.id)
@@ -107,7 +112,7 @@ function WorkbookEditor({ body, onChange, disabled }: {
     if (result.kind === 'error') setPaste({ ...currentPaste, message: result.message, error: true, after: JSON.stringify(body) })
     else {
       setPaste({ message: `Pasted ${result.rows} × ${result.columns} cells into this draft.`, error: false,
-        before: body, after: JSON.stringify(result.body) })
+        ...(undoManaged ? {} : { before: body }), after: JSON.stringify(result.body) })
       onChange(result.body)
     }
     return true
@@ -138,7 +143,7 @@ function WorkbookEditor({ body, onChange, disabled }: {
           <button type="button" data-inline-action className={buttonClass} disabled={disabled || index === 0} onClick={() => move(-1)}><ArrowUp size={12} /> Move worksheet earlier</button>
           <button type="button" data-inline-action className={buttonClass} disabled={disabled || index === sheets.length - 1} onClick={() => move(1)}><ArrowDown size={12} /> Move worksheet later</button>
           <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length <= 1} onClick={() => {
-            setRemoved({ sheet: active, index })
+            if (!undoManaged) setRemoved({ sheet: active, index })
             setSheets(sheets.filter(sheet => sheet.id !== active.id))
             select(sheets[index === 0 ? 1 : index - 1]!.id)
           }}><Minus size={12} /> Remove worksheet</button>
@@ -150,12 +155,12 @@ function WorkbookEditor({ body, onChange, disabled }: {
         }} />
         {currentPaste && <div role="status" data-sheet-paste-feedback className={`flex flex-wrap items-center gap-2 text-[11px] ${currentPaste.error ? 'text-danger-text' : 'text-ink-soft'}`}>
           <span>{currentPaste.message}</span>
-          {currentPaste.before && <button type="button" data-inline-action className={buttonClass} disabled={disabled}
+          {!undoManaged && currentPaste.before && <button type="button" data-inline-action className={buttonClass} disabled={disabled}
             onClick={() => change(currentPaste.before!)}>Undo paste</button>}
         </div>}
       </div>
     </WorkbookTabs>
-    {removed && <div role="status" className="flex flex-wrap items-center gap-2 text-[11px] text-ink-soft">
+    {!undoManaged && removed && <div role="status" className="flex flex-wrap items-center gap-2 text-[11px] text-ink-soft">
       <span className="min-w-0 break-words [overflow-wrap:anywhere]">Removed “{removed.sheet.name}” from this draft.</span>
       <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length >= MAX_AUTHORED_WORKBOOK_SHEETS || sheets.some(sheet => sheet.id === removed.sheet.id || sheet.name.toLowerCase() === removed.sheet.name.toLowerCase())} onClick={() => {
         const next = [...sheets]

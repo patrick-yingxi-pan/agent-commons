@@ -90,6 +90,8 @@ test('editing a legacy sheet promotes it to a named workbook and saves ordered l
 
     const editor = detail.locator('[data-structured-artifact-editor]')
     await expect(editor).toHaveAttribute('data-structured-artifact-editor', 'sheet')
+    const history = detail.locator('[data-artifact-draft-history]')
+    await expect(history).toBeVisible()
     const tabs = editor.getByRole('tablist', { name: 'Worksheets', exact: true })
     await expect(tabs.getByRole('tab')).toHaveCount(1)
     await expect(tabs.getByRole('tab', { name: 'Sheet', exact: true })).toHaveAttribute('aria-selected', 'true')
@@ -104,10 +106,15 @@ test('editing a legacy sheet promotes it to a named workbook and saves ordered l
     await expect(tabs.getByRole('tab').nth(0)).toHaveAccessibleName('Details & values')
 
     await editor.getByRole('button', { name: 'Remove worksheet', exact: true }).click()
-    await expect(editor.getByRole('status')).toContainText('Removed “Details & values”')
-    await editor.getByRole('button', { name: 'Undo removal', exact: true }).click()
+    await expect(tabs.getByRole('tab', { name: 'Details & values', exact: true })).toHaveCount(0)
+    await expect(tabs.getByRole('tab', { name: 'Summary', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(history.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
+    await history.getByRole('button', { name: 'Undo', exact: true }).click()
     await expect(tabs.getByRole('tab').nth(0)).toHaveAccessibleName('Details & values')
     await expect(tabs.getByRole('tab').nth(1)).toHaveAccessibleName('Summary')
+    await tabs.getByRole('tab', { name: 'Details & values', exact: true }).click()
+    await expect(editor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true })).toHaveValue('=1+1')
+    await expect(history.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled()
     await editor.getByRole('button', { name: 'Save changes', exact: true }).click()
     await expect(detail.locator('[data-structured-artifact-editor]')).toHaveCount(0)
 

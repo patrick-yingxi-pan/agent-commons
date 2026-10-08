@@ -72,7 +72,9 @@ async function enterWorkbookEdit(page: Page, artifactId: string) {
   await detail.getByRole('button', { name: 'Edit sheet', exact: true }).click()
   const editor = detail.locator('[data-structured-artifact-editor="workbook"]')
   await expect(editor).toBeVisible()
-  return { detail, editor }
+  const history = detail.locator('[data-artifact-draft-history]')
+  await expect(history).toBeVisible()
+  return { detail, editor, history }
 }
 
 async function expectOriginalSummary(editor: ReturnType<Page['locator']>) {
@@ -131,7 +133,7 @@ test('owner workbook edits support bounded paste, undo, rejection, held save, re
   const name = `paste-workbook-${stamp}.xlsx`
   try {
     const artifact = await createArtifact(owner.page, name, ORIGINAL)
-    const { detail, editor } = await enterWorkbookEdit(owner.page, artifact.id)
+    const { detail, editor, history } = await enterWorkbookEdit(owner.page, artifact.id)
     const summary = editor.getByRole('tab', { name: 'Summary', exact: true })
     const details = editor.getByRole('tab', { name: 'Details', exact: true })
     const target = editor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true })
@@ -150,17 +152,17 @@ test('owner workbook edits support bounded paste, undo, rejection, held save, re
     await expect(editor.getByText('Use a rectangular table with tabs between cells and valid quoted values. Nothing was pasted.', { exact: true })).toBeVisible()
     await expect(target).toHaveValue('00042')
     await expect(editor.getByRole('textbox', { name: 'Sheet row 2 value 4', exact: true })).toHaveValue('quoted\tvalue')
-    await expect(editor.getByRole('button', { name: 'Undo paste', exact: true })).toBeVisible()
-    await editor.getByRole('button', { name: 'Undo paste', exact: true }).click()
+    await expect(history.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
+    await history.getByRole('button', { name: 'Undo', exact: true }).click()
     await expectOriginalSummary(editor)
 
     await pasteFromClipboard(owner.page, editor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true }), RANGE)
     await details.click()
-    await expect(editor.getByRole('button', { name: 'Undo paste', exact: true })).toHaveCount(0)
+    await expect(history.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
     await expect(editor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true })).toHaveValue('Other tab stays')
     await expect(editor.getByRole('textbox', { name: 'Sheet note', exact: true })).toHaveValue('Other note stays.')
     await summary.click()
-    await expect(editor.getByRole('button', { name: 'Undo paste', exact: true })).toHaveCount(0)
+    await expect(history.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
     await expect(editor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true })).toHaveValue('00042')
 
     await pasteFromClipboard(owner.page, editor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true }), 'one\ttwo\nthree')
@@ -189,7 +191,7 @@ test('owner workbook edits support bounded paste, undo, rejection, held save, re
     try {
       await editor.getByRole('button', { name: 'Save changes', exact: true }).click()
       await saveReached
-      await expect(editor.getByRole('button', { name: 'Undo paste', exact: true })).toBeDisabled()
+      await expect(history.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled()
       await expect(editor.getByRole('button', { name: 'Saving…', exact: true })).toBeVisible()
     } finally {
       releaseSave()
@@ -227,7 +229,7 @@ test('owner workbook edits support bounded paste, undo, rejection, held save, re
   }
 })
 
-test('a later edit in a duplicate workbook pane invalidates the earlier pane’s paste undo', async ({ browser }) => {
+test('duplicate workbook panes share sequential undo across the newest edit and an earlier paste', async ({ browser }) => {
   test.setTimeout(ms(60_000))
   const owner = await newUser(browser)
   await owner.context.grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -241,21 +243,32 @@ test('a later edit in a duplicate workbook pane invalidates the earlier pane’s
     const focusedPane = owner.page.locator('[data-main-pane][data-focused="true"]')
     const focusedIndex = await focusedPane.evaluate((node) => Array.from(document.querySelectorAll('[data-main-pane]')).indexOf(node))
     const focusedEditor = focusedPane.locator('[data-structured-artifact-editor="workbook"]')
+    const focusedHistory = focusedPane.locator('[data-artifact-draft-history]')
     const otherPane = panes.nth(focusedIndex === 0 ? 1 : 0)
     const otherEditor = otherPane.locator('[data-structured-artifact-editor="workbook"]')
+    const otherHistory = otherPane.locator('[data-artifact-draft-history]')
     await expect(focusedEditor).toBeVisible()
     await expect(otherEditor).toBeVisible()
 
     await pasteFromClipboard(owner.page, focusedEditor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true }), RANGE)
-    await expect(focusedEditor.getByRole('button', { name: 'Undo paste', exact: true })).toBeVisible()
+    await expect(focusedHistory.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
     await expect(otherEditor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true })).toHaveValue('00042')
-    await otherEditor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true }).fill('Later pane edit')
-    await expect(focusedEditor.getByRole('button', { name: 'Undo paste', exact: true })).toHaveCount(0)
+    const laterEdit = otherEditor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true })
+    await laterEdit.fill('Later pane edit')
     await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true })).toHaveValue('Later pane edit')
     await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 2 value 4', exact: true })).toHaveValue('quoted\tvalue')
-    await otherEditor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true }).fill('Keep')
+    await laterEdit.press('ControlOrMeta+Z')
     await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true })).toHaveValue('Keep')
-    await expect(focusedEditor.getByRole('button', { name: 'Undo paste', exact: true })).toHaveCount(0)
+    await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true })).toHaveValue('00042')
+    await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 2 value 4', exact: true })).toHaveValue('quoted\tvalue')
+    await expect(otherHistory.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
+
+    await laterEdit.press('ControlOrMeta+Z')
+    await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true })).toHaveValue('Keep')
+    await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 2 value 2', exact: true })).toHaveValue('Before')
+    await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 2 value 3', exact: true })).toHaveCount(0)
+    await expect(focusedEditor.getByRole('textbox', { name: 'Sheet row 3 value 1', exact: true })).toHaveCount(0)
+    await expect(otherHistory.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled()
     expect(await savedContent(owner.page, artifact.id)).toEqual({ ...ORIGINAL, revision: 0 })
   } finally {
     await owner.context.close()
@@ -269,7 +282,7 @@ test('paste success and all-or-nothing refusal stay accessible and contained acr
   const stamp = Date.now().toString(36)
   try {
     const artifact = await createArtifact(owner.page, `paste-viewports-${stamp}.xlsx`, ORIGINAL)
-    const { editor } = await enterWorkbookEdit(owner.page, artifact.id)
+    const { editor, history } = await enterWorkbookEdit(owner.page, artifact.id)
     for (const viewport of VIEWPORTS) {
       await owner.page.setViewportSize(viewport)
       await settleArtifactPageRail(owner.page)
@@ -287,11 +300,11 @@ test('paste success and all-or-nothing refusal stay accessible and contained acr
       await expect(editor.getByText('Use a rectangular table with tabs between cells and valid quoted values. Nothing was pasted.', { exact: true })).toBeVisible()
       await expect(target).toHaveValue('Left')
       await expect(editor.getByRole('textbox', { name: 'Sheet row 3 value 3', exact: true })).toHaveValue('End')
-      await expect(editor.getByRole('button', { name: 'Undo paste', exact: true })).toBeVisible()
+      await expect(history.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
       await expect.poll(() => owner.page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
       await assertWcag22Aa(owner.page, `Sheet paste refusal at ${size}`)
       await owner.page.screenshot({ path: testInfo.outputPath(`sheet-paste-refusal-${size}.png`) })
-      await editor.getByRole('button', { name: 'Undo paste', exact: true }).click()
+      await history.getByRole('button', { name: 'Undo', exact: true }).click()
       await expectOriginalSummary(editor)
     }
   } finally {

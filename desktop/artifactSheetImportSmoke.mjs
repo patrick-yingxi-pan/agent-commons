@@ -163,6 +163,8 @@ export async function runArtifactSheetImportSmoke({ page, app, origin, fixtureRo
     if (imported.allVisible) {
       await page.getByRole('button', { name: 'Edit sheet', exact: true }).click()
       const editor = page.locator('[data-structured-artifact-editor]')
+      const history = page.locator('[data-artifact-draft-history]')
+      await expect(history).toBeVisible()
       const cell = editor.getByRole('textbox', { name: 'Sheet row 1 value 2', exact: true })
       // Fixture only the clipboard event, without touching the user's OS clipboard.
       // The built editor, validation, explicit Save and durable body are real.
@@ -175,10 +177,13 @@ export async function runArtifactSheetImportSmoke({ page, app, origin, fixtureRo
       await paste(text)
       await expect(editor.getByRole('status')).toContainText('Pasted 2 × 2 cells')
       await expect(cell).toHaveValue('0007')
-      await editor.getByRole('button', { name: 'Undo paste', exact: true }).click()
+      await history.getByRole('button', { name: 'Undo', exact: true }).click()
       await expect(cell).toHaveValue('00042')
       await expect(editor.getByRole('textbox', { name: 'Sheet column 3', exact: true })).toHaveCount(0)
-      await paste(text)
+      await expect(history.getByRole('button', { name: 'Redo', exact: true })).toBeEnabled()
+      await history.getByRole('button', { name: 'Redo', exact: true }).click()
+      await expect(cell).toHaveValue('0007')
+      await expect(editor.getByRole('textbox', { name: 'Sheet row 1 value 3', exact: true })).toHaveValue('=1+1')
       await paste('bad\tshape\nshort')
       await expect(editor.getByRole('status')).toContainText('Nothing was pasted.')
       await expect(cell).toHaveValue('0007')

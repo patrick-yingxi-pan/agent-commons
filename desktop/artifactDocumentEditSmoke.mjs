@@ -67,6 +67,32 @@ export async function prepareDocumentEditSmoke({ page, origin, request, profile,
   const attached = await createDiscussion(page, request, artifactId, targetId, `Moved original discussion ${stamp}`)
   const deleted = await createDiscussion(page, request, artifactId, deletedId, `Deleted original discussion ${stamp}`)
   const editor = await openEditor(page, origin, artifactId)
+  const history = detail(page, artifactId).locator('[data-artifact-draft-history]')
+  await expect(history).toBeVisible()
+  const undo = history.getByRole('button', { name: 'Undo', exact: true })
+  const redo = history.getByRole('button', { name: 'Redo', exact: true })
+  const openingIds = original.blocks.map(block => block.id)
+  await expect(undo).toBeDisabled()
+  await expect(redo).toBeDisabled()
+  await editor.getByRole('button', { name: 'Add heading', exact: true }).click()
+  const temporaryBlock = editor.locator('[data-doc-block-id]').last()
+  const temporaryBlockId = await temporaryBlock.getAttribute('data-doc-block-id')
+  assert.match(temporaryBlockId ?? '', /^block-[0-9a-f-]{36}$/)
+  await expect(undo).toBeEnabled()
+  await temporaryBlock.getByRole('textbox').press('Meta+z')
+  assert.deepEqual(await editor.locator('[data-doc-block-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-doc-block-id'))), openingIds,
+    'Undo removes the newly inserted block without changing original block identities')
+  await expect(undo).toBeDisabled()
+  await expect(redo).toBeEnabled()
+  await history.press('Meta+Shift+z')
+  assert.deepEqual(await editor.locator('[data-doc-block-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-doc-block-id'))), [...openingIds, temporaryBlockId],
+    'Redo restores the same inserted block identity')
+  await expect(editor.getByRole('textbox', { name: 'Block 4 heading', exact: true })).toHaveValue('')
+  await expect(undo).toBeEnabled()
+  await expect(redo).toBeDisabled()
+  await undo.click()
+  assert.deepEqual(await editor.locator('[data-doc-block-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-doc-block-id'))), openingIds)
+
   const title = `Reviewed Document ${stamp}`
   const targetText = 'Reviewed text on the same moved block.'
   await editor.getByRole('textbox', { name: 'Document title', exact: true }).fill(title)

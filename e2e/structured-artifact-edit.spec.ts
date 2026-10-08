@@ -473,9 +473,11 @@ test('account switching clears a retained structured draft on the same canonical
   await page.getByRole('button', { name: 'Edit slides', exact: true }).click()
   const title = page.getByRole('textbox', { name: 'Slide 1 title' })
   await title.fill('Ada private draft')
+  await expect(page.locator('[data-artifact-draft-history]').getByRole('button', { name: 'Undo', exact: true })).toBeEnabled()
 
   await switchAccount(page, 'Grace Hopper')
   await expect(page.locator('[data-structured-artifact-editor]')).toHaveCount(0)
+  await expect(page.locator('[data-artifact-draft-history]')).toHaveCount(0)
   await expect(page.getByText('Ada private draft')).toHaveCount(0)
   await page.goto(`/artifacts/${artifact.id}`)
   await expect(page.getByRole('button', { name: 'Edit slides', exact: true })).toHaveCount(0)
@@ -486,6 +488,9 @@ test('account switching clears a retained structured draft on the same canonical
   await expect(page.getByRole('button', { name: 'Edit slides', exact: true })).toBeVisible()
   await expect(page.getByText('Ada private draft')).toHaveCount(0)
   await expect(page.getByText('Quarterly review')).toBeVisible()
+  await page.getByRole('button', { name: 'Edit slides', exact: true }).click()
+  await expect(page.locator('[data-artifact-draft-history]').getByRole('button', { name: 'Undo', exact: true })).toBeDisabled()
+  await expect(page.locator('[data-artifact-draft-history]').getByRole('button', { name: 'Redo', exact: true })).toBeDisabled()
 })
 
 test('a lost structured save response retries one logical edit without advancing twice', async ({ browser }) => {

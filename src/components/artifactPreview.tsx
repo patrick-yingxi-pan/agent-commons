@@ -1054,7 +1054,13 @@ export function ArtifactDetailPage({
           {own && structuredDraft ? (
             <StructuredArtifactEditor
               body={structuredDraft.content}
-              onChange={(content) => artifactEditDrafts.update(artifact.id, { ...structuredDraft, content })}
+              onChange={(content, group) => artifactEditDrafts.update(artifact.id, { ...structuredDraft, content }, group)}
+              history={{
+                canUndo: artifactEditDrafts.canUndo(artifact.id),
+                canRedo: artifactEditDrafts.canRedo(artifact.id),
+                onUndo: () => artifactEditDrafts.undo(artifact.id),
+                onRedo: () => artifactEditDrafts.redo(artifact.id),
+              }}
               latestBody={structuredMutation.activeResourceId === artifact.id && structuredMutation.error ? editableStructuredBody : undefined}
               showLatest={structuredMutation.activeResourceId === artifact.id && Boolean(structuredMutation.error)}
               saving={structuredBusy}
