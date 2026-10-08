@@ -8,6 +8,12 @@
 
 ## Why A2A, and why only at the edge
 
+**Current-runtime qualification (MOCK-9).** The development profile simulates standing
+completion for posted work; no Agent or external tool runs. In desktop and web release profiles,
+posted work remains submitted until a real workflow handles it, and saved standing
+configuration does not execute it. The design below describes the shared protocol contract;
+its completion behavior is currently development-only.
+
 The platform shell (D17–D19) made this instance a cooperation surface: shared
 Projects are discoverable, published Agent definitions travel, and a posted work
 item can be taken unprompted by a standing Contributor. All of that speaks a
@@ -50,12 +56,14 @@ three mappings and one refusal:
    `TextPart` (the sub-goal statement) and a `DataPart` (`{type, target, note?}` — the
    effect descriptor, exactly `PostOpenSubGoalRequest`). The handler calls the *same*
    `postOpenSubGoal` the native route calls — same `projectHiddenFrom` visibility
-   wall in front, same synchronous D19 standing dispatch behind. The response is an
-   A2A **Task** whose id *is* the `OpenSubGoal` id and whose state is the honest
-   lifecycle image: `completed` when a standing Contributor took it in-dispatch
-   (artifact = the public credit line), `submitted` when it stays open awaiting a
-   taker. `tasks/get` re-reads the same item. The item is stamped `via: 'a2a'` — a
-   provenance fact the backlog UI shows, not an authority distinction.
+   wall in front. In development, the same synchronous D19 standing simulation runs behind
+   it; no Agent or external tool runs. In desktop and web release profiles, the post remains
+   open/submitted because standing configuration does not execute work. The response is an
+   A2A **Task** whose id *is* the `OpenSubGoal` id and whose state is the honest lifecycle
+   image: `completed` only when development simulation takes it (artifact = the public credit
+   line), otherwise `submitted` while it stays open awaiting a taker. `tasks/get` re-reads the
+   same item. The item is stamped `via: 'a2a'` — a provenance fact the backlog UI shows, not an
+   authority distinction.
 
 3. **Outbound: importing a remote Agent Card = fork-across-instances, definition
    only.** `POST /api/v1/agents/import-card {url}` fetches a card from a remote

@@ -3,6 +3,8 @@ import type { SectionId } from '../types'
 import { COMPOSITE_FEATURES, type CompositeCommandKind } from '../lib/compositeFeatures'
 import { RowMenu, type RowMenuItem } from './RowMenu'
 import { SECTION_META } from '../lib/sections'
+import { useCapabilities } from '../api'
+import { automationAvailability } from '../lib/automationAvailability.ts'
 
 /** The compact rail projection of a composite root's page capabilities.
  *
@@ -20,14 +22,18 @@ export function CompositeRailControls({
   onCommand: (kind: CompositeCommandKind) => void
 }) {
   const spec = COMPOSITE_FEATURES[section]
+  const capabilities = useCapabilities()
+  const automation = automationAvailability(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
+  const primaryUnavailable = section === 'dispatch' && !automation.canSimulate
   const items: RowMenuItem[] = []
   if (spec.primaryAction) {
     items.push({
       kind: 'action',
       key: 'primary-action',
-      label: spec.primaryAction,
+      label: primaryUnavailable ? `${spec.primaryAction} (unavailable)` : spec.primaryAction,
       icon: <Plus size={15} />,
-      onSelect: () => onCommand('primary-action'),
+      disabled: primaryUnavailable,
+      onSelect: () => { if (!primaryUnavailable) onCommand('primary-action') },
     })
   }
   if (spec.search) {

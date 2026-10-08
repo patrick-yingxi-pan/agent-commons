@@ -75,6 +75,91 @@ async function confirmOneCall(page) {
   await consent.getByRole('button', { name: 'Confirm and run once', exact: true }).click()
 }
 
+/** Exercise the public executable's automation refusal on its own disposable
+ * profile. The eligible standing Commission proves the gate blocks real mock
+ * execution, while the accepted work posts remain open. This profile is removed
+ * before the separate loopback-fixture acceptance starts. */
+async function smokePackagedAutomationPosture({ executable, launch, close }) {
+  const profile = await mkdtemp(join(tmpdir(), 'agent-commons-automation-smoke-'))
+  let run
+  try {
+    run = await launch(executable, profile)
+    const { page } = run
+    await request(page, '/auth/signup', {
+      name: 'Native Automation Owner', email: `native-automation-${randomUUID()}@example.test`, password: PASSWORD,
+    })
+    const capabilities = await request(page, '/capabilities')
+    assert.equal(capabilities.features?.simulatedAutomation, false, 'the original packaged executable advertises no fixture automation')
+
+    const project = await request(page, '/projects', {
+      name: 'Native release automation gate', description: 'Disposable smoke-only setup.',
+    }, { status: 201 })
+    const provider = await request(page, '/providers', {
+      label: 'Native automation gate provider', modelFamily: 'claude', effortLevels: ['Low'],
+      models: [{ id: `automation-gate-${randomUUID()}`, label: 'No-op acceptance model' }],
+    })
+    const prompt = await request(page, '/system-prompts', {
+      label: 'Native automation gate prompt', body: 'Unused: this smoke never makes a model call.', targetFamily: 'claude',
+    })
+    const agent = await request(page, '/agents', {
+      label: 'Native automation gate Agent', providerId: provider.id, systemPromptId: prompt.id,
+      tools: [], instructions: 'Unused by this smoke.',
+    })
+    const commission = await request(page, '/commissions', {
+      role: 'writer', agentId: agent.id, projectId: project.project.id, standing: true,
+    })
+
+    const dispatchBefore = await request(page, '/dispatch')
+    const projectTarget = `native-automation-project-${randomUUID()}`
+    const proxyTarget = `native-automation-proxy-${randomUUID()}`
+    const projectEffect = await request(page, `/projects/${project.project.id}/effects`, {
+      commissionId: commission.id, subGoal: 'must-not-fire', type: 'charge', target: projectTarget,
+    }, { status: 409 })
+    assert.equal(projectEffect.error?.code, 'capability_unavailable')
+    const proxyEffect = await request(page, `/agents/${agent.id}/proxy`, {
+      fromAgentId: `requester-${randomUUID()}`, capability: 'charge', target: proxyTarget,
+    }, { status: 409 })
+    assert.equal(proxyEffect.error?.code, 'capability_unavailable')
+    const dispatchRefusal = await request(page, '/dispatch', {
+      title: 'Must not simulate a packaged Dispatch', detail: 'The release smoke expects a capability refusal.',
+    }, { status: 409 })
+    assert.equal(dispatchRefusal.error?.code, 'capability_unavailable')
+
+    const dispatchAfter = await request(page, '/dispatch')
+    assert.deepEqual(dispatchAfter.map(row => row.id), dispatchBefore.map(row => row.id), 'refused Dispatch creates no feed row')
+    const currentAgent = await request(page, `/agents/${agent.id}`)
+    assert.equal(currentAgent.contributions ?? 0, 0, 'refused project effect creates no synthetic credit')
+    const audit = await request(page, '/audit')
+    assert.equal(audit.some(row => row.target === projectTarget || row.target === proxyTarget), false,
+      'refused effects create no audit receipt')
+
+    const subGoal = `native-open-work-${randomUUID()}`
+    const posted = await request(page, `/projects/${project.project.id}/open-subgoals`, {
+      subGoal, type: 'charge', target: `budget:${subGoal}`,
+    })
+    assert.equal(posted.status, 'open', 'a valid native work post stays open despite an eligible standing Agent')
+    const a2aSubGoal = `native-a2a-work-${randomUUID()}`
+    const a2a = await request(page, `/a2a/projects/${project.project.id}`, {
+      jsonrpc: '2.0', id: a2aSubGoal, method: 'message/send',
+      params: { message: {
+        kind: 'message', role: 'user', messageId: a2aSubGoal,
+        parts: [
+          { kind: 'text', text: a2aSubGoal },
+          { kind: 'data', data: { type: 'charge', target: `budget:${a2aSubGoal}` } },
+        ],
+      } },
+    })
+    assert.equal(a2a.result?.status?.state, 'submitted', 'accepted A2A work stays submitted, not synthetically completed')
+    const backlog = await request(page, `/projects/${project.project.id}/open-subgoals`)
+    assert.equal(backlog.length, 2)
+    assert.ok(backlog.every(row => row.status === 'open'), 'both accepted work items remain open')
+    console.log('[desktop-automation-smoke] original packaged capabilities · Dispatch/project-effect/Agent-proxy refusals · accepted open native/A2A work')
+  } finally {
+    await close(run)
+    await rm(profile, { recursive: true, force: true })
+  }
+}
+
 export async function smokePackagedContributionMcp({ executable = packagedExecutable() } = {}) {
   if (process.platform !== 'darwin') {
     console.log('[desktop-contribution-mcp-smoke] not run: this OS-backed fixture acceptance requires macOS')
@@ -101,6 +186,9 @@ export async function smokePackagedContributionMcp({ executable = packagedExecut
     assert.equal(peer.authorizations.length, 0, 'production refusal does not contact the local peer')
     await closePackagedDesktop(run)
     run = undefined
+
+    stage = 'production-automation-refusal'
+    await smokePackagedAutomationPosture({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
 
     stage = 'fixture-copy-and-real-inspection'
     fixturePackage = await createMcpLoopbackSmokePackage(executable)

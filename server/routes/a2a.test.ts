@@ -46,10 +46,27 @@ test('the platform card is served at /a2a/card and advertises the open-work skil
   assert.equal(json.protocolVersion, '0.3.0')
   assert.equal(json.preferredTransport, 'JSONRPC')
   assert.equal(json.capabilities.streaming, false, 'dispatch is synchronous — streaming honestly declined')
+  assert.match(json.description, /development simulation/i, 'the development card labels simulated standing completion')
+  assert.match(json.description, /no Agent or external tool runs/i)
   const skill = json.skills.find((s: any) => s.id === 'open-work')
   assert.ok(skill, 'the one platform-level act a foreign agent may perform')
   assert.match(skill.description, /a2a\/projects\/\{projectId\}/, 'the skill names the project endpoint')
   assert.match(json.url, /^http:\/\/test\/api\/v1\/a2a$/, 'the card url is absolute, from the request origin')
+})
+
+test('release platform card says posted work stays pending instead of claiming standing execution', async () => {
+  const previous = process.env.DEPLOYMENT_PROFILE
+  process.env.DEPLOYMENT_PROFILE = 'desktop'
+  try {
+    const { status, json } = await call('GET', '/a2a/card')
+    assert.equal(status, 200)
+    assert.match(json.description, /posted work remains submitted/i)
+    assert.match(json.description, /standing configuration does not execute/i)
+    assert.doesNotMatch(json.description, /standing Contributors take (?:it|open work) unprompted/i)
+  } finally {
+    if (previous === undefined) delete process.env.DEPLOYMENT_PROFILE
+    else process.env.DEPLOYMENT_PROFILE = previous
+  }
 })
 
 test('a published Agent gets a card built from its directory face; no capability field ever rides it', async () => {

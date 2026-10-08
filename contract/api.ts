@@ -67,6 +67,9 @@ export interface Capabilities {
     clipboard: boolean
     /** Run scheduled routines on a cadence (the daemon). */
     scheduledExecution: boolean
+    /** Development-only Dispatch, commissioned effects and Agent proxy fixtures.
+     * Never represents real execution or grants unattended tool authority. */
+    simulatedAutomation: boolean
     /** Stream assistant replies token-by-token (SSE). */
     streaming: boolean
     /** The account switcher (multi-account design §5.6, revised; §13): whether

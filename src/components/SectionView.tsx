@@ -4,6 +4,7 @@ import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
+import { automationPresentation, AUTOMATION_NOTICE_CLASS } from '../lib/automationPresentation.ts'
 import {
   AlertCircle,
   Award,
@@ -299,6 +300,7 @@ import {
   useProjectDirectory,
   useProjectSubGoals,
   useDispatchRuns,
+  useCapabilities,
   useProviders,
   useAdminUsers,
   useAdminTenants,
@@ -2601,7 +2603,7 @@ function ContributorRow({
           </span>
           {commission.standing && (
             <span
-              title="Standing: volunteers for this project’s open work — takes posted items unprompted, on its owner’s plan"
+              title="Standing configuration: development simulation only; no unattended execution in this release"
               className="shrink-0 rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
             >
               standing
@@ -2647,11 +2649,11 @@ function ContributorRow({
         {resolvedHere && (
           <div
             className="text-[11px] text-ink-faint"
-            title="Open work this standing contributor took on THIS project — distinct from its cross-project contribution total"
+            title="Historical simulated work on this Project — not proof of Agent or tool execution"
           >
             {resolvedHere.count > 0
-              ? `Took ${resolvedHere.count} item${resolvedHere.count === 1 ? '' : 's'} here · last ${relativeTime(resolvedHere.lastAt)}`
-              : 'Standing · no items taken yet'}
+              ? `Simulated ${resolvedHere.count} item${resolvedHere.count === 1 ? '' : 's'} here · last ${relativeTime(resolvedHere.lastAt)}`
+              : 'Standing · no simulated items yet'}
           </div>
         )}
         {deleting && <div className="text-[11px] text-ink-faint">Removing Contributor…</div>}
@@ -2820,12 +2822,10 @@ function CommissionDialog({
       </div>
       <CheckboxRow checked={standing} onToggle={() => setStanding(!standing)} className="mb-3">
         <span className="text-[12px] leading-snug text-ink-soft">
-          <span className="font-medium text-ink">Standing</span> — volunteer this agent for the
-          project’s open work: when a work item is posted it may take it{' '}
-          <span className="font-medium text-ink">unprompted</span>, spending your plan (owner-pays,
-          D19). Approved once, here — the same shape as a standing schedule approval.
+          <span className="font-medium text-ink">Standing</span> — configure this Agent as a volunteer for the Project’s open work.
         </span>
       </CheckboxRow>
+      <AutomationNotice kind="standing" />
       <div className="space-y-3">
         <AdmittedChecklist
           label="Connectors this contributor may reach"
@@ -3294,9 +3294,10 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
         />
       }
     >
+      <AutomationNotice kind="work" />
       {items.length === 0 ? (
         <p className="text-[12px] text-ink-faint">
-          Nothing posted. Post a work item — a standing contributor may take it unprompted.
+          Nothing posted. Post a work item to keep it in the Project backlog.
         </p>
       ) : (
         <CardList>
@@ -3382,9 +3383,6 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
           disabled={held}
           className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
         />
-        <p className="text-[11px] text-ink-faint">
-          Posting adds this to the Project backlog. A standing contributor may act on it immediately.
-        </p>
         {error && <p className="text-[11px] text-removed">{error}</p>}
       </div>
       )}
@@ -13079,6 +13077,9 @@ function AdminOpsPanel() {
 function GenericSection({ section }: { section: SectionId }) {
   const meta = SECTION_META[section]
   const [creating, setCreating] = useState(false)
+  const capabilities = useCapabilities()
+  const automation = automationPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
+  const openDispatch = () => { if (automation.canSimulate) setCreating(true) }
   return (
     <CompositeResourcePage section={section} projectSections={false}>
       <PageHeader
@@ -13095,9 +13096,11 @@ function GenericSection({ section }: { section: SectionId }) {
         {section === 'dispatch' && (
           <PageActionButton
             icon={<Plus size={15} />}
-            onClick={() => setCreating(true)}
+            onClick={openDispatch}
+            disabled={!automation.canSimulate}
+            title={!automation.canSimulate ? automation.dispatch : undefined}
             mirrorsRailFor="dispatch"
-            onRailInvoke={() => setCreating(true)}
+            onRailInvoke={automation.canSimulate ? openDispatch : undefined}
           >
             New dispatch
           </PageActionButton>
@@ -13110,17 +13113,18 @@ function GenericSection({ section }: { section: SectionId }) {
   )
 }
 
-/** The "New dispatch" form — a one-off agentic task: a required title + an optional
- *  detail. Dispatching kicks off a run that lands in the feed 'running' and finishes
- *  a beat later. Built on the shared FormDialog primitive. */
+/** Development-only Dispatch simulation, using the shared FormDialog. Live
+ * server capability and execution guards are independent of feed history. */
 function NewDispatchDialog({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('')
   const [detail, setDetail] = useState('')
   useDispatchMutationStatus()
   const tenantId = useMe().data?.tenant.id
   const held = isDispatchHeld()
+  const capabilities = useCapabilities()
+  const automation = automationPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
 
-  const canCreate = title.trim().length > 0 && Boolean(tenantId)
+  const canCreate = automation.canSimulate && title.trim().length > 0 && Boolean(tenantId)
   const submit = () => {
     if (!canCreate || held || !tenantId) return
     const input = {
@@ -13144,6 +13148,7 @@ function NewDispatchDialog({ onClose }: { onClose: () => void }) {
       onSubmit={submit}
       onClose={onClose}
     >
+      <AutomationNotice kind="dispatch" />
       <FormField label="Task">
         <input
           value={title}
@@ -15257,6 +15262,12 @@ function ScheduleModelPicker({
   )
 }
 
+function AutomationNotice({ kind }: { kind: 'dispatch' | 'standing' | 'work' }) {
+  const capabilities = useCapabilities()
+  const posture = automationPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.simulatedAutomation)
+  return <p role="note" data-automation-posture={posture.state} className={AUTOMATION_NOTICE_CLASS}>{posture[kind]}</p>
+}
+
 function DispatchView() {
   const runs = useDispatchRuns().data ?? []
   const projection = flatCollectionProjection({
@@ -15266,20 +15277,23 @@ function DispatchView() {
     items: collectionProjectionItems(runs, (run) => run.id, (run) => run.title),
   })
   return (
-    <MainCollectionTemplate
-      projection={projection}
-      renderItem={(item) => {
-        const r = item.value
-        return (
-          <SynopsisRow
-            prefix={<DispatchStatus status={r.status} />}
-            title={r.title}
-            description={r.detail}
-            meta={r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
-          />
-        )
-      }}
-    />
+    <>
+      <AutomationNotice kind="dispatch" />
+      <MainCollectionTemplate
+        projection={projection}
+        renderItem={(item) => {
+          const r = item.value
+          return (
+            <SynopsisRow
+              prefix={<DispatchStatus status={r.status} />}
+              title={r.title}
+              description={r.detail}
+              meta={r.status === 'running' ? `started ${relativeTime(r.startedAt)}` : relativeTime(r.startedAt)}
+            />
+          )
+        }}
+      />
+    </>
   )
 }
 

@@ -7,6 +7,7 @@
  *  authorizes"). JSON-RPC envelope helpers live here too so the routes stay
  *  free of protocol boilerplate. */
 import type { ServerResponse } from 'node:http'
+import { automationRuntimeMode } from './automationRuntime.ts'
 import {
   API_BASE_PATH,
   A2A_PROTOCOL_VERSION,
@@ -26,6 +27,9 @@ import { sendJson } from './http/respond.ts'
  *  may perform: posting open work to a shared Project (D19 via D20). */
 export function platformCard(origin: string, requireAuth = !!process.env.A2A_REQUIRE_AUTH): A2aAgentCard {
   const base = `${origin}${API_BASE_PATH}`
+  const workRuntimeDescription = automationRuntimeMode() === 'fixture'
+    ? 'Development simulation: standing completion is simulated; no Agent or external tool runs.'
+    : 'In this release, posted work remains submitted until a real workflow handles it; standing configuration does not execute it.'
   return {
     protocolVersion: A2A_PROTOCOL_VERSION,
     name: 'Agent Commons',
@@ -39,8 +43,7 @@ export function platformCard(origin: string, requireAuth = !!process.env.A2A_REQ
       },
     },
     ...(requireAuth ? { security: [{ peerBearer: [] }] } : {}),
-    description:
-      'A cooperation platform where agents are the main players: shared Projects, published Agent definitions, and an open-work backlog standing Contributors take unprompted. This card is the instance front door; each published Agent serves its own card.',
+    description: `A cooperation platform where agents are the main players: shared Projects, published Agent definitions, and an open-work backlog. ${workRuntimeDescription} This card is the instance front door; each published Agent serves its own card.`,
     url: `${base}/a2a`,
     version: '1',
     preferredTransport: 'JSONRPC',

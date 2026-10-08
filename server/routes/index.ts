@@ -3,6 +3,7 @@
  *  is plain data — adding a resource is adding a `.get(...)` line. */
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { contributionRuntimeMode, CONTRIBUTION_RUNTIME_UNAVAILABLE } from '../contributionRuntime.ts'
+import { automationRuntimeMode, AUTOMATION_RUNTIME_UNAVAILABLE, type AutomationFixtureKind } from '../automationRuntime.ts'
 import { validReviewerBinding } from '../contributionReviewState.ts'
 import { validJudgmentRequest } from '../delegatedJudgmentState.ts'
 import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
@@ -279,6 +280,16 @@ function enrollmentAllowed(req: IncomingMessage): boolean {
   const a = Buffer.from(supplied)
   const b = Buffer.from(token)
   return a.length === b.length && timingSafeEqual(a, b)
+}
+
+/** Must wrap idempotency: an old fixture receipt is not release execution. */
+function fixtureAutomation(kind: AutomationFixtureKind, handler: (ctx: Ctx) => void | Promise<void>) {
+  return (ctx: Ctx) => {
+    if (automationRuntimeMode() !== 'fixture') {
+      return sendError(ctx.res, 'capability_unavailable', AUTOMATION_RUNTIME_UNAVAILABLE[kind])
+    }
+    return handler(ctx)
+  }
 }
 
 export function buildRouter(): Router {
@@ -2118,7 +2129,7 @@ export function buildRouter(): Router {
   // Agent-to-agent proxy (D15): A's Agent (`fromAgentId`) asks B's Agent (`:id`) to act on B's
   // private resource. B acts under *its own* authority and returns only the result — the
   // requester never holds a B credential (the structural D12 wall). Mock fulfilment.
-  r.formPost('/agents/:id/proxy', 'agent-to-agent execution edge — machine coordination, not a human workspace act', async ({ res, params, body }) => {
+  r.formPost('/agents/:id/proxy', 'agent-to-agent execution edge — machine coordination, not a human workspace act', fixtureAutomation('proxy', async ({ res, params, body }) => {
     const req = await body<ProxyRequest>()
     if (!req?.fromAgentId || typeof req?.target !== 'string' || !PROJECT_EFFECT_TYPES.includes(req.capability)) {
       return sendError(res, 'bad_request', 'fromAgentId, target, and a valid capability are required')
@@ -2126,7 +2137,7 @@ export function buildRouter(): Router {
     const result = store.runAgentProxy(params.id, req)
     if (!result) return sendError(res, 'not_found', `No agent '${params.id}' to proxy through`)
     sendJson(res, result)
-  })
+  }))
   // Fork a published Agent's definition into the caller's tenant (D18): a new private
   // Agent with capability UNBOUND (authority/budget dropped; provider/prompt bindings
   // survive only if the forker can see them) + lineage stamped; the source's fork
@@ -3979,7 +3990,7 @@ export function buildRouter(): Router {
   // now on a real path. Order: 400 fields → 404 project → 403 actor (caller-identity + shared-gate)
   // → 403 reach → 403 role → run (409 on a concurrent different principal). A charge has no
   // data-reach target, so it skips the reach check.
-  r.formPost('/projects/:id/effects', 'commissioned effect-ingress edge used by machine coordination, not a direct UI act', async ({ req, res, params, body }) => {
+  r.formPost('/projects/:id/effects', 'commissioned effect-ingress edge used by machine coordination, not a direct UI act', fixtureAutomation('project-effect', async ({ req, res, params, body }) => {
     const { commissionId, subGoal, type, target } = await body<ProjectEffectRequest>()
     if (!commissionId || !subGoal || typeof target !== 'string' || !PROJECT_EFFECT_TYPES.includes(type)) {
       return sendError(res, 'bad_request', 'commissionId, subGoal, target, and a valid type are required')
@@ -4013,7 +4024,7 @@ export function buildRouter(): Router {
       if (err instanceof GuardianError) return sendError(res, err.code, err.message)
       throw err
     }
-  })
+  }))
 
   // ── Resource guardians + reservations (D5) ────────────────────────────────
   // Per shared resource (a context element id), a reservation ledger enforcing a
@@ -5371,7 +5382,7 @@ export function buildRouter(): Router {
   })
   // Kick off a one-off dispatch (lands 'running', finishes 'done' a beat later). Refuses a
   // 429 when the in-flight cap (DISPATCH_MAX_CONCURRENT, P7) is reached, so the caller backs off.
-  r.post('/dispatch', idempotent(async ({ req, res, body }) => {
+  r.post('/dispatch', fixtureAutomation('dispatch', idempotent(async ({ req, res, body }) => {
     const { title, detail } = await body<CreateDispatchRequest>()
     if (!title || !title.trim()) return sendError(res, 'bad_request', 'title is required')
     try {
@@ -5387,7 +5398,7 @@ export function buildRouter(): Router {
       if (err instanceof LimitError) return sendError(res, err.code, err.message)
       throw err
     }
-  }))
+  })))
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
   registerMcpConnectionRoutes(r, accountTransitionSourceMatches)

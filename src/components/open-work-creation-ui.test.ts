@@ -34,7 +34,8 @@ test('open-work posting is one held, explicit, exactly reconciled action', () =>
   assert.match(form, /held \? 'Posting…' : 'Post work'/)
   assert.match(form, /value="" disabled>Choose an action…<\/option>/,
     'the form never silently chooses an external effect')
-  assert.match(form, /A standing contributor may act on it immediately/)
+  assert.match(form, /<AutomationNotice kind="work" \/>/,
+    'posting discloses the backend-owned simulation posture, never promises execution')
   assert.match(form, /result\.outcome === 'applied'[\s\S]*setComposing\(false\)[\s\S]*work item wasn’t posted/,
     'only proven truth clears the complete form')
 

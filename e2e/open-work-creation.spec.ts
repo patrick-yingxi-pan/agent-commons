@@ -95,7 +95,7 @@ test('work-item intent stays visible and Retry posts one exact item', async ({ p
   await expect(form.getByLabel('Effect type')).toBeDisabled()
   await expect(form.getByLabel('Effect target')).toBeDisabled()
   await expect(form.getByLabel('Work item context')).toBeDisabled()
-  await expect(form).toContainText('may act on it immediately')
+  await expect(page.locator('main [data-automation-posture="fixture"]')).toContainText('may simulate completion; no Agent or external tool runs')
   await expect(trigger).toBeDisabled()
   await expect(section).toHaveAttribute('aria-disabled', 'true')
   expect(keys).toHaveLength(1)

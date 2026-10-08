@@ -52,11 +52,11 @@ export interface Commission {
    *  set when a sub-goal is reserved. Forward; unset for now. */
   reservationId?: string
   /** **Standing** (docs/agent-commons.md, D19): this Contributor volunteers to take the
-   *  Project's open work UNPROMPTED — when an open sub-goal is posted, standing
-   *  Commissions are dispatched in role-rank order through the same guarded effect path
-   *  a human-driven turn uses. Set by the commission's OWNER (D13 owner-pays: it is
-   *  their compute being donated unprompted — the standing-approval consent shape).
-   *  Unset/false ⇒ acts only when driven (default). */
+   *  Project's open work. Development simulates dispatch in role-rank order
+   *  through the guarded fixture effect path; releases leave posted work open.
+   *  Set by the commission's OWNER, but this saved configuration does not grant
+   *  real unattended execution or external-tool authority (MOCK-9).
+   *  Unset/false ⇒ no simulated standing dispatch (default). */
   standing?: boolean
 }
 

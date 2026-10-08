@@ -6,7 +6,63 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: native Contribution MCP acceptance
+## Current checkpoint: truthful automation availability
+
+The owner approved both pending automation defaults on 2026-10-08:
+
+- Real Dispatch explicitly selects an Agent and endpoint model, saves its result
+  in a private conversation that can be continued, and requires fresh confirmation
+  for each external tool call.
+- Unattended Routine MCP is opt-in per Routine, limited to selected tools and
+  reviewed argument constraints, with per-run call limits, expiration and immediate
+  revocation. Changed tool definitions require renewed approval. Results follow
+  the disclosed destination's sharing; uncertain calls are never automatically
+  repeated. Call limits are not monetary caps and third parties may charge.
+
+These are approved implementation directions, not live grants or authorization
+to use a paid provider/public MCP service for acceptance. Existing Commissions
+do not inherit either permission policy.
+
+Before those workflows, the audit found a release-integrity defect: legacy
+Dispatch completed on a timer, Project effects and Agent proxies returned
+synthetic success, and eligible standing Commissions could mark posted work done
+and award credit without any execution adapter. MOCK-9 gates those fixtures at
+the store and route boundaries, before cached Dispatch replay. Release posting
+and Commission configuration remain available but leave new work open, including
+A2A submissions. Real Routines and explicitly confirmed Contribution MCP are
+unchanged. One backend capability drives honest development/release disclosure
+and closed-by-default Dispatch controls, including the rail action.
+
+Store and route locks were watched fail against the old implementation and now
+pass. The final local verifier, full UI sweep and rebuilt packaged acceptance
+remain the landing gates. Next: implement the approved real Dispatch workflow,
+then bounded Routine MCP grants; no further policy approval is needed for those
+defaults. The rendered regression also caught a rail action that looked enabled
+while its page handler was blocked; both now use the same capability policy.
+Unknown availability avoids promising that work will stay open on a development
+backend. The page-action structural lock now enumerates complete elements rather
+than imposing an arbitrary source-character limit; its negative check failed as
+expected. Signing/notarization, hosted delivery, Intel and public-service acceptance
+remain separate release gates.
+
+The A2A instance card now states the same runtime boundary for protocol clients;
+its profile-aware route regression failed before the repair and passes afterward.
+Focused rendered checks pass, including five viewport sizes, owner/reader/foreign
+scope and short-landscape keyboard/scroll reachability. The complete broad sweep
+passes all 135 cells with zero violations or skips, and its captures were reviewed.
+The rebuilt unsigned arm64 desktop gate passes, including original-package
+automation refusal and the isolated Contribution MCP fixture. The complete local
+verifier remains the final landing gate before push.
+The first package build caught an initial-bundle overrun caused by eagerly loading
+all disclosure copy through the rail. The tiny capability predicate is now shared
+separately from lazy page copy; the existing size budget is unchanged. The initial
+broad sweep was stopped before further edits; the successful sweep above ran on
+the repaired revision.
+
+## Completed checkpoint: native Contribution MCP acceptance
+
+Shipped as `73c995b3`: the complete local verifier passed all five lanes and
+597 browser tests. The detailed pre-landing record below is historical evidence.
 
 The exact-bound Contribution workflow now has a feature-specific macOS fixture
 gate. The original unsigned package must refuse a loopback MCP connection
@@ -31,7 +87,7 @@ result comparisons in public history and SQLite; that journey passed again on
 the unchanged original ASAR. All five final captures were reviewed. The
 [acceptance record](acceptance/native-contribution-mcp-2026-10-08.md) binds the
 scope, package digests and negative checks. The complete frozen local verifier
-is the remaining pre-push gate.
+passed before push.
 
 ## Completed checkpoint: bounded Routine execution
 
@@ -42,8 +98,8 @@ The core-workflow audit confirmed two unfinished automation directions. Real
 Dispatch still needs an approved Agent/model and result-destination policy;
 external MCP calls in unattended Routines need separate scoped standing authority
 or a pause-for-confirmation workflow. Both decisions have been requested and are
-pending. Neither existing per-call permission nor an automatic goal continuation
-authorizes either policy change.
+now approved as recorded above. The earlier pending decision did not authorize
+either policy change before that explicit owner approval.
 
 The existing PD60 requirement for bounded automation can proceed independently.
 The Routine worker now queues durable rows under process/tenant/tenant-Agent

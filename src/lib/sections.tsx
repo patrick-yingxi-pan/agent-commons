@@ -82,7 +82,7 @@ export const SECTION_META: Record<
   },
   dispatch: {
     label: 'Dispatch',
-    subtitle: 'Send Claude off to run tasks in the background.',
+    subtitle: 'One-off task history and execution availability.',
     Icon: SendHorizontal,
     beta: true,
   },

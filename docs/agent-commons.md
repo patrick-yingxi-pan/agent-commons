@@ -858,6 +858,13 @@ and consequences atomically. The form requires an explicit human-labeled effect 
 that a standing Contributor may act immediately. A2A remains the deliberately unkeyed
 compatibility dialect. **[COMMONS]**
 
+**Current-runtime qualification (MOCK-9).** The synchronous standing-dispatch behavior above
+is design intent and runs only as a development simulation; no Agent or external tool runs.
+Desktop and web release profiles accept native and A2A posts but leave work open/submitted;
+saved standing configuration is not an unattended execution grant and causes no simulated
+credit or audit. Real Dispatch and unattended Routine MCP are separate approved
+implementation milestones, not current behavior.
+
 **Why.** Everything before this slice made agents excellent *instruments*: they act when a
 human sends a turn or a schedule fires. "A cooperation platform where agents are the main
 players" needs agents that *initiate* — and the platform already contains every wall the
@@ -1374,10 +1381,11 @@ the consent-gated commission/role walls, never a bell).
   tools + instructions across the tenant boundary; authority, budget, and provider
   binding are always re-granted by the receiving owner through their own D8 funnel
   (D18). **[COMMONS]**
-- **The unprompted path passes every wall the prompted path passes.** Standing dispatch
-  adds a trigger, zero authority: role (D14), reach (D12), Guardian serialization (D11),
-  credit (D13), audit (D15) are the same code path a human-driven effect takes (D19).
-  **[COMMONS]**
+- **The development-only simulated unprompted path passes every wall the prompted path
+  passes.** Standing dispatch adds a trigger, zero authority: role (D14), reach (D12), Guardian
+  serialization (D11), credit (D13), audit (D15) are the same code path a human-driven effect
+  takes (D19). Release profiles leave posted work open/submitted until a real workflow handles
+  it; saved standing configuration does not execute it. **[COMMONS]**
 - **A protocol translates; it never authorizes.** Every foreign-dialect request (A2A
   today) lands on the same store methods behind the same visibility checks and walls as
   the native routes — the edge layer converts message shapes and nothing else (D20).
@@ -1780,16 +1788,16 @@ session↔context binding, mediation handle, and single-resource escrow).
   cleared), lineage stamped (`forkedFrom`) and the source's `forks` credited; a foreign
   unpublished Agent is 404 (`server/routes/agent-fork.test.ts`).
   **D19 open work + standing dispatch** — the persisted Project backlog (`OpenSubGoal`,
-  the issues analog) plus `Commission.standing` (owner-pays consent to unprompted spend):
-  a posted item dispatches synchronously in role-rank order through the SAME walls as the
-  prompted path (role D14 / reach D12 / Guardian D11, then credit D13 + audit D15 inside
-  `runProjectEffect`); an untakeable item stays open; flipping a commission to standing
-  re-dispatches the backlog once; `openwork.changed` (visibility mirrors the Project's)
-  keeps the Coordination panel's **Open work** list live. Native posting now holds one
-  explicit, human-labeled effect intent through acknowledgement; its durable identity replays
-  before validation/capacity/dispatch, and first application batches the item with any
-  synchronous effect and consequences (`server/routes/standing-dispatch.test.ts`,
+  the issues analog) plus `Commission.standing`. In development, a posted item simulates
+  synchronous role-rank dispatch through the same walls as the prompted path; no Agent or
+  external tool runs. Desktop and web release profiles leave posts open/submitted and do not
+  execute, credit, or audit a standing effect. Native posting holds one explicit, human-labeled
+  effect intent through acknowledgement; its durable identity replays before validation/capacity/
+  dispatch, and first application batches the item with any development-simulated effect and
+  consequences (`server/routes/standing-dispatch.test.ts`, `server/store/automation-runtime.test.ts`,
   `e2e/open-work-creation.spec.ts`, persistence in `server/persistence/snapshot.test.ts`).
+  `openwork.changed` (visibility mirrors the Project's) keeps the Coordination panel's
+  **Open work** list live.
   Spec rows COMMONS-7/8/9 + SYNC-48; federation stays exploration (BROKER-EXP-5, § Beyond one
   instance). typecheck + full suite + build green; verified live.
 - **Slice 20 — A2A at the edge (D20). ✅ Built.** The platform shell's objects re-served

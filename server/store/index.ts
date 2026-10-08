@@ -15,6 +15,7 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
+import { automationRuntimeMode, requireAutomationFixture } from '../automationRuntime.ts'
 import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, prepareContributionMcpLines, currentContributionMcpLine, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
 import { createContributionEffectAttempt, settleContributionEffectAttempt, interruptContributionEffectAttempt, publicContributionEffectRun, contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX } from '../contributionEffectState.ts'
 import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
@@ -4259,6 +4260,7 @@ export const store = {
         // identityHeadersAllowed) so tests can toggle it without reloads.
         authGate: process.env.AUTH_GATE === 'require',
         scheduledExecution: true, // a remote server can run schedules too
+        simulatedAutomation: automationRuntimeMode() === 'fixture',
         streaming: true,
       },
     }
@@ -6815,6 +6817,7 @@ export const store = {
    *  'failed' on rehydrate (the completing timer doesn't survive the process). Returns
    *  the run. */
   addDispatch(title: string, detail?: string, tenantId?: string, manualRunId?: string): DispatchRun {
+    requireAutomationFixture('dispatch')
     if (manualRunId) {
       const represented = dispatch.find((run) => run.id === manualRunId && rowVisibleTo(run, tenantId ?? defaultTenantId()))
       if (represented) return represented
@@ -7652,6 +7655,7 @@ export const store = {
     type: ProjectEffectType,
     target: string,
   ): ProjectEffectResult {
+    requireAutomationFixture('project-effect')
     const monotonic = isProjectEffectMonotonic(type)
     const project = findProject(projectId) // seed + created (P8 shared Projects are guardable)
     const guarded = !monotonic && !!project?.guardianId
@@ -7684,6 +7688,7 @@ export const store = {
    *  the reach / declines). Mock fulfilment; the seam is real. Undefined for an unknown owner
    *  Agent (→ 404). */
   runAgentProxy(toAgentId: string, req: ProxyRequest): ProxyResult | undefined {
+    requireAutomationFixture('proxy')
     const to = WORKER_AGENTS.get(toAgentId)
     if (!to) return undefined
     const reaches = req.capability.startsWith('connector.') || req.capability.startsWith('mcp.')
@@ -8727,6 +8732,9 @@ export const store = {
    *  accepts); a `GuardianError` (someone already holds the sub-goal) skips to the next
    *  candidate rather than failing the post. */
   dispatchOpenSubGoal(item: OpenSubGoal): boolean {
+    // Posting and commission configuration remain real coordination operations;
+    // a release cannot convert them into synthetic completion or credit.
+    if (automationRuntimeMode() !== 'fixture') return false
     if (item.status !== 'open') return false
     const monotonic = isProjectEffectMonotonic(item.type)
     const reaches = item.type.startsWith('connector.') || item.type.startsWith('mcp.')
