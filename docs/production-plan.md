@@ -6,7 +6,48 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: real one-off Dispatch
+## Current checkpoint: bounded unattended Routine MCP
+
+The approved direction remains a separate per-Routine permission, never inherited
+from attached contexts or Commissions. MODEL-40 now implements the pure permission
+and receipt core. It does not enable external calls, add a route, or write new
+snapshot state yet. Owner review, persistence and runner integration come next.
+
+The proposed review fixes selected tools and exact top-level argument values
+(for example, repository or channel), while leaving other arguments subject to
+the reviewed tool schema. Preparation bounds are 16 tools, 20 reserved attempts
+per run, and 30 days of permission. Every attempt consumes a slot, including
+pre-submit refusal; these are not monetary caps. Scope, definition, connection,
+schema, expiry and live permission are checked independently. Replacement or
+revocation cannot widen an already queued run.
+
+The private ledger preserves its initial permission even when empty, and binds
+each receipt to exact arguments and tenant/Routine/run identity. Represented
+replay returns history, not authority to dispatch. Any external reservation
+forbids retrying the model prompt. Uncertainty or a returned tool error stops
+further call admission; recovery preparation marks pending calls uncertain.
+The eventual store must commit these transitions before outbound I/O/admission.
+
+Focused tests cover strict bounded parsing, scope/revision checks, fixed argument
+semantics, expiry, revocation, replay, receipt joins, capacity and interruption.
+Negative checks broke expiry and receipt hashing and failed as expected. Review
+also caught empty-ledger approval replacement and continuation after a possibly
+effectful tool error; regressions failed before both fixes. Full local verification
+and post-test review remain the delivery gates, recorded in the checkpoint handoff.
+
+Next is one complete owner workflow: review/disclose destination sharing and fees,
+approve/revoke with held-response recovery, freeze the grant at queue time, commit
+every reservation before I/O, and recheck live authority at the one-shot executor.
+JSON/SQLite restart plus browser/native local protocol fixtures must prove that
+uncertain calls cannot repeat. No further product decision is currently needed.
+Paid-provider/public-MCP acceptance and signing/Intel gates remain separate.
+
+## Completed checkpoint: real one-off Dispatch
+
+Shipped and pushed as `8de444d8`. The complete local verifier passed all five
+lanes and 603 browser tests; the visual sweep passed 135/135 cells with no skips
+or violations, and rebuilt unsigned arm64 desktop acceptance passed. The detailed
+pre-landing record below is historical evidence, not pending work.
 
 The approved workflow is implemented for local acceptance: explicitly select an
 Agent, endpoint connection and catalog model; launch one private conversation;

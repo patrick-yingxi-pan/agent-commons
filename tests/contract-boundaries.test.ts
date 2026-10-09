@@ -17,6 +17,21 @@ import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
+test('Routine MCP policy and receipt preparation share portable types without owning execution or persistence', () => {
+  const check = (source: string) => {
+    assert.match(source, /from '\.\.\/contract\/routineMcp\.ts'/,
+      'Routine MCP preparation must use the portable contract')
+    assert.doesNotMatch(source, /\b(?:fetch|executeBoundMcpCall|callMcpToolWithSession|commitMutationBatch|persist)\s*\(/,
+      'pure permission/receipt preparation grants neither I/O nor durable admission')
+  }
+  for (const path of ['server/routineMcpPolicy.ts', 'server/routineMcpState.ts']) {
+    const source = stripComments(read(join(ROOT, path)))
+    check(source)
+    assert.throws(() => check(source.replace("from '../contract/routineMcp.ts'", "from '../server/routineRunner.ts'")), /portable contract/)
+    assert.throws(() => check(`${source}\nexecuteBoundMcpCall()`), /neither I\/O nor durable admission/)
+  }
+})
+
 test('Contribution receipts and bound MCP execution share contract identity without session authority', () => {
   const check = (source: string) => assert.match(source, /from '\.\.\/contract\/mcpExecution\.ts'/,
     'the bound call must use the framework-free shared contract')
