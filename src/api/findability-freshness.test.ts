@@ -61,9 +61,12 @@ test('the ambient events that change the commons refetch open profiles and searc
   const openworkCase = cases.find((c) => c.startsWith('openwork.changed'))
   for (const [label, block] of [['relation.applied', relationCase], ['openwork.changed', openworkCase]] as const) {
     assert.ok(block, `${label} case exists`)
-    assert.match(block, /invalidatePrefix\(keys\.ownerProfile\(\)\)/, `${label} refetches open profiles`)
-    assert.match(block, /invalidatePrefix\(keys\.search\(\)\)/, `${label} refetches open searches`)
+    assert.match(block, /invalidateProfilesAndSearch\(\)/, `${label} refetches open profiles and searches`)
   }
+  const helper = events.match(/function invalidateProfilesAndSearch\(\): void \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(helper, 'the shared findability invalidation helper exists')
+  assert.match(helper, /invalidatePrefix\(keys\.ownerProfile\(\)\)/)
+  assert.match(helper, /invalidatePrefix\(keys\.search\(\)\)/)
 })
 
 test('body and access changes refresh every current and saved-version search page', () => {
@@ -72,7 +75,8 @@ test('body and access changes refresh every current and saved-version search pag
     const block = cases.find((candidate) => candidate.startsWith(`${type}':`))
     assert.ok(block, `${type} is handled`)
     const method = type === 'grant.changed' ? 'evictPrefix' : 'invalidatePrefix'
-    assert.ok(block.includes(`${method}(keys.search())`), `${type} refreshes all search categories and pages`)
+    assert.ok(type === 'artifact.changed' ? block.includes('invalidateProfilesAndSearch()') : block.includes(`${method}(keys.search())`),
+      `${type} refreshes all search categories and pages`)
   }
 })
 

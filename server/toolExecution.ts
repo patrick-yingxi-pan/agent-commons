@@ -18,7 +18,7 @@ import type { EscalationProposal, RelationOp, ToolActivity } from '../contract/i
 import { connectorToolRuntime, type ConnectorToolRuntime } from './connectorRuntime.ts'
 import { nonNegativeIntEnv, positiveNumberEnv } from './env.ts'
 import { runApiTool, type ApiToolRuntime } from './model/apiTools.ts'
-import { runConnectorTool, type DerivedConnectorTools } from './model/connectorTools.ts'
+import { runConnectorTool, runRoutineMcpTool, type DerivedConnectorTools, type RoutineMcpRuntime } from './model/connectorTools.ts'
 import { executeTool, type ToolContext, type ToolEffect } from './model/tools.ts'
 import {
   ROUTINE_ARTIFACT_TOOL_NAME,
@@ -86,6 +86,8 @@ export interface ToolBatchOptions {
   /** One injected connector/MCP effect boundary. Omitted resolves the current
    *  deployment posture (fixture in development, fail-closed in release). */
   connectorRuntime?: ConnectorToolRuntime
+  /** Separately reviewed Routine MCP authority; interactive callers omit it. */
+  routineMcp?: RoutineMcpRuntime
   api?: ApiToolRuntime
   context: ToolContext
   /** Live accumulators shared with the turn so serial calls can chain. */
@@ -190,6 +192,8 @@ async function invoke(call: ModelToolCall, options: ToolBatchOptions, signal: Ab
           routineArtifact: staged,
         }
   }
+  const routineMcp = await runRoutineMcpTool(call.name, options.connectorBindings, asInput(call.input), options.routineMcp, signal)
+  if (routineMcp) return { content: routineMcp.content, isError: routineMcp.isError }
   const activity = await runConnectorTool(
     call.name,
     options.connectorBindings,

@@ -21,6 +21,14 @@ import { dispatchSessionId } from '../dispatchIdentity.ts'
 import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, prepareContributionMcpLines, currentContributionMcpLine, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
 import { createContributionEffectAttempt, settleContributionEffectAttempt, interruptContributionEffectAttempt, publicContributionEffectRun, contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX } from '../contributionEffectState.ts'
 import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
+import { RoutineMcpRegistry, validateRoutineMcpRegistryJoins } from '../routineMcpRegistry.ts'
+import { RoutineMcpPolicyError, routineMcpCallPermitted, routineMcpJsonText } from '../routineMcpPolicy.ts'
+import { reserveRoutineMcpCall, settleRoutineMcpCall, interruptRoutineMcpRun, publicRoutineMcpReceipt } from '../routineMcpState.ts'
+import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
+import type { RoutineMcpReview, RoutineMcpDecisionRequest, RoutineMcpDecisionResponse } from '../../contract/routineMcpApi.ts'
+import type { RoutineMcpCallReceipt } from '../../contract/routineMcp.ts'
+import type { McpBoundToolCall } from '../../contract/mcpExecution.ts'
+import type { RoutineMcpRuntime } from '../model/connectorTools.ts'
 import { publicReviewRun, reviewChangesetHash, sameReviewerBinding, validReviewerBinding, type StoredContributionReview } from '../contributionReviewState.ts'
 import { MAX_CONTRIBUTION_REVIEWS, type ContributionReviewerBinding } from '../../contract/contributionReview.ts'
 import { ContributionReviewGenerationError } from '../contributionReviewResult.ts'
@@ -442,6 +450,8 @@ export interface RoutineExecutionContext {
   modelId?: string
   contexts: SessionContext[]
   approvedContextIds: Set<string>
+  externalMcpConnections?: McpConnectionView[]
+  routineMcp?: RoutineMcpRuntime
   blocked?: { code: NonNullable<ScheduledRun['failureCode']>; detail: string }
 }
 
@@ -2343,6 +2353,76 @@ const contextRegistry = createContextRegistry({
   defaultTenantId,
 })
 const mcpConnectionRegistry = createMcpConnectionRegistry()
+const routineMcpRegistry = new RoutineMcpRegistry()
+
+/** Only stable reviewed facts enter the digest. Run progress, cadence cursors,
+ * names on receipts and unrelated graph edits cannot manufacture authority. */
+function routineMcpFacts(task: ScheduledTask): { reviewHash: string; disclosures: string[] } {
+  const owner = task.tenantId ?? defaultTenantId()
+  const artifact = graph.extraArtifacts.find(row => row.sourceScheduleId === task.id && (row.tenantId ?? defaultTenantId()) === owner)
+  const projectId = graph.scheduleProject[task.id] ?? null
+  // This legacy relation stores a display label, never an existing Session ID.
+  const sessionLabel = graph.scheduleSession[task.id] ?? null
+  const refs: SocialEntityRef[] = [{ kind: 'schedule', id: task.id }]
+  if (artifact) refs.push({ kind: 'artifact', id: artifact.id })
+  if (projectId) refs.push({ kind: 'project', id: projectId })
+  // Results also land in each run's real conversation. Its independent grants
+  // can change while a model call is in flight; publication must recheck them.
+  for (const run of task.runs) refs.push({ kind: 'session', id: runSessionId(task.id, run.id) })
+  const audience = refs.flatMap(ref => grants.filter(row => row.subject.kind === ref.kind && row.subject.id === ref.id))
+    .sort((a, b) => a.id.localeCompare(b.id))
+  const agent = WORKER_AGENTS.get(task.agentId ?? DEFAULT_AGENT.id)
+  const provider = MODEL_PROVIDERS.get(task.providerId ?? agent?.providerId ?? DEFAULT_PROVIDER.id)
+  // Reputation, forks, publication history, and provider online/secret telemetry
+  // are activity/provenance, not the configuration this permission reviewed.
+  // Keep this projection explicit so those fields cannot silently enter the hash.
+  const reviewedAgent = agent ? {
+    id: agent.id, revision: agent.revision ?? 0, tenantId: agent.tenantId ?? null,
+    label: agent.label, systemPrompt: agent.systemPrompt, instructions: agent.instructions,
+    tools: agent.tools, providerId: agent.providerId ?? null,
+    authority: agent.authority ?? null, budget: agent.budget ?? null,
+  } : null
+  const reviewedProvider = provider ? {
+    id: provider.id, tenantId: provider.tenantId ?? null, kind: provider.kind ?? 'endpoint',
+    definitionRevision: provider.definitionRevision ?? 0, connectionRevision: provider.connectionRevision ?? 0,
+    label: provider.label, modelFamily: provider.modelFamily, effortLevels: provider.effortLevels,
+    models: provider.models ?? null, catalogSource: provider.catalogSource ?? null,
+    plan: provider.plan ?? null, authority: provider.authority ?? null,
+    defaultModelId: provider.defaultModelId ?? null,
+  } : null
+  const project = projectId ? findProject(projectId) : undefined
+  const reviewHash = createHash('sha256').update(routineMcpJsonText({
+    owner, routineId: task.id, definitionRevision: task.revision ?? 0,
+    artifact: graph.scheduleArtifact[task.id] ?? null, projectId, sessionLabel,
+    extraTools: graph.scheduleExtraTools[task.id] ?? [],
+    // Public definition and authority changes require fresh review too.
+    agent: reviewedAgent, provider: reviewedProvider,
+    project: project ? { id: project.id, shared: project.shared ?? false } : null,
+    audience: audience.map(row => ({ id: row.id, subject: row.subject, audience: row.audience, tier: row.tier,
+      audienceTenant: row.audienceTenant, redeemedBy: row.redeemedBy ?? [] })),
+  })).digest('hex')
+  const spec = parseScheduledArtifactSpec(graph.scheduleArtifact[task.id])
+  return { reviewHash, disclosures: [
+    `The Routine uses ${agent?.label ?? 'its selected Agent'} and ${provider?.label ?? 'its selected provider'}. Tool arguments are sent to the selected external MCP servers; results return to the model provider.`,
+    `Run summaries and model output follow this Routine’s sharing and each run conversation’s independent sharing. Exact external-call receipts and permission settings remain owner-only.`,
+    spec ? `Successful output also updates ${spec.kind === 'doc' ? 'Document' : spec.kind === 'sheet' ? 'Sheet' : 'Slides'} “${spec.name}”, with that artifact’s current sharing.` : 'No standing artifact output is configured.',
+    ...(projectId ? [`Project destination: ${project?.name ?? projectId}.`] : []),
+    ...(project?.shared ? ['This destination Project is publicly shared. Its public definition is visible beyond its explicit grants.'] : []),
+    ...(sessionLabel ? [`Configured conversation label: ${sessionLabel}. Each run creates its own conversation; this label is not an existing conversation destination.`] : []),
+    audience.length ? `Current destination sharing: ${audience.map(row => `${row.subject.kind} → ${row.audience.kind === 'link' ? 'shared-link recipients' : tenantName(row.audienceTenant)} (${row.tier})`).join('; ')}.` : 'No additional share grants are configured on these destinations.',
+    'External services and the model provider may charge fees. Call limits are not monetary caps. Each attempt consumes a slot, including a pre-submit refusal.',
+    'Changing the Routine, its Agent/provider, destinations, sharing, or selected tool definitions requires renewed review. Uncertain external calls pause the Routine and are never automatically repeated.',
+  ] }
+}
+
+function pauseRoutineMcp(task: ScheduledTask): void {
+  routineMcpRegistry.suspend(task.tenantId ?? defaultTenantId(), task.id)
+  if (task.next !== 'Paused — review external calls' || task.enabled) task.revision = (task.revision ?? 0) + 1
+  task.enabled = false
+  task.next = 'Paused — review external calls'
+  delete task.nextFireAt
+  emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
+}
 
 // Per-session attached contexts — the *attachment of record* (Primitive 1 of
 // docs/shared-resource-coordination.md). Server-owned so every effect a session
@@ -2643,6 +2723,7 @@ function retireOldRuns(task: ScheduledTask): void {
   if (task.runs.length <= RUN_HISTORY_CAP) return
   const retired = task.runs.slice(RUN_HISTORY_CAP)
   task.runs = task.runs.slice(0, RUN_HISTORY_CAP)
+  routineMcpRegistry.retainRuns(task.tenantId ?? defaultTenantId(), task.id, new Set(task.runs.map(run => run.id)))
   const goneIds = new Set(retired.map((r) => runSessionId(task.id, r.id)))
   for (let j = SESSIONS.length - 1; j >= 0; j -= 1) {
     if (goneIds.has(SESSIONS[j].id)) SESSIONS.splice(j, 1)
@@ -2835,6 +2916,7 @@ function snapshot(): PersistedState {
     graph,
     savedContexts: contextRegistry.persistedContexts(),
     mcpConnections: mcpConnectionRegistry.snapshot(),
+    routineMcp: routineMcpRegistry.snapshot(),
     usageMeters: usageRegistry.snapshot(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
     // the providers so a restored one keeps its concrete model id.
@@ -2946,6 +3028,7 @@ function cleanFirstBootState(): PersistedState {
   clean.graph = emptyGraph()
   clean.savedContexts = []
   clean.mcpConnections = { connections: [], retired: [] }
+  clean.routineMcp = { policies: [], runs: [], decisions: [] }
   clean.usageMeters = []
   clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
   clean.providerConfigs = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]]
@@ -3332,6 +3415,10 @@ function rehydrate(s: PersistedState): boolean {
     tenantRecents: s.recentsByTenant,
   })
   mcpConnectionRegistry.rehydrate(s.mcpConnections)
+  routineMcpRegistry.replace(s.routineMcp ?? { policies: [], runs: [], decisions: [] })
+  if (!validateRoutineMcpRegistryJoins(routineMcpRegistry.snapshot(), schedules, defaultTenantId())) {
+    throw new Error('Persisted Routine MCP state has invalid owner or run bindings.')
+  }
   // Merge over an empty graph so a snapshot written before a slice existed (e.g.
   // projectInstructions) gains it as an empty map rather than `undefined`. Runtime
   // artifacts persisted before tenant stamping belong to the default namespace;
@@ -3697,9 +3784,25 @@ function rehydrate(s: PersistedState): boolean {
   // were (or one whose 'running' run was just swept to 'failed' above) can miss a
   // row or its recap — re-materialize through the same funnel, idempotently.
   materializeRunSessions()
+  let recoveredRoutineMcp = false
+  for (const ledger of routineMcpRegistry.snapshot().runs) {
+    if (ledger.calls.length === 0 || ledger.phase === 'interrupted') continue
+    const task = schedules.find(task => task.id === ledger.permission.routineId)!
+    const run = task.runs.find(run => run.id === ledger.runId)!
+    if (run.status !== 'running' && !ledger.calls.some(call => call.status === 'pending')) continue
+    routineMcpRegistry.setRun(interruptRoutineMcpRun(ledger, Date.now()))
+    routineMcpRegistry.suspend(ledger.permission.tenantId, task.id)
+    task.enabled = false
+    task.revision = (task.revision ?? 0) + 1
+    delete task.nextFireAt
+    task.next = 'Paused — review external calls'
+    store.failScheduleRun(task.id, run.id, 'execution_error',
+      'Interrupted after an external MCP attempt. Its effects may already exist. Review the call receipts before approving and enabling this Routine again.')
+    recoveredRoutineMcp = true
+  }
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch || recoveredRoutineMcp
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -12241,6 +12344,119 @@ export const store = {
   },
 
   // ── Scheduled runs (a single live feed; runs are server-owned) ──
+  /** Separate owner-only permission projection; never attach this to a shared
+   * ScheduledTask, graph or public run Session. */
+  routineMcpReview(id: string, viewerTenant: string): RoutineMcpReview | undefined {
+    const task = schedules.find(task => task.id === id)
+    if (!task) return undefined
+    const owner = task.tenantId ?? defaultTenantId()
+    if (!tenantWritesAs(viewerTenant, owner)) return undefined
+    const facts = routineMcpFacts(task)
+    const policy = routineMcpRegistry.policy(owner, id)?.policy ?? { version: 1 as const, revision: 0, approval: null }
+    const agent = WORKER_AGENTS.get(task.agentId ?? DEFAULT_AGENT.id)
+    const provider = MODEL_PROVIDERS.get(task.providerId ?? agent?.providerId ?? DEFAULT_PROVIDER.id)
+    const authority = intersectAuthority(provider?.authority ?? {}, agent?.authority ?? {})
+    const connections = this.mcpConnections(owner).filter(connection => connection.status === 'connected' &&
+      connection.execution === 'approval-required' && (authorityAdmits(authority, 'connectors', connection.id) || authorityAdmits(authority, 'connectors', connection.label)))
+    const tools = connections.flatMap(connection => connection.tools.filter(tool => connection.executableTools?.includes(tool.name))
+      .map(tool => ({ connectionId: connection.id, connectionRevision: connection.revision, connectionLabel: connection.label,
+        schemaHash: mcpToolSchemaHash(tool), tool })))
+    const approval = policy.approval
+    const active = !!approval && approval.definitionRevision === (task.revision ?? 0) && approval.reviewHash === facts.reviewHash &&
+      Date.now() >= approval.approvedAt && Date.now() < approval.expiresAt && approval.tools.every(selected => tools.some(tool =>
+        tool.connectionId === selected.connectionId && tool.connectionRevision === selected.connectionRevision &&
+        tool.tool.name === selected.toolName && tool.schemaHash === selected.schemaHash))
+    return { routineId: id, definitionRevision: task.revision ?? 0, ...facts, policy, active, tools,
+      runs: task.runs.flatMap(run => {
+        const ledger = routineMcpRegistry.run(owner, id, run.id)
+        return ledger ? [{ runId: run.id, status: run.status, phase: ledger.phase, calls: ledger.calls.map(publicRoutineMcpReceipt) }] : []
+      }) }
+  },
+  decideRoutineMcp(id: string, viewerTenant: string, request: RoutineMcpDecisionRequest): RoutineMcpDecisionResponse | undefined {
+    const review = this.routineMcpReview(id, viewerTenant)
+    const task = schedules.find(task => task.id === id)
+    if (!review || !task) return undefined
+    return commitMutationBatch(() => {
+      const tenantId = task.tenantId ?? defaultTenantId()
+      const decision = routineMcpRegistry.decide({ tenantId, routineId: id }, request, {
+        definitionRevision: review.definitionRevision, reviewHash: review.reviewHash, now: Date.now(),
+        connection: (connectionId, owner) => {
+          // The policy parser checks the catalog; the review also filters the
+          // bound Agent/provider authority, which must not be bypassed by POST.
+          if (!review.tools.some(tool => tool.connectionId === connectionId)) return undefined
+          return this.mcpConnection(connectionId, owner)
+        },
+      })
+      if (!decision.replayed) {
+        emit({ type: 'schedule.changed', taskId: id, tenantId: task.tenantId })
+        persist()
+      }
+      return { routineId: id, requestId: request.requestId, decisionId: decision.decisionId, review: this.routineMcpReview(id, viewerTenant)! }
+    })
+  },
+  routineMcpRunMayRetry(taskId: string, runId: string): boolean {
+    const task = schedules.find(task => task.id === taskId)
+    if (!task) return false
+    const ledger = routineMcpRegistry.run(task.tenantId ?? defaultTenantId(), taskId, runId)
+    return !ledger || (ledger.phase === 'active' && ledger.calls.length === 0)
+  },
+  /** This host-only boundary commits a slot before entering the one-shot
+   * executor. A timeout publishes uncertainty before another call can start. */
+  async executeRoutineMcpCall(taskId: string, runId: string, call: McpBoundToolCall, key: string, signal?: AbortSignal,
+    execute: typeof executeBoundMcpCall = executeBoundMcpCall): Promise<RoutineMcpCallReceipt> {
+    const task = schedules.find(task => task.id === taskId)
+    const run = task?.runs.find(run => run.id === runId)
+    if (!task || !run || run.status !== 'running' || signal?.aborted) throw new RoutineMcpPolicyError('denied')
+    const owner = task.tenantId ?? defaultTenantId()
+    const ledger = routineMcpRegistry.run(owner, taskId, runId)
+    if (!ledger) throw new RoutineMcpPolicyError('denied')
+    const reserved = commitMutationBatch(() => {
+      const reservation = reserveRoutineMcpCall(ledger, { key, call, live: routineMcpRegistry.policy(owner, taskId),
+        definitionRevision: task.revision ?? 0, reviewHash: routineMcpFacts(task).reviewHash, now: Date.now(),
+        connection: (id, tenant) => this.mcpConnection(id, tenant) })
+      if (reservation.created) {
+        routineMcpRegistry.setRun(reservation.run)
+        emit({ type: 'schedule.changed', taskId, tenantId: task.tenantId })
+        persist()
+      }
+      return reservation
+    })
+    if (!reserved.created) return publicRoutineMcpReceipt(reserved.receipt)
+    const settle = (outcome: McpBoundExecutionOutcome): RoutineMcpCallReceipt => commitMutationBatch(() => {
+      const current = routineMcpRegistry.run(owner, taskId, runId)
+      const receipt = current?.calls.find(receipt => receipt.id === reserved.receipt.id)
+      if (!current || !receipt) return { ...publicRoutineMcpReceipt(reserved.receipt), status: 'uncertain', finishedAt: Date.now() }
+      if (receipt.status !== 'pending') return publicRoutineMcpReceipt(receipt)
+      const settled = settleRoutineMcpCall(current, receipt.id, outcome, Math.max(Date.now(), receipt.startedAt))
+      routineMcpRegistry.setRun(settled)
+      const result = settled.calls.find(call => call.id === receipt.id)!
+      if (result.status === 'uncertain' || (result.status === 'failed' && result.result)) {
+        pauseRoutineMcp(task)
+        this.failScheduleRun(taskId, runId, 'execution_error',
+          'External MCP work may have taken effect. This Routine is paused. Review its call receipts before enabling it and renewing permission.')
+      }
+      emit({ type: 'schedule.changed', taskId, tenantId: task.tenantId })
+      persist()
+      return publicRoutineMcpReceipt(result)
+    })
+    const onAbort = () => { settle({ status: 'uncertain', summary: 'External MCP execution was interrupted.' }) }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    try {
+      if (signal?.aborted) return settle({ status: 'uncertain', summary: '' })
+      let outcome: McpBoundExecutionOutcome
+      try {
+        outcome = await execute(this, owner, reserved.receipt.call, () => {
+          const current = routineMcpRegistry.run(owner, taskId, runId)
+          const context = this.routineExecutionContext(taskId, runId)
+          return !signal?.aborted && !persistenceFault && !!context && !context.blocked &&
+            current?.calls.some(receipt => receipt.id === reserved.receipt.id && receipt.status === 'pending') === true &&
+            routineMcpCallPermitted(current.permission, routineMcpRegistry.policy(owner, taskId), task.revision ?? 0,
+              reserved.receipt.call, Date.now(), (id, tenant) => this.mcpConnection(id, tenant), routineMcpFacts(task).reviewHash)
+        })
+      } catch { outcome = { status: 'uncertain', summary: '' } }
+      return settle(outcome)
+    } finally { signal?.removeEventListener('abort', onAbort) }
+  },
   /** The left rail's recent runs (newest-first, capped) — the caller's tenant's
    *  routines only when given (a run session belongs to its routine's tenant).
    *  Each entry carries the run's PERSISTED session row (the same row the by-id
@@ -12309,6 +12525,10 @@ export const store = {
         ...(options?.scheduledFor === undefined ? {} : { scheduledFor: options.scheduledFor }),
       }
       task.runs = [run, ...task.runs]
+      const permission = routineMcpRegistry.policy(task.tenantId ?? defaultTenantId(), task.id)
+      // Capture once, even if it later expires or is revoked. A late approval
+      // must never be inherited by a job queued without one.
+      if (permission?.policy.approval) routineMcpRegistry.queue(permission, run.id)
       // Bounded history (the scheduler runs forever): past the cap the oldest run
       // retires together with its session row.
       retireOldRuns(task)
@@ -12397,11 +12617,12 @@ export const store = {
       ...(run.execution?.standing?.tools ?? []).map((tool) => ({ tool, exactId: true })),
     ].filter(({ tool }) => tool.tone === 'connector' || tool.tone === 'mcp')
     const contexts: SessionContext[] = []
+    const permission = routineMcpRegistry.run(tenantId, taskId, runId)
     const missing: string[] = []
     const denied: string[] = []
     const effectiveAuthority = intersectAuthority(provider.authority ?? {}, agent.authority ?? {})
     for (const { tool, exactId } of referenced) {
-      const compatible = contextRegistry.snapshot(tenantId).contexts.filter((context) =>
+      const compatible = this.savedContexts(tenantId).contexts.filter((context) =>
         tool.tone === 'mcp' ? context.kind === 'mcp' : context.kind === 'connector')
       // Authored legacy workflow rows retain their historical label lookup;
       // a frozen standing grant is always an exact identity, never a label.
@@ -12412,6 +12633,10 @@ export const store = {
         continue
       }
       if (contexts.some((context) => context.id === saved.id)) continue
+      if (isExternalMcpId(saved.id) && !permission?.permission.policy.approval?.tools.some(tool => tool.connectionId === saved.id)) {
+        denied.push(`${saved.label} (explicit Routine MCP permission required)`)
+        continue
+      }
       if (!authorityAdmits(effectiveAuthority, 'connectors', saved.id) &&
           !authorityAdmits(effectiveAuthority, 'connectors', saved.label)) {
         denied.push(saved.label)
@@ -12425,14 +12650,44 @@ export const store = {
       })
     }
     const approvedContextIds = new Set(contexts.map((context) => context.id))
+    const review = permission ? this.routineMcpReview(taskId, tenantId) : undefined
+    const externalMcpConnections: McpConnectionView[] = []
+    let mcpBlocked = false
+    if (permission) {
+      mcpBlocked = !review?.active || review.policy.revision !== permission.permission.policy.revision ||
+        permission.phase !== 'active' || permission.calls.some(call => call.status === 'uncertain' || (call.status === 'failed' && call.result !== undefined))
+      for (const selected of permission.permission.policy.approval!.tools) {
+        const connection = this.mcpConnection(selected.connectionId, tenantId)
+        if (!connection || !review?.tools.some(tool => tool.connectionId === selected.connectionId &&
+          tool.connectionRevision === selected.connectionRevision && tool.tool.name === selected.toolName && tool.schemaHash === selected.schemaHash)) {
+          mcpBlocked = true
+          continue
+        }
+        if (!externalMcpConnections.some(row => row.id === connection.id)) {
+          externalMcpConnections.push(connection)
+          if (!contexts.some(context => context.id === connection.id)) contexts.push({ id: connection.id, type: 'mcp', label: connection.label, scope: 'Explicit Routine MCP permission' })
+        }
+      }
+    }
+    // After uncertainty, neither a new cadence nor Run now may quietly omit
+    // the suspended tools and restart the same work. Fresh review is required.
+    const unresolved = routineMcpRegistry.snapshot().runs.some(ledger => ledger.permission.tenantId === tenantId &&
+      ledger.permission.routineId === taskId && ledger.calls.some(call => call.status === 'uncertain' || (call.status === 'failed' && call.result !== undefined)) &&
+      (!review?.active || review.policy.revision <= ledger.permission.policy.revision))
     const blocked = denied.length > 0
       ? { code: 'authority_denied' as const, detail: `The bound Agent is not allowed to use ${denied.join(', ')}.` }
       : missing.length > 0
         ? { code: 'context_unavailable' as const, detail: `Connect ${missing.join(', ')} before this routine can run.` }
-        : undefined
+        : mcpBlocked || unresolved
+          ? { code: 'authority_denied' as const, detail: 'Review and renew this Routine’s external MCP permission before running it. Its definition, destination, sharing, tool binding or prior call outcome changed.' }
+          : undefined
     return {
       task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
       agent, provider, providerConfig, modelId, contexts, approvedContextIds,
+      ...(permission ? { externalMcpConnections, routineMcp: {
+        tools: permission.permission.policy.approval!.tools,
+        execute: (call: McpBoundToolCall, key: string, signal?: AbortSignal) => this.executeRoutineMcpCall(taskId, runId, call, key, signal),
+      } } : {}),
       ...(blocked ? { blocked } : {}),
     }
   },
@@ -12454,6 +12709,8 @@ export const store = {
       const task = schedules.find((candidate) => candidate.id === taskId)
       const run = task?.runs.find((candidate) => candidate.id === runId)
       if (!task || !run || run.status !== 'running') return undefined
+      if (!this.routineMcpRunMayRetry(taskId, runId)) return this.failScheduleRun(taskId, runId, 'execution_error',
+        'External MCP work was already attempted. This model prompt cannot be retried automatically.')
       run.nextAttemptAt = nextAttemptAt
       run.summary = `Retrying after attempt ${run.attempts ?? 0}…`
       run.detail = detail
@@ -12474,6 +12731,14 @@ export const store = {
       const task = schedules.find((candidate) => candidate.id === taskId)
       const run = task?.runs.find((candidate) => candidate.id === runId)
       if (!task || !run || run.status !== 'running') return undefined
+      const ledger = routineMcpRegistry.run(task.tenantId ?? defaultTenantId(), taskId, runId)
+      if (ledger) {
+        const review = this.routineMcpReview(taskId, task.tenantId ?? defaultTenantId())
+        if (!review?.active || review.policy.revision !== ledger.permission.policy.revision) return this.failScheduleRun(taskId, runId,
+          'authority_denied', 'External MCP permission or destination sharing changed during this run. Its private call receipts are retained; no output was published.')
+      }
+      if (ledger?.calls.some(call => call.status !== 'done')) return this.failScheduleRun(taskId, runId, 'execution_error',
+        'An external MCP attempt did not complete successfully. Review the private call receipts; no automatic retry was made.')
       const standingFailure = scheduleStandingFailure(task.id, run.execution?.standing, graph) ??
         scheduleArtifactFormatFailure(task, run.execution?.standing?.artifact)
       if (standingFailure) return this.failScheduleRun(taskId, runId, 'authority_denied', standingFailure, finishedAt)
@@ -12518,6 +12783,12 @@ export const store = {
       const task = schedules.find((candidate) => candidate.id === taskId)
       const run = task?.runs.find((candidate) => candidate.id === runId)
       if (!task || !run || run.status !== 'running') return undefined
+      const ledger = routineMcpRegistry.run(task.tenantId ?? defaultTenantId(), taskId, runId)
+      if (ledger?.calls.some(call => call.status === 'pending' || call.status === 'uncertain' || (call.status === 'failed' && call.result !== undefined))) {
+        if (ledger.phase !== 'interrupted') routineMcpRegistry.setRun(interruptRoutineMcpRun(ledger, finishedAt))
+        pauseRoutineMcp(task)
+        detail = 'External MCP work may already have taken effect. This Routine is paused. Review its call receipts before enabling it and renewing permission.'
+      }
       run.status = 'failed'
       run.duration = `${Math.max(0, Math.ceil((finishedAt - run.at) / 1000))}s`
       run.summary = `Failed after ${run.attempts ?? 0} attempt${run.attempts === 1 ? '' : 's'}`
@@ -12730,6 +13001,9 @@ export const store = {
   removeSchedule(id: string, expectedRevision?: number): boolean {
     const i = schedules.findIndex((t) => t.id === id)
     if (i < 0) return false
+    if (routineMcpRegistry.snapshot().runs.some(run => run.permission.routineId === id && run.calls.some(call => call.status === 'pending'))) {
+      throw new ConflictError('An external MCP call is still pending. Wait for its receipt before removing this Routine.')
+    }
     const currentRevision = schedules[i]!.revision ?? 0
     if (expectedRevision !== undefined && expectedRevision !== currentRevision) {
       throw new ConflictError(
@@ -12737,6 +13011,7 @@ export const store = {
       )
     }
     return commitMutationBatch(() => {
+      routineMcpRegistry.removeRoutine(schedules[i]!.tenantId ?? defaultTenantId(), id)
       const [gone] = schedules.splice(i, 1)
       const removedSessions: Session[] = []
       for (let j = SESSIONS.length - 1; j >= 0; j -= 1) {

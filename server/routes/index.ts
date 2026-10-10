@@ -20,6 +20,7 @@ import { MAX_CONVERSATION_SEARCH_QUERY_CHARS } from '../../contract/conversation
 import { parseConversationSearchQuery, searchSessionMessages } from '../sessionMessageSearch.ts'
 import { sessionMarkdownExport } from '../sessionExport.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
+import { registerRoutineMcpRoutes } from './routineMcp.ts'
 import type {
   ApplyOpRequest,
   DeleteSavedContextRequest,
@@ -5280,6 +5281,7 @@ export function buildRouter(): Router {
 
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
   registerMcpConnectionRoutes(r, accountTransitionSourceMatches)
+  registerRoutineMcpRoutes(r, accountTransitionSourceMatches)
   // Demo browse candidates are a public projection of the snapshot's stored
   // world choice. User-owned set-ups and real external MCP connections remain
   // on their separate tenant-scoped registries.

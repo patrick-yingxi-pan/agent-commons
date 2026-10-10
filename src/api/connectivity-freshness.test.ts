@@ -60,9 +60,10 @@ test('artifact.changed refreshes report metadata and body for readers without pr
   for (const key of ['artifacts', 'artifactContent', 'relations', 'commons']) {
     assert.ok(block.includes(`invalidate(keys.${key})`), `artifact change refreshes ${key}`)
   }
-  for (const key of ['socialProposals', 'socialProposal', 'ownerProfile', 'search']) {
+  for (const key of ['socialProposals', 'socialProposal']) {
     assert.ok(block.includes(`invalidatePrefix(keys.${key}())`), `artifact change refreshes ${key}`)
   }
+  assert.ok(block.includes('invalidateProfilesAndSearch()'), 'artifact change refreshes profiles and search')
 })
 
 test('project.changed re-reads canonical and dependent projections without trusting event prose or owner identity', () => {
@@ -90,9 +91,10 @@ test('project.changed re-reads canonical and dependent projections without trust
   ]) {
     assert.ok(helper.includes(`invalidate(${expected})`), `project change refreshes ${expected}`)
   }
-  for (const expected of ['keys.discussion()', 'keys.socialProposal()', 'keys.socialProposals()', 'keys.search()', 'keys.directoryProjects()', 'keys.ownerProfile()']) {
+  for (const expected of ['keys.discussion()', 'keys.socialProposal()', 'keys.socialProposals()', 'keys.directoryProjects()']) {
     assert.ok(helper.includes(`invalidatePrefix(${expected})`), `project change refreshes ${expected} family`)
   }
+  assert.ok(helper.includes('invalidateProfilesAndSearch()'), 'project change refreshes profile and search families')
   assert.ok(helper.includes('invalidate(keys.myDiscussions)'), 'project change refreshes the viewer discussion hub')
   assert.doesNotMatch(block, /e\.(description|instructions|ownerId|ownerTenantId|ownerIds)/, 'event contents are not copied into UI state')
 })
@@ -151,8 +153,7 @@ test('agent.changed refreshes private configuration and public directory project
   assert.match(block, /e\.scope === 'directory'/)
   assert.match(block, /invalidatePrefix\(keys\.directoryAgents\(\)\)/)
   assert.match(block, /invalidatePrefix\(keys\.agentForks\(\)\)/)
-  assert.match(block, /invalidatePrefix\(keys\.ownerProfile\(\)\)/)
-  assert.match(block, /invalidatePrefix\(keys\.search\(\)\)/)
+  assert.match(block, /invalidateProfilesAndSearch\(\)/)
 })
 
 test('provider.changed refreshes definition, connection, default, and registry projections', () => {

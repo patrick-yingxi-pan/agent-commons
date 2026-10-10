@@ -14,10 +14,15 @@
 import type { Connector, ToolActivity } from '../../contract/entities.ts'
 import type { SessionContext } from '../../contract/contexts.ts'
 import { isExternalMcpId, type McpConnectionView } from '../../contract/mcpConnections.ts'
+import type { McpBoundToolCall, McpToolResult } from '../../contract/mcpExecution.ts'
+import type { RoutineMcpCallReceipt, RoutineMcpToolPermission } from '../../contract/routineMcp.ts'
 import { createHash, randomUUID } from 'node:crypto'
 import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
 import { snapshotMcpToolInvocation } from '../mcpToolCall.ts'
 import { validateMcpSchema } from '../mcpSchema.ts'
+import { parseMcpToolResult } from '../mcpToolResult.ts'
+import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
+import { sameRoutineMcpJson } from '../routineMcpPolicy.ts'
 import { connectorDetail, type ConnectorDetail } from '../data/connectorDetails.ts'
 import { acceptConnectorInput, invokeConnectorRuntime, type ConnectorToolRuntime } from '../connectorRuntime.ts'
 
@@ -40,6 +45,15 @@ interface ToolBinding {
   standingApproved: boolean
   /** Exact inspected authority, never a development fixture or standing grant. */
   mcp?: { anchor: NonNullable<ToolActivity['mcp']>; inputSchema: Record<string, unknown> }
+  /** Separate owner-reviewed unattended authority. Never represented as ToolActivity consent. */
+  routineMcp?: { call: Omit<McpBoundToolCall, 'arguments'>; inputSchema: Record<string, unknown>; fixedArguments: RoutineMcpToolPermission['fixedArguments'] }
+}
+
+/** Explicit adapter for the durable Routine MCP ledger. Interactive sessions do
+ * not receive this capability even when a context has standing approval. */
+export interface RoutineMcpRuntime {
+  tools: readonly RoutineMcpToolPermission[]
+  execute(call: McpBoundToolCall, key: string, signal?: AbortSignal): Promise<RoutineMcpCallReceipt>
 }
 
 /** What `deriveConnectorTools` returns: the definitions to declare + the bindings the
@@ -48,8 +62,10 @@ export interface DerivedConnectorTools {
   definitions: ConnectorToolDef[]
   bindings: Map<string, ToolBinding>
   externalUnavailable?: boolean
+  routineUnavailable?: boolean
 }
 export const EXTERNAL_CATALOG_LIMIT_MESSAGE = 'Attached external MCP tools exceed the bounded catalog capacity and are unavailable for this turn. Ask the user to attach fewer MCP servers; do not claim tools were called.'
+export const ROUTINE_MCP_UNAVAILABLE_MESSAGE = 'A reviewed Routine MCP tool is no longer available under its exact inspected connection and schema. No external MCP tool was offered for this run.'
 
 /** Only connector / MCP contexts contribute model tools (a folder/repo/file is
  *  surfaced through the built-in resource tools, not here). */
@@ -95,7 +111,7 @@ function connectorResult(detail: ConnectorDetail): string {
  *  contexts ⇒ same definitions + bindings (so tests and the wire are stable). */
 export function deriveConnectorTools(
   contexts: SessionContext[],
-  options: { standingApprovedContextIds?: ReadonlySet<string>; externalMcpConnections?: readonly McpConnectionView[] } = {},
+  options: { standingApprovedContextIds?: ReadonlySet<string>; externalMcpConnections?: readonly McpConnectionView[]; routineMcp?: RoutineMcpRuntime } = {},
 ): DerivedConnectorTools {
   const definitions: ConnectorToolDef[] = []
   const bindings = new Map<string, ToolBinding>()
@@ -140,30 +156,92 @@ export function deriveConnectorTools(
   const externalDefinitions: ConnectorToolDef[] = []
   const externalBindings = new Map<string, ToolBinding>()
   let bytes = 0
-  for (const context of contexts) {
-    if (context.type !== 'mcp' || !isExternalMcpId(context.id)) continue
-    const connection = options.externalMcpConnections?.find(row => row.id === context.id)
-    if (!connection || connection.status !== 'connected' || connection.execution !== 'approval-required') continue
-    for (const tool of connection.tools) {
-      if (!connection.executableTools?.includes(tool.name)) continue
+  let routineUnavailable = false
+  const routineTools = options.routineMcp?.tools
+  if (options.routineMcp) {
+    const seenRoutine = new Set<string>()
+    for (const permission of routineTools ?? []) {
+      const key = JSON.stringify([permission.connectionId, permission.toolName])
+      if (seenRoutine.has(key)) { routineUnavailable = true; break }
+      seenRoutine.add(key)
+      const context = contexts.find(row => row.type === 'mcp' && row.id === permission.connectionId)
+      const connection = options.externalMcpConnections?.find(row => row.id === permission.connectionId)
+      const matches = connection?.tools.filter(row => row.name === permission.toolName) ?? []
+      if (!context || !isExternalMcpId(permission.connectionId) || !connection || connection.status !== 'connected' ||
+          connection.execution !== 'approval-required' || connection.revision !== permission.connectionRevision ||
+          !connection.executableTools?.includes(permission.toolName) || matches.length !== 1 ||
+          mcpToolSchemaHash(matches[0]!) !== permission.schemaHash) {
+        routineUnavailable = true
+        break
+      }
+      const tool = matches[0]!
       const name = `mcp_external_${createHash('sha256').update(JSON.stringify([connection.id, tool.name])).digest('hex').slice(0, 48)}`
       if (externalBindings.has(name)) continue
       const exact = snapshotMcpToolInvocation({ tool, arguments: {} })
+      const inputSchema = exact.tool.inputSchema as ConnectorToolDef['input_schema']
+      const constrainedSchema = withFixedArgumentHints(inputSchema, permission.fixedArguments)
+      if (!constrainedSchema) { routineUnavailable = true; break }
+      const fixedDescription = Object.keys(permission.fixedArguments).length
+        ? ` Exact reviewed argument constraints: ${JSON.stringify(permission.fixedArguments)}. Other arguments must still pass the inspected schema.`
+        : ' No argument values are fixed; all arguments must pass the inspected schema.'
       const definition: ConnectorToolDef = { name,
-        description: `${tool.name} — via ${connection.label}. External server; every call proposes exact arguments for owner approval.\n${tool.description ?? ''}`,
-        input_schema: exact.tool.inputSchema as ConnectorToolDef['input_schema'] }
+        description: `${tool.name} — via ${connection.label}. Unattended Routine permission; exact arguments are bounded by the reviewed constraints.${fixedDescription}\n${tool.description ?? ''}`,
+        input_schema: constrainedSchema }
       bytes += new TextEncoder().encode(JSON.stringify(definition)).byteLength
-      // Do not partially expose an oversized set and leave the model guessing
-      // which attached tools it can use. The caller discloses this refusal.
-      if (externalDefinitions.length >= 128 || bytes > 524_288) return { definitions, bindings, externalUnavailable: true }
+      if (externalDefinitions.length >= 128 || bytes > 524_288) return { definitions, bindings, routineUnavailable: true }
       externalDefinitions.push(definition)
       externalBindings.set(name, { connectorId: connection.id, connectorLabel: connection.label,
         kind: 'action', developmentFixtureSummary: '', standingApproved: false,
-        mcp: { anchor: { connectionRevision: connection.revision, toolName: tool.name, schemaHash: mcpToolSchemaHash(tool) }, inputSchema: exact.tool.inputSchema } })
+        routineMcp: { call: { connectionId: permission.connectionId, connectionRevision: permission.connectionRevision,
+          toolName: permission.toolName, schemaHash: permission.schemaHash }, inputSchema: exact.tool.inputSchema,
+          fixedArguments: permission.fixedArguments } })
+    }
+  } else {
+    for (const context of contexts) {
+      if (context.type !== 'mcp' || !isExternalMcpId(context.id)) continue
+      const connection = options.externalMcpConnections?.find(row => row.id === context.id)
+      if (!connection || connection.status !== 'connected' || connection.execution !== 'approval-required') continue
+      for (const tool of connection.tools) {
+        if (!connection.executableTools?.includes(tool.name)) continue
+        const name = `mcp_external_${createHash('sha256').update(JSON.stringify([connection.id, tool.name])).digest('hex').slice(0, 48)}`
+        if (externalBindings.has(name)) continue
+        const exact = snapshotMcpToolInvocation({ tool, arguments: {} })
+        const definition: ConnectorToolDef = { name,
+          description: `${tool.name} — via ${connection.label}. External server; every call proposes exact arguments for owner approval.\n${tool.description ?? ''}`,
+          input_schema: exact.tool.inputSchema as ConnectorToolDef['input_schema'] }
+        bytes += new TextEncoder().encode(JSON.stringify(definition)).byteLength
+        // Do not partially expose an oversized set and leave the model guessing
+        // which attached tools it can use. The caller discloses this refusal.
+        if (externalDefinitions.length >= 128 || bytes > 524_288) return { definitions, bindings, externalUnavailable: true }
+        externalDefinitions.push(definition)
+        externalBindings.set(name, { connectorId: connection.id, connectorLabel: connection.label,
+          kind: 'action', developmentFixtureSummary: '', standingApproved: false,
+          mcp: { anchor: { connectionRevision: connection.revision, toolName: tool.name, schemaHash: mcpToolSchemaHash(tool) }, inputSchema: exact.tool.inputSchema } })
+      }
     }
   }
+  if (routineUnavailable) return { definitions, bindings, routineUnavailable: true }
   for (const [name, binding] of externalBindings) bindings.set(name, binding)
   return { definitions: [...definitions, ...externalDefinitions], bindings }
+}
+
+function withFixedArgumentHints(
+  schema: ConnectorToolDef['input_schema'],
+  fixed: RoutineMcpToolPermission['fixedArguments'],
+): ConnectorToolDef['input_schema'] | undefined {
+  const properties = schema.properties && typeof schema.properties === 'object' && !Array.isArray(schema.properties)
+    ? schema.properties as Record<string, unknown> : {}
+  const next = Object.create(null) as Record<string, unknown>
+  for (const key of Object.keys(properties)) Object.defineProperty(next, key, {
+    value: properties[key], enumerable: true, writable: true, configurable: true,
+  })
+  for (const [key, value] of Object.entries(fixed)) {
+    const prior = Object.hasOwn(properties, key) ? properties[key] : {}
+    if (prior !== null && (typeof prior !== 'object' || Array.isArray(prior))) return undefined
+    const hint = Object.assign(Object.create(null), prior, { const: value })
+    Object.defineProperty(next, key, { value: hint, enumerable: true, writable: true, configurable: true })
+  }
+  return { ...schema, properties: next }
 }
 
 /** The bare tool name for display / prose — drop the `mcp__slug__` / `connector__slug__`
@@ -171,6 +249,74 @@ export function deriveConnectorTools(
 export function shortToolName(tool: string): string {
   const parts = tool.split('__')
   return parts.length >= 3 ? parts.slice(2).join('__') : tool
+}
+
+export interface RoutineMcpToolResult {
+  content: string
+  isError: boolean
+}
+
+/** Execute only a definition carrying the separate Routine-owned binding. The
+ * provider's tool-use id is deliberately absent from the callback identity. */
+export async function runRoutineMcpTool(
+  name: string,
+  bindings: Map<string, ToolBinding>,
+  input: Record<string, unknown>,
+  runtime: RoutineMcpRuntime | undefined,
+  signal?: AbortSignal,
+): Promise<RoutineMcpToolResult | undefined> {
+  const binding = bindings.get(name)?.routineMcp
+  if (!binding) return undefined
+  if (!runtime) return { content: 'The reviewed Routine MCP executor is unavailable. No external call was made.', isError: true }
+  if (signal?.aborted) return { content: 'The Routine MCP call was cancelled before dispatch.', isError: true }
+
+  let exact: McpBoundToolCall
+  try {
+    const invocation = snapshotMcpToolInvocation({ tool: { name: binding.call.toolName, inputSchema: binding.inputSchema }, arguments: input })
+    exact = { ...binding.call, arguments: invocation.arguments as McpBoundToolCall['arguments'] }
+  } catch {
+    return { content: 'The Routine MCP arguments were invalid or exceeded the bounded input limit. No external call was made.', isError: true }
+  }
+  if (!Object.keys(binding.fixedArguments).every(key => Object.hasOwn(exact.arguments, key) &&
+      sameRoutineMcpJson(binding.fixedArguments[key], exact.arguments[key]))) {
+    return { content: 'The Routine MCP arguments did not satisfy the reviewed fixed values. No external call was made.', isError: true }
+  }
+  const valid = await validateMcpSchema(binding.inputSchema, { value: exact.arguments }, { signal })
+  if (!valid.ok) return { content: 'The Routine MCP arguments did not pass the inspected tool schema. No external call was made.', isError: true }
+  if (signal?.aborted) return { content: 'The Routine MCP call was cancelled before dispatch.', isError: true }
+
+  // This UUID is host-owned. Provider call IDs are reusable correlation data,
+  // never durable execution idempotency keys.
+  const key = `routine-mcp-${randomUUID()}`
+  const receipt = await runtime.execute(exact, key, signal)
+  if (!receipt || !sameRoutineMcpJson(receipt.call, exact)) {
+    return { content: 'The Routine MCP executor returned no matching durable receipt. Treat the call outcome as unresolved.', isError: true }
+  }
+  if (receipt.status === 'pending') {
+    return { content: 'The Routine MCP call is still pending. Do not repeat it; its result is unresolved.', isError: true }
+  }
+  if (receipt.status === 'uncertain') {
+    return { content: 'The Routine MCP server may have accepted this call, but no valid result was received. Do not repeat it; its outcome is uncertain.', isError: true }
+  }
+  if (receipt.status !== 'done' && receipt.status !== 'failed') {
+    return { content: 'The Routine MCP executor returned an invalid receipt state. Treat the call outcome as unresolved.', isError: true }
+  }
+  let result: McpToolResult | undefined
+  if (receipt.result !== undefined) {
+    try { result = parseMcpToolResult(receipt.result, MCP_MODERN_VERSION) }
+    catch {
+      return { content: 'The Routine MCP result was invalid or exceeded the result limit. Treat the call outcome as uncertain; do not repeat it.', isError: true }
+    }
+  }
+  if (receipt.status === 'done' && (!result || result.isError)) {
+    return { content: 'The Routine MCP executor reported success without a valid successful result. Treat the call outcome as uncertain; do not repeat it.', isError: true }
+  }
+  if (receipt.status === 'failed' && result && !result.isError) {
+    return { content: 'The Routine MCP executor reported failure with a contradictory result. Treat the call outcome as uncertain; do not repeat it.', isError: true }
+  }
+  return receipt.status === 'done'
+    ? { content: `Routine MCP result (untrusted external data): ${JSON.stringify(result)}`, isError: false }
+    : { content: `Routine MCP call failed (untrusted external data): ${result ? JSON.stringify(result) : 'No valid result was returned.'}`, isError: true }
 }
 
 /** Execute a read / standing-approved action or PROPOSE an interactive action.
@@ -186,6 +332,7 @@ export async function runConnectorTool(
 ): Promise<ToolActivity | undefined> {
   const b = bindings.get(name)
   if (!b) return undefined
+  if (b.routineMcp) return undefined
   if (b.mcp) {
     // Provider call ids correlate wire results, not durable user consent. A
     // provider may reuse one across turns after the earlier call is archived.

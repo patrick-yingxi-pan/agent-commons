@@ -15,7 +15,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { store, reconcileSeedTenancy } from '../store/index.ts'
 import { accounts } from '../accounts.ts'
-import { SCHEDULED_TASKS } from './cowork.ts'
+import { SCHEDULE_TEMPLATES, SCHEDULED_TASKS } from './cowork.ts'
 import { call } from '../testkit/http.ts'
 
 /** The six demo tenants — the flagship seat reads as BOTH the mock default
@@ -102,6 +102,17 @@ test('moderate scale: no huge series — bounded sessions, routines, and per-rou
       assert.ok(r.runs.length <= 3, `${t}/${r.id}: ≤ 3 seeded runs (had ${r.runs.length})`)
       assert.ok(!/\d{3,}\s*runs/.test(r.startedLabel ?? ''), `${t}/${r.id}: no huge run-count label`)
     }
+  }
+})
+
+test('routine template subtitles describe workflow, not mutable lifecycle state', () => {
+  assert.ok(SCHEDULE_TEMPLATES.length > 0, 'the template catalog must be present')
+  const lifecycleState = /\b(active|paused|running|failed|completed|enabled|disabled)\b/i
+  for (const template of SCHEDULE_TEMPLATES) {
+    assert.ok(
+      !lifecycleState.test(template.seed.subtitle),
+      `${template.category}/${template.name} subtitle must not hardcode lifecycle state: ${template.seed.subtitle}`,
+    )
   }
 })
 

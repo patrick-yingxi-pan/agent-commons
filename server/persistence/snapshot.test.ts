@@ -469,6 +469,11 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.equal(s.mcpConnections?.connections[0]?.credentialReference, undefined, 'the playground creates no credential')
   assert.equal(s.mcpConnections?.retired.length, 1, 'removed MCP setup retains a non-resurrecting identity')
   assert.ok(!s.savedContexts?.some(row => row.id === s.mcpConnections?.connections[0]?.id), 'public context rows are projections, not duplicate storage')
+  assert.equal(s.routineMcp?.policies.length, 1, 'the private Routine MCP policy slice is populated')
+  assert.equal(s.routineMcp?.decisions.length, 1, 'the exact owner decision receipt survives the snapshot')
+  assert.equal(s.routineMcp?.runs.length, 1, 'a queued run keeps its frozen permission proof')
+  assert.equal(s.routineMcp?.runs[0]?.calls[0]?.status, 'done', 'the offline snapshot fixture records a settled bounded receipt')
+  assert.equal(s.routineMcp?.runs[0]?.permission.policy.approval?.tools[0]?.toolName, 'snapshot_fixture')
   assert.ok(s.recents.repo.includes('repo-playground'), 'a recent was promoted')
   assert.ok(s.recentsByTenant?.some(([tenantId, recents]) => tenantId === 'tenant-zeta' && recents.repo.includes('repo-tenant-zeta')),
     'non-default viewer recents persist in their own partition')

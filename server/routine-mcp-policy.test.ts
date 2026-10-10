@@ -16,6 +16,7 @@ const tenantId = 'tenant-a'
 const routineId = 'routine-a'
 const connectionId = 'mcp-connection-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const now = 1_800_000_000_000
+const reviewHash = 'c'.repeat(64)
 const tool = { name: 'search', inputSchema: { type: 'object', properties: {}, additionalProperties: true } }
 const schemaHash = mcpToolSchemaHash(tool)
 const scope = { tenantId, routineId }
@@ -39,7 +40,7 @@ function reader(row: McpConnectionView = connection()) {
 
 function intent(overrides: Partial<RoutineMcpApprovalIntent> = {}): RoutineMcpApprovalIntent {
   return {
-    expectedRevision: 0, expectedDefinitionRevision: 4, expiresAt: now + 60_000,
+    expectedRevision: 0, expectedDefinitionRevision: 4, reviewHash, expiresAt: now + 60_000,
     maxCallsPerRun: 3, tools: [permission()], ...overrides,
   }
 }
@@ -60,7 +61,7 @@ test('policy parsing accepts only the closed JSON record shape and returns detac
   const raw = {
     tenantId, routineId,
     policy: { version: 1, revision: 1, approval: {
-      definitionRevision: 4, approvedAt: now, expiresAt: now + 10_000, maxCallsPerRun: 1,
+      definitionRevision: 4, reviewHash, approvedAt: now, expiresAt: now + 10_000, maxCallsPerRun: 1,
       tools: [permission({ query: 'otters' })],
     } },
   }
@@ -72,6 +73,7 @@ test('policy parsing accepts only the closed JSON record shape and returns detac
     { ...raw, extra: true },
     { ...raw, policy: { ...raw.policy, extra: true } },
     { ...raw, policy: { ...raw.policy, approval: { ...raw.policy.approval, extra: true } } },
+    { ...raw, policy: { ...raw.policy, approval: { ...raw.policy.approval, reviewHash: 'C'.repeat(64) } } },
     { ...raw, policy: { ...raw.policy, approval: { ...raw.policy.approval, tools: [{ ...raw.policy.approval.tools[0], extra: true }] } } },
     { ...raw, tenantId: ' tenant-a' },
     { ...raw, policy: { ...raw.policy, revision: 0 } },
@@ -104,6 +106,7 @@ test('approval has strict tool, call-count, and lifetime bounds', () => {
     intent({ maxCallsPerRun: 0 }), intent({ maxCallsPerRun: 21 }),
     intent({ expiresAt: now }), intent({ expiresAt: now + ROUTINE_MCP_MAX_LIFETIME_MS + 1 }),
     intent({ tools: [permission(), permission()] }),
+    intent({ reviewHash: 'invalid' }),
     intent({ tools: [permission({ tooLarge: 'x'.repeat(50_000) })] }),
   ]) errorCode(() => approve(bad), 'invalid')
   assert.equal(approve(intent({ maxCallsPerRun: 20, expiresAt: now + ROUTINE_MCP_MAX_LIFETIME_MS })).policy.approval?.maxCallsPerRun, 20)
@@ -143,15 +146,17 @@ test('call permission uses a half-open expiry interval and current exact binding
   const stored = approve()
   const fixed = approve(intent({ expiresAt: now + 2_000 }))
   const frozen = structuredClone(fixed)
-  const allowed = (timestamp: number, candidate = call()) => routineMcpCallPermitted(frozen, fixed, 4, candidate, timestamp, reader())
+  const allowed = (timestamp: number, candidate = call(), liveHash = reviewHash) => routineMcpCallPermitted(frozen, fixed, 4, candidate, timestamp, reader(), liveHash)
   assert.equal(allowed(now), true, 'approvedAt is included')
   assert.equal(allowed(now + 1_999), true)
   assert.equal(allowed(now + 2_000), false, 'expiresAt is excluded')
   assert.equal(allowed(now - 1), false)
-  assert.equal(routineMcpCallPermitted(frozen, fixed, 5, call(), now, reader()), false)
-  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call({ q: 'x' }), now, reader(connection({ revision: 8 }))), false)
-  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call(), now, reader(connection({ status: 'disconnected' }))), false)
-  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, { ...call(), schemaHash: 'b'.repeat(64) }, now, reader()), false)
+  assert.equal(allowed(now, call(), 'd'.repeat(64)), false, 'changed live context/output/audience invalidates approval')
+  assert.equal(allowed(now, call(), 'not-a-hash'), false)
+  assert.equal(routineMcpCallPermitted(frozen, fixed, 5, call(), now, reader(), reviewHash), false)
+  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call({ q: 'x' }), now, reader(connection({ revision: 8 })), reviewHash), false)
+  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call(), now, reader(connection({ status: 'disconnected' })), reviewHash), false)
+  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, { ...call(), schemaHash: 'b'.repeat(64) }, now, reader(), reviewHash), false)
   assert.ok(stored.policy.approval)
 })
 
@@ -159,7 +164,7 @@ test('fixed top-level arguments compare nested JSON exactly, while object key or
   const fixed = approve(intent({ tools: [permission({ filter: { region: 'north', flags: [true, null, { level: 2 }] }, query: 'otters', nothing: null })] }))
   const frozen = structuredClone(fixed)
   const allowed = (arguments_: Record<string, never | string | number | boolean | null | object>) =>
-    routineMcpCallPermitted(frozen, fixed, 4, call(arguments_), now, reader())
+    routineMcpCallPermitted(frozen, fixed, 4, call(arguments_), now, reader(), reviewHash)
   assert.equal(allowed({ query: 'otters', filter: { flags: [true, null, { level: 2 }], region: 'north' }, nothing: null, extra: 9 }), true)
   assert.equal(allowed({ query: 'otters', filter: { flags: [true, { level: 2 }, null], region: 'north' }, nothing: null }), false)
   assert.equal(allowed({ query: 'otters', filter: { flags: [true, null, { level: 3 }], region: 'north' }, nothing: null }), false)
@@ -176,17 +181,17 @@ test('prototype-like argument keys remain inert JSON keys and null is exact', ()
   const same = Object.create(null) as Record<string, never | string | number | boolean | null | object>
   Object.defineProperty(same, '__proto__', { value: { constructor: null }, enumerable: true, writable: true, configurable: true })
   same.constructor = null
-  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call(same), now, reader()), true)
+  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call(same), now, reader(), reviewHash), true)
   const changed = Object.create(null) as Record<string, never | string | number | boolean | null | object>
   Object.defineProperty(changed, '__proto__', { value: { constructor: 'null' }, enumerable: true, writable: true, configurable: true })
   changed.constructor = null
-  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call(changed), now, reader()), false)
+  assert.equal(routineMcpCallPermitted(frozen, fixed, 4, call(changed), now, reader(), reviewHash), false)
 })
 
 test('empty fixedArguments explicitly fixes nothing, but still requires the exact reviewed tool', () => {
   const fixed = approve()
-  assert.equal(routineMcpCallPermitted(fixed, fixed, 4, call({ arbitrary: ['values', null] }), now, reader()), true)
-  assert.equal(routineMcpCallPermitted(fixed, fixed, 4, { ...call(), toolName: 'other' }, now, reader()), false)
+  assert.equal(routineMcpCallPermitted(fixed, fixed, 4, call({ arbitrary: ['values', null] }), now, reader(), reviewHash), true)
+  assert.equal(routineMcpCallPermitted(fixed, fixed, 4, { ...call(), toolName: 'other' }, now, reader(), reviewHash), false)
 })
 
 test('revisioned revocation and reapproval cannot rescue a frozen approval', () => {
@@ -194,9 +199,9 @@ test('revisioned revocation and reapproval cannot rescue a frozen approval', () 
   const revoked = revokeRoutineMcpPolicy(frozen, 1)
   assert.equal(revoked.policy.revision, 2)
   assert.equal(revoked.policy.approval, null)
-  assert.equal(routineMcpCallPermitted(frozen, revoked, 4, call(), now, reader()), false)
+  assert.equal(routineMcpCallPermitted(frozen, revoked, 4, call(), now, reader(), reviewHash), false)
   const reapproved = approve(intent({ expectedRevision: 2 }), revoked)
   assert.equal(reapproved.policy.revision, 3)
   assert.ok(reapproved.policy.approval)
-  assert.equal(routineMcpCallPermitted(frozen, reapproved, 4, call(), now, reader()), false)
+  assert.equal(routineMcpCallPermitted(frozen, reapproved, 4, call(), now, reader(), reviewHash), false)
 })

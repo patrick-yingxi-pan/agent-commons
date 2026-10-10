@@ -67,11 +67,12 @@ function toolsFrom(value: McpJsonValue): RoutineMcpToolPermission[] {
 }
 
 function approvalFrom(value: McpJsonValue): RoutineMcpApproval {
-  if (!record(value) || !fields(value, ['definitionRevision', 'approvedAt', 'expiresAt', 'maxCallsPerRun', 'tools']) ||
+  if (!record(value) || !fields(value, ['definitionRevision', 'reviewHash', 'approvedAt', 'expiresAt', 'maxCallsPerRun', 'tools']) ||
       !routineMcpInteger(value.definitionRevision) || !routineMcpInteger(value.approvedAt) || !routineMcpInteger(value.expiresAt) ||
+      typeof value.reviewHash !== 'string' || !/^[a-f0-9]{64}$/.test(value.reviewHash) ||
       value.expiresAt <= value.approvedAt || value.expiresAt - value.approvedAt > ROUTINE_MCP_MAX_LIFETIME_MS ||
       !routineMcpInteger(value.maxCallsPerRun) || value.maxCallsPerRun < 1 || value.maxCallsPerRun > ROUTINE_MCP_MAX_CALLS) return fail()
-  return { definitionRevision: value.definitionRevision, approvedAt: value.approvedAt, expiresAt: value.expiresAt,
+  return { definitionRevision: value.definitionRevision, reviewHash: value.reviewHash, approvedAt: value.approvedAt, expiresAt: value.expiresAt,
     maxCallsPerRun: value.maxCallsPerRun, tools: toolsFrom(value.tools) }
 }
 
@@ -105,13 +106,14 @@ export function approveRoutineMcpPolicy(
   connection: RoutineMcpConnectionReader,
 ): StoredRoutineMcpPolicy {
   const review = detached(intent)
-  if (!fields(review, ['expectedRevision', 'expectedDefinitionRevision', 'expiresAt', 'maxCallsPerRun', 'tools']) ||
+  if (!fields(review, ['expectedRevision', 'expectedDefinitionRevision', 'reviewHash', 'expiresAt', 'maxCallsPerRun', 'tools']) ||
       !routineMcpInteger(review.expectedRevision) || !routineMcpInteger(review.expectedDefinitionRevision) ||
-      !routineMcpInteger(definitionRevision) || !routineMcpInteger(now)) return fail()
+      !routineMcpInteger(definitionRevision) || !routineMcpInteger(now) || typeof review.reviewHash !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(review.reviewHash)) return fail()
   const old = current === undefined ? undefined : parseRoutineMcpPolicy(current)
   if ((old && (old.tenantId !== scope.tenantId || old.routineId !== scope.routineId)) ||
       review.expectedRevision !== (old?.policy.revision ?? 0) || review.expectedDefinitionRevision !== definitionRevision) return fail('stale')
-  const approval = approvalFrom({ definitionRevision, approvedAt: now, expiresAt: review.expiresAt,
+  const approval = approvalFrom({ definitionRevision, reviewHash: review.reviewHash, approvedAt: now, expiresAt: review.expiresAt,
     maxCallsPerRun: review.maxCallsPerRun, tools: review.tools })
   const candidate = parseRoutineMcpPolicy({ tenantId: scope.tenantId, routineId: scope.routineId,
     policy: { version: 1, revision: (old?.policy.revision ?? 0) + 1, approval } })
@@ -135,6 +137,7 @@ export function routineMcpCallPermitted(
   call: McpBoundToolCall,
   now: number,
   connection: RoutineMcpConnectionReader,
+  liveReviewHash: string,
 ): boolean {
   try {
     const queued = parseRoutineMcpPolicy(frozen)
@@ -142,6 +145,7 @@ export function routineMcpCallPermitted(
     const approval = queued.policy.approval
     const exact = snapshotMcpBoundToolCall(call)
     if (!approval || !exact || !sameRoutineMcpJson(queued, current) || !routineMcpInteger(now) ||
+        liveReviewHash !== approval.reviewHash ||
         now < approval.approvedAt || now >= approval.expiresAt || definitionRevision !== approval.definitionRevision) return false
     const tool = approval.tools.find(tool => tool.connectionId === exact.connectionId && tool.connectionRevision === exact.connectionRevision &&
       tool.toolName === exact.toolName && tool.schemaHash === exact.schemaHash)

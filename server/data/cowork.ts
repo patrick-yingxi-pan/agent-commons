@@ -496,7 +496,7 @@ export const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
       next: 'Tomorrow, 9:00 AM',
       enabled: false,
       lastStatus: 'pending',
-      subtitle: 'New workflow · paused',
+      subtitle: 'New workflow',
       trigger: 'every day at 9:00 AM',
       prompt: 'Describe what this task should do each time it runs.',
       steps: [{ id: 'st1', action: 'Add the first step', tool: TOOL.claude }],

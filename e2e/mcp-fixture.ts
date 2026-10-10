@@ -138,6 +138,7 @@ export async function startMcpFixture(options: {
   label?: string
   toolName?: string
   description?: string
+  schemaPadding?: number
   empty?: boolean
   fail?: boolean
   expectedBearer?: string
@@ -169,7 +170,10 @@ export async function startMcpFixture(options: {
       description: options.description ?? 'Read-only fixture catalog entry.',
       inputSchema: {
         type: 'object',
-        properties: { query: { type: 'string', maxLength: 256 } },
+        properties: {
+          query: { type: 'string', maxLength: 256 },
+          ...Object.fromEntries(Array.from({ length: Math.max(0, Math.min(100, options.schemaPadding ?? 0)) }, (_, index) => [`detail_${String(index + 1).padStart(3, '0')}`, { type: 'string', description: `Optional long-schema fixture field ${index + 1}; this text makes the read-only schema region overflow for keyboard-scroll verification.` }])),
+        },
         required: ['query'],
         additionalProperties: false,
       },

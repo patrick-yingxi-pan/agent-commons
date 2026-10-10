@@ -22,10 +22,14 @@ export interface QueryState<T> {
 }
 
 /** Only an explicit, typed API not-found response proves cached data is no
- * longer readable. Network, server, and misclassified errors retain stale data
+ * longer readable; authentication/authorization denials also evict private data.
+ * Network, server, and misclassified not-found errors retain stale data
  * so a transient failure cannot turn a usable page into a false absence. */
 export function queryFailureState(error: unknown): 'evict' | 'retain' {
-  return error instanceof ApiRequestError && error.code === 'not_found' && error.status === 404 ? 'evict' : 'retain'
+  return error instanceof ApiRequestError && (
+    error.status === 401 || error.status === 403 ||
+    error.code === 'not_found' && error.status === 404
+  ) ? 'evict' : 'retain'
 }
 
 interface Entry {

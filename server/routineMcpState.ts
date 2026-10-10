@@ -1,7 +1,8 @@
 /** Pure run-ledger transitions. A store must commit `created: true` before I/O,
  * recheck live authority at dispatch, and commit settlement before publication.
  * No caller may treat construction or represented replay as permission to send.
- * This module is not yet connected to Routine execution or snapshot storage. */
+ * The private registry and store integrate these transitions with durable
+ * execution; the helpers themselves own neither storage nor outbound I/O. */
 import { createHash } from 'node:crypto'
 import type { RoutineMcpCallReceipt } from '../contract/routineMcp.ts'
 import type { McpBoundToolCall, McpJsonValue, McpToolResult } from '../contract/mcpExecution.ts'
@@ -27,6 +28,11 @@ export interface StoredRoutineMcpRun {
 }
 /** Internal join integrity, excluded from the eventual public receipt. */
 export type StoredRoutineMcpReceipt = RoutineMcpCallReceipt & { callHash: string }
+
+export function publicRoutineMcpReceipt(value: StoredRoutineMcpReceipt): RoutineMcpCallReceipt {
+  const { callHash: _privateJoin, ...receipt } = value
+  return structuredClone(receipt)
+}
 const fail = (code: RoutineMcpPolicyError['code'] = 'invalid'): never => { throw new RoutineMcpPolicyError(code) }
 const record = (value: unknown): value is Record<string, McpJsonValue> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const identity = (value: unknown): value is string => typeof value === 'string' && value.trim() === value &&
@@ -119,6 +125,7 @@ export function reserveRoutineMcpCall(value: StoredRoutineMcpRun, input: {
   call: McpBoundToolCall
   live: StoredRoutineMcpPolicy | undefined
   definitionRevision: number
+  reviewHash: string
   now: number
   connection: RoutineMcpConnectionReader
 }): { run: StoredRoutineMcpRun; receipt: StoredRoutineMcpReceipt; created: boolean } {
@@ -133,7 +140,7 @@ export function reserveRoutineMcpCall(value: StoredRoutineMcpRun, input: {
   }
   if (run.phase !== 'active' || run.calls.some(stopsCalls)) return fail('denied')
   if (run.calls.length >= run.permission.policy.approval!.maxCallsPerRun) return fail('limit')
-  if (!routineMcpCallPermitted(run.permission, input.live, input.definitionRevision, exact, input.now, input.connection)) return fail('denied')
+  if (!routineMcpCallPermitted(run.permission, input.live, input.definitionRevision, exact, input.now, input.connection, input.reviewHash)) return fail('denied')
   const receipt: StoredRoutineMcpReceipt = { id, call: exact, callHash: callHash(run.permission, run.runId, id, exact),
     startedAt: input.now, status: 'pending' }
   run.calls.push(receipt)

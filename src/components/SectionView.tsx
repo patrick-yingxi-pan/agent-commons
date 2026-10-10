@@ -5,6 +5,7 @@ import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { automationPresentation, AUTOMATION_NOTICE_CLASS } from '../lib/automationPresentation.ts'
+import { namedIconProps } from '../lib/namedIcon.ts'
 import { dispatchPresentation, dispatchStatusLabel } from '../lib/dispatchPresentation.ts'
 import { DISPATCH_TITLE_MAX, DISPATCH_DETAIL_MAX } from '../../contract/dispatchExecution.ts'
 import {
@@ -732,6 +733,7 @@ class DesktopDataBoundary extends Component<{ children: ReactNode }, { failed: b
 }
 
 const DeferredDelegationPanel = lazy(() => import('./DelegationPanel').then(({ DelegationPanel }) => ({ default: DelegationPanel })))
+const DeferredRoutineMcpApprovalPanel = lazy(() => import('./RoutineMcpApprovalPanel.tsx').then(({ RoutineMcpApprovalPanel }) => ({ default: RoutineMcpApprovalPanel })))
 
 /** Keep the shared section anatomy while its controls load. A bare status row
  * moved the neighboring Land button between pointer-down and pointer-up. */
@@ -13896,8 +13898,9 @@ function ScheduledDetail({
         <div className="flex min-w-0 items-start gap-3">
           <BackButton to={backTo} onBack={onBack} />
           <span
+            data-routine-delivery-icon
             title={deliveryLabel}
-            aria-label={deliveryLabel}
+            {...namedIconProps(deliveryLabel)}
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-panel-2 text-ink-soft"
           >
             <DeliveryIcon size={20} />
@@ -14069,6 +14072,12 @@ function ScheduledDetail({
           {showScheduleSection('delivery') && <DeliveryPanel task={task} />}
 
           {showScheduleSection('context-tools') && <ContextToolsPanel task={task} />}
+
+          {showScheduleSection('external-mcp') && (
+            <Suspense fallback={<InlineOperationStatus tone="status" message="Loading External MCP review…" />}>
+              <DeferredRoutineMcpApprovalPanel routineId={task.id} routineName={task.name} />
+            </Suspense>
+          )}
 
           {showScheduleSection('model') && <ModelPanel task={task} />}
         </>

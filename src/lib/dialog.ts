@@ -24,9 +24,14 @@ export const BOUNDED_DIALOG_PANEL_CLASS =
   'relative flex h-fit max-h-[calc(var(--dialog-viewport-height,100dvh)-2rem)] max-w-full flex-col sm:max-h-[calc(var(--dialog-viewport-height,100dvh)-16dvh)]'
 export const BOUNDED_DIALOG_BODY_CLASS = 'min-h-0 flex-1 overflow-y-auto'
 
-/** A prose-only scrolling body still needs a named keyboard entry point. */
+/** Any bounded text reader needs a named keyboard entry point. */
+export function namedReadRegionProps(label: string, marker: 'dialog' | 'routine-mcp') {
+  return { [`data-${marker}-read-region`]: true, role: 'region', 'aria-label': label, tabIndex: 0 } as const
+}
+
+/** Preserve the established dialog consumer contract over the shared semantics. */
 export function dialogReadRegionProps(label: string) {
-  return { 'data-dialog-read-region': true, role: 'region', 'aria-label': label, tabIndex: 0 } as const
+  return namedReadRegionProps(label, 'dialog')
 }
 /** `display: contents` has no box for the spacing selector to separate. */
 export const FORM_DIALOG_FIELDS_CLASS = 'min-w-0 space-y-4'

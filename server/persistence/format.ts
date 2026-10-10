@@ -74,6 +74,7 @@ import type {
 } from '../accounts.ts'
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
+import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
 import { parseScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
@@ -474,6 +475,8 @@ export interface PersistedState {
    * snapshots boot with an empty registry; present malformed state refuses
    * startup rather than silently discarding a connection. */
   mcpConnections?: McpConnectionState
+  /** Owner-only unattended permissions, frozen run grants and exact receipts. */
+  routineMcp?: RoutineMcpRegistryState
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -593,6 +596,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   agentProposals: 'mapEntries',
   a2aPeers: 'mapEntries',
   mcpConnections: 'singleton',
+  routineMcp: 'singleton',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',
@@ -1041,6 +1045,12 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   }
   if (state?.mcpConnections !== undefined) {
     try { parseMcpConnectionState(state.mcpConnections) } catch { return false }
+  }
+  if (state?.routineMcp !== undefined) {
+    try {
+      const routineMcp = parseRoutineMcpRegistryState(state.routineMcp)
+      if (!Array.isArray(state.schedules) || !validateRoutineMcpRegistryJoins(routineMcp, state.schedules)) return false
+    } catch { return false }
   }
   if (state?.modelPreferences !== undefined) {
     try { parsePersistedModelPreferences(state.modelPreferences) } catch { return false }

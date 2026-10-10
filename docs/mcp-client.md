@@ -311,29 +311,36 @@ media and private metadata are not model-history text. Full receipts remain in
 the saved conversation and its compaction archive, where terminal receipts retain
 exact lost-response acknowledgement and nonterminal rows retain no execution authority.
 
-## Required next work
+## Explicit execution scopes
 
-Contribution effects will reuse the same exact-bound call engine through
-`server/mcpBoundExecution.ts`, not the conversation-specific attachment authority
-in `server/mcpExecution.ts`. `server/contributionEffectState.ts` supplies strict
-pure receipt preparation and terminal transitions, including a 256 KiB saved
-result limit and conservative pending/uncertain/returned-error slot consumption.
-These helpers do not persist or dispatch Contribution work. The current release
-effect route remains closed until approved binding, atomic reservation,
-restart recovery and per-call UI confirmation are complete. The approved sharing
-choice makes reviewed arguments and results Project-reader-visible; private
-connection identity and credentials do not enter that public projection.
+Contribution effects use the exact-bound call engine in
+`server/mcpBoundExecution.ts`, separate from conversation attachment authority.
+An owner-reviewed binding and separate per-call confirmation precede the durable
+reservation and dispatch. Reviewed arguments and results are Project-reader-visible;
+connection identity and credentials remain private. Interrupted receipt recovery
+never repeats a call. The packaged local-fixture acceptance is recorded in
+[`production-plan.md`](production-plan.md); it is not public-service evidence.
+
+Routine MCP adds a distinct opt-in permission, not context-level trust. The owner
+reviews exact tools, fixed top-level argument values, a per-run attempt cap,
+expiry and destination sharing. A queued run retains its original permission;
+later approval cannot widen it. Any reserved call prevents automatic prompt
+retry. Uncertainty pauses the Routine and revokes permission. Exact receipts
+remain owner-only even when output is shared. The owner route is
+`/schedules/:id/mcp-permission`; authenticated remote MCP uses the same route,
+while in-session mutations remain consent proposals. MODEL-40 tracks the current
+integration and its remaining acceptance gates.
+
+## Required next work
 
 - Complete protocol execution: discovery supports the
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. Execution-specific expiry recovery and
   multi-round input handling remain. The bounded single-call workflow does not
-  replace those requirements or imply standing/unattended trust.
-- Extend packaged credential acceptance through live inspection/replacement and
-  interrupted acknowledgement; native queue/unit and browser fixtures cover
-  these seams separately but cannot replace the combined OS-backed path.
-- Explicit server trust and unattended policy, OAuth and local transports.
+  replace those requirements or imply general server trust.
+- OAuth and local transports remain separate work; the bounded Routine permission
+  does not authorize arbitrary tools or destinations.
 - Third-party and combined packaged acceptance of the whole journey, including
   tenant walls, restart, secret exclusion, cancellation and failure recovery.
 

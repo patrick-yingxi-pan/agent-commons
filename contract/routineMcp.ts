@@ -19,6 +19,8 @@ export interface RoutineMcpToolPermission {
 
 export interface RoutineMcpApproval {
   definitionRevision: number
+  /** Server-computed digest of the reviewed Routine context, outputs and audience. */
+  reviewHash: string
   approvedAt: number
   expiresAt: number
   maxCallsPerRun: number
@@ -38,6 +40,8 @@ export interface RoutineMcpPolicy {
 export interface RoutineMcpApprovalIntent {
   expectedRevision: number
   expectedDefinitionRevision: number
+  /** Server-computed digest; the store validates it against current Routine facts before approval. */
+  reviewHash: string
   expiresAt: number
   maxCallsPerRun: number
   tools: RoutineMcpToolPermission[]
@@ -49,8 +53,8 @@ export type RoutineMcpCallState =
   | { status: 'failed'; finishedAt: number; result?: McpToolResult }
   | { status: 'uncertain'; finishedAt: number }
 
-/** Exact call receipts are private to the run until its destination read wall
- * admits a projection. Every reserved call consumes the per-run limit, even a
+/** Exact call receipts remain owner-only, independent of destination sharing.
+ * Every reserved call consumes the per-run limit, even a
  * known pre-submit failure; no receipt state authorizes an automatic replay. */
 export type RoutineMcpCallReceipt = {
   id: string

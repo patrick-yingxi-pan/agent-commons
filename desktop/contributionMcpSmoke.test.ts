@@ -23,7 +23,8 @@ test('local Contribution MCP acceptance cannot ship its loopback fixture or wide
   assert.equal(startup.includes('allowLoopback: true'), false)
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(pkg.scripts['desktop:smoke:mcp-effects'], 'node desktop/contributionMcpSmoke.mjs')
-  assert.ok(pkg.scripts['desktop:verify'].endsWith(' && npm run desktop:smoke:mcp-effects'), 'native verification includes the isolated fixture gate')
+  assert.equal(pkg.scripts['desktop:verify'].split(' && ').filter(command => command === 'npm run desktop:smoke:mcp-effects').length, 1,
+    'native verification includes the isolated fixture gate exactly once')
   const release = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8')
   assert.equal(release.includes('contributionMcpSmoke'), false, 'signed candidate acceptance never substitutes a modified fixture copy')
 })

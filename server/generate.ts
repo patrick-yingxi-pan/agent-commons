@@ -16,7 +16,7 @@ import { MAX_REVIEW_FINDINGS, MAX_REVIEW_FINDING_CHARS, MAX_REVIEW_SUMMARY_CHARS
 import { attachmentPrompt } from './attachmentInput.ts'
 import { ProviderProbeError, validApiKeyEnv, PROVIDER_KEY_ENV_PREFIX, type ProviderCapabilities, type ProviderConfig } from './data/providers.ts'
 import { baseToolDefinitions, type ToolContext } from './model/tools.ts'
-import { deriveConnectorTools, EXTERNAL_CATALOG_LIMIT_MESSAGE } from './model/connectorTools.ts'
+import { deriveConnectorTools, EXTERNAL_CATALOG_LIMIT_MESSAGE, ROUTINE_MCP_UNAVAILABLE_MESSAGE, type RoutineMcpRuntime } from './model/connectorTools.ts'
 import { TOOL_RECEIPT_DATA_LABEL, TOOL_RECEIPT_SYSTEM_ADDITION } from './toolActivityHistory.ts'
 import { deriveApiTools, type ApiToolRuntime } from './model/apiTools.ts'
 import { chunkText } from './model/replies.ts'
@@ -289,6 +289,8 @@ export interface ReplyResult {
 export interface ReplyExecutionOptions {
   /** Caller-owned connection snapshots; routines deliberately omit this. */
   externalMcpConnections?: readonly McpConnectionView[]
+  /** Separate owner-reviewed unattended MCP authority. Interactive callers omit it. */
+  routineMcp?: RoutineMcpRuntime
   /** Context actions already approved as part of a headless routine. Ordinary
    *  interactive turns omit this and preserve per-action confirmation. */
   standingApprovedContextIds?: ReadonlySet<string>
@@ -543,9 +545,10 @@ export async function generateReply(
   // session's context bindings (server/model/connectorTools.ts) and appended to the
   // request. Only *attached* contexts yield tools, so the model can't reach one the
   // user didn't add (authority is structural).
-  const { definitions: connectorDefs, bindings: connectorBindings, externalUnavailable } = deriveConnectorTools(connectorContexts, execution)
+  const { definitions: connectorDefs, bindings: connectorBindings, externalUnavailable, routineUnavailable } = deriveConnectorTools(connectorContexts, execution)
   const system = [systemPrompt(session, agent), input.systemAddition,
     externalUnavailable ? EXTERNAL_CATALOG_LIMIT_MESSAGE : '',
+    routineUnavailable ? ROUTINE_MCP_UNAVAILABLE_MESSAGE : '',
     history.some(turn => turn.text.includes(TOOL_RECEIPT_DATA_LABEL)) ? TOOL_RECEIPT_SYSTEM_ADDITION : '',
   ].filter(Boolean).join('\n\n')
   // Capability-gated, never identity-gated: a probed non-tool-use provider gets no
@@ -650,6 +653,7 @@ export async function generateReply(
         toolActivities,
         escalation,
         routineArtifact: execution.routineArtifact,
+        routineMcp: execution.routineMcp,
         signal,
       })
       escalation = executed.escalation

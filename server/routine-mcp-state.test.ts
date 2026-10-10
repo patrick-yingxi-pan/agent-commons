@@ -15,6 +15,7 @@ const tenantId = 'tenant-a'
 const routineId = 'routine-a'
 const connectionId = 'mcp-connection-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const now = 1_800_000_000_000
+const reviewHash = 'c'.repeat(64)
 const tool = { name: 'search', inputSchema: { type: 'object', properties: {}, additionalProperties: true } }
 const schemaHash = mcpToolSchemaHash(tool)
 const result: McpToolResult = { resultType: 'complete', content: [{ type: 'text', text: 'found' }], isError: false }
@@ -26,7 +27,7 @@ function policy(scope = { tenantId, routineId }, maxCallsPerRun = 3): StoredRout
     tools: [tool], execution: 'approval-required', executableTools: ['search'],
   }
   const intent: RoutineMcpApprovalIntent = {
-    expectedRevision: 0, expectedDefinitionRevision: 4, expiresAt: now + 60_000,
+    expectedRevision: 0, expectedDefinitionRevision: 4, reviewHash, expiresAt: now + 60_000,
     maxCallsPerRun, tools: [{ connectionId, connectionRevision: 7, toolName: 'search', schemaHash, fixedArguments: {} }],
   }
   return approveRoutineMcpPolicy(scope, undefined, 4, intent, now, (id, tenant) => id === connectionId && tenant === scope.tenantId ? connection : undefined)
@@ -47,7 +48,7 @@ function connectionReader() {
 
 function reserve(run: StoredRoutineMcpRun, key: string, input = call(), overrides: Partial<Parameters<typeof reserveRoutineMcpCall>[1]> = {}) {
   return reserveRoutineMcpCall(run, {
-    key, call: input, live: run.permission, definitionRevision: 4, now: now + 1,
+    key, call: input, live: run.permission, definitionRevision: 4, reviewHash, now: now + 1,
     connection: connectionReader(), ...overrides,
   })
 }
@@ -136,6 +137,7 @@ test('reservation snapshots caller input and host-key replay is exact and preced
   assert.equal(replay.created, false)
   assert.equal(replay.receipt.id, first.receipt.id)
   assert.equal(replay.receipt.status, 'pending')
+  assert.throws(() => reserve(run, 'other-key', call(), { reviewHash: 'd'.repeat(64) }), /denied/)
   assert.throws(() => reserve(first.run, 'host-key', call({ query: 'changed query' })), /stale/)
   let refusal = ''
   try { reserve(first.run, 'secret-key', call({ query: 'secret payload' }), { live: undefined }) } catch (thrown) { refusal = String(thrown) }
@@ -152,7 +154,7 @@ test('receipt IDs are disjoint across tenant, Routine, and run scopes', () => {
   const receipts = scopes.map(({ tenantId: tenant, routineId: routine, runId }) => {
     const p = policy({ tenantId: tenant, routineId: routine })
     const active = createRoutineMcpRun(p, runId)
-    const out = reserveRoutineMcpCall(active, { key: 'same-key', call: call(), live: p, definitionRevision: 4, now: now + 1,
+    const out = reserveRoutineMcpCall(active, { key: 'same-key', call: call(), live: p, definitionRevision: 4, reviewHash, now: now + 1,
       connection: (id, owner) => id === connectionId && owner === tenant ? connectionReader()(id, tenantId) : undefined })
     return out.receipt.id
   })

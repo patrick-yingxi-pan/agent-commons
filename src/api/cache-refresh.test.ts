@@ -8,8 +8,10 @@ import { read, stripComments, ROOT } from '../../tests/helpers/source.ts'
 import { ApiRequestError } from './client.ts'
 import { queryFailureState } from './cache.ts'
 
-test('query failure state evicts only an authoritative not-found response', () => {
+test('query failure state evicts authoritative absence and access denials, but retains transient errors', () => {
   assert.equal(queryFailureState(new ApiRequestError('not_found', 'gone', 404)), 'evict')
+  assert.equal(queryFailureState(new ApiRequestError('unauthorized', 'sign in', 401)), 'evict')
+  assert.equal(queryFailureState(new ApiRequestError('forbidden', 'not permitted', 403)), 'evict')
   assert.equal(queryFailureState(new ApiRequestError('internal', 'not found upstream', 404)), 'retain')
   assert.equal(queryFailureState(new ApiRequestError('not_found', 'server error', 500)), 'retain')
   assert.equal(queryFailureState(new ApiRequestError('internal', 'offline', 0)), 'retain')

@@ -21,6 +21,9 @@ import { store, type RoutineExecutionContext } from './store/index.ts'
 export interface RoutineRunStore {
   pendingScheduleRuns(): Array<{ taskId: string; runId: string; nextAttemptAt: number }>
   routineExecutionContext(taskId: string, runId: string): RoutineExecutionContext | undefined
+  /** Production store freezes model retry admission after any Routine MCP
+   * reservation. Optional for isolated runner stubs that have no MCP ledger. */
+  routineMcpRunMayRetry?(taskId: string, runId: string): boolean
   markScheduleRunAttempt(taskId: string, runId: string, attempt: number, at?: number): ScheduledRun | undefined
   deferScheduleRun(taskId: string, runId: string, nextAttemptAt: number, detail: string): ScheduledRun | undefined
   completeScheduleRun(
@@ -213,6 +216,11 @@ export function createRoutineRunner(
     detail: string,
     retryable: boolean,
   ): void => {
+    // A model fallback/throw after an external reservation is not retryable:
+    // replaying the prompt could repeat a remote effect. The durable ledger is
+    // authoritative, including after restart and before each new model attempt.
+    if (retryable && runStore.routineMcpRunMayRetry &&
+        !runStore.routineMcpRunMayRetry(ctx.task.id, ctx.run.id)) retryable = false
     const attempts = ctx.run.attempts ?? 1
     const maxAttempts = ctx.run.maxAttempts ?? 1
     if (!stopped && retryable && attempts < maxAttempts) {
@@ -234,6 +242,15 @@ export function createRoutineRunner(
     if (!runStore.markScheduleRunAttempt(taskId, runId, attempt, now())) return
     ctx = runStore.routineExecutionContext(taskId, runId)
     if (!ctx || stopped || controller.signal.aborted) return
+
+    // A restarted running row is not a fresh model attempt. Any prior MCP
+    // reservation (including one converted to uncertain during recovery) makes
+    // prompt replay unsafe even though this process has not called generate yet.
+    if (runStore.routineMcpRunMayRetry && !runStore.routineMcpRunMayRetry(taskId, runId)) {
+      retryOrFail(ctx, 'execution_error',
+        'This routine run already reserved an external MCP call. Its outcome must be reviewed; the prompt was not replayed.', false)
+      return
+    }
 
     if (ctx.blocked) {
       retryOrFail(ctx, ctx.blocked.code, ctx.blocked.detail, false)
@@ -273,7 +290,8 @@ export function createRoutineRunner(
         undefined,
         ctx.contexts,
         undefined,
-        { standingApprovedContextIds: ctx.approvedContextIds, effort: ctx.task.effort, routineArtifact },
+        { standingApprovedContextIds: ctx.approvedContextIds, effort: ctx.task.effort, routineArtifact,
+          externalMcpConnections: ctx.externalMcpConnections, routineMcp: ctx.routineMcp },
       )
       // A non-conformant endpoint may ignore AbortSignal. Shutdown still hands
       // ownership back to restart recovery; it must not settle the durable row.

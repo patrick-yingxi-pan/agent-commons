@@ -21,6 +21,17 @@ import { ambientSyncHealth } from './syncHealth.ts'
 let source: EventSource | null = null
 let knownEpoch: string | null = null
 
+/** Routine consent includes Agent/provider configuration and destination grants. */
+function invalidateRoutineMcpReviews(): void {
+  invalidatePrefix('schedule-mcp-permission:')
+}
+
+/** Profile and search projections share the public findability boundary. */
+function invalidateProfilesAndSearch(): void {
+  invalidatePrefix(keys.ownerProfile())
+  invalidatePrefix(keys.search())
+}
+
 /** A narrow, event-shape-free listener seam (subscribe + notify) — the one
  *  shape every controller-facing fan-out below uses, so the one-door rule
  *  holds (nothing outside src/api knows an SSE event type). */
@@ -74,9 +85,8 @@ function invalidateProjectDependencies(projectId: string): void {
   invalidatePrefix(keys.discussion())
   invalidate(keys.myDiscussions)
   invalidatePrefix(keys.socialProposal())
-  invalidatePrefix(keys.search())
   invalidatePrefix(keys.directoryProjects())
-  invalidatePrefix(keys.ownerProfile())
+  invalidateProfilesAndSearch()
 }
 
 /** The single place an ambient event becomes a cache mutation. */
@@ -138,12 +148,14 @@ function route(e: ServerEvent): void {
     case 'run.progress':
     case 'run.finished':
       invalidate(keys.schedules)
+      invalidate(keys.scheduleMcpPermission(e.taskId))
       break
     // A routine was created / edited / paused / removed (another client or device;
     // this one's commands invalidate locally too) — the rail's Scheduled tree
     // branch and its main page read the same list, so one refetch heals both.
     case 'schedule.changed':
       invalidate(keys.schedules)
+      invalidateRoutineMcpReviews()
       // Routine deletion also removes its Project edge. The event is shared
       // with definition edits, so this modest extra read keeps other clients'
       // graph projections truthful without inventing a second deletion event.
@@ -173,8 +185,7 @@ function route(e: ServerEvent): void {
       invalidate(keys.commons)
       invalidatePrefix(keys.socialProposals())
       invalidatePrefix(keys.socialProposal())
-      invalidatePrefix(keys.ownerProfile())
-      invalidatePrefix(keys.search())
+      invalidateProfilesAndSearch()
       break
     // Agent configuration, publication, or monotonic activity changed. Owner-
     // scoped events stay private at the server gate; directory-scoped events
@@ -182,15 +193,16 @@ function route(e: ServerEvent): void {
     // both projections rather than shipping a raw owner id to the browser.
     case 'agent.changed':
       invalidate(keys.workerAgents)
+      invalidateRoutineMcpReviews()
       if (e.scope === 'directory') {
         invalidatePrefix(keys.directoryAgents())
         invalidatePrefix(keys.agentForks())
-        invalidatePrefix(keys.ownerProfile())
-        invalidatePrefix(keys.search())
+        invalidateProfilesAndSearch()
       }
       break
     case 'provider.changed':
       invalidate(keys.providers)
+      invalidateRoutineMcpReviews()
       break
     case 'systemprompt.changed':
       invalidate(keys.systemPrompts)
@@ -200,12 +212,12 @@ function route(e: ServerEvent): void {
     // registry, not the graph, so also refresh the registry caches the Agents hub reads.
     case 'relation.applied':
       invalidate(keys.relations)
+      invalidateRoutineMcpReviews()
       invalidatePrefix(keys.socialProposals())
       invalidateForCommonsOp(e.op)
       // A relation op can create/share/rename what profiles + search serve (D21/D22)
       // — refresh any OPEN profile/search views (mounts revalidate on their own).
-      invalidatePrefix(keys.ownerProfile())
-      invalidatePrefix(keys.search())
+      invalidateProfilesAndSearch()
       // …and what the D17 directories list (share-project / publish-agent): a just-
       // shared project must appear in an open Discover tab, a retracted one must leave.
       invalidatePrefix(keys.directoryProjects())
@@ -219,6 +231,7 @@ function route(e: ServerEvent): void {
     case 'connector.status':
     case 'savedcontext.changed':
       invalidate(keys.savedContexts)
+      invalidateRoutineMcpReviews()
       invalidate(keys.mcpConnections)
       invalidate(keys.mcpConnection(e.id))
       invalidate(keys.connectorDetail(e.id))
@@ -351,6 +364,7 @@ function route(e: ServerEvent): void {
       // content. Retire old snippets before rechecking the changed read wall.
       evictPrefix(keys.search())
       invalidatePrefix(keys.grants())
+      invalidateRoutineMcpReviews()
       invalidate(keys.projects) // seed rows enter/leave the shared-with-me band
       invalidate(keys.relations) // created rows ride the graph's extraProjects
       invalidate(keys.artifacts) // authored and seeded grants share one registry
@@ -426,8 +440,7 @@ function route(e: ServerEvent): void {
       invalidatePrefix(keys.directoryAgents())
       invalidatePrefix(keys.agentResolvedWork())
       // Open-work counts + activity ride profiles and search hits too (D21/D22).
-      invalidatePrefix(keys.ownerProfile())
-      invalidatePrefix(keys.search())
+      invalidateProfilesAndSearch()
       invalidate(keys.myWork) // a posted item's lifecycle rides the Your-work dashboard
       break
     default:

@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-08. The standing goal remains production readiness for Agent
+Reviewed 2026-10-10. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -8,12 +8,16 @@ milestones or address a demonstrated defect.
 
 ## Current checkpoint: bounded unattended Routine MCP
 
-The approved direction remains a separate per-Routine permission, never inherited
-from attached contexts or Commissions. MODEL-40 now implements the pure permission
-and receipt core. It does not enable external calls, add a route, or write new
-snapshot state yet. Owner review, persistence and runner integration come next.
+The approved direction is implemented as a separate per-Routine permission, never
+inherited from attached contexts or Commissions. MODEL-40 now connects owner
+review/approval/revocation, private JSON/SQLite state, the shared model tool loop
+and exact one-shot execution. Six focused browser journeys, the complete 135/135
+visual matrix (zero violations or skips), and rebuilt unsigned arm64
+`npm run desktop:verify` passed. The complete local verifier and post-test diff
+review remain mandatory before landing; the handoff records their final result.
+See the [acceptance record](acceptance/routine-mcp-2026-10-10.md).
 
-The proposed review fixes selected tools and exact top-level argument values
+The owner review fixes selected tools and exact top-level argument values
 (for example, repository or channel), while leaving other arguments subject to
 the reviewed tool schema. Preparation bounds are 16 tools, 20 reserved attempts
 per run, and 30 days of permission. Every attempt consumes a slot, including
@@ -26,7 +30,7 @@ each receipt to exact arguments and tenant/Routine/run identity. Represented
 replay returns history, not authority to dispatch. Any external reservation
 forbids retrying the model prompt. Uncertainty or a returned tool error stops
 further call admission; recovery preparation marks pending calls uncertain.
-The eventual store must commit these transitions before outbound I/O/admission.
+The store commits these transitions before outbound I/O/admission.
 
 Focused tests cover strict bounded parsing, scope/revision checks, fixed argument
 semantics, expiry, revocation, replay, receipt joins, capacity and interruption.
@@ -35,11 +39,44 @@ also caught empty-ledger approval replacement and continuation after a possibly
 effectful tool error; regressions failed before both fixes. Full local verification
 and post-test review remain the delivery gates, recorded in the checkpoint handoff.
 
-Next is one complete owner workflow: review/disclose destination sharing and fees,
-approve/revoke with held-response recovery, freeze the grant at queue time, commit
-every reservation before I/O, and recheck live authority at the one-shot executor.
-JSON/SQLite restart plus browser/native local protocol fixtures must prove that
-uncertain calls cannot repeat. No further product decision is currently needed.
+Focused tests now cover owner-only route access, exact decision replay after
+revocation, destination/audience review changes, reservation-before-dispatch,
+timeout/uncertainty pause, and restart without replay on both storage backends.
+Review caught a misleading active-ledger/run-status label and the permission
+history cap potentially blocking revocation; both now have explicit corrections.
+The final history slot is reserved for revocation. Further review added exact
+approval-decision joins on hydration and checks on actual run-conversation
+sharing before output publication; a configured conversation label is never
+mistaken for an existing destination ID. Completed calls interrupted before the
+model finishes retain their known result, while the run fails without replay.
+Browser acceptance proves real runner/model/MCP wiring, exact lost-acknowledgement
+Retry, expiry/revocation, private owner/reader/foreign walls, and uncertainty.
+The owner cache now evicts authoritative permission denials; GET publication
+stays behind the query generation fence so a stale read cannot resurrect an old
+approval after a decision. POST acknowledgement publication also checks the
+captured account generation immediately before writing the cache: a late switch,
+including away and back, cannot repopulate the previous account's private data.
+Both executable regressions failed before this correction. The first complete
+verifier was intentionally stopped before edits and does not count as final
+acceptance; the corrected tree requires a fresh complete run.
+Narrow/short layouts, expanded schema readers and
+private receipts have keyboard, accessibility and five-viewport coverage.
+
+The packaged local-protocol journey proves rendered approval, an exact successful
+call and model output, durable permission/receipt after signed-in relaunch,
+rendered revocation, and interruption after a known result without replay. It
+uses an excluded disposable loopback copy, never modifies the original package,
+and runs separately from signed-candidate acceptance. The full Node diagnostic
+found only two obsolete desktop command-sequence expectations, updated to include
+the new gate without removing the existing Contribution gate. Final complete
+verification will include these test/documentation updates.
+Native screenshot re-review also caught the blank template's stale “paused”
+description beside an Active status. The authoritative template now says “New
+workflow”; the all-template lifecycle-word lock failed before correction, and
+browser/native header assertions cover it. Existing saved descriptions are not
+rewritten. The second full verifier was stopped before this narrow seed edit;
+only a complete final run counts toward landing.
+No further product decision is currently needed for this checkpoint.
 Paid-provider/public-MCP acceptance and signing/Intel gates remain separate.
 
 ## Completed checkpoint: real one-off Dispatch
