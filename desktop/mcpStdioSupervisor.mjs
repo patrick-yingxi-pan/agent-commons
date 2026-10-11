@@ -31,6 +31,17 @@ function current(check) {
     return answer === true
   } catch { return false }
 }
+function synchronousPermission(check) {
+  if (typeof check !== 'function') return false
+  try {
+    const result = check()
+    if (result === true) return true
+    // Do not wait on a thenable for a dispatch decision, but consume a rejected
+    // result so the refusal itself cannot leak an unhandled-rejection warning.
+    try { void Promise.resolve(result).catch(() => {}) } catch { /* fixed refusal below */ }
+  } catch { /* fixed refusal below */ }
+  return false
+}
 function responseKind(row, expectedId) {
   if (row.jsonrpc !== '2.0') return null
   if (Object.hasOwn(row, 'method')) {
@@ -65,6 +76,9 @@ export function createMcpStdioSupervisor({
     const launch = snapshotMcpStdioLaunch(rawLaunch)
     if (!launch) fail('invalid')
     if (!current(isCurrent)) fail('stale')
+    // The identity callback is synchronous but may itself abort or dispose the
+    // supervisor; repeat lifecycle admission before reserving a process slot.
+    if (disposed || signal?.aborted) fail('cancelled')
     if (active.size >= MCP_STDIO_PROCESS_LIMITS.capacity) fail('busy')
     let child
     try {
@@ -119,7 +133,9 @@ export function createMcpStdioSupervisor({
       // subsequent EOF/TERM/KILL sequence also handles uncooperative children.
       if (cancel && pending?.submitted && pending.id !== undefined) {
         try {
-          const bytes = encodeMcpStdioMessage({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: pending.id } })
+          const bytes = encodeMcpStdioMessage({ jsonrpc: '2.0', method: 'notifications/cancelled', params: {
+            requestId: pending.id, ...(pending.hasMeta ? { _meta: pending.meta } : {}),
+          } })
           if (writeBytes + bytes.length <= MCP_STDIO_PROCESS_LIMITS.maxWriteBytes) child.stdin.write(bytes, () => {})
         } catch { /* no raw child diagnostics leave this transport */ }
       }
@@ -199,24 +215,46 @@ export function createMcpStdioSupervisor({
       if (options.signal?.aborted) return Promise.reject(new McpStdioError('cancelled'))
       if (!current(isCurrent)) { stop('stale', true); return Promise.reject(new McpStdioError('stale')) }
       if (pending) return Promise.reject(new McpStdioError('busy'))
-      let bytes, id
+      let bytes, id, hasMeta = false, meta
       try {
         if (!record(params) || (!notification && !METHODS.has(method))) throw new McpStdioError()
         id = notification ? undefined : nextId + 1
         bytes = encodeMcpStdioMessage({ jsonrpc: '2.0', ...(notification ? {} : { id }), method, params })
+        if (!notification) {
+          // Read only the already-admitted JSON bytes. The caller's original
+          // object may have accessors or custom serialization hooks.
+          const detached = JSON.parse(bytes.subarray(0, -1).toString('utf8'))
+          if (Object.hasOwn(detached.params, '_meta')) {
+            if (!record(detached.params._meta)) throw new McpStdioError()
+            hasMeta = true
+            meta = detached.params._meta
+          }
+        }
       } catch (error) { return Promise.reject(new McpStdioError(error?.code === 'limit' ? 'limit' : 'invalid')) }
       if (++requestCount > MCP_STDIO_PROCESS_LIMITS.maxRequests || writeBytes + bytes.length > MCP_STDIO_PROCESS_LIMITS.maxWriteBytes) {
         stop('limit'); return Promise.reject(new McpStdioError('limit'))
       }
       if (!notification) nextId = id
       return new Promise((resolve, reject) => {
-        const operation = { id, signal: options.signal, resolve, reject, submitted: false, timer: undefined, onAbort: undefined }
+        const operation = { id, signal: options.signal, resolve, reject, submitted: false, timer: undefined, onAbort: undefined,
+          hasMeta, meta }
         pending = operation
         operation.onAbort = () => stop('cancelled', true)
         operation.timer = setTimer(() => stop('timeout', true), MCP_STDIO_PROCESS_LIMITS.requestMs)
         options.signal?.addEventListener('abort', operation.onAbort, { once: true })
         if (options.signal?.aborted || signal?.aborted || disposed) { stop('cancelled', true); return }
         if (!current(isCurrent)) { stop('stale', true); return }
+        if (!notification && options.beforeDispatch !== undefined && !synchronousPermission(options.beforeDispatch)) {
+          stop('stale'); return
+        }
+        // The synchronous guard may revoke the operation or switch the active
+        // source itself; recheck both fences immediately before submission.
+        if (options.signal?.aborted || signal?.aborted || disposed) { stop('cancelled', true); return }
+        if (!current(isCurrent)) { stop('stale', true); return }
+        // User callbacks above can synchronously close/dispose this connection,
+        // settle the request through a response, or otherwise retire its slot.
+        // Do not submit after its promise has already been settled as unsent.
+        if (stopping || closed || pending !== operation) return
         writeBytes += bytes.length
         // Mark before write: even a synchronous failure can have partially
         // submitted bytes. No caller may infer that replay is safe.
@@ -233,6 +271,7 @@ export function createMcpStdioSupervisor({
     }
 
     return Object.freeze({
+      /** Optional final authority hook; only a synchronous exact `true` dispatches. */
       request: (method, params = {}, options = {}) => send(method, params, options, false),
       initialized: () => send('notifications/initialized', {}, {}, true),
       close: () => { stop('closed', true); return closedPromise },

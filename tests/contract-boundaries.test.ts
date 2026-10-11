@@ -18,7 +18,7 @@ import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
 test('form-elicitation execution is confined to the private person-consent workflow', () => {
-  const allowed = new Set(['server/mcpToolCall.ts', 'server/mcpSession.ts', 'server/mcpFormToolSession.ts',
+  const allowed = new Set(['server/mcpToolCall.ts', 'server/mcpSession.ts', 'server/mcpFormToolSession.ts', 'server/mcpStdioClient.ts',
     'server/mcpBoundExecution.ts', 'server/mcpExecution.ts', 'server/routes/index.ts', 'server/routes/mcpInput.ts']
     .map(path => join(ROOT, path)))
   const symbols = /\b(?:createMcpFormToolCaller|createMcpFormSession|createMcpFormToolSession|callToolWithForms|createBoundMcpFormExecutor|createApprovedMcpFormExecutor|executeApprovedMcpFormActivity)\b/
@@ -35,6 +35,24 @@ test('form-elicitation execution is confined to the private person-consent workf
     assert.match(stripComments(read(join(ROOT, path))), /from '\.\.\/contract\/mcpElicitation\.ts'/)
   }
   assert.throws(() => check('createMcpFormToolSession()', 'unexpected product caller'), /private consent|person-bound consent/)
+})
+
+test('internal stdio protocol cannot acquire launch configuration or product execution authority', () => {
+  const client = stripComments(read(join(ROOT, 'server/mcpStdioClient.ts')))
+  assert.match(client, /export function createMcpStdioClient/)
+  assert.match(client, /open: \(options: \{ signal: AbortSignal; isCurrent: \(\) => boolean \}\)/)
+  const check = (source: string) => assert.doesNotMatch(source,
+    /\b(?:createMcpStdioSupervisor|snapshotMcpStdioLaunch|spawn|exec|fetch|commitMutationBatch|persist)\s*\(|node:child_process|mcpRuntime|mcpConnections|mcpBoundExecution/,
+    'stream protocol cannot supply its own launch or product authority')
+  check(client)
+  assert.throws(() => check(`${client}\nspawn('model-selected-command')`), /launch or product authority/)
+  for (const directory of ['server', 'src', 'desktop']) {
+    for (const path of filesUnder(directory, ['.ts', '.tsx', '.mjs', '.cjs'])) {
+      if (path.endsWith('.test.mjs') || path.endsWith('.d.mts') || path === join(ROOT, 'server/mcpStdioClient.ts')) continue
+      assert.doesNotMatch(stripComments(read(path)), /\bcreateMcpStdioClient\b|mcpStdioClient\.ts/,
+        `${path}: stdio product activation requires a separate person-bound native workflow`)
+    }
+  }
 })
 
 test('Routine MCP policy and receipt preparation share portable types without owning execution or persistence', () => {

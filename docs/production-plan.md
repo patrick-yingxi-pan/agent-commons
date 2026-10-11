@@ -13,7 +13,43 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: local MCP process foundation
+## Current checkpoint: local MCP protocol transactions
+
+Autonomous direction (2026-10-11): keep executable configuration and physical
+process ownership native, with an injected stream protocol client reusing the
+backend's bounded catalog, intent, result and form parsers. Do not disguise stdio
+as HTTP or admit command/argument/environment data through portable connections.
+PORT-31 adds modern discovery, bounded catalog pagination and one explicit tool
+attempt per fresh transaction. A successful modern probe reuses its process;
+legacy errors, silence or early exit require confirmed probe close before one
+fresh initialization. Recognized modern errors never downgrade. Form mode is
+explicit and modern-only; each reviewed continuation is a separate call, never
+an automatic loop. Final dispatch requires synchronous current authority.
+
+The native manager retains cancelled capacity through physical close. All phases
+share one 30-second default/60-second maximum transaction budget, with a bounded
+2-second default era probe and at most one second of remaining-budget cleanup.
+Only actual tool submission contributes execution uncertainty. Cleanup failure
+cannot erase a known tool result, while cancelled/stale read-only catalogs refuse
+publication. Request metadata also accompanies exact-ID cancellation. The existing
+HTTP workflow is unchanged apart from shared catalog-budget constants.
+
+Deterministic fake-connection and repository-authored subprocess locks exercise
+both protocol eras, explicit private forms, final consent refusal and crashes
+without replay. Review fixed a settled-operation write attempt after a consent
+callback closed its connection, and a launch-time cancellation race inside the
+current-source callback. Both regressions failed before their fixes. Removing
+modern-error refusal, intent detachment or the aggregate tool cap also made their
+locks fail; the correct implementation was restored. A vacuous tool-cap fixture
+was corrected to use unique second-page tools before that mutation check.
+There are still no renderer controls, native IPC, persisted launch
+grants or product dispatch adapter. Next is the complete person-owned native
+configuration/consent and backend integration, then packaged workflow acceptance.
+This internal checkpoint does not make local servers user-accessible or confer
+process confinement. Full local verification and diff review remain the landing
+gate; the checkpoint handoff records their outcome. Owner data remains untouched.
+
+## Previous checkpoint: local MCP process foundation
 
 Autonomous direction (2026-10-11): implement person-owned desktop stdio MCP
 connections next, using the existing inspect, attach and per-call review model.

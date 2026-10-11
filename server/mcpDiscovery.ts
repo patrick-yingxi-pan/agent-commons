@@ -1,14 +1,12 @@
 /** Read-only bounded catalog discovery. Session negotiation/deadline/cleanup
  * share one owner with the unconfigured single-call protocol boundary. */
 import { postMcpHttp, McpHttpError, type McpHttpOptions } from './mcpHttpTransport.ts'
-import { parseMcpToolsPage, type McpDiscoveredTool } from './mcpCatalog.ts'
+import { parseMcpToolsPage, MAX_MCP_DISCOVERY_PAGES, MAX_MCP_DISCOVERY_TOOLS, MAX_MCP_CATALOG_BYTES, type McpDiscoveredTool } from './mcpCatalog.ts'
 import { createMcpSession, McpSessionError, type McpSessionCleanup } from './mcpSession.ts'
 import type { McpSchemaAdmission } from './mcpToolAdmission.ts'
 
 export { MCP_MODERN_VERSION, MCP_LEGACY_VERSIONS } from './mcpProtocol.ts'
-export const MAX_MCP_DISCOVERY_PAGES = 8
-export const MAX_MCP_DISCOVERY_TOOLS = 128
-export const MAX_MCP_CATALOG_BYTES = 524_288
+export { MAX_MCP_DISCOVERY_PAGES, MAX_MCP_DISCOVERY_TOOLS, MAX_MCP_CATALOG_BYTES } from './mcpCatalog.ts'
 
 export class McpDiscoveryError extends Error {
   readonly code: McpSessionError['code'] | 'catalog'

@@ -77,6 +77,13 @@ test('launch preflight requires a current synchronous identity and explicit macO
   assert.throws(() => unsupported.open(launch(), { isCurrent: () => true }), errorCode('unavailable'))
 })
 
+test('launch rechecks cancellation and disposal after the identity callback', t => {
+  const h = harness(t), abort = new AbortController()
+  assert.throws(() => h.open({ signal: abort.signal, isCurrent() { abort.abort(); return true } }), errorCode('cancelled'))
+  assert.throws(() => h.open({ isCurrent() { h.supervisor.dispose(); return true } }), errorCode('cancelled'))
+  assert.equal(h.calls.length, 0, 'a callback that revokes launch authority cannot spawn a process')
+})
+
 test('calls are serialized, detached and never accept caller-selected IDs or arbitrary methods', async t => {
   const h = harness(t), connection = h.open()
   for (const method of ['other', 'notifications/cancelled', 'sampling/createMessage']) {
@@ -96,6 +103,79 @@ test('calls are serialized, detached and never accept caller-selected IDs or arb
   h.children[0].reply({ content: [] })
   await call
   assert.equal(h.children[0].writes.length, 1)
+})
+
+test('beforeDispatch requires a synchronous exact-true result and rechecks identity and cancellation afterward', async t => {
+  const refused = [
+    () => false,
+    () => { throw new Error('PRIVATE') },
+    async () => false,
+    () => Promise.reject(new Error('PRIVATE REJECTION')),
+    () => ({ then(_resolve, reject) { reject(new Error('PRIVATE THENABLE')) } }),
+    'not-a-function',
+  ]
+  for (const beforeDispatch of refused) {
+    const h = harness(t), connection = h.open()
+    const pending = connection.request('tools/call', {}, { beforeDispatch })
+    if (h.children[0].writes.length) h.children[0].reply({ unexpected: true })
+    await assert.rejects(pending, errorCode('stale', false))
+    assert.equal(h.children[0].writes.length, 0, 'guard refusal submits no bytes')
+  }
+
+  const abort = new AbortController()
+  const h = harness(t), connection = h.open()
+  const cancelled = connection.request('tools/call', {}, {
+    signal: abort.signal,
+    beforeDispatch() { abort.abort(); return true },
+  })
+  if (h.children[0].writes.length) h.children[0].reply({ unexpected: true })
+  await assert.rejects(cancelled, errorCode('cancelled', false))
+  assert.equal(h.children[0].writes.length, 0, 'a synchronous abort from the guard wins before write')
+
+  let current = true
+  const changed = harness(t), guarded = changed.open({ isCurrent: () => current })
+  const stale = guarded.request('tools/call', {}, { beforeDispatch() { current = false; return true } })
+  if (changed.children[0].writes.length) changed.children[0].reply({ unexpected: true })
+  await assert.rejects(stale, errorCode('stale', false))
+  assert.equal(changed.children[0].writes.length, 0, 'authority is checked again after the hook')
+
+  let approvals = 0
+  const approved = harness(t), permitted = approved.open()
+  const completed = permitted.request('tools/call', {}, { beforeDispatch() { approvals += 1; return true } })
+  assert.equal(approved.children[0].writes.length, 1)
+  approved.children[0].reply({ accepted: true })
+  assert.deepEqual(await completed, { jsonrpc: '2.0', id: 1, result: { accepted: true } })
+  assert.equal(approvals, 1)
+})
+
+test('a guard that closes its connection cannot write after the operation was settled', async t => {
+  const h = harness(t), connection = h.open(), child = h.children[0]
+  let writeAttempts = 0
+  const write = child.stdin.write.bind(child.stdin)
+  child.stdin.write = (...args) => { writeAttempts += 1; return write(...args) }
+  let closing
+  const pending = connection.request('tools/call', {}, {
+    beforeDispatch() { closing = connection.close(); return true },
+  })
+  await assert.rejects(pending, errorCode('closed', false))
+  assert.equal(writeAttempts, 0, 'the supervisor never attempts a write after close')
+  assert.equal(child.writes.length, 0, 'close inside the final guard submits no request bytes')
+  child.emit('close', 0)
+  await closing
+})
+
+test('invalid or accessor-backed request metadata is rejected before cancellation metadata can be retained', async t => {
+  const h = harness(t), connection = h.open()
+  let getterCalls = 0
+  const accessorMeta = {}
+  Object.defineProperty(accessorMeta, '_meta', { enumerable: true, get() { getterCalls += 1; return {} } })
+  for (const params of [{ _meta: 'not-an-object' }, accessorMeta]) {
+    const pending = connection.request('tools/call', params)
+    if (h.children[0].writes.length) h.children[0].reply({ unexpected: true })
+    await assert.rejects(pending, errorCode('invalid', false))
+  }
+  assert.equal(getterCalls, 0)
+  assert.equal(h.children[0].writes.length, 0)
 })
 
 test('notifications are inert; matching protocol errors remain data, not native diagnostics', async t => {
@@ -154,6 +234,28 @@ test('abort submits one cancellation, fences late output, and retains capacity t
   h.open()
   assert.equal(h.children.length, LIMITS.capacity + 1)
   assert.equal(child.writes.length, 2)
+})
+
+test('cancellation echoes detached request _meta while metadata-free legacy cancellation stays minimal', async t => {
+  const h = harness(t), abort = new AbortController(), connection = h.open()
+  const metadata = { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', client: { name: 'fixture' } }
+  const params = { name: 'fixture', _meta: metadata }
+  const pending = connection.request('tools/call', params, { signal: abort.signal })
+  params._meta.client.name = 'mutated-after-snapshot'
+  abort.abort()
+  await assert.rejects(pending, errorCode('cancelled', true))
+  assert.deepEqual(JSON.parse(h.children[0].writes[1].toString()), {
+    jsonrpc: '2.0', method: 'notifications/cancelled',
+    params: { requestId: 1, _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28', client: { name: 'fixture' } } },
+  })
+
+  const legacy = harness(t), legacyAbort = new AbortController(), legacyConnection = legacy.open()
+  const legacyPending = legacyConnection.request('tools/call', { name: 'legacy-fixture' }, { signal: legacyAbort.signal })
+  legacyAbort.abort()
+  await assert.rejects(legacyPending, errorCode('cancelled', true))
+  assert.deepEqual(JSON.parse(legacy.children[0].writes[1].toString()), {
+    jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 1 },
+  })
 })
 
 test('pre-aborted requests write nothing; host abort and disposal fence every subsequent launch', async t => {

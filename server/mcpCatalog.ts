@@ -10,6 +10,9 @@ export const MCP_CATALOG_SCHEMA_MAX_BYTES = 64 * 1024
 export const MCP_CATALOG_SCHEMA_MAX_DEPTH = 32
 export const MCP_CATALOG_SCHEMA_MAX_NODES = 4096
 export const MCP_CATALOG_PAGE_MAX_BYTES = 512 * 1024
+export const MAX_MCP_DISCOVERY_PAGES = 8
+export const MAX_MCP_DISCOVERY_TOOLS = 128
+export const MAX_MCP_CATALOG_BYTES = 524_288
 
 export class McpCatalogError extends Error {
   readonly code = 'invalid_mcp_catalog' as const

@@ -596,12 +596,50 @@ the numeric group ID; delayed pipe close never signals it again. Escaped
 descendants are not contained. Failed calls may already have executed;
 the supervisor never automatically restarts a process or replays a request.
 
-The foundation deliberately does not negotiate a protocol era or attest approved
-tool identity. User-mediated native configuration, person-owned grants, modern
-discovery/legacy initialization, catalog/schema admission, exact per-call authority
-and packaged acceptance must compose before users can run a local server.
+The supervisor deliberately does not negotiate a protocol era or attest approved
+tool identity. PORT-31 adds the separate internal protocol client below.
+User-mediated native configuration, person-owned grants, schema admission, exact
+per-call authority and packaged acceptance must compose before users can run a
+local server.
 Only repository-authored child programs are used by these tests. The framing
 and lifecycle follow the official [stdio transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio).
+
+## Internal local-process protocol transactions
+
+`server/mcpStdioClient.ts` requires an injected native owner; it never accepts a
+command, working directory, environment, HTTP URL or credential. There is no
+default product adapter. Discovery and each explicit ordinary/form call use a
+fresh transaction with one shared deadline (30 seconds by default, at most 60).
+The modern `server/discover` probe has a two-second default/five-second maximum
+budget within that deadline. A valid modern result reuses the process. A generic
+RPC error, silence or early close allows one fresh legacy initialization only
+after the probe is confirmed closed. Recognized modern errors and unsupported
+modern versions never fall back to legacy semantics. Framing, resource-limit,
+launch, source and cancellation failures are not downgrade evidence.
+
+Modern requests carry inline protocol/client/capability metadata, not HTTP
+headers or session IDs. Legacy initialization advertises no client capabilities
+and must return a supported legacy date, tools capability and valid server info
+before the initialized notification. Catalogs reuse the same eight-page,
+128-tool, 512-KiB budgets and inert tool parser as HTTP. Schemas still need the
+isolated semantic admission step before a product integration can use them.
+
+Calls snapshot their complete bounded intent before launch, can pin the reviewed
+catalog's protocol, and require a final synchronous exact-true authority check
+at the native write. Only the tool request contributes `mayHaveExecuted`;
+starting local code can itself have effects. Complete-only callers refuse forms.
+Explicit modern form callers reuse the existing private form parser and exact
+opaque-state/response echo, returning control between rounds. No callback,
+resource URL, server request, advertised instruction or annotation grants host
+authority. There is no automatic process restart or tool replay after negotiation.
+
+Close starts native EOF/TERM/KILL cleanup and waits at most one second within
+the remaining transaction budget. Unconfirmed close never replenishes native
+capacity or permits fallback. Cleanup failure preserves a known tool result or
+primary error; a cancelled/stale read-only catalog is not published. This layer
+does not implement saved grants, native setup, person binding, receipts or product
+activation. Repository-authored subprocess tests exercise both eras and explicit
+form rounds; packaged and real-service acceptance remain separate gates.
 
 ## Required next work
 
