@@ -1,5 +1,7 @@
+import { basename } from 'node:path'
 import { LocalConnectionError } from './localConnectionStore.mjs'
 import { parseLocalGitReview } from '../contract/localGitReview.mjs'
+import { isFolderTreeFiles } from '../contract/localFolderTree.mjs'
 
 const ID = /^LOCAL_[A-F0-9]{32}$/
 const fail = () => { throw new LocalConnectionError() }
@@ -56,6 +58,14 @@ function safeSnapshot(value, connectionKind) {
       }
     }),
   }
+}
+
+function safeFolderTreeSnapshot(value) {
+  if (!value || typeof value.name !== 'string' || !value.name || Buffer.byteLength(value.name) > 256 ||
+    Buffer.from(value.name, 'utf8').toString('utf8') !== value.name ||
+    /[\\/\x00-\x1f\x7f-\x9f]/u.test(value.name) || basename(value.name) !== value.name ||
+    !Array.isArray(value.files) || !isFolderTreeFiles(value.files)) fail()
+  return safeSnapshot(value, 'folder')
 }
 
 /** Main-process facade: renderer arguments can name a connection, never its owner or path. */
@@ -120,6 +130,17 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
         const value = await store.snapshot(before.owner, id)
         await unchanged(before)
         return safeSnapshot(value, connectionKind)
+      })
+    },
+    snapshotTree(event, id, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        if (extra.length || connectionKind !== 'folder') fail()
+        if (typeof id !== 'string' || !ID.test(id)) fail()
+        const before = await source()
+        assertExpectedSource(before, expectedSource)
+        const value = await store.snapshotTree(before.owner, id)
+        await unchanged(before)
+        return safeFolderTreeSnapshot(value)
       })
     },
     review(event, id, expectedSource, ...extra) {

@@ -70,6 +70,38 @@ test('only opted-in exact-owner grants survive reopen; bytes and root paths neve
   assert.equal(await readFile(options.filePath, 'utf8'), raw, 'explicit snapshot does not rewrite the grant')
 }))
 
+test('recursive snapshots are folder-only, require an explicit reader, and reuse owner and cancellation fencing', async () => fixture(async ({ folder, options }) => {
+  const ordinary = await openLocalConnectionStore(options)
+  const ordinaryConnection = await ordinary.connect({ owner: ada, path: folder })
+  await assert.rejects(ordinary.snapshotTree(ada, ordinaryConnection.id), LocalConnectionError, 'recursive capture is absent by default')
+
+  const tree = { name: 'source', files: [{ name: 'nested/note.txt', sizeBytes: 17, snapshot: { text: 'saved source text' } }] }
+  let started
+  let finish
+  const entered = new Promise((resolve) => { started = resolve })
+  const held = new Promise((resolve) => { finish = resolve })
+  let signal
+  const store = await openLocalConnectionStore({ ...options, captureTree: async (_root, context) => {
+    signal = context.signal
+    started()
+    await held
+    return tree
+  } })
+  const remembered = await store.connect({ owner: ada, path: folder, remember: true })
+  await assert.rejects(store.snapshotTree(bob, remembered.id), LocalConnectionError, 'tree reads preserve exact-owner checks')
+  const pending = assert.rejects(store.snapshotTree(ada, remembered.id), LocalConnectionError)
+  await entered
+  await store.disconnect(ada, remembered.id)
+  assert.equal(signal.aborted, true)
+  finish(tree)
+  await pending
+  assert.deepEqual(await store.list(ada), [])
+
+  const gitStore = await openLocalConnectionStore({ ...options, connectionKind: 'git', captureTree: async () => tree })
+  const gitConnection = await gitStore.connect({ owner: ada, path: folder })
+  await assert.rejects(gitStore.snapshotTree(ada, gitConnection.id), LocalConnectionError, 'recursive reader is refused for Git stores')
+}))
+
 test('disconnect revokes future and unsettled captures, preserves saved copies, and survives reopen', async () => fixture(async ({ folder, options }) => {
   let finish
   let started

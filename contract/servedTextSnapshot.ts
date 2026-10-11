@@ -1,4 +1,5 @@
 import { MAX_FOLDER_SNAPSHOT_FILE_BYTES } from './localFolderSnapshot.mjs'
+import { isClosedRecord } from './closedRecord.mjs'
 import { isDocumentImportOutcome, type DocumentImportOutcome } from './documentImport.mjs'
 import type { ServedImageSnapshot } from './servedImageSnapshot.ts'
 import { isServedImageSnapshot } from './servedImageSnapshot.ts'
@@ -90,9 +91,7 @@ export function isServedTextSnapshot(value: unknown): value is ServedTextSnapsho
     : item.version === 2
       ? ['version', 'snapshotId', 'capturedAt', 'sourceId', 'path', 'text', 'documentImport']
       : []
-  const keys = Reflect.ownKeys(item)
-  if (keys.length !== fields.length || !fields.every((field) => Object.hasOwn(item, field)) ||
-      !keys.every((key) => typeof key === 'string' && fields.includes(key))) return false
+  if (!isClosedRecord(item, fields, 'all')) return false
   if (!isSnapshotId(item.snapshotId)) return false
   const commonValid = isServedSourceId(item.sourceId) && isServedPath(item.path) && isServedCaptureTime(item.capturedAt) &&
     isServedSnapshotText(item.text)
@@ -106,8 +105,6 @@ function isReadyDocumentImportForPath(value: unknown, path: unknown): value is D
   if (!isDocumentImportOutcome(value) || value.status !== 'ready' || typeof path !== 'string') return false
   const item = value as DocumentImportOutcome & Record<string, unknown>
   const fields = item.format === 'pdf' ? ['format', 'status', 'pages', 'textPages'] : ['format', 'status']
-  const keys = Reflect.ownKeys(item)
-  if (keys.length !== fields.length || !fields.every((field) => Object.hasOwn(item, field)) ||
-      !keys.every((key) => typeof key === 'string' && fields.includes(key))) return false
+  if (!isClosedRecord(item, fields, 'all')) return false
   return documentFormatForName(path) === item.format
 }

@@ -99,3 +99,23 @@ test('local-folder input after Refresh uses only the replacement capture bytes',
   assert.equal(attachments[0]?.previewText, 'new')
   assert.equal(attachments.some((item) => item.previewText === 'old'), false)
 })
+
+test('recursive local-folder model input preserves full paths when basenames repeat', () => {
+  const connectionId = 'LOCAL_0123456789ABCDEF0123456789ABCDEF' as const
+  const workspace: Workspace = {
+    id: 'ws', label: 'Workspace', artifacts: [],
+    folders: [{ id: `ui-host::${connectionId}`, label: 'Project/', localSnapshot: {
+      version: 2, scope: 'recursive', snapshotId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      capturedAt: '2026-10-04T12:00:00.000Z', connectionId,
+      files: [
+        { name: 'src/notes.md', sizeBytes: 5, snapshot: { text: 'first' } },
+        { name: 'tests/notes.md', sizeBytes: 6, snapshot: { text: 'second' } },
+      ],
+    } }],
+  }
+  const attachments = workspaceInputAttachments({ attachments: [], workspaces: [workspace] })
+  assert.deepEqual(attachments.map((item) => [item.id, item.label, item.previewText]), [
+    [`ui-host::${connectionId}/src/notes.md`, 'Project/src/notes.md', 'first'],
+    [`ui-host::${connectionId}/tests/notes.md`, 'Project/tests/notes.md', 'second'],
+  ])
+})

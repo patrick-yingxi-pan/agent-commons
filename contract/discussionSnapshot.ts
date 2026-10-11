@@ -1,5 +1,6 @@
 import type { Discussion } from './social.ts'
 import { discussionTitle } from './social.ts'
+import { isClosedRecord } from './closedRecord.mjs'
 import { isServedCaptureTime, isSnapshotId } from './servedSnapshotIdentity.ts'
 
 export const DISCUSSION_SNAPSHOT_MAX_BYTES = 65_536
@@ -23,23 +24,9 @@ function record(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value)
 }
 
-function exactFields(value: Record<string, unknown>, expected: readonly string[]): boolean {
-  const keys = Reflect.ownKeys(value)
-  return keys.length === expected.length &&
-    expected.every((key) => Object.hasOwn(value, key)) &&
-    keys.every((key) => typeof key === 'string' && expected.includes(key))
-}
-
 function hasWellFormedUnicode(value: string): boolean {
-  for (let index = 0; index < value.length; index++) {
-    const code = value.charCodeAt(index)
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
-      if (next < 0xdc00 || next > 0xdfff || index + 1 >= value.length) return false
-      index++
-    } else if (code >= 0xdc00 && code <= 0xdfff) return false
-  }
-  return true
+  // Unicode mode treats a valid surrogate pair as one astral code point.
+  return !/[\uD800-\uDFFF]/u.test(value)
 }
 
 function validDiscussionId(value: unknown): value is string {
@@ -79,12 +66,13 @@ const SNAPSHOT_FIELDS = ['version', 'snapshotId', 'capturedAt', 'discussionId', 
 /** A detached whole transcript. The exact own-key set prevents callers from
  * smuggling tenant, report, reaction, read-cursor, or authority fields. */
 export function isDiscussionSnapshot(value: unknown): value is DiscussionSnapshot {
-  if (!record(value) || !exactFields(value, SNAPSHOT_FIELDS)) return false
-  return value.version === 1 && isSnapshotId(value.snapshotId) && isServedCaptureTime(value.capturedAt) &&
-    validDiscussionId(value.discussionId) && typeof value.title === 'string' && value.title.length > 0 &&
-    value.title.length <= 160 && hasWellFormedUnicode(value.title) && !TEXT_CONTROLS.test(value.title) &&
-    Number.isSafeInteger(value.postCount) && (value.postCount as number) >= 1 &&
-    (value.postCount as number) <= MAX_DISCUSSION_POSTS && validSnapshotText(value.text)
+  if (!isClosedRecord(value, SNAPSHOT_FIELDS, 'all')) return false
+  const snapshot = value as Record<string, unknown>
+  return snapshot.version === 1 && isSnapshotId(snapshot.snapshotId) && isServedCaptureTime(snapshot.capturedAt) &&
+    validDiscussionId(snapshot.discussionId) && typeof snapshot.title === 'string' && snapshot.title.length > 0 &&
+    snapshot.title.length <= 160 && hasWellFormedUnicode(snapshot.title) && !TEXT_CONTROLS.test(snapshot.title) &&
+    Number.isSafeInteger(snapshot.postCount) && (snapshot.postCount as number) >= 1 &&
+    (snapshot.postCount as number) <= MAX_DISCUSSION_POSTS && validSnapshotText(snapshot.text)
 }
 
 type SnapshotPost = Pick<Discussion['posts'][number], 'id' | 'author' | 'body' | 'at' | 'replyTo'>

@@ -8,6 +8,7 @@ const channels = {
   list: 'agent-commons:local-folders:list',
   connect: 'agent-commons:local-folders:connect',
   snapshot: 'agent-commons:local-folders:snapshot',
+  snapshotTree: 'agent-commons:local-folders:snapshot-tree',
   disconnect: 'agent-commons:local-folders:disconnect',
 }
 const gitChannels = {
@@ -99,6 +100,25 @@ test('all local folder methods map safe failure codes to fixed user guidance', a
       assert.equal(calls[0][0], channels[method])
     }
   }
+})
+
+test('recursive folder capture is exposed only on macOS and keeps the old snapshot signature intact', async () => {
+  const linux = loadPreload([], 'linux')
+  assert.equal(Object.hasOwn(linux.bridge.context.localFolders, 'snapshotTree'), false)
+
+  const tree = { name: 'Project', files: [{ name: 'nested/note.txt', sizeBytes: 4, snapshot: { text: 'body' } }] }
+  const { bridge, calls } = loadPreload([{ value: { ok: true, value: tree } }], 'darwin')
+  assert.deepEqual(await bridge.context.localFolders.snapshotTree('LOCAL_A', sourceIdentity), tree)
+  assert.deepEqual(calls, [[channels.snapshotTree, 'LOCAL_A', sourceIdentity]])
+
+  const denied = loadPreload([{ value: { ok: false, error: 'unavailable' } }], 'darwin')
+  await assert.rejects(denied.bridge.context.localFolders.snapshotTree('LOCAL_A', sourceIdentity), error => {
+    assert.equal(error.message, unavailableMessage)
+    assert.equal(error.cause, undefined)
+    assert.equal(String(error).includes(channels.snapshotTree), false)
+    return true
+  })
+  assert.deepEqual(denied.calls, [[channels.snapshotTree, 'LOCAL_A', sourceIdentity]])
 })
 
 test('raw IPC rejection and malformed or prototype-shaped replies become path-free unavailable errors', async () => {

@@ -6,6 +6,7 @@ import { refreshLocalSessionFolder } from '../api/localFolderCommands.ts'
 import { loadSession } from '../api/commands.ts'
 import { DRAFT_ID, workspaceOf } from '../data/liveSession.ts'
 import { enqueueContextMutation } from './contextMutations.ts'
+import { localFolderRefreshScope } from './localFolderRefreshCore.ts'
 
 /** Capture once per logical Refresh; lost acknowledgements retry those exact
  * bytes. Source reads are not repeated by reconciliation or by model turns. */
@@ -14,6 +15,7 @@ export function refreshLocalFolder(sessionId: string, folder: WorkspaceFolder) {
   if (!connectionId) throw new Error('Choose this folder again to create a refreshable connection.')
   const identity = captureLocalFolderSource()
   const expectedSnapshotId = folder.localSnapshot!.snapshotId
+  const captureScope = localFolderRefreshScope(folder.localSnapshot)
   const requestId = crypto.randomUUID()
   let captured: LocalFolderCapture | undefined
   return enqueueContextMutation(sessionId, {
@@ -23,7 +25,7 @@ export function refreshLocalFolder(sessionId: string, folder: WorkspaceFolder) {
       const current = live.workspaces.flatMap(workspaceFolders).find(item => item.id === folder.id)
       const currentId = current?.localSnapshot?.snapshotId
       if (!current || (currentId !== expectedSnapshotId && currentId !== requestId)) throw new Error('This saved folder changed. Use saved state, then review it before refreshing again.')
-      captured ??= await captureLocalFolder(connectionId, requestId)
+      captured ??= await captureLocalFolder(connectionId, requestId, window, captureScope)
       identity.assertCurrent()
       if (sessionId !== DRAFT_ID) return refreshLocalSessionFolder(sessionId, folder.id, { expectedSnapshotId, requestId, snapshot: captured }, identity)
       return { contexts: [], workspace: { ...workspaceOf(live), workspaces: live.workspaces.map(workspace => workspaceFolders(workspace).some(item => item.id === folder.id)

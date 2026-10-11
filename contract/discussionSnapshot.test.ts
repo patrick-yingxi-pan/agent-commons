@@ -178,6 +178,12 @@ test('rejects malformed UTF-16 instead of encoding replacement characters', () =
     text: 'prefix \udfff suffix',
   }
   assert.equal(isDiscussionSnapshot(malformed), false)
+  for (const field of ['discussionId', 'title', 'text']) {
+    for (const value of ['valid 😀 𐀀', '\ud800', '\udfff', '\ud800x\udfff', '\udfff\ud800']) {
+      assert.equal(isDiscussionSnapshot({ ...malformed, text: 'Valid text', [field]: value }),
+        value.startsWith('valid'), `${field}: ${JSON.stringify(value)}`)
+    }
+  }
   assert.equal(buildDiscussionSnapshot(
     discussion([{ id: 'post-root', author: 'Ada', body: 'prefix \udfff suffix', at: AT_1, reactions: 0 }]),
     SNAPSHOT_ID,

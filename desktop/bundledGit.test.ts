@@ -177,6 +177,7 @@ test('packaged Git smoke verifies the internal baseline against shipped ASAR dep
     'desktop/bundledGit.mjs',
     'contract/localGitSnapshot.mjs',
     'contract/localFolderSnapshot.mjs',
+    'contract/localFolderTree.mjs',
     'contract/localFolderSnapshotBuilder.mjs',
     'contract/localTextFile.mjs',
   ]

@@ -13,7 +13,40 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: person-owned local MCP workflow
+## Current checkpoint: explicit recursive folder snapshots
+
+Autonomous direction (2026-10-11): make nested project context useful through
+an unchecked **Include subfolders** choice on macOS folder Attach, not live
+filesystem browsing. Old version-1 snapshots remain flat. Explicit recursive
+copies use a closed version-2 record with root-relative file names; Refresh
+preserves the reviewed scope and retries frozen bytes. Changing scope requires
+removing and reattaching the folder. No source path or reusable read capability
+enters a conversation, portable backup, model request or MCP response.
+
+CTX-FS-27 reuses the bundled descriptor-relative helper and shared text policy:
+24 readable files, 64 KiB per file, 128 KiB total. A traversal additionally
+admits at most 500 raw entries, 64 visible subdirectories including empty ones,
+16 levels and 4,096-byte relative paths. Hidden trees and symlinks are never
+followed; exceeded limits or changed sources refuse the whole new capture and
+retain the previous copy. Metadata and selected files are checked before and
+after reading. This is a bounded sequential capture, not an atomic filesystem
+image. Connect, listing, preview, send and relaunch still perform no body reads.
+
+The startup-size gate remains unchanged. Shared exact-record validation replaces
+duplicate snapshot guards without changing their enumerable/all-own-key policy;
+Unicode guards retain valid astral text while refusing lone surrogates.
+
+The complete checkpoint gate covers portable validation, native traversal and
+races, exact account/owner checks, JSON/SQLite retention, rendered scope choice
+and frozen Refresh, all five viewport tiers, and the packaged attachment walk
+through nested duplicate basenames, hidden/link exclusion, source removal and
+relaunch. The complete local verifier and post-test diff review remain required
+before landing; outcomes belong in the checkpoint handoff. Use generated
+sources/profiles only. The owner's live store and outstanding recovery choice
+remain untouched. Actual native-dialog, signed/notarized and Intel release
+acceptance remain separate; no automated dialog substitute closes those gates.
+
+## Previous checkpoint: person-owned local MCP workflow
 
 Autonomous direction (2026-10-11): finish the complete interactive workflow before
 landing another internal-only checkpoint. Local process is an explicit transport,

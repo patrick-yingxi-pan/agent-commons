@@ -4657,6 +4657,9 @@ export const store = {
     if ((folder.localSnapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
       throw new ConflictError('This saved local folder changed. Reopen it before refreshing again.')
     }
+    if (folder.localSnapshot && folder.localSnapshot.version !== request.snapshot.version) {
+      throw new ConflictError('The saved local folder capture scope cannot change. Detach and reattach the folder to choose a different scope.')
+    }
     const snapshot = request.snapshot
     const latest = store.sessionWorkspace(sessionId)
     const currentContainer = latest?.workspaces.find((item) => item.id === container.id)

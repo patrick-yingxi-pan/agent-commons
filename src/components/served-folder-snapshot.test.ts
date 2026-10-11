@@ -23,7 +23,8 @@ test('workspace previews derive saved content without live source I/O, and match
   assert.doesNotMatch(panel, /served=\{|readFs|fsContentUrl/)
   assert.match(panel, /savedFolderSnapshot/)
   assert.match(panel, /savedFolderSnapshotId/)
-  assert.match(panel, /No visible top-level files/)
+  assert.match(panel, /top-level files in this saved folder/)
+  assert.match(panel, /local\?\.version === 2 \? 'files in this saved folder tree'/)
   assert.match(panel, /refreshServedFolder/)
   assert.match(panel, /<SectionAction/, 'folder verbs share accessible action sizing')
   for (const file of ['./ContextPanelView.tsx', './OverlayPanelDock.tsx']) {

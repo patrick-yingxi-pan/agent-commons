@@ -60,12 +60,12 @@ function assertStorage(storage, platform) {
  * host derives owners from authenticated app identity and supplies only native
  * dialog paths; this store itself is never exposed through HTTP or renderer IPC.
  * The app's single-instance lock and admitted private profile are prerequisites.
- * Only explicit snapshot() reads content; list/reopen never probe selected roots.
+ * Only explicit snapshot methods read content; list/reopen never probe selected roots.
  * shutdown() fences future work and cancels captures without rewriting grants.
  */
 export async function openLocalConnectionStore({
   filePath, storage, platform = process.platform,
-  inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, review: reviewGit, fsApi,
+  inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, captureTree, review: reviewGit, fsApi,
   connectionKind = 'folder', validateRoot = validRoot,
 } = {}) {
   try {
@@ -171,6 +171,10 @@ export async function openLocalConnectionStore({
       },
       snapshot(owner, id) {
         return read(owner, id, capture)
+      },
+      async snapshotTree(owner, id) {
+        if (connectionKind !== 'folder' || typeof captureTree !== 'function') fail()
+        return read(owner, id, captureTree)
       },
       async review(owner, id) {
         if (connectionKind !== 'git' || typeof reviewGit !== 'function') fail()

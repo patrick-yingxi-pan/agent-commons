@@ -204,6 +204,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       typeof window.agentCommonsDesktop?.context?.localFolders?.list === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localFolders?.connect === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localFolders?.snapshot === 'function' &&
+      typeof window.agentCommonsDesktop?.context?.localFolders?.snapshotTree === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localFolders?.disconnect === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localGit?.list === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localGit?.connect === 'function' &&
@@ -211,7 +212,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       typeof window.agentCommonsDesktop?.context?.localGit?.review === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localGit?.disconnect === 'function' &&
       Object.keys(window.agentCommonsDesktop.context).sort().join(',') === 'localFolders,localGit,pickFiles,pickFolder' &&
-      Object.keys(window.agentCommonsDesktop.context.localFolders).sort().join(',') === 'connect,disconnect,list,snapshot' &&
+      Object.keys(window.agentCommonsDesktop.context.localFolders).sort().join(',') === 'connect,disconnect,list,snapshot,snapshotTree' &&
       Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,list,review,snapshot',
     )
     if (!hasContextBridge) throw new Error('The narrow native context picker bridge was not available.')

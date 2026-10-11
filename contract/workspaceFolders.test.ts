@@ -74,6 +74,34 @@ test('local folder capture projects saved rows without carrying a path or coexis
   assert.equal(JSON.stringify(next).includes('/Users/'), false)
 })
 
+test('recursive local folder paths keep duplicate basenames distinct through workspace and model projections', () => {
+  const connectionId = 'LOCAL_0123456789ABCDEF0123456789ABCDEF' as const
+  const folderId = `ui-host::${connectionId}`
+  const localSnapshot = {
+    version: 2 as const, scope: 'recursive' as const,
+    snapshotId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    capturedAt: '2026-10-04T12:00:00.000Z', connectionId,
+    files: [
+      { name: 'src/notes.md', sizeBytes: 5, snapshot: { text: 'first' } },
+      { name: 'tests/notes.md', sizeBytes: 6, snapshot: { text: 'second' } },
+    ],
+  }
+  const next = replaceLocalFolderSnapshot({
+    id: 'w', label: 'Workspace', artifacts: [], folders: [{ id: folderId, label: 'Project/' }],
+  }, folderId, localSnapshot)
+  assert.equal(validWorkspaceFolders([next]), true)
+  const projection = workspaceArtifacts(next)
+  assert.deepEqual(projection.map((artifact) => [artifact.id, artifact.name, artifact.savedFolderSnapshot?.text]), [
+    [`${folderId}/src/notes.md`, 'src/notes.md', 'first'],
+    [`${folderId}/tests/notes.md`, 'tests/notes.md', 'second'],
+  ])
+  const input = workspaceInputAttachments({ attachments: [], workspaces: [next] })
+  assert.deepEqual(input.map((item) => [item.id, item.label, item.previewText]), [
+    [`${folderId}/src/notes.md`, 'Project/src/notes.md', 'first'],
+    [`${folderId}/tests/notes.md`, 'Project/tests/notes.md', 'second'],
+  ])
+})
+
 test('Local Git capture projects nested tracked dotfiles as saved-only model input', () => {
   const gitSnapshot = {
     version: 1 as const, snapshotId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',

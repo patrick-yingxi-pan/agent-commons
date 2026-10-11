@@ -295,6 +295,36 @@ test('both model transports share server-owned attachment serialization and the 
   }
 })
 
+test('recursive folder capture stays explicit and confined to the packaged macOS native host', () => {
+  const compact = (source: string) => stripComments(source).replace(/\s+/g, ' ')
+  const main = compact(read(join(ROOT, 'desktop/main.mjs')))
+  const checkInjection = (source: string) => assert.ok(source.includes(
+    "...(process.platform === 'darwin' ? { captureTree: (root, options) => readLocalFolderTree(root, { ...options, executable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }), }), } : {}),",
+  ), 'recursive folder injection must be macOS-only and use the bundled packaged helper')
+  checkInjection(main)
+  const removedLink = main.replace('captureTree: (root, options) => readLocalFolderTree(root, {', 'captureTree: (root, options) => readLocalFolderSnapshot(root, {')
+  assert.notEqual(removedLink, main)
+  assert.throws(() => checkInjection(removedLink), /macOS-only and use the bundled packaged helper/)
+
+  const adapter = stripComments(read(join(ROOT, 'src/api/localFolders.ts')))
+  const start = adapter.indexOf('export async function captureLocalFolder(')
+  assert.ok(start > 0, 'the explicit capture adapter exists')
+  assert.doesNotMatch(adapter.slice(0, start), /\.snapshotTree\s*\(/, 'listing and availability cannot start recursive reads')
+  assert.equal([...adapter.matchAll(/\.snapshotTree\s*\(/g)].length, 1, 'only explicit capture invokes the recursive bridge')
+  assert.ok(compact(adapter.slice(start)).includes(
+    "if (captureScope === 'recursive') { if (typeof port.snapshotTree !== 'function') throw new Error('Recursive folder refresh is unavailable on this device. The saved copy is unchanged.') result = await port.snapshotTree(id, identity.source)",
+  ), 'recursive capture requires an explicit scope and the source-bound optional bridge')
+  assert.doesNotMatch(adapter, /['"](?:node:)?(?:fs|child_process)(?:\/[^'"]*)?['"]|\b(?:readFile|readdir|opendir|spawn)\s*\(/,
+    'the folder adapter has no Node filesystem or helper-process authority')
+  const checkPortable = (source: string, path: string) => assert.doesNotMatch(source,
+    /\b(?:readLocalFolderTree|listLocalFolderTree|readGitFile)\b|desktop\/(?:localFolderTree|gitFileRead)\.mjs/,
+    `${path}: portable surfaces cannot import or call native folder readers`)
+  for (const directory of ['src', 'server']) {
+    for (const path of filesUnder(directory, ['.ts', '.tsx', '.mjs', '.cjs'])) checkPortable(stripComments(read(path)), path)
+  }
+  assert.throws(() => checkPortable("import { readLocalFolderTree } from '../desktop/localFolderTree.mjs'", 'server'), /cannot import or call native folder readers/)
+})
+
 test('browser and native selected-file intake share one portable text policy', () => {
   for (const path of ['desktop/contextPicker.mjs', 'src/lib/uiHostFs.ts']) {
     const source = stripComments(read(join(ROOT, path)))

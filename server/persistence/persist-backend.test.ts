@@ -13,6 +13,8 @@ import { tmpdir } from 'node:os'
 import { JsonFileBackend, SqliteBackend } from './index.ts'
 import { STORE_VERSION, type PersistedState } from './persist.ts'
 import { hasCorePersistedShape } from './format.ts'
+import { readPortableSnapshot, restoreBackendSnapshot, writePortableSnapshot } from './portable.ts'
+import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 
 // A fully-populated snapshot that exercises every slice kind: singletons (version,
 // recents, graph, seq), ordered arrays (sessions, schedules-empty, savedContexts,
@@ -155,6 +157,67 @@ test('persisted local folder captures fail admission when their connection bindi
   const malformedFile = JSON.parse(JSON.stringify(valid)) as PersistedState
   malformedFile.workspaces[0]![1].workspaces[0]!.folders![0]!.localSnapshot!.files[0]!.snapshot = { text: 'unmatched' }
   assert.equal(hasCorePersistedShape(malformedFile), false)
+})
+
+test('recursive local folder captures round-trip through JSON, SQLite, and portable snapshots with exact model paths', () => {
+  const state = JSON.parse(JSON.stringify(sample)) as PersistedState
+  const workspace = state.workspaces[0]![1].workspaces[0]!
+  const folder = workspace.folders![0]!
+  state.bindings[0]![1].push({
+    id: 'ui-host::LOCAL_0123456789ABCDEF0123456789ABCDEF',
+    type: 'folder', label: 'Project/', scope: 'LOCAL_0123456789ABCDEF0123456789ABCDEF',
+    source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+  })
+  folder.label = 'Project/'
+  folder.localSnapshot = {
+    version: 2,
+    scope: 'recursive',
+    snapshotId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    capturedAt: '2026-10-04T12:00:00.000Z',
+    connectionId: 'LOCAL_0123456789ABCDEF0123456789ABCDEF',
+    files: [
+      { name: 'src/notes.md', sizeBytes: 5, snapshot: { text: 'first' } },
+      { name: 'tests/notes.md', sizeBytes: 6, snapshot: { text: 'second' } },
+    ],
+  }
+  assert.equal(hasCorePersistedShape(state), true)
+  const exactCapture = folder.localSnapshot
+  const assertModelProjection = (value: PersistedState | null) => {
+    const savedWorkspace = value?.workspaces[0]?.[1].workspaces[0]
+    assert.deepEqual(savedWorkspace?.folders?.[0]?.localSnapshot, exactCapture)
+    const input = workspaceInputAttachments({ attachments: [], workspaces: savedWorkspace ? [savedWorkspace] : [] })
+    assert.deepEqual(input.map((item) => [item.id, item.label, item.previewText]), [
+      ['ui-host::LOCAL_0123456789ABCDEF0123456789ABCDEF/src/notes.md', 'Project/src/notes.md', 'first'],
+      ['ui-host::LOCAL_0123456789ABCDEF0123456789ABCDEF/tests/notes.md', 'Project/tests/notes.md', 'second'],
+    ])
+  }
+
+  const file = tempDbFile()
+  const portableFile = `${file}.portable.json`
+  const jsonFile = `${file}.json`
+  const priorDataFile = process.env.DATA_FILE
+  const sqlite = new SqliteBackend(':memory:')
+  try {
+    sqlite.save(state)
+    assertModelProjection(sqlite.load())
+    writePortableSnapshot(portableFile, sqlite.load()!)
+    assert.deepEqual(readPortableSnapshot(portableFile).workspaces[0]?.[1].workspaces[0]?.folders?.[0]?.localSnapshot, exactCapture)
+    restoreBackendSnapshot(sqlite, portableFile)
+    assertModelProjection(sqlite.load())
+
+    process.env.DATA_FILE = jsonFile
+    const json = new JsonFileBackend()
+    restoreBackendSnapshot(json, portableFile)
+    assertModelProjection(json.load())
+  } finally {
+    sqlite.close()
+    if (priorDataFile === undefined) delete process.env.DATA_FILE
+    else process.env.DATA_FILE = priorDataFile
+    cleanup(file)
+    for (const path of [portableFile, jsonFile]) {
+      try { rmSync(path) } catch { /* already gone */ }
+    }
+  }
 })
 
 test('SQLite load returns null for a fresh database (caller seeds fresh)', () => {

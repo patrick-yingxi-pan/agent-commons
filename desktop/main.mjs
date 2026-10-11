@@ -19,6 +19,7 @@ import { createLocalGitReader, isLocalGitRoot } from './localGitReader.mjs'
 import { readLocalGitReview } from './localGitReview.mjs'
 import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs'
 import { gitFileExecutable } from './gitFileRead.mjs'
+import { readLocalFolderTree } from './localFolderTree.mjs'
 import { createImageOcrHost } from './imageOcrHost.mjs'
 import { imageOcrExecutable } from './imageOcr.mjs'
 import { createPdfOcrHost } from './pdfOcrHost.mjs'
@@ -166,6 +167,11 @@ async function startDesktop() {
     localFolderStore = await openLocalConnectionStore({
       filePath: join(app.getPath('userData'), LOCAL_CONNECTION_FILE),
       storage: safeStorage,
+      ...(process.platform === 'darwin' ? {
+        captureTree: (root, options) => readLocalFolderTree(root, {
+          ...options, executable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
+        }),
+      } : {}),
     })
   } catch {
     console.warn('[desktop] remembered local-folder storage is unavailable for this run.')

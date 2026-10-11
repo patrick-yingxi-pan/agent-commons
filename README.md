@@ -382,6 +382,11 @@ state**. Empty folders retain independent identity. Desktop local Folder access
 is temporary by default; opt-in **Remember this connection** preserves encrypted
 device access across relaunch. Connect does not read content; Attach and Refresh
 capture explicitly, and Disconnect preserves previously saved copies.
+On macOS, unchecked **Include subfolders** opts into a bounded recursive copy:
+visible root-relative names, at most 500 raw entries, 64 subdirectories and
+16 levels, with the same text budgets. Hidden paths and symlinks are excluded;
+changed sources or exceeded traversal limits preserve the previous saved copy.
+Refresh retains the chosen scope. Browser one-shot folder intake remains flat.
 
 On macOS, Add context → Repository → This computer uses the same explicit
 connection, opt-in Remember and saved-only Attach/Refresh workflow. It captures
@@ -397,8 +402,9 @@ The same cloud and mapped-runner sources support bounded PDF/DOCX/XLSX/PPTX text
 projections and normalized saved images, with explicit Refresh. Original document
 and image bytes are transient. PORT-25 adds explicit local staged/unstaged full-text
 review, held only in account memory and never sent to a model. Git writes/live diff,
-recursive folders and rich document
-fidelity remain unfinished work. The recorded [native Folder acceptance](docs/acceptance/native-folder-2026-10-05.md)
+live folder browsing and rich document fidelity remain unfinished work. Recursive
+saved-copy acceptance is automated; actual native-dialog, signed and Intel
+acceptance for that addition remain separate. The recorded [native Folder acceptance](docs/acceptance/native-folder-2026-10-05.md)
 covers actual macOS selection and remembered-connection lifecycles on its named
 unsigned arm64 build; it is not a signed two-architecture release receipt.
 

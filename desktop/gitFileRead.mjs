@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process'
 import { isAbsolute } from 'node:path'
 import { gitFileExecutable } from './gitFilePaths.mjs'
+import {
+  isFolderTreePath, MAX_FOLDER_TREE_DEPTH, MAX_FOLDER_TREE_DIRECTORIES,
+  MAX_FOLDER_TREE_ENTRIES, MAX_FOLDER_TREE_PATH_BYTES,
+} from '../contract/localFolderTree.mjs'
 
 export { gitFileExecutable } from './gitFilePaths.mjs'
 
@@ -122,6 +126,47 @@ function runHelper(executable, args, { signal, outputLimit }) {
     signal?.addEventListener('abort', onAbort, { once: true })
     if (signal?.aborted) onAbort()
   })
+}
+
+/** Bounded metadata-only enumeration. Descriptors and paths stay native; this
+ * internal result is never the renderer snapshot or reusable read authority. */
+export async function listLocalFolderTree(root, { signal, executable = gitFileExecutable() } = {}) {
+  const invalid = () => new Error('The folder helper returned an invalid tree.')
+  if (!validRoot(root) || typeof executable !== 'string' || !isAbsolute(executable)) throw invalid()
+  const output = await runHelper(executable, ['--list-folder-tree', root.path, root.identity.dev, root.identity.ino], {
+    signal, outputLimit: MAX_OUTPUT_HEADER_BYTES + MAX_FOLDER_TREE_ENTRIES * (MAX_FOLDER_TREE_PATH_BYTES + MAX_OUTPUT_HEADER_BYTES),
+  })
+  if (output.equals(Buffer.from('C\n'))) throw new Error('The folder source changed during capture or exceeded its traversal limits.')
+  let text
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(output) } catch { throw invalid() }
+  const lines = text.split('\n')
+  if (lines.pop() !== '') throw invalid()
+  const versionPattern = '[0-9]+:[0-9]+:[0-9]+:-?\\d+:-?\\d+:-?\\d+:-?\\d+:-?\\d+'
+  const header = new RegExp(`^D (0|[1-9]\\d*) (0|[1-9]\\d*) (0|[1-9]\\d*) (${versionPattern})$`).exec(lines.shift() ?? '')
+  if (!header) throw invalid()
+  const count = Number(header[1]), visited = Number(header[2]), directoryCount = Number(header[3])
+  if (!Number.isSafeInteger(visited) || visited > MAX_FOLDER_TREE_ENTRIES || count > visited || count !== lines.length ||
+      directoryCount > MAX_FOLDER_TREE_DIRECTORIES || directoryCount > count) throw invalid()
+  const names = new Set(), directories = new Set(), entries = []
+  const entryPattern = new RegExp(`^([FDU]) (0|[1-9]\\d*) (${versionPattern})\\t(.+)$`)
+  for (const line of lines) {
+    const record = entryPattern.exec(line)
+    if (!record) throw invalid()
+    const [, kind, size, version, name] = record
+    const sizeBytes = Number(size)
+    if (!isFolderTreePath(name) || names.has(name) || !Number.isSafeInteger(sizeBytes) ||
+        (kind === 'D' && name.split('/').length > MAX_FOLDER_TREE_DEPTH)) throw invalid()
+    names.add(name)
+    if (kind === 'D') directories.add(name)
+    entries.push({ kind, name, sizeBytes, version })
+  }
+  if (directories.size !== directoryCount) throw invalid()
+  for (const entry of entries) {
+    const parent = entry.name.slice(0, entry.name.lastIndexOf('/'))
+    if (entry.name.includes('/') && !directories.has(parent)) throw invalid()
+  }
+  entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+  return { rootVersion: header[4], visited, directoryCount, entries }
 }
 
 /** Read one regular file beneath a pinned directory without following path symlinks. */

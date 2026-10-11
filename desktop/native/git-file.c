@@ -356,7 +356,144 @@ list_failure:
   return 0;
 }
 
+#define TREE_MAX_ENTRIES 500U
+#define TREE_MAX_DIRECTORIES 64U
+#define TREE_MAX_DEPTH 16U
+#define TREE_MAX_PATH_BYTES 4096U
+
+struct tree_entry {
+  char *path;
+  char *name;
+  int parent_fd;
+  struct stat info;
+};
+
+struct tree_scan {
+  struct tree_entry entries[TREE_MAX_ENTRIES];
+  struct directory_step directories[TREE_MAX_DIRECTORIES + 1];
+  size_t count;
+  size_t visited;
+  size_t directory_count;
+};
+
+/* Every traversal uses retained directory descriptors, never a reconstructed
+ * pathname. Even empty directories remain pinned until the complete scan has
+ * been validated. Hidden names count toward the raw budget but are not read. */
+static int scan_folder_tree(struct tree_scan *scan, int parent_fd, const char *prefix, size_t depth) {
+  int scan_fd = dup(parent_fd);
+  DIR *directory = scan_fd < 0 ? NULL : fdopendir(scan_fd);
+  if (!directory) { if (scan_fd >= 0) close(scan_fd); return 0; }
+  int success = 1;
+  for (;;) {
+    errno = 0;
+    struct dirent *entry = readdir(directory);
+    if (!entry) { if (errno) success = 0; break; }
+    const char *name = entry->d_name;
+    if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+    if (++scan->visited > TREE_MAX_ENTRIES) { success = 0; break; }
+    if (name[0] == '.') continue;
+    size_t name_length = strlen(name), prefix_length = strlen(prefix);
+    if (!name_length || name_length > 255 || prefix_length + name_length > TREE_MAX_PATH_BYTES) { success = 0; break; }
+    for (const unsigned char *cursor = (const unsigned char *)name; *cursor; ++cursor) {
+      if (*cursor < 0x20 || *cursor == 0x7f || *cursor == '\\') { success = 0; break; }
+    }
+    if (!success) break;
+    struct stat before;
+    if (fstatat(parent_fd, name, &before, AT_SYMLINK_NOFOLLOW) != 0 ||
+        before.st_size < 0 || (uint64_t)before.st_size > MAX_SAFE_INTEGER) { success = 0; break; }
+    struct tree_entry *record = &scan->entries[scan->count];
+    record->path = malloc(prefix_length + name_length + 1);
+    record->name = strdup(name);
+    if (!record->path || !record->name) { free(record->path); free(record->name); success = 0; break; }
+    memcpy(record->path, prefix, prefix_length);
+    memcpy(record->path + prefix_length, name, name_length + 1);
+    record->parent_fd = parent_fd;
+    record->info = before;
+    ++scan->count;
+    if (!S_ISDIR(before.st_mode)) continue;
+    if (depth >= TREE_MAX_DEPTH || scan->directory_count >= TREE_MAX_DIRECTORIES) { success = 0; break; }
+#ifdef AGENT_COMMONS_GIT_FILE_TEST_HOOKS
+    const char *pause_path = getenv("AGENT_COMMONS_FOLDER_TREE_TEST_DIRECTORY");
+    if (pause_path && strcmp(pause_path, record->path) == 0) test_pause_before_open();
+#endif
+    int child_fd = openat(parent_fd, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat opened;
+    if (child_fd < 0 || fstat(child_fd, &opened) != 0 || !S_ISDIR(opened.st_mode) || !same_directory_version(&before, &opened)) {
+      if (child_fd >= 0) close(child_fd);
+      success = 0;
+      break;
+    }
+    char *copy = strdup(name);
+    if (!copy) { close(child_fd); success = 0; break; }
+    scan->directories[++scan->directory_count] = (struct directory_step){ child_fd, parent_fd, copy, opened };
+    char child_prefix[TREE_MAX_PATH_BYTES + 2];
+    (void)snprintf(child_prefix, sizeof(child_prefix), "%s/", record->path);
+    if (!scan_folder_tree(scan, child_fd, child_prefix, depth + 1)) { success = 0; break; }
+  }
+  closedir(directory);
+  return success;
+}
+
+static int compare_tree_entries(const void *left, const void *right) {
+  return strcmp(((const struct tree_entry *)left)->path, ((const struct tree_entry *)right)->path);
+}
+
+static int list_folder_tree(const char *root_path, const char *device_text, const char *inode_text) {
+  uint64_t pinned_device, pinned_inode;
+  if (!parse_u64(device_text, &pinned_device) || !parse_u64(inode_text, &pinned_inode)) return 64;
+  int root_fd = open(root_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  struct stat root_info, current;
+  if (root_fd < 0 || fstat(root_fd, &root_info) != 0 || !S_ISDIR(root_info.st_mode) ||
+      (uint64_t)root_info.st_dev != pinned_device || (uint64_t)root_info.st_ino != pinned_inode) {
+    if (root_fd >= 0) close(root_fd);
+    return emit_status(RESULT_CHANGED, NULL) ? 0 : 70;
+  }
+  struct tree_scan *scan = calloc(1, sizeof(*scan));
+  if (!scan) { close(root_fd); return emit_status(RESULT_UNREADABLE, NULL) ? 0 : 70; }
+  int stable = scan_folder_tree(scan, root_fd, "", 0);
+#ifdef AGENT_COMMONS_GIT_FILE_TEST_HOOKS
+  test_pause_before_open();
+#endif
+  if (stable) stable = fstat(root_fd, &current) == 0 && same_directory_version(&root_info, &current) &&
+    validate_directory_chain(root_path, root_fd, root_info, scan->directories, scan->directory_count);
+  for (size_t index = 1; stable && index <= scan->directory_count; ++index) {
+    stable = fstat(scan->directories[index].fd, &current) == 0 &&
+      same_directory_version(&scan->directories[index].opened, &current);
+  }
+  for (size_t index = 0; stable && index < scan->count; ++index) {
+    struct tree_entry *entry = &scan->entries[index];
+    stable = fstatat(entry->parent_fd, entry->name, &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+      same_file_version(&entry->info, &current);
+  }
+  if (stable) stable = fstat(root_fd, &current) == 0 && same_directory_version(&root_info, &current) &&
+    validate_directory_chain(root_path, root_fd, root_info, scan->directories, scan->directory_count);
+  close_directories(root_fd, scan->directories, scan->directory_count);
+  int wrote = 1;
+  if (!stable) wrote = emit_status(RESULT_CHANGED, NULL);
+  else {
+    qsort(scan->entries, scan->count, sizeof(scan->entries[0]), compare_tree_entries);
+    char version[256], header[MAX_HEADER_BYTES];
+    file_version(&root_info, version, sizeof(version));
+    int length = snprintf(header, sizeof(header), "D %zu %zu %zu %s\n", scan->count, scan->visited, scan->directory_count, version);
+    wrote = length > 0 && (size_t)length < sizeof(header) && write_all(STDOUT_FILENO, header, (size_t)length);
+    for (size_t index = 0; wrote && index < scan->count; ++index) {
+      struct tree_entry *entry = &scan->entries[index];
+      file_version(&entry->info, version, sizeof(version));
+      char kind = S_ISREG(entry->info.st_mode) ? 'F' : S_ISDIR(entry->info.st_mode) ? 'D' : 'U';
+      length = snprintf(header, sizeof(header), "%c %jd %s\t", kind, (intmax_t)entry->info.st_size, version);
+      wrote = length > 0 && (size_t)length < sizeof(header) && write_all(STDOUT_FILENO, header, (size_t)length) &&
+        write_all(STDOUT_FILENO, entry->path, strlen(entry->path)) && write_all(STDOUT_FILENO, "\n", 1);
+    }
+  }
+  for (size_t index = 0; index < scan->count; ++index) { free(scan->entries[index].path); free(scan->entries[index].name); }
+  free(scan);
+  return wrote ? 0 : 70;
+}
+
 int main(int argc, char **argv) {
+  if (argc == 5 && strcmp(argv[1], "--list-folder-tree") == 0 && argv[2][0] == '/') {
+    return list_folder_tree(argv[2], argv[3], argv[4]);
+  }
   if (argc == 5 && strcmp(argv[1], "--list-shared-indexes") == 0 && argv[2][0] == '/') {
     return list_metadata_names(argv[2], argv[3], argv[4], 0);
   }

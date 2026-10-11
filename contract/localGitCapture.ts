@@ -1,4 +1,5 @@
 import type { GitSnapshotFile } from './localGitSnapshot.mjs'
+import { isClosedRecord } from './closedRecord.mjs'
 import type { LocalGitReview } from './localGitReview.mjs'
 import { isGitSnapshotFiles } from './localGitSnapshot.mjs'
 import { isServedCaptureTime, isSnapshotId } from './servedTextSnapshot.ts'
@@ -29,17 +30,15 @@ export function isLocalGitConnectionId(value: unknown): value is LocalGitConnect
   return typeof value === 'string' && /^GIT_[A-F0-9]{32}$/.test(value)
 }
 export function isLocalGitCapture(value: unknown): value is LocalGitCapture {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const item = value as Record<string, unknown>
   const fields = ['version', 'snapshotId', 'capturedAt', 'connectionId', 'files']
-  return Object.keys(item).length === fields.length && fields.every((key) => Object.hasOwn(item, key)) &&
-    item.version === 1 && isSnapshotId(item.snapshotId) && isServedCaptureTime(item.capturedAt) &&
+  if (!isClosedRecord(value, fields)) return false
+  const item = value as Record<string, unknown>
+  return item.version === 1 && isSnapshotId(item.snapshotId) && isServedCaptureTime(item.capturedAt) &&
     isLocalGitConnectionId(item.connectionId) && isGitSnapshotFiles(item.files)
 }
 export function isLocalGitRefreshRequest(value: unknown): value is LocalGitRefreshRequest {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  if (!isClosedRecord(value, ['expectedSnapshotId', 'requestId', 'snapshot'])) return false
   const item = value as Record<string, unknown>
-  return Object.keys(item).length === 3 && ['expectedSnapshotId', 'requestId', 'snapshot'].every((key) => Object.hasOwn(item, key)) &&
-    (item.expectedSnapshotId === null || isSnapshotId(item.expectedSnapshotId)) && isSnapshotId(item.requestId) &&
+  return (item.expectedSnapshotId === null || isSnapshotId(item.expectedSnapshotId)) && isSnapshotId(item.requestId) &&
     item.requestId !== item.expectedSnapshotId && isLocalGitCapture(item.snapshot) && item.snapshot.snapshotId === item.requestId
 }

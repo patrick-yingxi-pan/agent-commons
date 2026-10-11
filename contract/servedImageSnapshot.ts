@@ -1,4 +1,5 @@
 import { isImageAssetRef, type ImageAssetRef } from './imageAssets.ts'
+import { isClosedRecord } from './closedRecord.mjs'
 import { isServedCaptureTime, isServedPath, isServedSourceId, isSnapshotId } from './servedSnapshotIdentity.ts'
 
 /** Captured, normalized served image data; the path is provenance, not a read grant. */
@@ -21,12 +22,9 @@ export function isServedImageFileName(name: unknown): name is string {
 }
 
 export function isServedImageSnapshot(value: unknown): value is ServedImageSnapshot {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  const item = value as Record<string, unknown>
   const fields = ['version', 'snapshotId', 'capturedAt', 'sourceId', 'path', 'image']
-  const keys = Reflect.ownKeys(item)
-  if (keys.length !== fields.length || !fields.every((field) => Object.hasOwn(item, field)) ||
-      !keys.every((key) => typeof key === 'string' && fields.includes(key))) return false
+  if (!isClosedRecord(value, fields, 'all')) return false
+  const item = value as Record<string, unknown>
   if (item.version !== 1 || !isSnapshotId(item.snapshotId) || !isServedCaptureTime(item.capturedAt) ||
       !isServedSourceId(item.sourceId) || !isServedPath(item.path) || !isServedImageFileName(item.path)) return false
   if (!isImageAssetRef(item.image)) return false

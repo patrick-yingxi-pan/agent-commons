@@ -192,6 +192,63 @@ test('local Refresh accepts an empty capture and preserves it as a durable recei
   assert.deepEqual((await refresh(owner, CONNECTION, null, empty)).json.workspace, result.json.workspace)
 })
 
+test('local Refresh preserves the attached snapshot scope across replacements', async () => {
+  const owner = await ownedSession()
+  assert.equal((await attach(owner, [CONNECTION])).status, 200)
+  const recursive = capture({
+    version: 2,
+    scope: 'recursive',
+    files: [
+      { name: 'src/notes.md', sizeBytes: 5, snapshot: { text: 'first' } },
+      { name: 'tests/notes.md', sizeBytes: 6, snapshot: { text: 'second' } },
+    ],
+  })
+  const first = await refresh(owner, CONNECTION, null, recursive)
+  assert.equal(first.status, 200)
+  assert.deepEqual(first.json.workspace.workspaces[0].folders[0].localSnapshot, recursive)
+
+  const flat = capture({ snapshotId: CHANGED_ID })
+  const scopeChange = await refresh(owner, CONNECTION, recursive.snapshotId, flat)
+  assert.equal(scopeChange.status, 409, 'Refresh cannot change recursive scope back to flat')
+  assert.deepEqual(store.sessionWorkspace(owner.id), first.json.workspace, 'a refused scope change preserves exact saved paths')
+
+  const flatOwner = await ownedSession()
+  assert.equal((await attach(flatOwner, [CONNECTION])).status, 200)
+  const initialFlat = capture({ snapshotId: FIRST_ID })
+  assert.equal((await refresh(flatOwner, CONNECTION, null, initialFlat)).status, 200)
+  const promote = capture({ version: 2, scope: 'recursive', snapshotId: CHANGED_ID,
+    files: [{ name: 'src/notes.md', sizeBytes: 5, snapshot: { text: 'first' } }] })
+  assert.equal((await refresh(flatOwner, CONNECTION, FIRST_ID, promote)).status, 409,
+    'Refresh cannot change the original flat scope into recursive')
+})
+
+test('recursive Refresh remains owner-only and refuses malformed v2 captures', async () => {
+  const owner = await ownedSession()
+  assert.equal((await attach(owner, [CONNECTION])).status, 200)
+  const grant = store.createGrant({
+    subject: { kind: 'session', id: owner.id },
+    audience: { kind: 'org', orgId: 'tenant-beta' },
+    tier: 'view',
+  }, owner.tenant)
+  assert.ok(grant && typeof grant === 'object')
+  const recursive = capture({
+    version: 2,
+    scope: 'recursive',
+    files: [{ name: 'src/notes.md', sizeBytes: 4, snapshot: { text: 'body' } }],
+  })
+  const reader = { 'x-tenant-id': 'tenant-beta', 'x-account-transition-source': 'unsigned' }
+  assert.equal((await refresh(owner, CONNECTION, null, recursive, reader)).status, 403)
+
+  const malformed = { ...recursive, files: [{ ...recursive.files[0]!, name: 'src/../secret.md' }] } as LocalFolderCapture
+  assert.equal((await refresh(owner, CONNECTION, null, malformed)).status, 400)
+  const foreign = {
+    'x-tenant-id': `${owner.tenant}-foreign`,
+    'x-account-transition-source': 'unsigned',
+  }
+  assert.equal((await refresh(owner, CONNECTION, null, recursive, foreign)).status, 404)
+  assert.equal(store.sessionWorkspace(owner.id)?.workspaces[0]?.folders?.[0]?.localSnapshot, undefined)
+})
+
 test('first-party source precondition fences stale local capture from draft creation and context attachment', async () => {
   const owner = await ownedSession()
   const staleSourceHeaders = { ...owner.headers, 'x-account-transition-source': 'session:previous-account' }

@@ -320,7 +320,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   for (const channel of Object.values(dataChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const verb of ['pickFiles', 'pickFolder']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(contextChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
-  for (const verb of ['list', 'connect', 'snapshot', 'disconnect']) assert.match(preload, new RegExp(`${verb}:`))
+  for (const verb of ['list', 'connect', 'snapshot', 'snapshotTree', 'disconnect']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(localFolderChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const channel of Object.values(localGitChannels)) assert.ok(preload.includes(channel), `macOS preload must invoke ${channel}`)
   const contextBridge = preload.slice(preload.indexOf('context: Object.freeze('), preload.indexOf('data: Object.freeze('))
@@ -347,7 +347,9 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal((main.match(/^\s+beginShutdown\(\)$/gm) ?? []).length, 4, 'update, restore, and both before-quit paths cancel local work')
   const packagedSmokeSource = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
   assert.ok(packagedSmokeSource.includes("'localFolders,localGit,pickFiles,pickFolder'"), 'macOS packaged smoke locks the exact context bridge surface')
-  assert.ok(packagedSmokeSource.includes("'connect,disconnect,list,snapshot'"), 'packaged smoke locks all four local-folder methods')
+  assert.ok(packagedSmokeSource.includes("'connect,disconnect,list,snapshot,snapshotTree'"), 'macOS packaged smoke locks all five local-folder methods')
+  assert.ok(packagedSmokeSource.includes("typeof window.agentCommonsDesktop?.context?.localFolders?.snapshotTree === 'function'"),
+    'packaged smoke requires the explicit recursive folder method')
   assert.ok(packagedSmokeSource.includes("typeof window.agentCommonsDesktop?.context?.localGit?.review === 'function'"),
     'packaged smoke requires the explicit Git review method')
   assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,list,review,snapshot'"),

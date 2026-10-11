@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _electron, expect } from '@playwright/test'
@@ -1125,6 +1125,8 @@ export async function smokePackagedAttachments({ executable }) {
     await writeFile(join(folderPath, 'notes.md'), folderText)
     await writeFile(join(folderPath, '.env'), 'HIDDEN_FOLDER_SECRET=not-imported')
     await writeFile(join(folderPath, 'photo.png'), 'not plain text')
+    await mkdir(join(folderPath, 'nested'))
+    await writeFile(join(folderPath, 'nested', 'notes.md'), 'FLAT_SCOPE_MUST_NOT_EXPAND')
     const folderSession = await page.evaluate(async (providerId) => {
       const response = await fetch('/api/v1/sessions', {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId }),
@@ -1151,6 +1153,7 @@ export async function smokePackagedAttachments({ executable }) {
       { name: 'folder-import/photo.png', status: 'unavailable' },
     ])
     assert.equal(JSON.stringify(endpoint.requests).includes('HIDDEN_FOLDER_SECRET'), false)
+    assert.equal(JSON.stringify(endpoint.requests).includes('FLAT_SCOPE_MUST_NOT_EXPAND'), false)
     assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
     const folderManagePicker = await openNativeLocalFolderPicker(page)
     await folderManagePicker.native.getByRole('button', { name: 'Manage folder-import', exact: true }).click()
@@ -1167,7 +1170,20 @@ export async function smokePackagedAttachments({ executable }) {
     const initialLocalText = 'native-local-folder-initial\n'
     const refreshedLocalText = 'native-local-folder-refreshed\n'
     const rememberedLocalText = 'native-local-folder-after-relaunch\n'
+    const treeCapture = process.platform === 'darwin'
+    const nestedLocalText = 'native-nested-source-body\n'
+    const nestedTestText = 'native-nested-test-body\n'
     await writeFile(join(ephemeralFolder, 'local-note.md'), initialLocalText)
+    if (treeCapture) {
+      await mkdir(join(ephemeralFolder, 'src'))
+      await mkdir(join(ephemeralFolder, 'tests'))
+      await writeFile(join(ephemeralFolder, 'src', 'local-note.md'), nestedLocalText)
+      await writeFile(join(ephemeralFolder, 'tests', 'local-note.md'), nestedTestText)
+      await writeFile(join(ephemeralFolder, 'src', '.env'), 'NESTED_HIDDEN_SECRET')
+      const outsideTree = join(fixtureRoot, 'outside-tree.md')
+      await writeFile(outsideTree, 'SYMLINK_MUST_NOT_BE_READ')
+      await symlink(outsideTree, join(ephemeralFolder, 'src', 'outside.md'))
+    }
     await writeFile(join(rememberedFolder, 'remembered-note.md'), 'before connection; never captured automatically\n')
     const localSession = await page.evaluate(async (providerId) => {
       const response = await fetch('/api/v1/sessions', {
@@ -1197,12 +1213,18 @@ export async function smokePackagedAttachments({ executable }) {
     assert.equal(JSON.stringify(beforeExplicitAttach ?? {}).includes('folder-ephemeral'), false,
       'connect and metadata listing save no folder contents into the conversation')
 
+    if (treeCapture) {
+      const includeSubfolders = localPicker.native.getByRole('checkbox', { name: 'Include subfolders', exact: true })
+      await expect(includeSubfolders).toHaveAttribute('aria-checked', 'false')
+      await includeSubfolders.click()
+      await expect(includeSubfolders).toHaveAttribute('aria-checked', 'true')
+    }
     await localPicker.native.getByRole('button', { name: 'Attach folder-ephemeral', exact: true }).click()
     await expect(localPicker.picker).toContainText('1 added', { timeout: TIMEOUT_MS })
     await localPicker.picker.getByRole('button', { name: 'Done', exact: true }).click()
     const ephemeralGroup = visibleLocalWorkspaceFolder(page, ephemeralConnectionId)
     await expect(ephemeralGroup).toBeVisible()
-    await ephemeralGroup.getByRole('button', { name: /local-note\.md/ }).click()
+    await ephemeralGroup.getByRole('button', { name: /^local-note\.md/ }).click()
     const localPreview = page.locator('[data-folder-snapshot-preview]:visible')
     await expect(localPreview).toContainText(initialLocalText)
     await writeFile(join(ephemeralFolder, 'local-note.md'), refreshedLocalText)
@@ -1217,6 +1239,17 @@ export async function smokePackagedAttachments({ executable }) {
       if (!response.ok) throw new Error('Pre-refusal saved-state read failed.')
       return (await response.json()).workspace
     }, localSession.id)
+    const savedLocalFolder = beforeFailedRefresh.workspaces.flatMap((workspace) => workspace.folders ?? [])
+      .find((folder) => folder.id === `ui-host::${ephemeralConnectionId}`)
+    assert.equal(savedLocalFolder.localSnapshot.version, treeCapture ? 2 : 1)
+    if (treeCapture) {
+      assert.equal(savedLocalFolder.localSnapshot.scope, 'recursive', 'Refresh preserves the explicitly selected tree scope')
+      assert.deepEqual(savedLocalFolder.localSnapshot.files.map(({ name, snapshot }) => ({ name, ...snapshot })), [
+        { name: 'local-note.md', text: refreshedLocalText },
+        { name: 'src/local-note.md', text: nestedLocalText },
+        { name: 'tests/local-note.md', text: nestedTestText },
+      ], 'native tree capture retains distinct root-relative names without following links or reading hidden files')
+    }
     await rename(ephemeralFolder, `${ephemeralFolder}-held`)
     try {
       await ephemeralGroup.getByRole('button', { name: /Refresh folder-ephemeral\// }).click()
@@ -1250,7 +1283,13 @@ export async function smokePackagedAttachments({ executable }) {
     await send(page, 'Read the refreshed local folder snapshot.', 'native-local-folder-refreshed')
     assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [
       { name: 'folder-ephemeral/local-note.md', status: 'ready', text: refreshedLocalText },
+      ...(treeCapture ? [
+        { name: 'folder-ephemeral/src/local-note.md', status: 'ready', text: nestedLocalText },
+        { name: 'folder-ephemeral/tests/local-note.md', status: 'ready', text: nestedTestText },
+      ] : []),
     ])
+    assert.equal(JSON.stringify(endpoint.requests).includes('NESTED_HIDDEN_SECRET'), false)
+    assert.equal(JSON.stringify(endpoint.requests).includes('SYMLINK_MUST_NOT_BE_READ'), false)
 
     await chooseNativeConnectionFolder(run.app, rememberedFolder)
     localPicker = await openNativeLocalFolderPicker(page)
@@ -1444,6 +1483,8 @@ export async function smokePackagedAttachments({ executable }) {
       return (await response.json()).workspace
     }, localSession.id)
     const foldersBeforeAttach = localWorkspaceBeforeAttach?.workspaces?.flatMap((workspace) => workspace.folders ?? []) ?? []
+    assert.deepEqual(foldersBeforeAttach.find((folder) => folder.id === `ui-host::${ephemeralConnectionId}`), savedLocalFolder,
+      'full relaunch retains the exact capture scope and relative file copies after their source tree disappears')
     assert.equal(foldersBeforeAttach.some((folder) => folder.id === `ui-host::${rememberedConnectionId}`), false,
       'remembering and relaunch do not automatically attach the remembered folder')
     let reopenedPicker = await openNativeLocalFolderPicker(page)
@@ -1477,6 +1518,10 @@ export async function smokePackagedAttachments({ executable }) {
     assert.deepEqual((endpoint.documents.at(-1)?.attached_files ?? []).map(({ name, status, text }) => ({ name, status, text }))
       .sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0), [
       { name: 'folder-ephemeral/local-note.md', status: 'ready', text: refreshedLocalText },
+      ...(treeCapture ? [
+        { name: 'folder-ephemeral/src/local-note.md', status: 'ready', text: nestedLocalText },
+        { name: 'folder-ephemeral/tests/local-note.md', status: 'ready', text: nestedTestText },
+      ] : []),
       { name: 'folder-remembered/remembered-note.md', status: 'ready', text: rememberedLocalText },
     ], 'the explicit saved copies from before and after relaunch remain usable after disconnect')
     console.log('[desktop-local-folder-connection-smoke] Connect remains non-reading by default · Attach and Refresh capture explicitly · unchecked grants expire · remembered grants survive relaunch · disconnect preserves saved copies')

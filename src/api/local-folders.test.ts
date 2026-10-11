@@ -11,6 +11,7 @@ import {
   captureLocalFolderSource,
   connectLocalFolder,
   disconnectLocalFolder,
+  localFolderTreeAvailable,
   localFoldersAvailable,
   readLocalFolders,
 } from './localFolders.ts'
@@ -49,6 +50,7 @@ function bridge(overrides: Partial<NativeLocalFolderBridge> = {}, calls: unknown
     async list(source) { calls.push(['list', source]); return [row] },
     async connect(input, source) { calls.push(['connect', input, source]); return { status: 'connected', connection: { ...row, remembered: input.remember } } },
     async snapshot(connectionId, source) { calls.push(['snapshot', connectionId, source]); return { name: '/private/native/path', files: [file] } },
+    async snapshotTree(connectionId, source) { calls.push(['snapshotTree', connectionId, source]); return { name: 'Research', files: [{ ...file, name: 'src/notes.txt' }] } },
     async disconnect(connectionId, source) { calls.push(['disconnect', connectionId, source]) },
     ...overrides,
   }
@@ -107,6 +109,7 @@ test('web without a native bridge fails closed, and malformed native metadata or
     select(ada)
     const absent = {}
     assert.equal(localFoldersAvailable(absent), false)
+    assert.equal(localFolderTreeAvailable(absent), false)
     await assert.rejects(readLocalFolders(absent), /desktop app/)
     await assert.rejects(connectLocalFolder(false, absent), /desktop app/)
     await assert.rejects(disconnectLocalFolder(id, absent), /desktop app/)
@@ -122,6 +125,31 @@ test('web without a native bridge fails closed, and malformed native metadata or
     await assert.rejects(connectLocalFolder(false, inconsistentAck), /Could not confirm/)
     const pathInFiles = scopeFor(bridge({ snapshot: async () => ({ name: 'Research', files: [{ ...file, name: '../notes.txt' }] }) }))
     await assert.rejects(captureLocalFolder(id, snapshotId, pathInFiles), /complete supported snapshot/)
+  } finally { cleanup() }
+})
+
+test('recursive capture is explicit, validates root-relative files, and refuses to fall back to flat capture', async () => {
+  try {
+    select(ada)
+    const calls: unknown[][] = []
+    const scope = scopeFor(bridge({}, calls))
+    assert.equal(localFolderTreeAvailable(scope), true)
+    const capture = await captureLocalFolder(id, snapshotId, scope, 'recursive')
+    assert.deepEqual(capture, {
+      version: 2, scope: 'recursive', snapshotId, capturedAt: capture.capturedAt,
+      connectionId: id, files: [{ ...file, name: 'src/notes.txt' }],
+    })
+    assert.deepEqual(calls.map(call => call[0]), ['snapshotTree'])
+
+    const flatOnly = scopeFor(bridge({ snapshotTree: undefined }, calls))
+    assert.equal(localFolderTreeAvailable(flatOnly), false)
+    await assert.rejects(captureLocalFolder(id, snapshotId, flatOnly, 'recursive'), /Recursive folder refresh is unavailable/)
+    assert.deepEqual(calls.map(call => call[0]), ['snapshotTree'], 'unsupported recursive scope never invokes flat snapshot')
+    await assert.rejects(captureLocalFolder(id, snapshotId, scope, 'unexpected' as never), /capture scope is unavailable/)
+    assert.deepEqual(calls.map(call => call[0]), ['snapshotTree'], 'an invalid runtime scope is not normalized to flat')
+
+    const malformedTree = scopeFor(bridge({ snapshotTree: async () => ({ name: 'Research', files: [{ ...file, name: '../escape.txt' }] }) }))
+    await assert.rejects(captureLocalFolder(id, snapshotId, malformedTree, 'recursive'), /complete supported snapshot/)
   } finally { cleanup() }
 })
 

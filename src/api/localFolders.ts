@@ -1,4 +1,5 @@
 import type { Identity } from '../../contract/identity.ts'
+import type { FolderSnapshotFile } from '../../contract/localFolderSnapshot.mjs'
 import { isLocalConnectionId, isLocalFolderCapture, type LocalFolderCapture, type LocalFolderConnection, type NativeLocalFolderBridge } from '../../contract/localFolderCapture.ts'
 import { accountGeneration, activeAccount } from './account.ts'
 import { AccountSwitchedError } from './client.ts'
@@ -6,6 +7,14 @@ import { peek } from './cache.ts'
 import { keys } from './keys.ts'
 import type { DesktopBridgeScope } from './desktopCredentials.ts'
 export { localFoldersAvailable } from './localFolderCapability.ts'
+
+export type LocalFolderCaptureScope = 'flat' | 'recursive'
+
+/** Recursive reads are exposed only by desktop builds that implement the
+ * optional tree bridge. The ordinary web picker never advertises this choice. */
+export function localFolderTreeAvailable(scope: DesktopBridgeScope = globalThis.window): boolean {
+  return typeof scope?.agentCommonsDesktop?.context?.localFolders?.snapshotTree === 'function'
+}
 
 /** Device-only authority stays behind the native bridge. The supplied account is
  * a precondition checked against native cookie truth, never an owner assertion. */
@@ -69,12 +78,27 @@ export async function disconnectLocalFolder(id: string, scope: DesktopBridgeScop
 
 /** Only Attach and Refresh call this function. Listing, preview and generation
  * never capture; a portable receipt is content, not native access authority. */
-export async function captureLocalFolder(id: string, snapshotId = crypto.randomUUID(), scope: DesktopBridgeScope = window): Promise<LocalFolderCapture> {
+export async function captureLocalFolder(
+  id: string,
+  snapshotId = crypto.randomUUID(),
+  scope: DesktopBridgeScope = window,
+  captureScope: LocalFolderCaptureScope = 'flat',
+): Promise<LocalFolderCapture> {
   const identity = captureLocalFolderSource()
   if (!isLocalConnectionId(id)) throw new Error('This local connection is unavailable.')
-  const result = await bridge(scope).snapshot(id, identity.source)
+  if (captureScope !== 'flat' && captureScope !== 'recursive') throw new Error('This local folder capture scope is unavailable.')
+  const port = bridge(scope)
+  let result: { name: string; files: FolderSnapshotFile[] }
+  if (captureScope === 'recursive') {
+    if (typeof port.snapshotTree !== 'function') throw new Error('Recursive folder refresh is unavailable on this device. The saved copy is unchanged.')
+    result = await port.snapshotTree(id, identity.source)
+  } else {
+    result = await port.snapshot(id, identity.source)
+  }
   identity.assertCurrent()
-  const snapshot: LocalFolderCapture = { version: 1, snapshotId, capturedAt: new Date().toISOString(), connectionId: id, files: result.files }
+  const snapshot: LocalFolderCapture = captureScope === 'recursive'
+    ? { version: 2, scope: 'recursive', snapshotId, capturedAt: new Date().toISOString(), connectionId: id, files: result.files }
+    : { version: 1, snapshotId, capturedAt: new Date().toISOString(), connectionId: id, files: result.files }
   if (!isLocalFolderCapture(snapshot)) throw new Error('The selected folder did not return a complete supported snapshot.')
   return structuredClone(snapshot)
 }

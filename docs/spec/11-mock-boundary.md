@@ -76,7 +76,10 @@ folders retain independent identity even when empty. CTX-FS-22 connects PORT-20'
 native local-folder reader and encrypted opt-in grant store to explicit
 Connect/Attach/Refresh/Disconnect controls. A local capture is portable saved
 content, not authority to read the original folder on another device or through
-MCP. CTX-FS-23 extends explicit saved input to PDF/DOCX/XLSX/PPTX from the
+MCP. CTX-FS-27 adds an explicit macOS Include subfolders choice, with versioned
+root-relative saved copies, stable-scope Refresh and bounded no-follow traversal.
+The one-shot browser picker and existing version-1 copies remain flat. CTX-FS-23
+extends explicit saved input to PDF/DOCX/XLSX/PPTX from the
 existing cloud and mapped-runner sources using the same renderer-isolated local
 importers. These are saved text projections, not original documents or rich
 Office fidelity. Raw bytes stay transient; extraction metadata persists with the
@@ -92,7 +95,7 @@ real bounded HEAD/index/working-tree comparisons (PORT-25), kept only in local
 account-scoped memory and never sent to a model. PORT-27 adds exact changed-line
 views and PORT-29 optional possible-rename hints over those captured bytes, not
 recorded Git operations or new read/write authority. Existing demo repository panels
-and terminal surfaces remain fixtures. Recursive folder selection, rich remote document fidelity and signed
+and terminal surfaces remain fixtures. Live filesystem browsing, rich remote document fidelity and signed
 two-architecture acceptance remain production work.
 
 Authored sheet and slide saves (REL-16) now persist actual bounded literal values

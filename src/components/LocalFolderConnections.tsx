@@ -4,7 +4,7 @@ import type { AddedContext } from '../types'
 import type { LocalFolderConnection } from '../../contract/localFolderCapture.ts'
 import { fsRecentKey } from '../../contract/fs.ts'
 import { accountGeneration } from '../api/account.ts'
-import { captureLocalFolder } from '../api/localFolders.ts'
+import { captureLocalFolder, localFolderTreeAvailable } from '../api/localFolders.ts'
 import { localFolderConnections, useLocalFolderConnections } from '../controller/localFolderConnections.ts'
 import { useRelations } from '../controller/useRelations'
 import { UI_HOST_SOURCE } from '../lib/fsSources'
@@ -52,6 +52,7 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, onClose }: { onAdd: (
   const rel = useRelations()
   const [reading, setReading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [includeSubfolders, setIncludeSubfolders] = useState(false)
   const active = useRef(true)
   const busy = useRef(false)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
@@ -62,7 +63,7 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, onClose }: { onAdd: (
     setReading(connection.id)
     setError(null)
     try {
-      const localSnapshot = await captureLocalFolder(connection.id)
+      const localSnapshot = await captureLocalFolder(connection.id, crypto.randomUUID(), window, includeSubfolders ? 'recursive' : 'flat')
       if (!active.current || generation !== accountGeneration()) return
       const folder = { id: fsRecentKey('ui-host', connection.id), label: `${connection.name}/`, localSnapshot }
       onAdd({ kind: 'folder', label: connection.name, folder, artifacts: [], source: UI_HOST_SOURCE })
@@ -75,7 +76,13 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, onClose }: { onAdd: (
   }
   return <div data-native-folder-picker>
     <LocalFolderConnect />
-    <p className="py-2 text-[11px] leading-snug text-ink-soft">Attach saves up to 24 top-level text files, 64 KB each and 128 KB total. Hidden files and subfolders are excluded. Only saved text feeds the model; originals never change.</p>
+    {localFolderTreeAvailable() && <>
+      <CheckboxRow checked={includeSubfolders} disabled={!!reading || state.busy} onToggle={() => setIncludeSubfolders(value => !value)} className="py-1 text-[12px] text-ink">
+        Include subfolders
+      </CheckboxRow>
+      <p className="text-[11px] leading-snug text-ink-soft">{includeSubfolders ? 'Includes visible root-relative paths up to 16 levels, 64 folders and 500 entries.' : 'Unchecked: only top-level files are included.'} Hidden paths and symlinks are excluded.</p>
+    </>}
+    <p className="py-2 text-[11px] leading-snug text-ink-soft">Attach saves up to 24 readable text files, 64 KB each and 128 KB total. Hidden files are excluded{includeSubfolders ? '; subfolders follow the option above' : '; subfolders are excluded'}. Other entries stay listed without text. Only saved text feeds the model; opening, previewing and sending never reread files. Originals never change.</p>
     {reading && <p role="status" className="py-2 text-[12px] text-ink-soft">Reading folder… Close this picker to leave without attaching.</p>}
     {error && <p role="alert" className="py-2 text-[12px] text-danger-text">{error}</p>}
     {state.status === 'ready' && <div>

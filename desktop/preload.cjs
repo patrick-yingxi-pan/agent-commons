@@ -24,6 +24,7 @@ const localFolderChannels = Object.freeze({
   list: 'agent-commons:local-folders:list',
   connect: 'agent-commons:local-folders:connect',
   snapshot: 'agent-commons:local-folders:snapshot',
+  snapshotTree: 'agent-commons:local-folders:snapshot-tree',
   disconnect: 'agent-commons:local-folders:disconnect',
 })
 const localGitChannels = Object.freeze({
@@ -149,6 +150,7 @@ const bridge = {
       list: (source) => invokeLocalFolder(localFolderChannels.list, source),
       connect: (options, source) => invokeLocalFolder(localFolderChannels.connect, options, source),
       snapshot: (id, source) => invokeLocalFolder(localFolderChannels.snapshot, id, source),
+      ...(process.platform === 'darwin' ? { snapshotTree: (id, source) => invokeLocalFolder(localFolderChannels.snapshotTree, id, source) } : {}),
       disconnect: (id, source) => invokeLocalFolder(localFolderChannels.disconnect, id, source),
     }),
     ...(process.platform === 'darwin' ? { localGit: Object.freeze({

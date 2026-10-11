@@ -27,6 +27,7 @@ function fakeStore(overrides = {}) {
     async list(owner) { calls.push(['list', owner]); return [{ id: validId, name: 'selected', remembered: false, rootPath: '/private/path' }] },
     async connect(input) { calls.push(['connect', input]); return { id: validId, name: 'selected', remembered: input.remember, root: { path: input.path } } },
     async snapshot(owner, id) { calls.push(['snapshot', owner, id]); return { name: 'selected', path: '/private/path', files: [{ name: 'note.txt', sizeBytes: 4, snapshot: { text: 'body' } }] } },
+    async snapshotTree(owner, id) { calls.push(['snapshotTree', owner, id]); return { name: 'selected', path: '/private/path', files: [{ name: 'nested/note.txt', sizeBytes: 4, snapshot: { text: 'body' } }] } },
     async review(owner, id) { calls.push(['review', owner, id]); return validReview() },
     async disconnect(owner, id) { calls.push(['disconnect', owner, id]) },
     ...overrides,
@@ -100,6 +101,28 @@ test('snapshot output is fenced and projected to path-free snapshot fields', asy
   assert.deepEqual(await host.snapshot(event, validId, { namespace: 'tenant-a', userId: 'user-a' }), {
     name: 'selected', files: [{ name: 'note.txt', sizeBytes: 4, snapshot: { text: 'body' } }],
   })
+})
+
+test('recursive folder snapshot is exact-arity, account-fenced, validated, and strictly path-free', async () => {
+  const { host, store } = makeHost()
+  const result = await host.snapshotTree(event, validId, { namespace: 'tenant-a', userId: 'user-a' })
+  assert.deepEqual(store.calls, [['snapshotTree', { namespace: 'tenant-a', userId: 'user-a' }, validId]])
+  assert.deepEqual(result, { name: 'selected', files: [{ name: 'nested/note.txt', sizeBytes: 4, snapshot: { text: 'body' } }] })
+  assert.equal(JSON.stringify(result).includes('/private/path'), false)
+
+  await assert.rejects(host.snapshotTree(event, validId, { namespace: 'tenant-a', userId: 'user-a' }, 'extra'), LocalConnectionError)
+  await assert.rejects(host.snapshotTree(event, 'LOCAL_../../private/path', { namespace: 'tenant-a', userId: 'user-a' }), LocalConnectionError)
+
+  const malformed = fakeStore({ async snapshotTree() { return { name: '/private/path', files: [{ name: '../secret.txt', sizeBytes: 4, snapshot: { text: 'body' } }] } } })
+  const malformedHost = makeHost({ store: malformed }).host
+  await assert.rejects(malformedHost.snapshotTree(event, validId, { namespace: 'tenant-a', userId: 'user-a' }), LocalConnectionError)
+
+  const git = makeHost({ connectionKind: 'git' }).host
+  await assert.rejects(git.snapshotTree(event, validId, { namespace: 'tenant-a', userId: 'user-a' }), LocalConnectionError)
+
+  let lookups = 0
+  const switched = makeHost({ resolveSource: async () => ++lookups === 1 ? source(identityA) : source(identityB, 2, 'fingerprint-b') }).host
+  await assert.rejects(switched.snapshotTree(event, validId, { namespace: 'tenant-a', userId: 'user-a' }), LocalConnectionError)
 })
 
 test('Git review uses the native connection ID, fences account identity, and returns detached path-free output', async () => {
