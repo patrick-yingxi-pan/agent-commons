@@ -1,6 +1,7 @@
 /** One short-lived native loopback receiver. This does not open a browser or
  * exchange a token. No code, state, verifier or remote error is rendered. */
 import { createServer } from 'node:http'
+import { performance } from 'node:perf_hooks'
 import {
   createMcpOAuthAuthorization, McpOAuthAuthorizationError,
   MCP_OAUTH_AUTHORIZATION_TIMEOUT_MS, MCP_OAUTH_CALLBACK_PATH,
@@ -12,8 +13,10 @@ export function openMcpOAuthCallback(parameters, { signal, timeoutMs = MCP_OAUTH
     return Promise.reject(new McpOAuthAuthorizationError('request'))
   }
   if (signal?.aborted) return Promise.reject(new McpOAuthAuthorizationError('cancelled'))
+  const deadlineAt = performance.now() + timeoutMs
   return new Promise((ready, rejectReady) => {
-    let attempt, host, finished = false, listening = false
+    let attempt, host, finished = false, readyPublished = false
+    const preparation = new AbortController()
     let resolveResult, rejectResult
     const result = new Promise((resolve, reject) => { resolveResult = resolve; rejectResult = reject })
     // The native caller may not attach its result handler until after opening
@@ -54,14 +57,16 @@ export function openMcpOAuthCallback(parameters, { signal, timeoutMs = MCP_OAUTH
       finished = true
       clearTimeout(timer)
       signal?.removeEventListener('abort', cancel)
+      preparation.abort()
       attempt?.cancel()
       server.close()
       server.closeAllConnections()
-      if (error) { rejectResult(error); if (!listening) rejectReady(error) }
+      if (error) { rejectResult(error); if (!readyPublished) rejectReady(error) }
       else resolveResult(value)
     }
     const cancel = () => finish(new McpOAuthAuthorizationError('cancelled'))
     const timer = setTimeout(() => finish(new McpOAuthAuthorizationError('expired')), timeoutMs)
+    const remainingMs = () => Math.ceil(deadlineAt - performance.now())
     signal?.addEventListener('abort', cancel, { once: true })
     server.maxConnections = 8
     server.maxRequestsPerSocket = 1
@@ -75,11 +80,30 @@ export function openMcpOAuthCallback(parameters, { signal, timeoutMs = MCP_OAUTH
       const address = server.address()
       if (!address || typeof address === 'string') return finish(new McpOAuthAuthorizationError('unavailable'))
       host = `127.0.0.1:${address.port}`
-      try {
-        attempt = createMcpOAuthAuthorization({ ...parameters, redirectUri: `http://${host}${MCP_OAUTH_CALLBACK_PATH}` }, { timeoutMs })
-      } catch { return finish(new McpOAuthAuthorizationError('request')) }
-      listening = true
-      ready(Object.freeze({ authorizationUrl: attempt.authorizationUrl, redirectUri: attempt.redirectUri, result, cancel }))
+      const redirectUri = `http://${host}${MCP_OAUTH_CALLBACK_PATH}`
+      const publish = prepared => {
+        if (settled) return
+        const remaining = remainingMs()
+        if (remaining <= 0) return finish(new McpOAuthAuthorizationError('expired'))
+        try {
+          attempt = createMcpOAuthAuthorization({ ...prepared, redirectUri }, { timeoutMs: Math.max(1, remaining) })
+        } catch { return finish(new McpOAuthAuthorizationError('request')) }
+        if (settled) return
+        if (remainingMs() <= 0) return finish(new McpOAuthAuthorizationError('expired'))
+        readyPublished = true
+        ready(Object.freeze({ authorizationUrl: attempt.authorizationUrl, redirectUri: attempt.redirectUri, result, cancel }))
+      }
+      if (typeof parameters === 'function') {
+        void Promise.resolve().then(async () => {
+          if (settled) return
+          if (remainingMs() <= 0) return finish(new McpOAuthAuthorizationError('expired'))
+          try {
+            const prepared = await parameters(Object.freeze({ redirectUri, signal: preparation.signal }))
+            if (settled) return
+            publish(prepared)
+          } catch { finish(new McpOAuthAuthorizationError('request')) }
+        })
+      } else publish(parameters)
     })
   })
 }

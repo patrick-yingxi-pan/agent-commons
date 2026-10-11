@@ -44,9 +44,25 @@ regressions also corrected legal whitespace and empty-list-member parsing.
 Disabling DNS admission/TLS verification failed their locks before restoration;
 facade identity mutations failed the shared-authority locks.
 
-Next layers remain required: client registration with pre-registration,
-configurable HTTPS client metadata and legacy
-fallback; native transaction/account/revision wiring and OS-backed custody/refresh
+The fourth layer adds exact-issuer pre-registration, configured HTTPS client
+metadata identity and one-shot public-native dynamic registration. The actual
+ephemeral callback is bound before registration; one monotonic deadline covers
+preparation and authorization. An internal transaction now composes registration,
+browser handoff, callback, one code exchange and initial encrypted custody with
+current-scope publication fences and a provisional-reference-only result.
+Real local TLS/callback/disk tests exercise that composition. Browser/provider
+interaction and encryption are fixtures, not OS-browser or Keychain OAuth proof.
+Fail-first review corrected late URL publication after synchronous preparation
+overran its deadline and refusal of unsolicited registered refresh capability.
+Removing initial custody's publication fence made its regression fail.
+
+The runtime audit exposed a product choice: existing MCP connections are
+tenant-owned, while OAuth custody binds a person. Owner decisions are pending
+on person-owned versus explicitly workspace-shared OAuth connections and whether
+separately approved routines may use the person's grant. No tenant permission
+or routine authority is widened while those decisions are unresolved.
+
+Next layers remain required: native transaction/account/revision wiring and OS-backed custody/refresh
 composition; owner review/status/cancel/recovery UI; and
 complete browser plus packaged-native fixture acceptance. No production client
 metadata URL is invented: its hosted identity is an operator release input.
@@ -69,12 +85,15 @@ tests fail. Review identified a stale queued reservation erasing an otherwise
 valid grant; its regression requires the same last-moment publication fence as
 completion. Another fail-first regression binds the grant's resource to the
 canonical MCP endpoint, preventing an otherwise valid different HTTPS audience
-from entering custody. No extra sign-in or tool-consent decision is needed.
+from entering custody. These guards do not change scope or tool-call consent.
 During native regression acceptance, a read-only probe found cancel/rejoin could
 retain unbounded promise handlers despite the live-waiter cap. The test runner
 was stopped before edits; a failing regression now keeps each canceled
 subscription counted until the shared promise settles. Only the subsequent
 complete frozen-tree acceptance counts for this checkpoint.
+
+Discovery checkpoint `f6a69797` passed all five local verifier lanes, all 609
+browser tests, complete unsigned arm64 native acceptance and independent review.
 
 Custody checkpoint `54f8db31` passed complete local and unsigned arm64 native
 verification. Its first browser run timed out before an MCP proposal appeared;

@@ -295,10 +295,11 @@ export async function openMcpCredentialVault({ filePath, encrypt, decrypt, now =
     return decryptPayload(decrypt, reference, expected, entry.ciphertext)
   }
 
-  const provision = (binding, credential) => {
+  const provision = (binding, credential, beforePublish = () => {}) => {
     const expected = canonicalBinding(binding)
     if (credential.oauth) oauthAudience(credential.oauth, expected)
     return enqueue(async (next) => {
+      beforePublish()
       if (Object.keys(next.entries).length >= MAX_MCP_VAULT_ENTRIES) fail('The MCP credential vault is full.')
       let reference
       for (let attempt = 0; attempt < 128; attempt += 1) {
@@ -317,7 +318,7 @@ export async function openMcpCredentialVault({ filePath, encrypt, decrypt, now =
         fail('The MCP credential timestamp is invalid.')
       }
       return reference
-    })
+    }, beforePublish)
   }
 
   const oauth = createMcpOAuthCustody({

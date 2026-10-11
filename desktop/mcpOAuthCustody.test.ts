@@ -58,6 +58,31 @@ test('OAuth grants remain encrypted, detached, owner-bound and unavailable throu
   })
 })
 
+test('initial OAuth custody rechecks its native authority before encryption and at atomic publication', async () => {
+  for (const phase of ['queued', 'encrypt', 'file']) {
+    let current = true, armed = false, encryptions = 0
+    await fixture(async ({ vault, filePath }) => {
+      await vault.provision({ ...binding, connectionId: 'unrelated' }, 'unrelated-token')
+      const before = await readFile(filePath, 'utf8')
+      const count = encryptions
+      armed = true
+      const pending = vault.provisionOAuth(binding, ownerId, grant(), () => current)
+      if (phase === 'queued') current = false
+      await assert.rejects(pending)
+      assert.equal(await readFile(filePath, 'utf8'), before, phase)
+      if (phase === 'queued') assert.equal(encryptions, count, 'stale queued work never encrypts')
+    }, {
+      encrypt: async text => { encryptions++; if (armed && phase === 'encrypt') current = false; return encrypt(text) },
+      fsApi: { async syncFile(filePath) {
+        const fs = await import('node:fs/promises')
+        const file = await fs.open(filePath, 'r+')
+        try { await file.sync() } finally { await file.close() }
+        if (armed && phase === 'file') current = false
+      } },
+    })
+  }
+})
+
 test('reservation atomically removes tokens before returning them, and restart cannot reserve or complete again', async () => {
   await fixture(async ({ vault, filePath, reopen }) => {
     const reference = await vault.provisionOAuth(binding, ownerId, grant())

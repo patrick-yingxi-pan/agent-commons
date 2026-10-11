@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
 import { connect } from 'node:net'
+import { performance } from 'node:perf_hooks'
 import { openMcpOAuthCallback } from './mcpOAuthCallback.mjs'
 
 const issuer = 'https://auth.example'
@@ -13,6 +14,11 @@ const parameters = () => ({
     token_endpoint_auth_methods_supported: ['none'], authorization_response_iss_parameter_supported: true,
   },
 })
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>(yes => { resolve = yes })
+  return { promise, resolve }
+}
 const callback = (flow, extra = {}) => `${flow.redirectUri}?${new URLSearchParams({
   state: new URL(flow.authorizationUrl).searchParams.get('state')!, code: 'private-code', iss: issuer, ...extra,
 })}`
@@ -116,4 +122,66 @@ test('invalid preparation releases its bound port and incomplete sockets cannot 
     await closed
     await assert.rejects(send(callback(flow)))
   } finally { socket.destroy(); flow.cancel() }
+})
+
+test('an async parameter factory receives the exact native redirect URI and may finish before authorization URL publication', async () => {
+  let receivedRedirectUri = ''
+  const flow = await openMcpOAuthCallback(async ({ redirectUri, signal }) => {
+    receivedRedirectUri = redirectUri
+    assert.equal(signal.aborted, false)
+    return { ...parameters(), redirectUri: 'https://wrong.example/callback' }
+  })
+  try {
+    assert.equal(flow.redirectUri, receivedRedirectUri)
+    assert.equal(new URL(flow.authorizationUrl).searchParams.get('redirect_uri'), receivedRedirectUri)
+    assert.equal((await send(callback(flow))).status, 200)
+    await flow.result
+  } finally { flow.cancel() }
+})
+
+test('external cancellation during async preparation aborts its signal and ignores late parameters', async () => {
+  const preparation = deferred<Record<string, unknown>>()
+  const started = deferred<{ redirectUri: string; signal: AbortSignal }>()
+  const cancellation = new AbortController()
+  const pending = openMcpOAuthCallback(context => {
+    started.resolve(context)
+    return preparation.promise
+  }, { signal: cancellation.signal })
+  const context = await started.promise
+  cancellation.abort()
+  await assert.rejects(pending, error => error.code === 'cancelled')
+  assert.equal(context.signal.aborted, true)
+  preparation.resolve(parameters())
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(send(callback({ redirectUri: context.redirectUri, authorizationUrl: 'https://unused' })))
+})
+
+test('overall deadline includes async preparation and a late factory cannot publish or retain its listener', async () => {
+  const preparation = deferred<Record<string, unknown>>()
+  const started = deferred<{ redirectUri: string; signal: AbortSignal }>()
+  const pending = openMcpOAuthCallback(context => {
+    started.resolve(context)
+    return preparation.promise
+  }, { timeoutMs: 40 })
+  const context = await started.promise
+  await assert.rejects(pending, error => error.code === 'expired')
+  assert.equal(context.signal.aborted, true)
+  preparation.resolve(parameters())
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(send(callback({ redirectUri: context.redirectUri, authorizationUrl: 'https://unused' })))
+})
+
+test('a synchronous factory that blocks past the monotonic deadline cannot publish a late authorization URL', async () => {
+  let invoked = false
+  let redirectUri = ''
+  const pending = openMcpOAuthCallback(context => {
+    invoked = true
+    redirectUri = context.redirectUri
+    const stopAt = performance.now() + 280
+    while (performance.now() < stopAt) { /* deliberately model a blocking preparer */ }
+    return parameters()
+  }, { timeoutMs: 220 })
+  await assert.rejects(pending, error => error.code === 'expired')
+  assert.equal(invoked, true, 'the factory began before the overall deadline')
+  await assert.rejects(send(callback({ redirectUri, authorizationUrl: 'https://unused' })))
 })

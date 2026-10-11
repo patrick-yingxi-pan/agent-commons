@@ -37,9 +37,11 @@ export function createMcpOAuthCustody({ provision, read, mutate }) {
     return payload.oauth
   }
   return {
-    provisionOAuth(binding, ownerId, rawGrant) {
+    provisionOAuth(binding, ownerId, rawGrant, isCurrent = () => true) {
       const oauth = snapshotMcpOAuthCustody({ ownerId, generation: 0, state: 'ready', grant: rawGrant })
-      return provision(binding, { oauth })
+      const check = () => current(isCurrent)
+      check()
+      return provision(binding, { oauth }, check)
     },
     async readOAuth(reference, binding, ownerId) {
       const value = owned(await read(reference, binding), ownerId)

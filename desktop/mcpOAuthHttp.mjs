@@ -8,6 +8,7 @@ import { isPublicAddress, parseOutboundEndpoint } from '../server/outboundAddres
 import { MCP_MODERN_VERSION, mcpRequestMetadata } from '../server/mcpProtocolCore.mjs'
 import { oauthHttpsUrl, oauthResourceUrl, oauthScopes, snapshotOAuthJson } from './mcpOAuthMetadata.mjs'
 import { parseMcpOAuthChallenge } from './mcpOAuthChallenge.mjs'
+import { createMcpOAuthRegistrationRequest } from './mcpOAuthRegistration.mjs'
 
 const MAX_BODY_BYTES = 65_536
 const CODES = ['destination', 'request', 'timeout', 'cancelled', 'stale', 'network', 'response', 'redirect', 'http', 'busy']
@@ -66,7 +67,7 @@ export function createMcpOAuthHttp({ resolve = host => lookup(host, { all: true,
     try {
       options = { ...rawOptions }
       if (Object.keys(options).some(key => !['isCurrent', 'beforeDispatch', 'signal', 'timeoutMs'].includes(key)) ||
-          typeof options.isCurrent !== 'function' || (kind === 'exchange' && typeof options.beforeDispatch !== 'function')) fail('request')
+          typeof options.isCurrent !== 'function' || (['exchange', 'registration'].includes(kind) && typeof options.beforeDispatch !== 'function')) fail('request')
       timeoutMs = options.timeoutMs ?? 10_000
       if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) fail('request')
       if (closed || options.signal?.aborted) fail('cancelled')
@@ -149,7 +150,7 @@ export function createMcpOAuthHttp({ resolve = host => lookup(host, { all: true,
               catch { finish('response') }
               return
             }
-            if (status !== 200) { finish('http'); return }
+            if (status !== (kind === 'registration' ? 201 : 200)) { finish('http'); return }
             const encoding = response.headers['content-encoding']
             const type = response.headers['content-type']
             const length = response.headers['content-length']
@@ -198,6 +199,18 @@ export function createMcpOAuthHttp({ resolve = host => lookup(host, { all: true,
       let input
       try { input = exchangeInput(raw) } catch { fail('request') }
       return (await perform(input.endpoint, input.body, 'exchange', options)).document
+    },
+    async register(raw, options) {
+      let input
+      try {
+        const value = snapshotOAuthJson(raw)
+        if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 5 ||
+            !['endpoint', 'redirectUri', 'scopes', 'refresh', 'body'].every(key => Object.hasOwn(value, key))) fail('request')
+        input = createMcpOAuthRegistrationRequest({ endpoint: value.endpoint, redirectUri: value.redirectUri,
+          scopes: value.scopes, refresh: value.refresh })
+        if (input.body !== value.body) fail('request')
+      } catch { fail('request') }
+      return (await perform(input.endpoint, input.body, 'registration', options)).document
     },
     close() { closed = true; for (const entry of active) entry.cancel() },
   })

@@ -19,7 +19,7 @@ const text = (value, max) => typeof value === 'string' && value.length > 0 && va
 const opaque = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && /^[\x20-\x7e]+$/.test(value)
 const RESERVED = new Set(['response_type', 'client_id', 'redirect_uri', 'scope', 'state', 'resource', 'code_challenge', 'code_challenge_method', 'response_mode'])
 
-function redirect(value) {
+export function mcpOAuthRedirectUri(value) {
   if (!text(value, 256)) fail('request')
   let url
   try { url = new URL(value) } catch { fail('request') }
@@ -47,7 +47,7 @@ export function createMcpOAuthAuthorization(parameters, {
     server = parseOAuthServerMetadata(parameters.metadata, parameters.issuer)
     resource = oauthResourceUrl(parameters.resource)
     scopes = oauthScopes(parameters.scopes)
-    redirectUri = redirect(parameters.redirectUri)
+    redirectUri = mcpOAuthRedirectUri(parameters.redirectUri)
     clientId = parameters.clientId
     if (!opaque(clientId, 2_048)) fail('request')
     if (scopes.includes('offline_access') && !server.scopesSupported?.includes('offline_access')) fail('request')

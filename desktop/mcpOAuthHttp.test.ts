@@ -11,6 +11,9 @@ import { createMcpOAuthRefreshRequest } from './mcpOAuthTokens.mjs'
 import { createMcpOAuthRefreshManager } from './mcpOAuthRefresh.mjs'
 import { createMcpOAuthDiscovery } from './mcpOAuthDiscovery.mjs'
 import { createMcpOAuthAuthorization } from './mcpOAuthAuthorization.mjs'
+import { createMcpOAuthRegistrationRequest } from './mcpOAuthRegistration.mjs'
+import { createMcpOAuthSignIn } from './mcpOAuthSignIn.mjs'
+import { get as httpGet } from 'node:http'
 import { oauthResourceUrl } from './mcpOAuthMetadata.mjs'
 import { openMcpCredentialVault } from './mcpCredentialVault.mjs'
 import { MCP_MODERN_VERSION, mcpRequestMetadata } from '../server/mcpProtocolCore.mjs'
@@ -409,4 +412,96 @@ test('real TLS discovery composes with PKCE authorization and one exact code exc
   assert.equal(exchanges, 1)
   assert.deepEqual(paths.map(row => row[0]), ['POST', 'GET', 'GET', 'POST'])
   assert.ok(Object.isFrozen(server.metadata) && Object.isFrozen(server.metadata.response_types_supported))
+})
+
+test('DCR sends only closed public-native JSON, requires 201 and never retries registration', async t => {
+  let status = 201, registrations = 0, received
+  const { client, endpoint } = await peer(t, (req, res) => {
+    const chunks = []
+    req.on('data', chunk => chunks.push(chunk))
+    req.on('end', () => {
+      registrations++; received = { headers: req.headers, body: JSON.parse(Buffer.concat(chunks).toString()) }
+      res.writeHead(status, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ client_id: 'registered' }))
+    })
+  })
+  const request = createMcpOAuthRegistrationRequest({ endpoint, redirectUri: 'http://127.0.0.1:49152/oauth/callback', scopes: ['read'], refresh: true })
+  for (const invalid of [{ ...request, extra: 'ignored' }, { ...request, body: JSON.stringify({ ...JSON.parse(request.body), client_secret: 'secret' }) },
+    { ...request, redirectUri: 'http://127.0.0.1:49153/oauth/callback' }]) {
+    await assert.rejects(client.register(invalid, exchangeOptions()), failure('request', false))
+  }
+  assert.equal(registrations, 0)
+  assert.deepEqual(await client.register(request, exchangeOptions()), { client_id: 'registered' })
+  assert.equal(received.headers['content-type'], 'application/json')
+  assert.deepEqual(received.body, JSON.parse(request.body))
+  assert.equal(received.headers.authorization, undefined)
+  status = 200
+  await assert.rejects(client.register(request, exchangeOptions()), failure('http', true, 200))
+  status = 400
+  await assert.rejects(client.register(request, exchangeOptions()), failure('http', true, 400))
+  assert.equal(registrations, 3, 'one request for each explicit invocation, never an automatic replay')
+})
+
+test('local TLS native sign-in composes DCR with the real ephemeral callback, one exchange and encrypted custody', async t => {
+  let origin, registered, tokenForm, registrations = 0, exchanges = 0, opens = 0
+  const { client, endpoint, directory } = await peer(t, (req, res) => {
+    const chunks = []
+    req.on('data', chunk => chunks.push(chunk))
+    req.on('end', () => {
+      if (req.url === '/register') {
+        registrations++; registered = JSON.parse(Buffer.concat(chunks).toString())
+        res.writeHead(201, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ ...registered, client_id: 'registered native client', registration_access_token: 'management-secret-not-retained' }))
+      } else if (req.url === '/exchange') {
+        exchanges++; tokenForm = new URLSearchParams(Buffer.concat(chunks).toString())
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ access_token: 'native-access', refresh_token: 'native-refresh', token_type: 'Bearer', scope: 'records:read', expires_in: 60 }))
+      } else { res.writeHead(404); res.end() }
+    })
+  })
+  origin = new URL(endpoint).origin
+  const filePath = join(directory, 'signin-vault.json')
+  const encrypt = text => Buffer.from(text).map(byte => byte ^ 0xa5)
+  const decrypt = bytes => Buffer.from(bytes).map(byte => byte ^ 0xa5).toString()
+  const vault = await openMcpCredentialVault({ filePath, encrypt, decrypt })
+  const signIn = createMcpOAuthSignIn({ http: client, vault, now: () => 1000, async openBrowser(url) {
+    // Fixture only for OS browser launch/provider page. Actual callback HTTP,
+    // PKCE, state, registration, exchange, parsing and custody stay real.
+    opens++
+    const authorize = new URL(url)
+    assert.equal(authorize.origin, origin)
+    assert.equal(authorize.searchParams.get('client_id'), 'registered native client')
+    assert.equal(authorize.searchParams.get('code_challenge_method'), 'S256')
+    assert.equal(authorize.searchParams.get('redirect_uri'), registered.redirect_uris[0])
+    const callback = new URL(authorize.searchParams.get('redirect_uri'))
+    callback.search = new URLSearchParams({ code: 'native code', state: authorize.searchParams.get('state'), iss: `${origin}/issuer` }).toString()
+    await new Promise<void>((resolve, reject) => {
+      const request = httpGet(callback, response => {
+        assert.equal(response.statusCode, 200)
+        response.resume(); response.on('end', resolve)
+      })
+      request.on('error', reject)
+    })
+  } })
+  t.after(() => signIn.close())
+  const binding = { tenantId: 'tenant', connectionId: 'connection', endpoint: 'https://resource.fixture.test/mcp' }
+  const result = await signIn.authorize({ binding, ownerId: 'owner', issuer: `${origin}/issuer`, scopes: ['records:read'], metadata: {
+    issuer: `${origin}/issuer`, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/exchange`, registration_endpoint: `${origin}/register`,
+    grant_types_supported: ['authorization_code', 'refresh_token'], response_types_supported: ['code'],
+    token_endpoint_auth_methods_supported: ['none'], code_challenge_methods_supported: ['S256'], authorization_response_iss_parameter_supported: true,
+  } }, options())
+  assert.equal(registrations, 1); assert.equal(opens, 1); assert.equal(exchanges, 1)
+  assert.equal(tokenForm.get('redirect_uri'), registered.redirect_uris[0])
+  assert.equal(tokenForm.get('code'), 'native code')
+  assert.equal(tokenForm.get('resource'), binding.endpoint)
+  assert.equal(tokenForm.get('code_verifier').length, 43)
+  assert.deepEqual(result.scopes, ['records:read'])
+  assert.equal(result.expiresAt, 61_000)
+  assert.doesNotMatch(JSON.stringify(result), /native-access|native-refresh|native code|management-secret|code_verifier|redirect_uri/)
+  assert.doesNotMatch(readFileSync(filePath, 'utf8'), /native-access|native-refresh|management-secret/)
+  const reopened = await openMcpCredentialVault({ filePath, encrypt, decrypt })
+  const saved = await reopened.readOAuth(result.reference, binding, 'owner')
+  assert.equal(saved.grant.accessToken, 'native-access')
+  assert.equal(saved.grant.refreshToken, 'native-refresh')
+  assert.doesNotMatch(JSON.stringify(saved), /management-secret/)
 })

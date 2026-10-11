@@ -95,13 +95,47 @@ one code exchange and vault reservation → refresh/rotation/uncertainty. Test-o
 DNS/socket routing and a private fixture CA keep all traffic local; these are
 not system-browser, Keychain OAuth, signed-package or live-service acceptance.
 
+Native client registration and a complete internal sign-in transaction now
+compose these modules. Registration selects an exact-issuer pre-registered ID,
+then a configured HTTPS Client ID Metadata Document when supported, then an
+advertised dynamic-registration endpoint. No URL is invented and no failure
+triggers a fallback or retry. Operator configuration is bounded to 64 distinct
+issuers; public-native clients use no client secret or initial access token.
+Dynamic registration sends one closed JSON request and requires HTTP 201 plus
+the actual registered redirect, native/public method and exact planned code/
+refresh grant types. Unrelated management credentials are discarded. An
+unavailable registration method requires an explicitly configured client ID.
+
+The callback binds first so registration uses its actual ephemeral port. A
+monotonic deadline covers asynchronous preparation and the callback, including
+synchronous work that delays timer delivery. The native transaction permits
+eight active operations by default (ceiling 64), one per connection, and keeps
+abort-ignoring dependencies counted until settlement. Its three-minute ceiling
+covers registration, browser handoff, callback, one token exchange and custody.
+Initial credential writes recheck the native account/revision fence when queued,
+after encryption and before atomic rename. Stale unacknowledged references are
+discarded; failed cleanup leaves an encrypted orphan for startup reconciliation.
+
+The internal result contains only a provisional reference, issuer, granted
+scopes and known/unknown expiry. Product inspection/acknowledgement is still
+required. A real local TLS composition test registers the actual callback,
+uses PKCE/state, exchanges once and reopens encrypted custody; the provider page
+and OS browser launch are fixtures, and encryption is test-only. This is not
+system-browser, Keychain OAuth or packaged product acceptance. The browser owns
+its own DNS/TLS/navigation; native URL syntax admission does not pin its sockets.
+Person-versus-workspace credential ownership and unattended use are pending
+owner decisions before runtime/UI activation; no existing tenant grant is widened.
+
 The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)
 and [registration choices](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration),
 with [native-app PKCE and external-browser guidance](https://www.rfc-editor.org/rfc/rfc8252.html),
 [refresh response rules](https://www.rfc-editor.org/rfc/rfc6749.html#section-6)
 and [refresh-token rotation security](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14).
-Native host transaction/custody wiring, client registration, connection review
+Registration follows the [published MCP priority order](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-registration-approaches),
+[RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.1) and the
+[Client ID Metadata Document draft](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document).
+Native host transaction/custody wiring, connection review
 UI and real packaged acceptance must compose before OAuth is
 advertised as available. A public client metadata URL remains release configuration,
 not permission to invent or publish a domain.
