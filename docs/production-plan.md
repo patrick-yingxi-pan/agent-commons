@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-10. The standing goal remains production readiness for Agent
+Reviewed 2026-10-11. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -25,13 +25,27 @@ understands OAuth without exposing it through generic credential reads. Refresh
 removes the old token pair durably before dispatch; interrupted reservations
 cannot replay after restart. Exact owner/audience, narrowed scopes, coalesced
 callers, cancellation and publication-time authority fences remain explicit.
-These modules are not yet wired to product HTTP, Electron IPC, browser launch or
-real token exchange. Local callback tests use test-owned sockets; custody tests
+These modules are not yet wired to product HTTP, Electron IPC or browser launch.
+Local callback tests use test-owned sockets; custody tests
 use real temporary files with fixture encryption/exchange. There is no claim of
 completed OAuth sign-in, Keychain OAuth acceptance or network/tool authority.
 
-Next layers remain required: bounded/pinned metadata and token requests; client
-registration with pre-registration, configurable HTTPS client metadata and legacy
+The third layer adds bounded native metadata/token HTTP and staged discovery.
+It shares native-importable address/protocol cores with the backend, checks every
+DNS answer, pins sockets, retains TLS verification, bounds headers/strict JSON and
+deadlines, and never redirects or retries a token request. Challenge hints and
+ordered well-known fallbacks compose with exact resource/issuer identity and
+separate review scopes. Real local TLS tests now compose discovery, PKCE and one
+code exchange, plus vault reservation, refresh and uncertain-result refusal.
+They do not prove system-browser or Keychain OAuth acceptance. An integration
+regression exposed discarded server capability facts; discovery now retains a
+frozen bounded native-only RFC document for authorization revalidation. Header
+regressions also corrected legal whitespace and empty-list-member parsing.
+Disabling DNS admission/TLS verification failed their locks before restoration;
+facade identity mutations failed the shared-authority locks.
+
+Next layers remain required: client registration with pre-registration,
+configurable HTTPS client metadata and legacy
 fallback; native transaction/account/revision wiring and OS-backed custody/refresh
 composition; owner review/status/cancel/recovery UI; and
 complete browser plus packaged-native fixture acceptance. No production client
@@ -61,6 +75,12 @@ retain unbounded promise handlers despite the live-waiter cap. The test runner
 was stopped before edits; a failing regression now keeps each canceled
 subscription counted until the shared promise settles. Only the subsequent
 complete frozen-tree acceptance counts for this checkpoint.
+
+Custody checkpoint `54f8db31` passed complete local and unsigned arm64 native
+verification. Its first browser run timed out before an MCP proposal appeared;
+the traced full run passed all 609 tests without reproducing it. The initial
+failure's cause remains unproven, not fixed. A recurrence needs send-route,
+persisted-session and model-wire evidence before changing product behavior.
 
 ## Completed checkpoint: bounded unattended Routine MCP
 

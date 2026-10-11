@@ -17,12 +17,12 @@ On 2026-10-10 the owner approved system-browser sign-in, connection-specific
 scope review, OS-protected token custody, refresh within the existing grant and
 unchanged tool-call consent. Local fixtures are authorized; real services are not.
 
-The native preparation modules implement pure bounded metadata admission,
+The native preparation modules implement bounded metadata admission,
 standards-ordered well-known URL candidates, S256 code/state preparation, exact
 issuer validation, a one-use ephemeral IPv4 callback and bounded token/refresh
 form validation. They are not wired to the host yet. HTTPS syntax checks are not
-DNS/SSRF admission; all actual fetches still require the existing pinned-address
-policy. Callback loopback does not authorize connecting to a loopback MCP server.
+DNS/SSRF admission; the native HTTP layer below separately enforces the shared
+pinned-address policy. Callback loopback does not authorize connecting to a loopback MCP server.
 Browser responses contain only fixed text, never a code, token or remote error.
 
 Native custody now extends the existing encrypted vault with typed OAuth entries.
@@ -59,14 +59,50 @@ before dispatch, and immediately before credential-file rename. Local disk tests
 prove the lifecycle with fixture encryption/exchange, not real Keychain OAuth or
 provider acceptance. These modules are not connected to Electron's runtime yet.
 
+Native HTTP preparation now shares `server/outboundAddressCore.mjs` and
+`server/mcpProtocolCore.mjs` with the backend's typed facades. Every operation
+admits only public HTTPS, checks all of at most 64 DNS answers, pins the chosen
+address into the socket, and retains the original certificate hostname and
+explicit TLS verification. No private-network option, custom headers, ambient
+cookies/proxy agent, redirects, compression or request retry is exposed.
+Metadata GETs and exact public-client form POSTs accept at most 64 KiB of strict
+UTF-8 JSON (depth 16, 4,096 nodes); headers are capped at 16 KiB. Each request has
+a 10-second default deadline including DNS and body, with bounded 1–60,000 ms
+internal overrides. Eight default operation slots (ceiling 64) include timed-out
+DNS until it settles and destroyed sockets until their close event. Fixed errors
+carry conservative submission uncertainty, never request/response secrets.
+
+Resource discovery starts with a credential-free, read-only `server/discover`
+probe using the same protocol metadata as the backend. Only parsed 401 Bearer
+hints leave that probe; its body is discarded. Authentication challenges support
+combined schemes, quoted commas/escapes, whitespace around equals and bounded
+empty list members, within 8 KiB, 16 challenges and 32 parameters per challenge.
+Ambiguous hints refuse. An advertised `resource_metadata` URL takes precedence;
+otherwise the standard path-specific and origin well-known locations are tried.
+Only 404/410 advances a candidate, never TLS/DNS failure, redirection, malformed
+metadata or identity mismatch. The original resource and exact selected issuer
+are validated independently. Challenge scopes and supported scopes remain
+separate review hints, not requested scopes or consent.
+
+Resource and selected-server discovery are separate bounded 30-second stages
+(internal ceiling 60 seconds), permitting an issuer choice between them without
+giving each fallback a fresh deadline. A stage performs at most three requests;
+server discovery never fetches an unadvertised issuer or registers a client.
+It retains a frozen bounded RFC metadata document inside the native flow so PKCE
+setup revalidates the same facts. Future IPC must expose only selected review
+fields, not that raw document. Local real-TLS tests compose discovery → PKCE →
+one code exchange and vault reservation → refresh/rotation/uncertainty. Test-only
+DNS/socket routing and a private fixture CA keep all traffic local; these are
+not system-browser, Keychain OAuth, signed-package or live-service acceptance.
+
 The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)
 and [registration choices](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration),
 with [native-app PKCE and external-browser guidance](https://www.rfc-editor.org/rfc/rfc8252.html),
 [refresh response rules](https://www.rfc-editor.org/rfc/rfc6749.html#section-6)
 and [refresh-token rotation security](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14).
-OAuth metadata, native transaction custody, encrypted refresh/relaunch handling,
-connection review UI and real packaged acceptance must compose before OAuth is
+Native host transaction/custody wiring, client registration, connection review
+UI and real packaged acceptance must compose before OAuth is
 advertised as available. A public client metadata URL remains release configuration,
 not permission to invent or publish a domain.
 
@@ -74,7 +110,8 @@ not permission to invent or publish a domain.
 
 `server/mcpHttpTransport.ts` sends one bounded JSON-RPC POST and accepts one
 correlated JSON or request-scoped SSE response. `server/outboundAddress.ts`
-admits an explicit public-HTTPS or exact-literal-loopback scope. Public DNS is
+re-exports the shared policy from `server/outboundAddressCore.mjs`, admitting an
+explicit public-HTTPS or exact-literal-loopback scope. Public DNS is
 resolved once, every returned address is checked, and the socket is pinned to
 the admitted address while TLS retains the original hostname. Private,
 link-local, reserved and transition addresses are excluded from public scope.

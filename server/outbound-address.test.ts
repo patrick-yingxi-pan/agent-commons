@@ -6,6 +6,7 @@ import {
   isPublicAddress,
   parseOutboundEndpoint,
 } from './outboundAddress.ts'
+import * as nativeAddressPolicy from './outboundAddressCore.mjs'
 
 function rejects(raw: string, scope: 'public' | 'loopback') {
   assert.throws(
@@ -131,4 +132,14 @@ test('isPublicAddress is a pure literal-address predicate with no hostname or ma
     '',
     'not an address',
   ]) assert.equal(isPublicAddress(address), false, address)
+})
+
+test('backend facade and native runtime re-export one outbound-address authority', () => {
+  assert.equal(nativeAddressPolicy.MAX_OUTBOUND_URL_LENGTH, MAX_OUTBOUND_URL_LENGTH)
+  assert.equal(nativeAddressPolicy.OutboundAddressError, OutboundAddressError)
+  assert.equal(nativeAddressPolicy.isPublicAddress, isPublicAddress)
+  assert.equal(nativeAddressPolicy.parseOutboundEndpoint, parseOutboundEndpoint)
+  try { nativeAddressPolicy.parseOutboundEndpoint('http://8.8.8.8/mcp', 'public') }
+  catch (error) { assert.ok(error instanceof OutboundAddressError); return }
+  assert.fail('native policy unexpectedly admitted a non-HTTPS public endpoint')
 })

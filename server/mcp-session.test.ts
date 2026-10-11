@@ -2,11 +2,35 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createMcpSession, McpSessionError } from './mcpSession.ts'
 import { MCP_LEGACY_VERSIONS, MCP_MODERN_VERSION } from './mcpProtocol.ts'
+import * as nativeProtocol from './mcpProtocolCore.mjs'
 import { McpToolCallError } from './mcpToolCall.ts'
 import { createMcpToolSession } from './mcpToolSession.ts'
 import { createMcpHttpTransport, McpHttpError } from './mcpHttpTransport.ts'
 
 const invocation = { tool: { name: 'lookup', inputSchema: { type: 'object' } }, arguments: {} }
+
+test('typed protocol facade and native runtime share version identity and request metadata', async () => {
+  const facade = await import('./mcpProtocol.ts')
+  assert.equal(nativeProtocol.MCP_MODERN_VERSION, facade.MCP_MODERN_VERSION)
+  assert.equal(nativeProtocol.MCP_LEGACY_VERSIONS, facade.MCP_LEGACY_VERSIONS)
+  assert.equal(nativeProtocol.MCP_CLIENT_INFO, facade.MCP_CLIENT_INFO)
+  assert.equal(nativeProtocol.isMcpProtocolVersion, facade.isMcpProtocolVersion)
+  assert.equal(nativeProtocol.mcpRequestMetadata, facade.mcpRequestMetadata)
+  assert.equal(nativeProtocol.isMcpProtocolVersion('2026-07-28'), true)
+  assert.equal(nativeProtocol.isMcpProtocolVersion('unsupported'), false)
+  assert.deepEqual(nativeProtocol.mcpRequestMetadata(MCP_MODERN_VERSION), {
+    _meta: {
+      'io.modelcontextprotocol/protocolVersion': MCP_MODERN_VERSION,
+      'io.modelcontextprotocol/clientInfo': { name: 'agent-commons', version: '0.1.0' },
+      'io.modelcontextprotocol/clientCapabilities': {},
+    },
+  })
+  assert.deepEqual(nativeProtocol.mcpRequestMetadata(MCP_LEGACY_VERSIONS[0]), {})
+  const metadata = nativeProtocol.mcpRequestMetadata(MCP_MODERN_VERSION)
+  metadata._meta['io.modelcontextprotocol/clientInfo'].name = 'mutated-copy'
+  assert.equal(nativeProtocol.MCP_CLIENT_INFO.name, 'agent-commons')
+})
+
 function fixture() {
   const methods: string[] = []
   const withSession = createMcpSession({ post: async (_endpoint, message) => {
