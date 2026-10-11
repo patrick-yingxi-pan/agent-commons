@@ -6,7 +6,46 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-## Current checkpoint: bounded unattended Routine MCP
+## Current checkpoint: desktop MCP OAuth
+
+The owner approved system-browser OAuth sign-in on 2026-10-10, with
+connection-specific scope review, Keychain-protected tokens, automatic refresh
+limited to the existing grant, and unchanged tool-call consent. Implementation
+and acceptance use local fixtures only; this does not authorize public-service
+access, paid calls, local command execution, private-LAN access or publication.
+
+The first implementation layer supplies bounded resource/authorization metadata
+parsing and discovery URL ordering, S256 PKCE, independent state, exact decoded
+issuer checks, one-use code exchange forms, and a short-lived native loopback
+callback. Token parsing retains only bounded opaque credentials and scopes within
+the reviewed grant; refresh forms retain the original client/resource. Missing
+expiry remains unknown, not an invented lifetime. These helpers are not yet wired
+to product HTTP, Electron IPC, browser launch, token exchange or vault persistence.
+They grant no network destination or tool authority. Local callback tests use real
+test-owned sockets; there is no claim of completed OAuth sign-in.
+
+Next layers remain required: bounded/pinned metadata and token requests; client
+registration with pre-registration, configurable HTTPS client metadata and legacy
+fallback; native transaction/account/revision fencing; encrypted token storage and
+serialized, interruption-safe refresh; owner review/status/cancel/recovery UI; and
+complete browser plus packaged-native fixture acceptance. No production client
+metadata URL is invented: its hosted identity is an operator release input.
+Focused metadata, authorization, real loopback-callback and token tests pass.
+Disabling S256 admission, issuer validation and the scope ceiling each made its
+lock fail before restoration. Review corrected empty-fragment redirect admission,
+incremental metadata-byte limits and canonical origin-root resource spelling.
+The initial native gate was stopped before an RFC 9728 identity correction:
+metadata resource aliases must not pass by URL normalization. Its regression
+failed first; request canonicalization and exact response comparison now remain
+separate. Only a complete run on the corrected frozen tree counts as acceptance.
+The full local verifier and post-test review remain mandatory before each push;
+the checkpoint handoff records their final result.
+
+## Completed checkpoint: bounded unattended Routine MCP
+
+Shipped as `f2b91f24`: all five local verifier lanes and 609 browser tests passed,
+along with the 135/135 visual matrix and unsigned arm64 packaged acceptance.
+The detailed preparation record below is historical, not an unfinished gate.
 
 The approved direction is implemented as a separate per-Routine permission, never
 inherited from attached contexts or Commissions. MODEL-40 now connects owner

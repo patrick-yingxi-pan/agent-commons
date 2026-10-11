@@ -3,11 +3,36 @@
 The product's inbound MCP door is described in [mcp-access.md](mcp-access.md).
 This document covers the separate client boundary for user-added external MCP
 servers. The interactive connect → inspect → attach → approve → execute workflow
-now has a real bounded HTTP adapter. Every external call requires fresh owner
-approval; tool names, annotations and standing routine grants never waive it.
+now has a real bounded HTTP adapter. Interactive calls require fresh owner
+approval; tool names and annotations never waive it. Unattended Routine calls
+instead require the separate bounded MODEL-40 permission, never inherited from
+an attached context or Commission.
 OAuth, local transports, multi-round input handling, standing trust and real
 third-party acceptance remain required. Other release connector adapters remain
 `unconfigured`; this MCP path cannot borrow development fixture capabilities.
+
+## Approved desktop OAuth direction and preparation
+
+On 2026-10-10 the owner approved system-browser sign-in, connection-specific
+scope review, OS-protected token custody, refresh within the existing grant and
+unchanged tool-call consent. Local fixtures are authorized; real services are not.
+
+The native preparation modules implement pure bounded metadata admission,
+standards-ordered well-known URL candidates, S256 code/state preparation, exact
+issuer validation, a one-use ephemeral IPv4 callback and bounded token/refresh
+form validation. They are not wired to the host yet. HTTPS syntax checks are not
+DNS/SSRF admission; all actual fetches still require the existing pinned-address
+policy. Callback loopback does not authorize connecting to a loopback MCP server.
+Browser responses contain only fixed text, never a code, token or remote error.
+
+The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
+its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)
+and [registration choices](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration),
+with [native-app PKCE and external-browser guidance](https://www.rfc-editor.org/rfc/rfc8252.html).
+OAuth metadata, native transaction custody, encrypted refresh/relaunch handling,
+connection review UI and real packaged acceptance must compose before OAuth is
+advertised as available. A public client metadata URL remains release configuration,
+not permission to invent or publish a domain.
 
 ## Implemented transport substrate
 
