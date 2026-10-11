@@ -145,6 +145,24 @@ shipping native host does not configure it yet. Interactive/Contribution/Routine
 person attribution, native IPC, review/status UI and end-to-end acceptance are
 still required; tenant-only callers cannot select OAuth rows in the meantime.
 
+Internal native orchestration now composes an asynchronous authenticated source
+adapter with discovery, issuer/scope review, sign-in and exact inspection receipt
+recovery. `/mcp-connections/:id/oauth-source` is cookie-only authentication
+transport consumed by the native adapter, not an MCP tool. An authenticated
+owner can also read it over HTTP: the route classification describes its intended
+consumer, not exclusive native-process access. Its no-store response contains only
+the current owner, audience and compact revision/receipt state. The adapter
+refuses source changes before submission and checks fresh receipt truth after it;
+neither catalogs nor cookies cross its result boundary. A lost response retains
+the same provisional reference and operation identity, never repeats sign-in,
+and never deletes a possibly committed credential. Unsubmitted work expires in
+three minutes; submitted recovery handles expire after ten minutes without
+discarding the credential. Cancellation retains admission until work drains.
+The separate owner/revision-bound child credential protocol has bounded active
+work, one-use request identities and explicit cancellation. These modules are
+not installed in the shipping main/preload/launcher yet; their deterministic
+composition tests do not prove native UI, Keychain or live-service acceptance.
+
 The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)
 and [registration choices](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration),

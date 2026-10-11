@@ -1,6 +1,7 @@
 /** Route-owned external MCP connection lifecycle. Catalog inspection does not
  * grant the separately approved tool executor any authority. */
 import type { ApiErrorCode } from '../../contract/index.ts'
+import { SESSION_COOKIE, parseCookies } from '../auth.ts'
 import { ValidationError } from '../conflict.ts'
 import { McpConnectionError } from '../mcpConnections.ts'
 import { McpInspectionError } from '../mcpConnectionInspector.ts'
@@ -83,6 +84,43 @@ export function registerMcpConnectionRoutes(
       if (!mcpRuntimeCapabilities().deviceBearerCredentials) throw new McpInspectionError('credentials_unavailable')
       ctx.res.setHeader('Cache-Control', 'no-store')
       sendJson(ctx.res, { binding: { tenantId, connectionId: connection.id, endpoint: connection.endpoint } })
+    }))
+  router.formGet('/mcp-connections/:id/oauth-source',
+    'native-host OAuth authorization transport reads the exact owner connection binding; renderer APIs never receive tokens or credential references',
+    mcpConnectionRoute((ctx) => {
+      // The source fence is intentionally first: a stale browser/account
+      // transition must not learn whether a private connection exists.
+      if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
+      const cookies = parseCookies(typeof ctx.req.headers.cookie === 'string' ? ctx.req.headers.cookie : undefined)
+      const authorization = ctx.req.headers.authorization
+      if (!cookies[SESSION_COOKIE] || authorization !== undefined) {
+        sendError(ctx.res, 'unauthorized', 'A signed-in browser session is required for OAuth setup.')
+        return
+      }
+      const actor = identity(ctx)
+      if (actor.via !== 'session') {
+        sendError(ctx.res, 'unauthorized', 'A signed-in browser session is required for OAuth setup.')
+        return
+      }
+      ctx.res.setHeader('Cache-Control', 'no-store')
+      const tenantId = actor.tenant.id
+      const connection = store.privateMcpConnection(ctx.params.id, tenantId, actor.user.id)
+      if (!connection || connection.ownerUserId !== actor.user.id) throw new McpConnectionError('missing')
+      if (connection.authentication !== 'device-oauth') throw new McpConnectionError('invalid')
+      if (!mcpRuntimeCapabilities().deviceOAuthCredentials) throw new McpInspectionError('credentials_unavailable')
+      const view = store.mcpConnection(connection.id, tenantId, actor.user.id)
+      if (!view) throw new McpConnectionError('missing')
+      sendJson(ctx.res, {
+        ownerUserId: actor.user.id,
+        binding: { tenantId, connectionId: connection.id, endpoint: connection.endpoint },
+        connection: {
+          id: view.id,
+          authentication: view.authentication,
+          revision: view.revision,
+          status: view.status,
+          ...(view.inspectionOperationId ? { inspectionOperationId: view.inspectionOperationId } : {}),
+        },
+      })
     }))
   router.post('/mcp-connections/:id/inspect', mcpConnectionRoute(async (ctx) => {
     if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return

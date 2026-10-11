@@ -104,7 +104,25 @@ event gate made the shared-organization regression fail at its actorless deliver
 assertion, then passed after restoration. The event-discriminant lock now tracks
 the actor-aware signature and no longer exempts these private events as global.
 
-Next layers remain required: native transaction/account/revision wiring and OS-backed custody/refresh
+The sixth layer prepares the native account/transaction composition. A cookie-only
+owner source route exposes a small no-store binding and revision, not a tool
+catalog or credential reference. The internal HTTP adapter pins the trusted
+loopback session across reads and inspection; owner/account/revision changes
+refuse before submission. Native flow orchestration keeps discovery and scope
+review separate from sign-in, retains one stable inspection identity through
+lost acknowledgement, and publishes only fresh matching receipt truth. Cancelled
+work retains capacity until it drains; submitted references are never discarded
+on uncertainty, and abandoned recovery handles have a bounded lifetime. A
+separate child/main OAuth channel carries exact person/revision authority, refuses
+replayed request IDs and suppresses cancelled or late token responses.
+
+These are internal composition boundaries with deterministic session, HTTP and
+sign-in fixtures, not an installed renderer bridge or completed product sign-in.
+The shipping main process still does not advertise OAuth. Removing the native
+adapter's pre-submit owner check caused its no-POST regression to fail, then
+passed after restoration. No public OAuth service or real account was contacted.
+
+Next layers remain required: install native transaction/account/revision wiring and OS-backed custody/refresh
 composition; owner review/status/cancel/recovery UI; and
 complete browser plus packaged-native fixture acceptance. No production client
 metadata URL is invented: its hosted identity is an operator release input.
