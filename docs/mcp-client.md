@@ -112,6 +112,9 @@ synchronous work that delays timer delivery. The native transaction permits
 eight active operations by default (ceiling 64), one per connection, and keeps
 abort-ignoring dependencies counted until settlement. Its three-minute ceiling
 covers registration, browser handoff, callback, one token exchange and custody.
+Cancellation closes the loopback receiver promptly, but keeps the connection
+slot until any already-started registration preparation settles; a late response
+cannot open the browser, exchange a code or save credentials.
 Initial credential writes recheck the native account/revision fence when queued,
 after encryption and before atomic rename. Stale unacknowledged references are
 discarded; failed cleanup leaves an encrypted orphan for startup reconciliation.

@@ -63,7 +63,7 @@ export function createMcpOAuthSignIn({ http, vault, openBrowser, configuration =
       }
       const controller = new AbortController()
       const started = performance.now()
-      let stopped, callback, reference, published = false, rejectStopped
+      let stopped, callback, preparationWork, reference, published = false, rejectStopped
       const cancellation = new Promise((_, reject) => { rejectStopped = reject })
       const stop = code => {
         if (stopped) return
@@ -87,12 +87,16 @@ export function createMcpOAuthSignIn({ http, vault, openBrowser, configuration =
       const work = Promise.resolve().then(async () => {
         fence()
         let registration
-        callback = await openCallback(async ({ redirectUri, signal: callbackSignal }) => {
-          fence()
-          registration = await registerMcpOAuthClient({ http, plan, redirectUri, scopes }, { signal: callbackSignal, isCurrent: fence })
-          fence()
-          return { issuer: server.issuer, metadata: input.metadata, clientId: registration.clientId,
-            resource: oauthResourceUrl(input.binding.endpoint), scopes }
+        callback = await openCallback(({ redirectUri, signal: callbackSignal }) => {
+          preparationWork = (async () => {
+            fence()
+            registration = await registerMcpOAuthClient({ http, plan, redirectUri, scopes }, { signal: callbackSignal, isCurrent: fence })
+            fence()
+            return { issuer: server.issuer, metadata: input.metadata, clientId: registration.clientId,
+              resource: oauthResourceUrl(input.binding.endpoint), scopes }
+          })()
+          void preparationWork.catch(() => {})
+          return preparationWork
         }, { signal: controller.signal, timeoutMs: Math.max(1, Math.floor(timeoutMs - (performance.now() - started))) })
         fence()
         await openBrowser(callback.authorizationUrl)
@@ -119,14 +123,21 @@ export function createMcpOAuthSignIn({ http, vault, openBrowser, configuration =
         published = true
         return Object.freeze({ reference, issuer: server.issuer, scopes: tokens.scopes, expiresAt: tokens.expiresAt })
       }).catch(error => {
-        if (stopped) throw stopped
-        if (error instanceof McpOAuthSignInError) throw error
-        throw new McpOAuthSignInError(error?.code === 'denied' ? 'denied' : error?.code === 'expired' ? 'timeout' : 'unavailable')
+        // Callback failure can precede the outer timer. Publish the terminal
+        // outcome before cleanup waits for still-running preparation.
+        const failure = error instanceof McpOAuthSignInError ? error : new McpOAuthSignInError(
+          error?.code === 'denied' ? 'denied' : error?.code === 'expired' ? 'timeout' : 'unavailable')
+        stop(failure.code)
+        throw stopped
       }).finally(async () => {
         clearTimeout(timer)
         signal?.removeEventListener('abort', abort)
         controller.abort()
         callback?.cancel()
+        // The real callback rejects readiness promptly on cancellation, before
+        // an abort-ignoring registration factory necessarily settles. Keep its
+        // connection/capacity reservation until that separate work drains.
+        await preparationWork?.catch(() => {})
         // This reference has never reached product commit. A cleanup failure
         // leaves an encrypted orphan for startup reconciliation, never replay.
         if (reference && !published) await vault.discard(reference, input.binding).catch(() => {})

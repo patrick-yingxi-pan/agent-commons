@@ -56,6 +56,21 @@ Fail-first review corrected late URL publication after synchronous preparation
 overran its deadline and refusal of unsolicited registered refresh capability.
 Removing initial custody's publication fence made its regression fail.
 
+Sign-in checkpoint `555be119` passed all five local verifier lanes, all 609
+browser tests, 553 desktop unit tests and complete unsigned arm64 acceptance.
+A subsequent real-callback audit found cancellation released a sign-in slot
+while its registration preparation could still be pending. The unit callback
+had awaited preparation and masked that lifecycle difference. Sign-in now owns
+and drains the preparation promise independently of callback readiness, retaining
+per-connection and global capacity while cancellation still returns promptly.
+Real-loopback cancellation and deadline regressions cover late-result refusal
+and admission recovery. Removing the preparation drain made both fail at the
+premature-registration assertion; the restored implementation passes. The
+receiver's own deadline can also precede the outer timer, so terminal errors
+publish before cleanup drains preparation. Disabling that publication made the
+earlier-receiver-deadline regression fail before restoration. The checkpoint
+handoff records final acceptance for the corrected tree.
+
 The runtime audit exposed a product choice: existing MCP connections are
 tenant-owned, while OAuth custody binds a person. Owner decisions are pending
 on person-owned versus explicitly workspace-shared OAuth connections and whether
