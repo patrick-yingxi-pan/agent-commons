@@ -52,28 +52,32 @@ export function registerMcpConnectionRoutes(
   accountTransitionSourceMatches: (req: Ctx['req'], res: Ctx['res']) => boolean,
 ): void {
   const service = createMcpConnectionService({ store })
-  const tenant = (ctx: Ctx) => store.identity(ctx.req.headers).tenant.id
+  const identity = (ctx: Ctx) => store.identity(ctx.req.headers)
   router.get('/mcp-connections', ({ req, res }) => {
-    sendJson(res, { connections: store.mcpConnections(store.identity(req.headers).tenant.id), capabilities: mcpRuntimeCapabilities() })
+    const actor = store.identity(req.headers)
+    sendJson(res, { connections: store.mcpConnections(actor.tenant.id, actor.user.id), capabilities: mcpRuntimeCapabilities() })
   })
   router.aliasGet('/mcp-connections/:id', 'GET /mcp-connections',
-    'one inspected connection is the exact detail projection of the same tenant-owned connection catalog',
+    'one inspected connection is the exact detail projection of the same authorized connection catalog',
     mcpConnectionRoute((ctx) => {
-      const connection = store.mcpConnection(ctx.params.id, tenant(ctx))
+      const actor = identity(ctx)
+      const connection = store.mcpConnection(ctx.params.id, actor.tenant.id, actor.user.id)
       if (!connection) throw new McpConnectionError('missing')
       sendJson(ctx.res, connection)
     }))
   router.post('/mcp-connections', mcpConnectionRoute(async (ctx) => {
     if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
     const request = parseMcpConnectionCreate(await ctx.body<unknown>(), mcpRuntimeConfiguration().allowLoopback)
-    sendJson(ctx.res, service.create(request, tenant(ctx)))
+    const actor = identity(ctx)
+    sendJson(ctx.res, service.create(request, actor.tenant.id, actor.user.id))
   }))
   router.uiFormGet('/mcp-connections/:id/credential-binding',
     'exact audience lookup for native write-only bearer provisioning is authentication ceremony; ordinary connection reads omit endpoints',
     mcpConnectionRoute((ctx) => {
       if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
-      const tenantId = tenant(ctx)
-      const connection = store.privateMcpConnection(ctx.params.id, tenantId)
+      const actor = identity(ctx)
+      const tenantId = actor.tenant.id
+      const connection = store.privateMcpConnection(ctx.params.id, tenantId, actor.user.id)
       if (!connection) throw new McpConnectionError('missing')
       if (connection.authentication !== 'device-bearer') throw new McpConnectionError('invalid')
       if (!mcpRuntimeCapabilities().deviceBearerCredentials) throw new McpInspectionError('credentials_unavailable')
@@ -83,17 +87,20 @@ export function registerMcpConnectionRoutes(
   router.post('/mcp-connections/:id/inspect', mcpConnectionRoute(async (ctx) => {
     if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
     const request = parseMcpConnectionInspection(await ctx.body<unknown>())
-    sendJson(ctx.res, await service.inspect(ctx.params.id, tenant(ctx), request))
+    const actor = identity(ctx)
+    sendJson(ctx.res, await service.inspect(ctx.params.id, actor.tenant.id, request, actor.user.id))
   }))
   router.post('/mcp-connections/:id/disconnect', mcpConnectionRoute(async (ctx) => {
     if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
     const request = parseMcpConnectionLifecycle(await ctx.body<unknown>())
-    sendJson(ctx.res, await service.disconnect(ctx.params.id, tenant(ctx), request.expectedRevision))
+    const actor = identity(ctx)
+    sendJson(ctx.res, await service.disconnect(ctx.params.id, actor.tenant.id, request.expectedRevision, actor.user.id))
   }))
   router.delete('/mcp-connections/:id', mcpConnectionRoute(async (ctx) => {
     if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
     const request = parseMcpConnectionLifecycle(await ctx.body<unknown>())
-    sendJson(ctx.res, await service.remove(ctx.params.id, tenant(ctx), request.expectedRevision))
+    const actor = identity(ctx)
+    sendJson(ctx.res, await service.remove(ctx.params.id, actor.tenant.id, request.expectedRevision, actor.user.id))
   }))
   router.uiFormPost('/mcp-connections/:id/credential-cleanup',
     'retrying OS credential erasure is device credential ceremony, not a new connection or tool-execution grant',
@@ -103,6 +110,7 @@ export function registerMcpConnectionRoutes(
       if (!body || Array.isArray(body) || typeof body !== 'object' || Object.keys(body).length !== 0) {
         throw new ValidationError('Invalid MCP credential cleanup request.')
       }
-      sendJson(ctx.res, await service.retryCleanup(ctx.params.id, tenant(ctx)))
+      const actor = identity(ctx)
+      sendJson(ctx.res, await service.retryCleanup(ctx.params.id, actor.tenant.id, actor.user.id))
     }))
 }

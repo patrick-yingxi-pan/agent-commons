@@ -6,6 +6,13 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
+On 2026-10-11 the owner delegated future product and architecture recommendations
+for autonomous selection and implementation. Record consequential choices here
+and proceed without routine approval pauses. This does not authorize paid or
+public-service calls, release publication, real credential use or destructive
+actions on the owner's data. Local verification, review and direct main delivery
+remain mandatory; GitHub CI is not a dependency.
+
 ## Current checkpoint: desktop MCP OAuth
 
 The owner approved system-browser OAuth sign-in on 2026-10-10, with
@@ -71,11 +78,31 @@ publish before cleanup drains preparation. Disabling that publication made the
 earlier-receiver-deadline regression fail before restoration. The checkpoint
 handoff records final acceptance for the corrected tree.
 
-The runtime audit exposed a product choice: existing MCP connections are
-tenant-owned, while OAuth custody binds a person. Owner decisions are pending
-on person-owned versus explicitly workspace-shared OAuth connections and whether
-separately approved routines may use the person's grant. No tenant permission
-or routine authority is widened while those decisions are unresolved.
+The delegated ownership decision is person-owned OAuth: each person signs into
+their own external account, even inside one shared workspace. Existing none and
+bearer connections retain their tenant semantics, without inferred migration.
+An OAuth grant may be used by a Routine only through a separately reviewed,
+bounded Routine MCP approval attributed to that person; signing in or attaching
+a context is never consent to unattended calls.
+
+The fifth layer adds explicit `device-oauth` rows stamped by authenticated person,
+strict persisted owners and deletion tombstones, actor-filtered lifecycle and
+catalog projections, and person-private live/replayed invalidation events.
+Store reads recheck live account membership; the credential and single-call
+seams require an exact person/revision binding and a separate OAuth resolver,
+never generic bearer fallback. Public HTTPS remains required for OAuth even
+when the development deployment admits loopback MCP. These are backend boundary
+fixtures, not product OAuth activation. Current interactive, Contribution and
+Routine callers do not yet carry person authority, so they refuse OAuth rather
+than borrowing a tenant member's grant. Routine approval attribution, native
+host wiring and the complete user-facing workflow remain the next work.
+
+Fail-first registry tests rejected the absent ownership implementation. Review
+also found tenant-wide lifecycle events revealing personal connection existence;
+person-stamped live/replay filtering now closes that path. Removing the person
+event gate made the shared-organization regression fail at its actorless delivery
+assertion, then passed after restoration. The event-discriminant lock now tracks
+the actor-aware signature and no longer exempts these private events as global.
 
 Next layers remain required: native transaction/account/revision wiring and OS-backed custody/refresh
 composition; owner review/status/cancel/recovery UI; and

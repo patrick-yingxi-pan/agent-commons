@@ -64,11 +64,11 @@ export function parseMcpConnectionCreate(value: unknown, allowLoopback = false):
   exactFields(input, CREATE_FIELDS, 'create')
   if (typeof allowLoopback !== 'boolean') invalid('create')
   const authentication = input.authentication
-  if (authentication !== 'none' && authentication !== 'device-bearer') invalid('create')
+  if (authentication !== 'none' && authentication !== 'device-bearer' && authentication !== 'device-oauth') invalid('create')
   return {
     creationId: logicalKey(input.creationId, 'create'),
     label: label(input.label),
-    endpoint: endpoint(input.endpoint, allowLoopback),
+    endpoint: endpoint(input.endpoint, authentication === 'device-oauth' ? false : allowLoopback),
     authentication,
   }
 }

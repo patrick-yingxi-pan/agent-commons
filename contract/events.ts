@@ -143,6 +143,8 @@ export interface ConnectorStatusEvent {
   status: 'connected' | 'needs-auth'
   /** Owning viewer namespace; prevents setup/auth state leaking over SSE. */
   tenantId?: string
+  /** Personal OAuth invalidation; absent retains legacy tenant semantics. */
+  ownerUserId?: string
 }
 /** A saved context was ADDED to or REMOVED from the set-up registry (the Contexts
  *  page's Add / Remove — status flips ride `connector.status` above). Carries only
@@ -152,6 +154,8 @@ export interface SavedContextChangedEvent {
   id: string
   /** Owning viewer namespace; required even on delete because the row is gone. */
   tenantId?: string
+  /** Retained on deletion so personal OAuth existence stays person-private. */
+  ownerUserId?: string
 }
 /** The minimum identity an invalidation hint needs. Session updates can follow
  *  arbitrarily long conversations, so an ambient event must never echo or retain

@@ -4211,11 +4211,11 @@ export function buildRouter(): Router {
     // reconnect can never widen what a tenant observes.
     if (resumed && tail) {
       for (const f of tail.events) {
-        if (store.eventVisibleToTenant(f.event, tenantId)) channel.send(f.event, f.seq)
+        if (store.eventVisibleToTenant(f.event, tenantId, identity.user.id)) channel.send(f.event, f.seq)
       }
     }
     const unsubscribe = store.subscribe((e, seq) => {
-      if (store.eventVisibleToTenant(e, tenantId)) channel.send(e, seq)
+      if (store.eventVisibleToTenant(e, tenantId, identity.user.id)) channel.send(e, seq)
     })
     let unsubscribeFault = () => {}
     const close = () => {
@@ -5289,7 +5289,8 @@ export function buildRouter(): Router {
     sendJson(res, store.contextCatalog())
   })
   r.get('/saved-contexts', ({ req, res }) => {
-    sendJson(res, store.savedContexts(store.identity(req.headers).tenant.id))
+    const actor = store.identity(req.headers)
+    sendJson(res, store.savedContexts(actor.tenant.id, actor.user.id))
   })
   // Save a context to the set-up registry (the Contexts page's Add — server-owned,
   // so it survives navigation/reload and reaches every client). Idempotent by id.
@@ -5361,7 +5362,8 @@ export function buildRouter(): Router {
       | 'connector'
       | 'mcp'
       | undefined
-    sendJson(res, store.connectorDetail({ id: url.searchParams.get('id') ?? label, label, kind }, store.identity(req.headers).tenant.id))
+    const actor = store.identity(req.headers)
+    sendJson(res, store.connectorDetail({ id: url.searchParams.get('id') ?? label, label, kind }, actor.tenant.id, actor.user.id))
   }))
 
   // ── Usage (composer gauge: context window + plan limit windows) ────────────

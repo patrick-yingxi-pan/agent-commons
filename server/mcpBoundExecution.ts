@@ -15,8 +15,8 @@ import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
 const EXECUTION_TIMEOUT_MS = 30_000
 
 export interface McpBoundExecutionStore {
-  privateMcpConnection(id: string, tenantId: string): PrivateMcpConnection | undefined
-  mcpConnection(id: string, tenantId: string): McpConnectionView | undefined
+  privateMcpConnection(id: string, tenantId: string, actorUserId?: string): PrivateMcpConnection | undefined
+  mcpConnection(id: string, tenantId: string, actorUserId?: string): McpConnectionView | undefined
 }
 
 export type McpBoundExecutionOutcome =
@@ -34,7 +34,7 @@ function snapshotConnection(value: PrivateMcpConnection, binding: McpBoundToolCa
     // discovered catalog can be much larger than one selected schema, and
     // unrelated tools must neither enter this call's snapshot nor its budget.
     if (typeof value.id !== 'string' || typeof value.tenantId !== 'string' || typeof value.label !== 'string' ||
-        typeof value.endpoint !== 'string' || !['none', 'device-bearer'].includes(value.authentication) ||
+        typeof value.endpoint !== 'string' || !['none', 'device-bearer', 'device-oauth'].includes(value.authentication) ||
         !Number.isSafeInteger(value.revision) || typeof value.connected !== 'boolean' || !value.inspection ||
         typeof value.inspection.protocolVersion !== 'string' || typeof value.inspection.cleanup !== 'string' ||
         !Number.isSafeInteger(value.inspection.inspectedAt) || !Array.isArray(value.inspection.tools)) return undefined
@@ -52,6 +52,7 @@ function snapshotConnection(value: PrivateMcpConnection, binding: McpBoundToolCa
       label: value.label,
       endpoint: value.endpoint,
       authentication: value.authentication,
+      ...(value.ownerUserId === undefined ? {} : { ownerUserId: value.ownerUserId }),
       revision: value.revision,
       connected: value.connected,
       inspection: {
@@ -129,15 +130,17 @@ export function createBoundMcpExecutor({
     tenantId: string,
     exactBinding: McpBoundToolCall,
     authorize: () => boolean,
+    actorUserId?: string,
   ): Promise<McpBoundExecutionOutcome> => {
     const binding = snapshotMcpBoundToolCall(exactBinding)
     if (!binding || !authorized(authorize)) return failed('This MCP execution no longer matches its durable approval.')
 
-    const currentRow = store.privateMcpConnection(binding.connectionId, tenantId)
+    const currentRow = store.privateMcpConnection(binding.connectionId, tenantId, actorUserId)
     const initial = currentRow && snapshotConnection(currentRow, binding)
-    const view = store.mcpConnection(binding.connectionId, tenantId)
+    const view = store.mcpConnection(binding.connectionId, tenantId, actorUserId)
     const tool = initial && executableTool(initial, binding)
     if (!initial || initial.id !== binding.connectionId || initial.tenantId !== tenantId || !tool ||
+        (initial.authentication === 'device-oauth' && (!actorUserId || !initial.ownerUserId || initial.ownerUserId !== actorUserId)) ||
         !view || view.id !== binding.connectionId || view.revision !== binding.connectionRevision ||
         view.execution !== 'approval-required' || !view.executableTools?.includes(binding.toolName)) {
       return failed(unavailable)
@@ -154,12 +157,12 @@ export function createBoundMcpExecutor({
     const runtime = { ...runtimeConfiguration() }
     const stillBound = (): boolean => {
       if (!authorized(authorize)) return false
-      const live = store.privateMcpConnection(binding.connectionId, tenantId)
+      const live = store.privateMcpConnection(binding.connectionId, tenantId, actorUserId)
       if (!live || live.id !== binding.connectionId || live.tenantId !== tenantId ||
           live.endpoint !== initial.endpoint || live.authentication !== initial.authentication ||
-          live.credentialReference !== initial.credentialReference ||
+          live.credentialReference !== initial.credentialReference || live.ownerUserId !== initial.ownerUserId ||
           live.inspection?.protocolVersion !== protocolVersion) return false
-      const liveView = store.mcpConnection(binding.connectionId, tenantId)
+      const liveView = store.mcpConnection(binding.connectionId, tenantId, actorUserId)
       return Boolean(liveView && liveView.id === binding.connectionId &&
         liveView.revision === binding.connectionRevision && liveView.execution === 'approval-required' &&
         liveView.executableTools?.includes(binding.toolName) && executableTool(live, binding))
@@ -181,7 +184,8 @@ export function createBoundMcpExecutor({
       if (!acceptedInput.ok) return failed('The reviewed MCP arguments are not valid for this tool. Start a new tool request.')
       if (!stillBound()) return failed(unavailable)
 
-      const { endpoint, scope } = mcpConnectionEndpoint(initial.endpoint, runtime.allowLoopback)
+      const { endpoint, scope } = mcpConnectionEndpoint(initial.endpoint,
+        initial.authentication === 'device-oauth' ? false : runtime.allowLoopback)
       let bearerToken: string | undefined
       if (initial.authentication === 'device-bearer') {
         if (!runtime.deviceBearerAvailable || !runtime.resolveCredential || !initial.credentialReference) {
@@ -191,6 +195,25 @@ export function createBoundMcpExecutor({
         try {
           bearerToken = await Promise.race([
             runtime.resolveCredential(initial.credentialReference, { tenantId, connectionId: initial.id, endpoint }),
+            aborted.promise,
+          ])
+        } catch {
+          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+        } finally { aborted.cleanup() }
+        if (!bearerToken || bearerToken.length > 8192 || /[^\x21-\x7e]/.test(bearerToken)) {
+          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+        }
+      } else if (initial.authentication === 'device-oauth') {
+        if (!actorUserId || !initial.ownerUserId || actorUserId !== initial.ownerUserId || !runtime.deviceOAuthAvailable ||
+            !runtime.resolveOAuthCredential || !initial.credentialReference) {
+          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+        }
+        const aborted = rejectOnAbort(controller.signal)
+        try {
+          bearerToken = await Promise.race([
+            runtime.resolveOAuthCredential(initial.credentialReference, { tenantId, connectionId: initial.id, endpoint,
+              ownerUserId: initial.ownerUserId, connectionRevision: binding.connectionRevision },
+            { signal: controller.signal, isCurrent: stillBound }),
             aborted.promise,
           ])
         } catch {

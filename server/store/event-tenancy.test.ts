@@ -441,7 +441,7 @@ test('every ServerEvent type is gated or explicitly declared global', () => {
 
   // The gate's arms. Bounded to the function so an unrelated switch elsewhere
   // in the file cannot make a missing arm look present.
-  const start = store.indexOf('eventVisibleToTenant(e: ServerEvent, tenantId: string): boolean {')
+  const start = store.indexOf('eventVisibleToTenant(e: ServerEvent, tenantId: string, actorUserId?: string): boolean {')
   assert.ok(start > 0, 'the gate exists in store.ts')
   const body = store.slice(start, store.indexOf('\n  },', start))
   const gated = new Set([...body.matchAll(/case '([\w.-]+)':/g)].map((m) => m[1]))
@@ -453,7 +453,6 @@ test('every ServerEvent type is gated or explicitly declared global', () => {
     'hello',
     'message.start', 'message.delta', 'message.relations', 'message.escalation',
     'message.toolActivity', 'message.end',
-    'relation.applied', 'recents.changed', 'connector.status', 'savedcontext.changed',
     'runner.connected', 'runner.disconnected', 'runner.capabilities.changed', 'runner.effect',
     'relay.connected', 'relay.disconnected', 'relay.activity',
     'dispatch.changed', 'notification.changed', 'session.contexts.changed',

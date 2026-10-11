@@ -15,7 +15,7 @@ export interface McpConnectionView {
   label: string
   status: 'unverified' | 'connected' | 'disconnected'
   revision: number
-  authentication: 'none' | 'device-bearer'
+  authentication: 'none' | 'device-bearer' | 'device-oauth'
   protocolVersion: string | null
   inspectedAt: number | null
   /** Most recent durable inspection receipt. A later disconnect retains this
@@ -33,7 +33,7 @@ export interface McpConnectionCreateRequest {
   creationId: string
   label: string
   endpoint: string
-  authentication: 'none' | 'device-bearer'
+  authentication: 'none' | 'device-bearer' | 'device-oauth'
 }
 
 export interface McpConnectionCreateResult {
@@ -61,6 +61,8 @@ export interface McpConnectionLifecycleRequest {
 
 export interface McpConnectionCapabilities {
   deviceBearerCredentials: boolean
+  /** Absent means unavailable. Requires the trusted native OAuth resolver. */
+  deviceOAuthCredentials?: boolean
   loopbackConnections: boolean
   credentialCleanupPending: boolean
 }

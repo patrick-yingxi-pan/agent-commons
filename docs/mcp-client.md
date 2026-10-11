@@ -126,8 +126,24 @@ uses PKCE/state, exchanges once and reopens encrypted custody; the provider page
 and OS browser launch are fixtures, and encryption is test-only. This is not
 system-browser, Keychain OAuth or packaged product acceptance. The browser owns
 its own DNS/TLS/navigation; native URL syntax admission does not pin its sockets.
-Person-versus-workspace credential ownership and unattended use are pending
-owner decisions before runtime/UI activation; no existing tenant grant is widened.
+Under the owner's 2026-10-11 delegation, OAuth connections are person-owned,
+including within shared workspaces. Other people sign into their own accounts.
+Existing unauthenticated/bearer connections retain their original tenant model;
+they never acquire a guessed owner. A Routine may use a person's OAuth grant
+only with a separate, bounded Routine MCP approval attributable to that person.
+Sign-in, scope review and attachment alone never grant tool-call permission.
+
+The backend distinguishes `device-oauth`, stamps the real authenticated owner
+at creation, retains owner-bound deletion receipts, and hides reads, lifecycle
+operations and live/replayed invalidation events from other people. Account
+membership is rechecked after credential waits and before publication. OAuth
+inspection and bound execution use a dedicated resolver carrying person,
+endpoint, connection revision and a live fence; bearer resolution cannot be a
+fallback. The optional OAuth capability remains absent until an explicitly
+configured resolver and startup custody synchronization are available. The
+shipping native host does not configure it yet. Interactive/Contribution/Routine
+person attribution, native IPC, review/status UI and end-to-end acceptance are
+still required; tenant-only callers cannot select OAuth rows in the meantime.
 
 The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)

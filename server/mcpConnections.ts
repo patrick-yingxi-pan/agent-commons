@@ -17,6 +17,8 @@ const credentialPattern = /^MCP_DESKTOP_[A-F0-9]{32}$/
 const idPattern = /^mcp-connection-[a-f0-9]{32}$/
 const text = (value: unknown, max = 256): value is string =>
   typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\u0000-\u001f\u007f-\u009f\uD800-\uDFFF]/u.test(value)
+const ownerUserId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length > 0 && value.length <= 200 && value.trim().length > 0 && /^[\x20-\x7e]+$/.test(value)
 const object = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
 const revision = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0
@@ -30,9 +32,11 @@ export class McpConnectionError extends Error {
 }
 function fail(code: McpConnectionError['code']): never { throw new McpConnectionError(code) }
 
-export function mcpConnectionCreationId(tenantId: string, logicalKey: string): string {
+export function mcpConnectionCreationId(tenantId: string, logicalKey: string, actorUserId?: string): string {
   if (!text(tenantId) || !text(logicalKey)) fail('invalid')
-  return `${EXTERNAL_MCP_ID_PREFIX}${createHash('sha256').update(JSON.stringify([tenantId, logicalKey])).digest('hex').slice(0, 32)}`
+  if (actorUserId !== undefined && !ownerUserId(actorUserId)) fail('invalid')
+  const identity = actorUserId === undefined ? [tenantId, logicalKey] : ['device-oauth', actorUserId, tenantId, logicalKey]
+  return `${EXTERNAL_MCP_ID_PREFIX}${createHash('sha256').update(JSON.stringify(identity)).digest('hex').slice(0, 32)}`
 }
 
 /** Network scope is deployment-owned, never accepted from a connection form.
@@ -50,6 +54,7 @@ export function mcpConnectionEndpoint(raw: string, allowLoopback: boolean): { en
 
 export interface PrivateMcpConnection {
   tenantId: string
+  ownerUserId?: string
   id: string
   label: string
   endpoint: string
@@ -63,7 +68,7 @@ export interface PrivateMcpConnection {
 export interface McpInspectionOperation { id: string; fingerprint: string }
 export interface McpConnectionState {
   connections: PrivateMcpConnection[]
-  retired: Array<{ tenantId: string; id: string }>
+  retired: Array<{ tenantId: string; id: string; ownerUserId?: string }>
 }
 export interface McpConnectionSetup {
   id: string
@@ -135,16 +140,18 @@ export function parseMcpConnectionState(value: unknown): McpConnectionState {
     seen.add(key)
   }
   const connections = value.connections.map((entry): PrivateMcpConnection => {
-    if (!object(entry) || Object.keys(entry).some(key => !['tenantId', 'id', 'label', 'endpoint', 'authentication', 'credentialReference', 'revision', 'connected', 'inspection', 'inspectionOperation'].includes(key))) fail('invalid')
+    if (!object(entry) || Object.keys(entry).some(key => !['tenantId', 'ownerUserId', 'id', 'label', 'endpoint', 'authentication', 'credentialReference', 'revision', 'connected', 'inspection', 'inspectionOperation'].includes(key))) fail('invalid')
     claim(entry.tenantId, entry.id)
     if (!text(entry.label) || typeof entry.endpoint !== 'string' || !revision(entry.revision) ||
         typeof entry.connected !== 'boolean' || typeof entry.authentication !== 'string' ||
-        !['none', 'device-bearer'].includes(entry.authentication)) fail('invalid')
+        !['none', 'device-bearer', 'device-oauth'].includes(entry.authentication)) fail('invalid')
+    const isOAuth = entry.authentication === 'device-oauth'
+    if (isOAuth ? !ownerUserId(entry.ownerUserId) : Object.hasOwn(entry, 'ownerUserId')) fail('invalid')
     const tenantId = entry.tenantId as string
     const count = (counts.get(tenantId) ?? 0) + 1
     if (count > MAX_MCP_CONNECTIONS_PER_TENANT) fail('capacity')
     counts.set(tenantId, count)
-    const endpoint = mcpConnectionEndpoint(entry.endpoint, true).endpoint
+    const endpoint = mcpConnectionEndpoint(entry.endpoint, !isOAuth).endpoint
     if (endpoint !== entry.endpoint) fail('invalid')
     if (entry.inspection !== undefined && (!object(entry.inspection) || Object.keys(entry.inspection).some(key =>
       !['protocolVersion', 'tools', 'cleanup', 'inspectedAt', 'schemaAdmission'].includes(key)))) fail('invalid')
@@ -152,22 +159,25 @@ export function parseMcpConnectionState(value: unknown): McpConnectionState {
     const inspectionOperation = entry.inspectionOperation === undefined ? undefined : checkedOperation(entry.inspectionOperation)
     if (inspectionOperation && !inspection) fail('invalid')
     if (entry.credentialReference !== undefined && (typeof entry.credentialReference !== 'string' || !credentialPattern.test(entry.credentialReference))) fail('invalid')
-    if (entry.connected && (!inspection || (entry.authentication === 'device-bearer' && !entry.credentialReference))) fail('invalid')
-    if (entry.credentialReference !== undefined && (!entry.connected || entry.authentication !== 'device-bearer')) fail('invalid')
+    if (entry.connected && (!inspection || (entry.authentication !== 'none' && !entry.credentialReference))) fail('invalid')
+    if (entry.credentialReference !== undefined && (!entry.connected || entry.authentication === 'none')) fail('invalid')
     if (entry.credentialReference !== undefined) {
       if (credentialReferences.has(entry.credentialReference)) fail('invalid')
       credentialReferences.add(entry.credentialReference)
     }
-    return { tenantId, id: entry.id as string, label: entry.label, endpoint,
+    return { tenantId, ...(isOAuth ? { ownerUserId: entry.ownerUserId as string } : {}),
+      id: entry.id as string, label: entry.label, endpoint,
       authentication: entry.authentication as PrivateMcpConnection['authentication'], revision: entry.revision,
       connected: entry.connected, ...(inspection ? { inspection } : {}),
       ...(inspectionOperation ? { inspectionOperation } : {}),
       ...(entry.credentialReference === undefined ? {} : { credentialReference: entry.credentialReference as string }) }
   })
   const retired = value.retired.map((entry) => {
-    if (!object(entry) || Object.keys(entry).some(key => key !== 'tenantId' && key !== 'id')) fail('invalid')
+    if (!object(entry) || Object.keys(entry).some(key => key !== 'tenantId' && key !== 'id' && key !== 'ownerUserId') ||
+        (Object.hasOwn(entry, 'ownerUserId') && !ownerUserId(entry.ownerUserId))) fail('invalid')
     claim(entry.tenantId, entry.id)
-    return { tenantId: entry.tenantId as string, id: entry.id as string }
+    return { tenantId: entry.tenantId as string, id: entry.id as string,
+      ...(Object.hasOwn(entry, 'ownerUserId') ? { ownerUserId: entry.ownerUserId as string } : {}) }
   })
   return { connections, retired }
 }
@@ -175,8 +185,16 @@ export function parseMcpConnectionState(value: unknown): McpConnectionState {
 export function createMcpConnectionRegistry() {
   let state: McpConnectionState = { connections: [], retired: [] }
   const find = (id: string, tenantId: string) => state.connections.find(row => row.id === id && row.tenantId === tenantId)
-  const requireCurrent = (id: string, tenantId: string, expectedRevision: number) => {
-    const row = find(id, tenantId) ?? fail('missing')
+  const visibleTo = (row: PrivateMcpConnection, actorUserId?: string) =>
+    row.authentication !== 'device-oauth' || (ownerUserId(actorUserId) && row.ownerUserId === actorUserId)
+  const findVisible = (id: string, tenantId: string, actorUserId?: string) => {
+    const row = find(id, tenantId)
+    return row && visibleTo(row, actorUserId) ? row : undefined
+  }
+  const retiredVisible = (row: McpConnectionState['retired'][number], actorUserId?: string) =>
+    row.ownerUserId === undefined || (ownerUserId(actorUserId) && row.ownerUserId === actorUserId)
+  const requireCurrent = (id: string, tenantId: string, expectedRevision: number, actorUserId?: string) => {
+    const row = findVisible(id, tenantId, actorUserId) ?? fail('missing')
     if (!revision(expectedRevision)) fail('invalid')
     if (row.revision !== expectedRevision || row.revision === Number.MAX_SAFE_INTEGER) fail('conflict')
     return row
@@ -184,42 +202,50 @@ export function createMcpConnectionRegistry() {
   return {
     snapshot(): McpConnectionState { return structuredClone(state) },
     rehydrate(value: unknown) { state = parseMcpConnectionState(value) },
-    privateConnection(id: string, tenantId: string): PrivateMcpConnection | undefined {
-      const row = find(id, tenantId)
+    privateConnection(id: string, tenantId: string, actorUserId?: string): PrivateMcpConnection | undefined {
+      const row = findVisible(id, tenantId, actorUserId)
       return row ? structuredClone(row) : undefined
     },
-    view(id: string, tenantId: string): McpConnectionView | undefined {
-      const row = find(id, tenantId)
+    view(id: string, tenantId: string, actorUserId?: string): McpConnectionView | undefined {
+      const row = findVisible(id, tenantId, actorUserId)
       return row ? publicView(row) : undefined
     },
-    list(tenantId: string): McpConnectionView[] {
-      return state.connections.filter(row => row.tenantId === tenantId).map(publicView)
+    list(tenantId: string, actorUserId?: string): McpConnectionView[] {
+      return state.connections.filter(row => row.tenantId === tenantId && visibleTo(row, actorUserId)).map(publicView)
     },
-    savedContexts(tenantId: string): SavedContext[] {
-      return state.connections.filter(row => row.tenantId === tenantId).map(row => mcpConnectionContext(publicView(row)))
+    savedContexts(tenantId: string, actorUserId?: string): SavedContext[] {
+      return state.connections.filter(row => row.tenantId === tenantId && visibleTo(row, actorUserId))
+        .map(row => mcpConnectionContext(publicView(row)))
     },
-    create(setup: McpConnectionSetup, tenantId: string, allowLoopback = false): { connection: McpConnectionView; created: boolean } {
+    create(setup: McpConnectionSetup, tenantId: string, allowLoopback = false, actorUserId?: string): { connection: McpConnectionView; created: boolean } {
       if (!text(tenantId) || typeof setup.id !== 'string' || !idPattern.test(setup.id) || !text(setup.label) ||
-          !['none', 'device-bearer'].includes(setup.authentication)) fail('invalid')
-      const endpoint = mcpConnectionEndpoint(setup.endpoint, allowLoopback).endpoint
-      if (state.retired.some(row => row.id === setup.id && row.tenantId === tenantId)) fail('retired')
+          !['none', 'device-bearer', 'device-oauth'].includes(setup.authentication) ||
+          (setup.authentication === 'device-oauth' ? !ownerUserId(actorUserId) : false)) fail('invalid')
+      const isOAuth = setup.authentication === 'device-oauth'
+      const endpoint = mcpConnectionEndpoint(setup.endpoint, isOAuth ? false : allowLoopback).endpoint
+      const retired = state.retired.find(row => row.id === setup.id && row.tenantId === tenantId)
+      if (retired) {
+        if (!retiredVisible(retired, actorUserId)) fail('missing')
+        fail('retired')
+      }
       const existing = find(setup.id, tenantId)
       if (existing) {
+        if (!visibleTo(existing, actorUserId)) fail('missing')
         if (existing.endpoint !== endpoint || existing.label !== setup.label || existing.authentication !== setup.authentication) fail('conflict')
         return { connection: publicView(existing), created: false }
       }
       if (state.connections.length + state.retired.length >= MAX_CONNECTION_IDENTITIES) fail('capacity')
       if (state.connections.filter(row => row.tenantId === tenantId).length >= MAX_MCP_CONNECTIONS_PER_TENANT) fail('capacity')
       const row: PrivateMcpConnection = { id: setup.id, label: setup.label, endpoint,
-        authentication: setup.authentication, tenantId, revision: 0, connected: false }
+        authentication: setup.authentication, tenantId, ...(isOAuth ? { ownerUserId: actorUserId! } : {}), revision: 0, connected: false }
       state.connections.push(row)
       return { connection: publicView(row), created: true }
     },
-    commitInspection(id: string, tenantId: string, expectedRevision: number, discovery: McpDiscovery, inspectedAt: number, credentialReference?: string, operation?: McpInspectionOperation): McpConnectionView {
-      const row = requireCurrent(id, tenantId, expectedRevision)
+    commitInspection(id: string, tenantId: string, expectedRevision: number, discovery: McpDiscovery, inspectedAt: number, credentialReference?: string, operation?: McpInspectionOperation, actorUserId?: string): McpConnectionView {
+      const row = requireCurrent(id, tenantId, expectedRevision, actorUserId)
       const receipt = operation === undefined ? undefined : checkedOperation(operation)
       if (receipt && row.inspectionOperation?.id === receipt.id) fail('conflict')
-      if (row.authentication === 'device-bearer' ? !credentialReference || !credentialPattern.test(credentialReference) : credentialReference !== undefined) fail('invalid')
+      if (row.authentication !== 'none' ? !credentialReference || !credentialPattern.test(credentialReference) : credentialReference !== undefined) fail('invalid')
       if (credentialReference && state.connections.some(candidate => candidate !== row && candidate.credentialReference === credentialReference)) fail('conflict')
       const inspection = checkedInspection({ ...discovery, inspectedAt })!
       row.inspection = inspection
@@ -230,19 +256,23 @@ export function createMcpConnectionRegistry() {
       if (credentialReference) row.credentialReference = credentialReference
       return publicView(row)
     },
-    disconnect(id: string, tenantId: string, expectedRevision: number): McpConnectionView {
-      const row = requireCurrent(id, tenantId, expectedRevision)
+    disconnect(id: string, tenantId: string, expectedRevision: number, actorUserId?: string): McpConnectionView {
+      const row = requireCurrent(id, tenantId, expectedRevision, actorUserId)
       // Advance even an unverified row: it invalidates a concurrent inspection.
       row.connected = false
       delete row.credentialReference
       row.revision += 1
       return publicView(row)
     },
-    remove(id: string, tenantId: string, expectedRevision: number): boolean {
-      if (state.retired.some(row => row.id === id && row.tenantId === tenantId)) return false
-      const row = requireCurrent(id, tenantId, expectedRevision)
+    remove(id: string, tenantId: string, expectedRevision: number, actorUserId?: string): boolean {
+      const retired = state.retired.find(row => row.id === id && row.tenantId === tenantId)
+      if (retired) {
+        if (!retiredVisible(retired, actorUserId)) fail('missing')
+        return false
+      }
+      const row = requireCurrent(id, tenantId, expectedRevision, actorUserId)
       state.connections = state.connections.filter(candidate => candidate !== row)
-      state.retired.push({ id, tenantId })
+      state.retired.push({ id, tenantId, ...(row.authentication === 'device-oauth' ? { ownerUserId: row.ownerUserId! } : {}) })
       return true
     },
     credentialBindings() {

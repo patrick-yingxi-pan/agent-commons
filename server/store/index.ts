@@ -395,6 +395,12 @@ function tenantWritesAs(callerTenant: string, owner: string): boolean {
   return owner === callerTenant || accounts.seatIn(callerTenant, owner) === 'owner'
 }
 
+/** OAuth requires the actual person and a current membership. Namespace
+ * ownership is not person identity; legacy connections need neither inference. */
+function activeMcpActor(tenantId: string, actorUserId?: string): string | undefined {
+  return actorUserId && accounts.identityFor(actorUserId, tenantId) ? actorUserId : undefined
+}
+
 /** The tenant-visibility test every scoped read shares: a stamped row matches
  *  the caller's READ union (their namespace + org seats, FWD-6); an unstamped
  *  row follows the flagship rule above. */
@@ -4825,7 +4831,7 @@ export const store = {
    *  session pushes. Events that carry tenant-identifiable data are gated to the owning
    *  tenant; the rest (runner registry and dispatch) are global. A session that can't be resolved (an
    *  ephemeral/just-removed id) falls back to the default tenant, matching the read side. */
-  eventVisibleToTenant(e: ServerEvent, tenantId: string): boolean {
+  eventVisibleToTenant(e: ServerEvent, tenantId: string, actorUserId?: string): boolean {
     switch (e.type) {
       case 'session.updated':
         return this.sessionVisibleToTenant(e.session, tenantId)
@@ -4842,6 +4848,8 @@ export const store = {
         return (e.entry.tenantId ?? defaultTenantId()) === tenantId
       case 'connector.status':
       case 'savedcontext.changed':
+        return (e.tenantId ?? defaultTenantId()) === tenantId &&
+          (e.ownerUserId === undefined || (activeMcpActor(tenantId, actorUserId) !== undefined && e.ownerUserId === actorUserId))
       case 'recents.changed':
         // Viewer setup state is strictly personal, not an org-resource read
         // union. The mutation stamp survives delete and carries only ids.
@@ -7045,9 +7053,9 @@ export const store = {
   contextCatalog() {
     return buildContextCatalog(worldMode)
   },
-  savedContexts(tenantId: string = defaultTenantId()): SavedContextsSnapshot {
+  savedContexts(tenantId: string = defaultTenantId(), actorUserId?: string): SavedContextsSnapshot {
     const base = contextRegistry.snapshot(tenantId)
-    const external = mcpConnectionRegistry.savedContexts(tenantId)
+    const external = mcpConnectionRegistry.savedContexts(tenantId, activeMcpActor(tenantId, actorUserId))
     const contexts = [...base.contexts.filter((context) => !isExternalMcpId(context.id)), ...external]
     return {
       contexts,
@@ -7105,25 +7113,27 @@ export const store = {
   /** Public MCP connection projection. Endpoint and credential references are
    * intentionally absent; execution readiness is a code-owned projection of
    * the connected inspection's admitted tool hashes. */
-  mcpConnections(tenantId: string): McpConnectionView[] {
-    return mcpConnectionRegistry.list(tenantId)
+  mcpConnections(tenantId: string, actorUserId?: string): McpConnectionView[] {
+    return mcpConnectionRegistry.list(tenantId, activeMcpActor(tenantId, actorUserId))
   },
-  mcpConnection(id: string, tenantId: string): McpConnectionView | undefined {
-    return mcpConnectionRegistry.view(id, tenantId)
+  mcpConnection(id: string, tenantId: string, actorUserId?: string): McpConnectionView | undefined {
+    return mcpConnectionRegistry.view(id, tenantId, activeMcpActor(tenantId, actorUserId))
   },
   /** Internal-only authority lookup for the transport and credential seam. */
-  privateMcpConnection(id: string, tenantId: string): PrivateMcpConnection | undefined {
-    return mcpConnectionRegistry.privateConnection(id, tenantId)
+  privateMcpConnection(id: string, tenantId: string, actorUserId?: string): PrivateMcpConnection | undefined {
+    return mcpConnectionRegistry.privateConnection(id, tenantId, activeMcpActor(tenantId, actorUserId))
   },
   createMcpConnection(
     setup: McpConnectionSetup,
     tenantId: string,
     allowLoopback = false,
+    actorUserId?: string,
   ): { connection: McpConnectionView; created: boolean } {
     return commitMutationBatch(() => {
-      const result = mcpConnectionRegistry.create(setup, tenantId, allowLoopback)
+      const result = mcpConnectionRegistry.create(setup, tenantId, allowLoopback, activeMcpActor(tenantId, actorUserId))
       if (result.created) {
-        emit({ type: 'savedcontext.changed', id: result.connection.id, tenantId })
+        emit({ type: 'savedcontext.changed', id: result.connection.id, tenantId,
+          ...(result.connection.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
         persist()
       }
       return result
@@ -7137,29 +7147,34 @@ export const store = {
     inspectedAt: number,
     credentialReference?: string,
     operation?: McpInspectionOperation,
+    actorUserId?: string,
   ): McpConnectionView {
     return commitMutationBatch(() => {
       const result = mcpConnectionRegistry.commitInspection(
-        id, tenantId, expectedRevision, discovery, inspectedAt, credentialReference, operation,
+        id, tenantId, expectedRevision, discovery, inspectedAt, credentialReference, operation, activeMcpActor(tenantId, actorUserId),
       )
-      emit({ type: 'connector.status', id, status: 'connected', tenantId })
+      emit({ type: 'connector.status', id, status: 'connected', tenantId,
+        ...(result.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
       persist()
       return result
     })
   },
-  disconnectMcpConnection(id: string, tenantId: string, expectedRevision: number): McpConnectionView {
+  disconnectMcpConnection(id: string, tenantId: string, expectedRevision: number, actorUserId?: string): McpConnectionView {
     return commitMutationBatch(() => {
-      const result = mcpConnectionRegistry.disconnect(id, tenantId, expectedRevision)
-      emit({ type: 'connector.status', id, status: 'needs-auth', tenantId })
+      const result = mcpConnectionRegistry.disconnect(id, tenantId, expectedRevision, activeMcpActor(tenantId, actorUserId))
+      emit({ type: 'connector.status', id, status: 'needs-auth', tenantId,
+        ...(result.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
       persist()
       return result
     })
   },
-  removeMcpConnection(id: string, tenantId: string, expectedRevision: number): boolean {
+  removeMcpConnection(id: string, tenantId: string, expectedRevision: number, actorUserId?: string): boolean {
     return commitMutationBatch(() => {
-      const removed = mcpConnectionRegistry.remove(id, tenantId, expectedRevision)
+      const row = this.privateMcpConnection(id, tenantId, actorUserId)
+      const removed = mcpConnectionRegistry.remove(id, tenantId, expectedRevision, activeMcpActor(tenantId, actorUserId))
       if (removed) {
-        emit({ type: 'savedcontext.changed', id, tenantId })
+        emit({ type: 'savedcontext.changed', id, tenantId,
+          ...(row?.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
         persist()
       }
       return removed
@@ -7171,9 +7186,9 @@ export const store = {
   },
   /** The sidebar detail for one connector / MCP server (mock: derived locally;
    *  a real backend fetches live resources from the connected service). */
-  connectorDetail(connector: Connector, tenantId: string = defaultTenantId()): ConnectorDetail {
+  connectorDetail(connector: Connector, tenantId: string = defaultTenantId(), actorUserId?: string): ConnectorDetail {
     if (isExternalMcpId(connector.id)) {
-      const connection = this.mcpConnection(connector.id, tenantId)
+      const connection = this.mcpConnection(connector.id, tenantId, actorUserId)
       if (!connection) throw new McpConnectionError('missing')
       const executable = connection.execution === 'approval-required'
       return {
