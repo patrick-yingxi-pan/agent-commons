@@ -15,7 +15,7 @@ test('OAuth fixture transforms only known networking/browser seams in an exclude
   }
   assert.deepEqual([...new Set(patches.map(row => row.path))], ['desktop/mcpOAuthHttp.mjs', 'server/mcpHttpTransport.ts', 'desktop/main.mjs'])
   assert.ok(patches.every(row => !row.before.includes('allowLoopback')))
-  for (const path of ['/desktop/mcpOAuthSmoke.mjs', '/desktop/mcpOAuthSmokeFixture.mjs', '/desktop/mcpLoopbackSmokePackage.mjs']) {
+  for (const path of ['/desktop/mcpOAuthSmoke.mjs', '/desktop/mcpOAuthSmokeFixture.mjs', '/desktop/mcpOAuthMessagesSmokeFixture.mjs', '/desktop/mcpLoopbackSmokePackage.mjs']) {
     assert.equal(ignoreFromPackage(path), true)
   }
   assert.throws(() => oauthSmokePatches('https://public.example'), assert.AssertionError)

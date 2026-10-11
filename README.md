@@ -176,7 +176,7 @@ npm run start:desktop:server # headless desktop profile (operations/debugging)
 npm run start:web    # hosted profile (required env below)
 npm run desktop:package # build an unpacked platform application in out/
 npm run desktop:smoke   # launch that package with isolated temporary user data
-npm run desktop:verify  # package + native lifecycle + isolated Contribution MCP acceptance
+npm run desktop:verify  # package + native lifecycle + isolated Contribution/Routine/OAuth MCP acceptance
 npm run desktop:release:mac # signed/notarized host-architecture candidate (credential-gated)
 npm run desktop:release:mac:finalize # verify and publish Apple Silicon + Intel pair
 npm run typecheck
@@ -238,12 +238,16 @@ boots use explicit profiles:
   is not suppressed, while the resulting bundle is verified directly.
   `desktop:smoke` launches that exact executable with throwaway user data and proves
   backend readiness, the built UI, and local SQLite placement; `desktop:verify`
-  runs both stages plus `desktop:smoke:mcp-effects`. That separate Contribution
-  gate first proves the original rejects loopback MCP, then tests exact-call
-  consent, OS credentials, sharing and durable restart without replay in a
-  disposable app copy with only its startup loopback scope changed. The source
-  ASAR stays unchanged and helpers never ship. This is local unsigned fixture
-  evidence, not public-service/TLS or signed two-architecture acceptance.
+  runs both stages plus separate Contribution, Routine and OAuth MCP gates.
+  The Contribution gate first proves the original rejects loopback MCP, then tests
+  exact-call consent, OS credentials, sharing and durable restart without replay in a
+  disposable app copy with only its startup loopback scope changed. Routine
+  acceptance uses the same isolated-copy policy for separately approved bounded
+  calls. OAuth acceptance replaces only copied networking/browser handoff seams
+  and uses a local model peer to prove sign-in, per-call consent, exact execution
+  and durable receipt replay. The source ASAR stays unchanged and helpers never
+  ship. These gates are local unsigned fixture evidence, separate from ordinary
+  signed-candidate smoke, not public-service/TLS or signed two-architecture acceptance.
 - `npm run desktop:release:mac` is the fail-closed candidate lane for the chosen
   two-download macOS release. Run it once on Apple Silicon and once on Intel. It
   accepts only a Developer ID Application identity and a

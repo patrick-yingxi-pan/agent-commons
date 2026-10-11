@@ -165,10 +165,22 @@ is used to manufacture that missing evidence.
 
 Local acceptance includes real native callback, encrypted OS custody, child
 resolution, inspection, relaunch, refresh and disconnect in an isolated app copy.
-Only the copied DNS/socket destination and browser handoff are fixtures; the
-source package remains public-HTTPS-only. This does not prove public issuer,
-actual system-browser, paid-service, signed or Intel acceptance. Contribution
-and Routine OAuth attribution and combined native tool-call acceptance remain
+It now continues through rendered attachment, a real Messages exchange with an
+excluded bounded local model peer, a proposed call and separate Run tool consent.
+The exact external call, private person anchor and result are compared against
+SQLite before and after a full signed-in relaunch. Replaying the same decision
+key returns the saved receipt without redispatch, including after Disconnect.
+Raw OAuth token canaries remain absent from model requests, public messages and
+stored bytes. Removing actor propagation in a disposable package copy failed the
+exact rendered result assertion. Review also caught the model fixture accepting
+misordered/wrong-role continuations; its new regression failed before enforcing
+the original prompt, issued call identity and ordered assistant/user messages.
+Transcript captures wait for settled entry animation before visual review.
+
+Only the copied DNS/socket destination, browser handoff and model peer are
+fixtures; the source package remains public-HTTPS-only and fixture helpers never
+ship. This does not prove public issuer, actual system-browser, paid-service,
+signed or Intel acceptance. Contribution and Routine OAuth attribution remain
 next core work. The final handoff records the complete verifier results.
 
 During this checkpoint, a newly written persistence test omitted its temporary

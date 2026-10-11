@@ -164,8 +164,14 @@ work, one-use request identities and explicit cancellation. The main/preload/lau
 startup synchronization. The UI reviews issuer/scopes explicitly, begins with
 unchecked permissions, cancels on account changes, and retains uncertain
 inspection handles for same-flow recovery. An excluded disposable-package
-fixture exercises actual OS custody and restart with only networking/browser
-handoff replaced. Public-service and system-browser acceptance remain separate.
+fixture exercises actual OS custody and restart with networking/browser handoff
+replaced. Its excluded local Messages peer continues through rendered attachment,
+a truthful pending proposal and separate Run tool consent. The actual MCP call,
+exact private owner and result persist in SQLite across signed-in relaunch;
+same-key receipt replay and later Disconnect do not repeat the call. OAuth token
+canaries are checked against model input, public transcript and persisted bytes.
+The source ASAR is unchanged. Public-service, actual system-browser, signed and
+Intel acceptance remain separate.
 
 The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)
