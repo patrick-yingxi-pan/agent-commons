@@ -44,7 +44,7 @@ test('Require review is one held monotonic act with exact receipt reconciliation
   assert.ok(routeStart >= 0 && routeEnd > routeStart)
   const route = routes.slice(routeStart, routeEnd)
   assert.match(route, /contributionReviewRequirementId\(who\.tenant\.id, params\.id, params\.cid, idempotencyKey\)/)
-  assert.match(route, /getContributionReviewRequirement\([\s\S]*if \(typeof represented === 'object'\) return sendJson/)
+  assert.match(route, /getContributionReviewRequirement\([\s\S]*if \(typeof represented === 'object'\) return sendContribution\(res, represented, who\)/)
   assert.match(route, /requireContributionReview\([\s\S]*\{ logicalId: logicalRequirementId \}/)
 
   const storeStart = store.indexOf('  getContributionReviewRequirement(')

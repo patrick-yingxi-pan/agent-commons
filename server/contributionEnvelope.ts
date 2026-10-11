@@ -17,7 +17,6 @@ import { validateMcpSchema } from './mcpSchema.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
 import type { McpBoundExecutionStore } from './mcpBoundExecution.ts'
-import type { PrivateMcpConnection } from './mcpConnections.ts'
 
 export interface NormalizedEnvelopeProposalLine {
   type: ProjectEffectType
@@ -30,7 +29,7 @@ export interface NormalizedEnvelopeProposalLine {
 
 export interface StoredContributionEnvelopeLine extends EffectEnvelopeLine {
   /** Server-private authority; must be stripped from every wire projection. */
-  mcpAuthority?: { tenantId: string; call: McpBoundToolCall }
+  mcpAuthority?: { tenantId: string; ownerUserId?: string; call: McpBoundToolCall }
 }
 
 export type StoredContributionEnvelope = Omit<import('../contract/contributions.ts').EffectEnvelope, 'lines'> & {
@@ -39,6 +38,8 @@ export type StoredContributionEnvelope = Omit<import('../contract/contributions.
 
 const SELECTION_FIELDS = ['connectionId', 'connectionRevision', 'toolName', 'arguments'] as const
 const TOOL_NAME_CONTROL = /^[\u0000-\u001f\u007f-\u009f\ud800-\udfff]$/
+const ownerUserId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 &&
+  value.length <= 200 && value.trim().length > 0 && /^[\x20-\x7e]+$/.test(value)
 
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -143,17 +144,25 @@ export function envelopeProposalLinesMatch(
 }
 
 interface SelectedBinding {
-  row: PrivateMcpConnection
+  ownerUserId?: string
   label: string
   tool: McpDiscoveredTool
   schemaHash: string
 }
 
-function selectedBinding(store: McpBoundExecutionStore, tenantId: string, selection: ContributionMcpSelection): SelectedBinding | undefined {
+function selectedBinding(
+  store: McpBoundExecutionStore,
+  tenantId: string,
+  selection: ContributionMcpSelection,
+  actorUserId?: string,
+): SelectedBinding | undefined {
   try {
-    const row = store.privateMcpConnection(selection.connectionId, tenantId)
-    const view = store.mcpConnection(selection.connectionId, tenantId)
+    const row = store.privateMcpConnection(selection.connectionId, tenantId, actorUserId)
+    const view = store.mcpConnection(selection.connectionId, tenantId, actorUserId)
     if (!row || row.id !== selection.connectionId || row.tenantId !== tenantId || !row.connected ||
+        (row.authentication === 'device-oauth'
+          ? !ownerUserId(actorUserId) || row.ownerUserId !== actorUserId
+          : Object.hasOwn(row, 'ownerUserId')) ||
         row.revision !== selection.connectionRevision || !row.inspection ||
         row.inspection.schemaAdmission?.version !== MCP_SCHEMA_ADMISSION_VERSION ||
         !view || view.id !== selection.connectionId || view.revision !== selection.connectionRevision ||
@@ -163,7 +172,8 @@ function selectedBinding(store: McpBoundExecutionStore, tenantId: string, select
     const tool = snapshotMcpJson(selected, { maxBytes: 196_608, maxDepth: 36, maxNodes: 12_288 }) as unknown as McpDiscoveredTool
     const schemaHash = mcpToolSchemaHash(tool)
     if (!row.inspection.schemaAdmission.hashes.includes(schemaHash)) return undefined
-    return { row, label: view.label, tool, schemaHash }
+    return { ...(row.authentication === 'device-oauth' ? { ownerUserId: row.ownerUserId } : {}),
+      label: view.label, tool, schemaHash }
   } catch { return undefined }
 }
 
@@ -173,6 +183,7 @@ export async function prepareContributionMcpLines(
   store: McpBoundExecutionStore,
   tenantId: string,
   lines: NormalizedEnvelopeProposalLine[],
+  actorUserId?: string,
 ): Promise<Array<Omit<StoredContributionEnvelopeLine, 'id' | 'used'>> | undefined> {
   const safeLines = normalizedEnvelopeProposalLines({ lines })
   if (!safeLines) return undefined
@@ -182,7 +193,7 @@ export async function prepareContributionMcpLines(
       prepared.push({ type: line.type, target: line.target, cardinality: line.cardinality, harness: line.harness, note: line.note })
       continue
     }
-    const selected = selectedBinding(store, tenantId, line.mcp)
+    const selected = selectedBinding(store, tenantId, line.mcp, actorUserId)
     if (!selected) return undefined
     const admitted = await admitMcpTool(selected.tool)
     if (!admitted.ok) return undefined
@@ -203,10 +214,10 @@ export async function prepareContributionMcpLines(
       note: line.note,
       used: 0,
       mcp: { connectionLabel: selected.label, toolName: line.mcp.toolName, arguments: line.mcp.arguments } satisfies ContributionMcpPreview,
-      mcpAuthority: { tenantId, call },
+      mcpAuthority: { tenantId, call, ...(selected.ownerUserId === undefined ? {} : { ownerUserId: selected.ownerUserId }) },
       id: 'preparation-only',
     }
-    if (!currentContributionMcpLine(store, tenantId, provisional)) return undefined
+    if (!currentContributionMcpLine(store, tenantId, provisional, actorUserId)) return undefined
     const { id: _id, used: _used, ...result } = provisional
     prepared.push(result)
   }
@@ -219,6 +230,7 @@ export function currentContributionMcpLine(
   store: McpBoundExecutionStore,
   tenantId: string,
   line: StoredContributionEnvelopeLine,
+  actorUserId?: string,
 ): boolean {
   if (!line.mcpAuthority) return line.mcp === undefined && line.harness !== 'explicit-call'
   if (!line.mcp || line.type !== 'mcp.mutate' || line.harness !== 'explicit-call' ||
@@ -232,7 +244,9 @@ export function currentContributionMcpLine(
     connectionRevision: call.connectionRevision,
     toolName: call.toolName,
     arguments: call.arguments,
-  })
+  }, actorUserId)
   return Boolean(binding && binding.schemaHash === call.schemaHash &&
-    binding.label === line.mcp.connectionLabel)
+    binding.label === line.mcp.connectionLabel && (binding.ownerUserId === undefined
+      ? !Object.hasOwn(line.mcpAuthority, 'ownerUserId')
+      : binding.ownerUserId === line.mcpAuthority.ownerUserId))
 }

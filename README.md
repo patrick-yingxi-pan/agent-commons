@@ -245,7 +245,9 @@ boots use explicit profiles:
   acceptance uses the same isolated-copy policy for separately approved bounded
   calls. OAuth acceptance replaces only copied networking/browser handoff seams
   and uses a local model peer to prove sign-in, per-call consent, exact execution
-  and durable receipt replay. The source ASAR stays unchanged and helpers never
+  and durable receipt replay in both conversation and Contribution workflows.
+  Contribution approval and each Run remain separate acts, bound to the OAuth
+  owner even in a shared workspace. The source ASAR stays unchanged and helpers never
   ship. These gates are local unsigned fixture evidence, separate from ordinary
   signed-candidate smoke, not public-service/TLS or signed two-architecture acceptance.
 - `npm run desktop:release:mac` is the fail-closed candidate lane for the chosen

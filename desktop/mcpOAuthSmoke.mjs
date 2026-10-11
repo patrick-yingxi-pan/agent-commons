@@ -19,6 +19,7 @@ import { startMcpOAuthMessagesSmokeFixture, MCP_OAUTH_MESSAGES_SMOKE_MODEL,
   MCP_OAUTH_MESSAGES_SMOKE_PROMPT } from './mcpOAuthMessagesSmokeFixture.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
+const CONTRIBUTION_ARGUMENTS = Object.freeze({ query: 'native-oauth-contribution-record' })
 async function captureTranscript(page, path) {
   // A visible tool card can precede its parent turn's entry animation.
   // Wait for the rendered state we review, not merely the card's existence.
@@ -52,6 +53,119 @@ function persistedActivity(profile, sessionId, activityId) {
     assert.equal(authorities.length, 1, 'the native call retains exactly one private person anchor')
     return { activity: matches[0], authority: authorities[0] }
   } finally { db.close() }
+}
+
+function persistedContribution(profile, contributionId) {
+  const db = new DatabaseSync(join(profile, 'store.db'), { readOnly: true })
+  try {
+    const row = db.prepare('SELECT json FROM entities WHERE slice = ? AND entity_id = ?').get('contributions', contributionId)
+    assert.ok(row, 'the exact Contribution exists in the actual SQLite store')
+    return JSON.parse(row.json)
+  } finally { db.close() }
+}
+
+/** The native acceptance oracle checks actual private SQLite data against the
+ * public receipt, including one remaining act that still requires new consent. */
+export function assertOAuthContributionReceipt(stored, current, { tenantId, ownerUserId, connectionId, canRun = true }) {
+  assert.equal(stored.effectAttempts.length, 1, 'exactly one Contribution call is retained')
+  assert.equal(stored.envelope.lines.length, 1)
+  const line = stored.envelope.lines[0]
+  const attempt = stored.effectAttempts[0]
+  assert.deepEqual(line.mcpAuthority, { tenantId, ownerUserId, call: attempt.call }, 'the envelope and receipt retain the exact person-bound call')
+  assert.equal(attempt.ownerUserId, ownerUserId, 'the durable receipt retains its private OAuth owner')
+  assert.equal(attempt.tenantId, tenantId)
+  assert.equal(attempt.projectId, stored.projectId)
+  assert.equal(attempt.contributionId, stored.id)
+  assert.equal(attempt.envelopeVersion, 1)
+  assert.equal(stored.envelope.version, 1)
+  assert.equal(stored.envelope.approvedVersion, 1)
+  assert.equal(attempt.lineId, line.id)
+  assert.equal(attempt.status, 'done')
+  assert.equal(line.cardinality, 2)
+  assert.equal(line.used, 1, 'the unused act is not executed automatically')
+  assert.match(attempt.callHash, /^[a-f0-9]{64}$/)
+  assert.match(attempt.call.schemaHash, /^[a-f0-9]{64}$/)
+  assert.ok(Number.isSafeInteger(attempt.call.connectionRevision) && attempt.call.connectionRevision >= 0)
+  assert.deepEqual(attempt.call, { connectionId, connectionRevision: attempt.call.connectionRevision,
+    toolName: 'records.search', schemaHash: attempt.call.schemaHash, arguments: CONTRIBUTION_ARGUMENTS })
+  assert.deepEqual(attempt.result, { resultType: 'complete', isError: false,
+    content: [{ type: 'text', text: `Fixture record for ${CONTRIBUTION_ARGUMENTS.query}` }],
+    structuredContent: { query: CONTRIBUTION_ARGUMENTS.query, record: 'fixture-record-1' } })
+  assert.equal(current.id, stored.id)
+  assert.equal(current.projectId, stored.projectId)
+  assert.deepEqual(current.effects, [{ id: attempt.id, envelopeVersion: attempt.envelopeVersion, lineId: line.id,
+    actor: attempt.actor, connectionLabel: attempt.connectionLabel, toolName: attempt.call.toolName,
+    arguments: CONTRIBUTION_ARGUMENTS, startedAt: attempt.startedAt, status: 'done',
+    finishedAt: attempt.finishedAt, summary: attempt.summary, result: attempt.result }], 'the public receipt is exact and contains no private authority')
+  assert.equal(current.envelope.lines.length, 1)
+  assert.equal(current.envelope.lines[0].used, 1)
+  assert.deepEqual(current.envelope.lines[0].mcp, { connectionLabel: 'Native OAuth fixture', toolName: 'records.search',
+    arguments: CONTRIBUTION_ARGUMENTS, ...(canRun ? { canRun: true } : {}) })
+  const publicHistory = JSON.stringify({ envelope: current.envelope, effects: current.effects })
+  for (const privateValue of [ownerUserId, connectionId, ...MCP_OAUTH_FIXTURE_SECRET_CANARIES]) {
+    assert.equal(publicHistory.includes(privateValue), false, 'private OAuth identity and credentials never enter shared Contribution history')
+  }
+  for (const privateField of ['mcpAuthority', 'ownerUserId', 'callHash', 'credentialReference']) {
+    assert.equal(publicHistory.includes(`"${privateField}"`), false, `${privateField} remains private`)
+  }
+}
+
+async function executeContributionCall({ page, origin, profile, evidence, fixture, identity, connectionId }) {
+  const { project } = await api(page, '/projects', { name: 'Native OAuth Contribution', description: '' })
+  const contribution = await api(page, `/projects/${project.id}/contributions`, {
+    title: 'Read one separately approved OAuth record', summary: 'One explicit call, with one act left for a future confirmation.',
+  })
+  const path = `/projects/${project.id}/contributions/${contribution.id}`
+  const route = `/projects/${project.id}/changes/${contribution.id}`
+  const authority = { tenantId: identity.tenant.id, ownerUserId: identity.user.id, connectionId }
+  await page.goto(`${origin}${route}`)
+  await page.getByRole('button', { name: 'Declare effects', exact: true }).click()
+  await page.getByLabel('Effect type 1', { exact: true }).selectOption('mcp.mutate')
+  await page.getByLabel('MCP tool 1', { exact: true }).selectOption({ label: 'Native OAuth fixture · records.search' })
+  await page.getByLabel('MCP arguments 1', { exact: true }).fill(JSON.stringify(CONTRIBUTION_ARGUMENTS))
+  await page.getByLabel('Max acts 1', { exact: true }).fill('2')
+  await page.getByRole('button', { name: 'Propose v1', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeVisible()
+  assert.equal(fixture.snapshot().counts.mcpCalls, 1, 'proposing a Contribution leaves only the earlier interactive call')
+  assert.equal(persistedContribution(profile, contribution.id).envelope.lines[0].mcpAuthority.ownerUserId, identity.user.id)
+  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Review & run', exact: true })).toBeVisible()
+  assert.equal(fixture.snapshot().counts.mcpCalls, 1, 'envelope approval grants no execution')
+  await page.getByRole('button', { name: 'Review & run', exact: true }).click()
+  const consent = page.getByRole('group', { name: 'Confirm one MCP effect run', exact: true })
+  await expect(consent).toContainText('visible to every Project reader')
+  await expect(consent).toContainText('credentials stay private')
+  await expect(consent).toContainText('running again may duplicate')
+  await expect(page.getByLabel('Approved arguments for records.search', { exact: true })).toContainText(CONTRIBUTION_ARGUMENTS.query)
+  assert.equal(fixture.snapshot().counts.mcpCalls, 1, 'opening the separate Run confirmation never dispatches')
+  await consent.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(evidence, 'contribution-consent.png') })
+  const outgoing = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === `/api/v1${path}/effects`)
+  await consent.getByRole('button', { name: 'Confirm and run once', exact: true }).click()
+  const request = await outgoing
+  const key = request.headers()['idempotency-key']
+  const body = request.postDataJSON()
+  assert.ok(key, 'rendered Contribution Run has an exact durable retry identity')
+  const card = page.locator('[data-contribution-effect-status="done"]')
+  await expect(card).toContainText(`Fixture record for ${CONTRIBUTION_ARGUMENTS.query}`, { timeout: 30_000 })
+  const completed = (await api(page, `/projects/${project.id}/contributions`)).find(row => row.id === contribution.id)
+  assert.ok(completed)
+  const stored = persistedContribution(profile, contribution.id)
+  assertOAuthContributionReceipt(stored, completed, authority)
+  assert.deepEqual(body, { lineId: stored.envelope.lines[0].id, expectedVersion: 1 })
+  const calls = fixture.snapshot().requests.filter(request => request.headers['mcp-method'] === 'tools/call')
+  assert.equal(calls.length, 2, 'one interactive call and one Contribution call were separately confirmed')
+  assert.deepEqual(calls.map(request => {
+    const params = JSON.parse(request.body).params
+    return { name: params.name, arguments: params.arguments }
+  }), [
+    { name: 'records.search', arguments: { query: 'native-oauth-approved-record' } },
+    { name: 'records.search', arguments: CONTRIBUTION_ARGUMENTS },
+  ])
+  await expect(page.getByRole('button', { name: 'Review & run', exact: true })).toBeVisible()
+  await card.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(evidence, 'contribution-result.png') })
+  return { id: contribution.id, path, route, key, body, completed, stored, authority }
 }
 
 async function prepareInteractiveCall(page, origin, model, connectionId) {
@@ -239,7 +353,12 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
     await assertPrivateStorage(profile, MCP_OAUTH_FIXTURE_SECRET_CANARIES)
     await captureTranscript(page, join(evidence, 'tool-result.png'))
 
-    stage = 'tool-receipt-relaunch-and-exact-replay'
+    stage = 'contribution-proposal-approval-and-separate-run'
+    const contribution = await executeContributionCall({ page, origin, profile, evidence, fixture, identity, connectionId: id })
+    assert.equal(model.requests.length, 2, 'Contribution approval and Run add no model calls')
+    await assertPrivateStorage(profile, MCP_OAUTH_FIXTURE_SECRET_CANARIES)
+
+    stage = 'tool-and-contribution-receipt-relaunch-and-exact-replay'
     await closePackagedDesktop(run); run = undefined
     run = await launchPackagedDesktop(copied.executable, profile)
     ;({ page, origin } = run)
@@ -249,18 +368,39 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
     await expect(page.locator('[data-mcp-tool-status="done"]')).toContainText('Fixture record for native-oauth-approved-record')
     const replay = await api(page, decisionPath, { decision: 'confirm' }, decisionKey)
     assert.deepEqual(replay, completed.activity, 'a lost response reconciles the exact durable receipt after full restart')
-    assert.equal(fixture.snapshot().counts.mcpCalls, 1, 'neither relaunch nor exact receipt replay dispatches again')
+    assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'neither relaunch nor exact interactive receipt replay dispatches again')
     await captureTranscript(page, join(evidence, 'tool-result-relaunched.png'))
 
-    stage = 'disconnect-after-tool-receipt'
+    await page.goto(`${origin}${contribution.route}`)
+    const contributionCard = page.locator('[data-contribution-effect-status="done"]')
+    await expect(contributionCard).toContainText(`Fixture record for ${CONTRIBUTION_ARGUMENTS.query}`)
+    await expect(page.getByRole('button', { name: 'Review & run', exact: true })).toBeVisible()
+    const contributionReplay = await api(page, `${contribution.path}/effects`, contribution.body, contribution.key)
+    assert.deepEqual(contributionReplay.effects, contribution.completed.effects, 'exact Contribution replay returns the saved receipt after restart')
+    assert.deepEqual(persistedContribution(profile, contribution.id), contribution.stored, 'private owner, call and result survive full relaunch unchanged')
+    assertOAuthContributionReceipt(persistedContribution(profile, contribution.id), contributionReplay, contribution.authority)
+    assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'remaining cardinality and exact Contribution replay grant no automatic dispatch')
+    await contributionCard.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(evidence, 'contribution-result-relaunched.png') })
+
+    stage = 'disconnect-after-tool-and-contribution-receipts'
     await page.goto(`${origin}${detailPath}`)
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
     await expect.poll(async () => (await api(page, `/mcp-connections/${id}`)).status).toBe('disconnected')
     await expect.poll(async () => Object.keys(JSON.parse(await readFile(join(profile, MCP_CREDENTIAL_FILE), 'utf8')).entries).length).toBe(0)
     await page.screenshot({ path: join(evidence, 'disconnected.png'), fullPage: true })
     assert.deepEqual(await api(page, decisionPath, { decision: 'confirm' }, decisionKey), completed.activity)
-    assert.equal(fixture.snapshot().counts.mcpCalls, 1, 'disconnect preserves receipt history without granting another dispatch')
-    console.log('[desktop-oauth-smoke] reviewed scopes · real PKCE/callback · OS vault · refresh · rendered attach/model proposal/separate consent · exact MCP call · private SQLite owner + result · signed-in relaunch and receipt replay without redispatch · disconnect')
+    const disconnectedContribution = await api(page, `${contribution.path}/effects`, contribution.body, contribution.key)
+    assert.deepEqual(disconnectedContribution.effects, contribution.completed.effects)
+    assert.deepEqual(persistedContribution(profile, contribution.id), contribution.stored)
+    assertOAuthContributionReceipt(persistedContribution(profile, contribution.id), disconnectedContribution, { ...contribution.authority, canRun: false })
+    await page.goto(`${origin}${contribution.route}`)
+    await expect(page.locator('[data-contribution-effect-status="done"]')).toContainText(`Fixture record for ${CONTRIBUTION_ARGUMENTS.query}`)
+    await expect(page.getByRole('button', { name: 'Review & run', exact: true })).toHaveCount(0)
+    await page.locator('[data-contribution-effect-status="done"]').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(evidence, 'contribution-result-disconnected.png') })
+    assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'disconnect preserves both receipts without granting another dispatch')
+    console.log('[desktop-oauth-smoke] reviewed scopes · real PKCE/callback · OS vault · refresh · rendered attach/model proposal/separate consent · Contribution proposal/separate approval/Run · two exact separately confirmed MCP calls · private SQLite owners + results · signed-in relaunch and exact receipt replays without redispatch · disconnect retains receipts and removes Run')
     console.log(`[desktop-oauth-smoke] evidence ${evidence}`)
   } catch (error) {
     if (model) console.error('[desktop-oauth-smoke] model evidence', JSON.stringify({ accepted: model.requests.length,

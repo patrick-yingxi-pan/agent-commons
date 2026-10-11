@@ -36,7 +36,7 @@ test('Contribution landing is one shell-owned durable act on its substantive rev
   const routeStart = routes.indexOf("r.post('/projects/:id/contributions/:cid/land'")
   const routeEnd = routes.indexOf("r.post('/projects/:id/contributions/:cid/require-review'", routeStart)
   assert.ok(routeStart >= 0 && routeEnd > routeStart)
-  assert.match(routes.slice(routeStart, routeEnd), /getContributionLanding[\s\S]*if \(typeof represented === 'object'\) return sendJson/)
+  assert.match(routes.slice(routeStart, routeEnd), /getContributionLanding[\s\S]*if \(typeof represented === 'object'\) return sendContribution\(res, represented, who\)/)
   const storeStart = store.indexOf('  getContributionLanding(')
   const storeEnd = store.indexOf('  attentionLedger(', storeStart)
   assert.ok(storeStart >= 0 && storeEnd > storeStart)

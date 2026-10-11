@@ -51,7 +51,7 @@ test('Contribution comments are one held, exactly reconciled action independent 
   assert.ok(routeStart >= 0 && routeEnd > routeStart)
   const route = routes.slice(routeStart, routeEnd)
   assert.match(route, /contributionCommentCreationId\(who\.tenant\.id, params\.id, params\.cid, idempotencyKey\)/)
-  assert.match(route, /getContributionCommentCreation\([\s\S]*if \(typeof represented === 'object'\) return sendJson/)
+  assert.match(route, /getContributionCommentCreation\([\s\S]*if \(typeof represented === 'object'\) return sendContribution\(res, represented, who\)/)
   assert.match(route, /noteContribution\([\s\S]*\{ logicalId: logicalCommentId \}/)
 
   const storeStart = store.indexOf('  getContributionCommentCreation(')

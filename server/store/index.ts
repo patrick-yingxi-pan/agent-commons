@@ -20,6 +20,7 @@ import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput } from '
 import { dispatchSessionId } from '../dispatchIdentity.ts'
 import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, prepareContributionMcpLines, currentContributionMcpLine, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
 import { createContributionEffectAttempt, settleContributionEffectAttempt, interruptContributionEffectAttempt, publicContributionEffectRun, contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX } from '../contributionEffectState.ts'
+import { contributionMcpProposalOwner } from '../contributionMcpAuthority.ts'
 import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
 import { RoutineMcpRegistry, validateRoutineMcpRegistryJoins } from '../routineMcpRegistry.ts'
 import { RoutineMcpPolicyError, routineMcpCallPermitted, routineMcpJsonText } from '../routineMcpPolicy.ts'
@@ -679,6 +680,7 @@ function publicContributionEvent(ev: StoredContributionEvent): import('../../con
     proposedByTenant,
     envelopeProposalLines,
     envelopeProposalExpectedVersion,
+    envelopeProposalOwnerUserId,
     ...pub
   } = ev
   return { ...pub, ...(principal ? { actorKind: principal.kind } : {}) }
@@ -1473,7 +1475,7 @@ function tierFor(c: StoredContribution): import('../../contract/index.ts').Contr
   return { level: 0, basis: `trusted: ${landedHere} landed here · no effects — lands on green` }
 }
 
-function publicContribution(c: StoredContribution, viewerTenant?: string): Contribution {
+function publicContribution(c: StoredContribution, viewerTenant?: string, viewerUserId?: string): Contribution {
   const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, reviewAttempts, judgmentAttempts, effectAttempts, envelope, ...pub } = c
   const effectiveReview = c.status === 'open' || reviewAttempts?.length ? contributionReviewVersion(c) : reviewedVersion
   const pendingEffect = effectAttempts?.some((run) => run.status === 'pending')
@@ -1484,7 +1486,8 @@ function publicContribution(c: StoredContribution, viewerTenant?: string): Contr
       ...(mcp ? { mcp: { connectionLabel: mcp.connectionLabel, toolName: mcp.toolName, arguments: structuredClone(mcp.arguments),
         ...(viewerTenant && c.status === 'open' && !pendingEffect && envelope.status === 'approved' && envelope.approvedVersion === envelope.version &&
           line.used < line.cardinality && (effectAttempts?.length ?? 0) < CONTRIBUTION_EFFECT_ATTEMPT_MAX &&
-          contributionEffectActor(c, viewerTenant) && currentContributionMcpLine(store, viewerTenant, { ...line, mcp, mcpAuthority: _authority })
+          contributionEffectActor(c, viewerTenant) && currentContributionMcpLine(store, viewerTenant,
+            { ...line, mcp, mcpAuthority: _authority }, activeMcpActor(viewerTenant, viewerUserId))
           ? { canRun: true as const } : {}),
       } } : {}),
     })) } } : {}),
@@ -10584,12 +10587,19 @@ export const store = {
   /** A Project's contribution ledger: open contributions first (newest first),
    *  then landed ones in REVERSE ledger order (L{n} descending — the "Recently
    *  landed" read). Served through the `publicContribution` redaction. */
-  listContributions(projectId: string, viewerTenant?: string): Contribution[] {
+  listContributions(projectId: string, viewerTenant?: string, viewerUserId?: string): Contribution[] {
     const rows = contributions.filter((c) => c.projectId === projectId)
     const band = (c: StoredContribution) => (c.status === 'open' ? 0 : 1)
     return [...rows]
       .sort((a, b) => band(a) - band(b) || (b.landingNumber ?? 0) - (a.landingNumber ?? 0) || b.openedAt - a.openedAt)
-      .map((c) => publicContribution(c, viewerTenant))
+      .map((c) => publicContribution(c, viewerTenant, viewerUserId))
+  },
+  /** Re-project mutation acknowledgements with the same current person-relative
+   * capabilities as ledger reads. Private OAuth identity never crosses the wire. */
+  contributionForViewer(projectId: string, contributionId: string, tenantId: string, actorUserId?: string): Contribution | undefined {
+    if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return undefined
+    const c = contributions.find((entry) => entry.id === contributionId && entry.projectId === projectId)
+    return c ? publicContribution(c, tenantId, actorUserId) : undefined
   },
   /** Open (declare) a contribution — the CW1 intent made visible. Any tenant that
    *  can SEE the Project may open one (the route validates visibility, the
@@ -11669,6 +11679,7 @@ export const store = {
     contributionId: string,
     req: import('../../contract/index.ts').ProposeEnvelopeRequest,
     tenantId: string,
+    actorUserId?: string,
   ): Contribution | 'invalid' | undefined {
     if (!isContributionEnvelopeProposalId(id)) return 'invalid'
     const contribution = contributions.find(
@@ -11691,7 +11702,9 @@ export const store = {
       !event.envelopeProposalLines ||
       !envelopeProposalLinesMatch(lines, event.envelopeProposalLines)
     ) return 'invalid'
-    return publicContribution(contribution, tenantId)
+    const ownerUserId = contributionMcpProposalOwner(event)
+    if (ownerUserId && activeMcpActor(tenantId, actorUserId) !== ownerUserId) return 'invalid'
+    return publicContribution(contribution, tenantId, actorUserId)
   },
   /** Inspection/schema work is local and may await. Re-enter the synchronous
    * proposal funnel only if the original world and exact authority still hold. */
@@ -11705,14 +11718,15 @@ export const store = {
   ): Promise<Contribution | 'closed' | 'invalid' | 'forbidden' | 'conflict' | 'capped' | undefined> {
     if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return undefined
     if (!options.logicalId || !Number.isSafeInteger(req.expectedVersion) || (req.expectedVersion ?? -1) < 0) return 'invalid'
-    const represented = this.getContributionEnvelopeProposal(options.logicalId, projectId, cid, req, tenantId)
+    const actorUserId = principal?.kind === 'user' ? activeMcpActor(tenantId, principal.id) : undefined
+    const represented = this.getContributionEnvelopeProposal(options.logicalId, projectId, cid, req, tenantId, actorUserId)
     if (represented !== undefined) return represented
     const c = contributions.find((entry) => entry.id === cid && entry.projectId === projectId)
     if (!c) return undefined
     const lines = normalizedEnvelopeProposalLines(req)
     if (!lines || !lines.some((line) => line.mcp)) return 'invalid'
     const request = { lines, expectedVersion: req.expectedVersion }
-    const preparedLines = await prepareContributionMcpLines(this, tenantId, lines)
+    const preparedLines = await prepareContributionMcpLines(this, tenantId, lines, actorUserId)
     if (!preparedLines) return 'invalid'
     if (!contributions.includes(c)) return 'conflict'
     if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return undefined
@@ -11726,6 +11740,7 @@ export const store = {
     principal: PrincipalRef | undefined,
     options: { logicalId?: string; preparedLines?: Array<Omit<StoredContributionEnvelopeLine, 'id' | 'used'>> } = {},
   ): Contribution | 'closed' | 'invalid' | 'forbidden' | 'conflict' | 'capped' | undefined {
+    const actorUserId = principal?.kind === 'user' ? activeMcpActor(tenantId, principal.id) : undefined
     if (
       req.expectedVersion !== undefined &&
       (!Number.isSafeInteger(req.expectedVersion) || req.expectedVersion < 0)
@@ -11737,6 +11752,7 @@ export const store = {
         cid,
         req,
         tenantId,
+        actorUserId,
       )
       if (typeof represented === 'object') return represented
       if (represented === 'invalid') {
@@ -11763,9 +11779,10 @@ export const store = {
     if (!lines) return 'invalid'
     const bound = lines.some((line) => line.mcp)
     if (bound && (!options.preparedLines || req.expectedVersion === undefined || !options.logicalId)) return 'invalid'
-    const storedLines = options.preparedLines ?? lines.map(({ mcp: _mcp, ...line }) => line)
+    const storedLines: Array<Omit<StoredContributionEnvelopeLine, 'id' | 'used'>> = options.preparedLines ?? lines.map(({ mcp: _mcp, ...line }) => line)
     if (storedLines.length !== lines.length || !storedLines.every((line) =>
-      currentContributionMcpLine(this, tenantId, { ...line, id: 'preparing', used: 0 }))) return 'invalid'
+      currentContributionMcpLine(this, tenantId, { ...line, id: 'preparing', used: 0 }, actorUserId))) return 'invalid'
+    const envelopeProposalOwnerUserId = storedLines.find((line) => line.mcpAuthority?.ownerUserId !== undefined)?.mcpAuthority?.ownerUserId
     const now = Date.now()
     const actor = tenantName(tenantId)
     const version = currentVersion + 1
@@ -11798,6 +11815,7 @@ export const store = {
         ...(options.logicalId ? {
           proposedByTenant: tenantId,
           envelopeProposalLines: structuredClone(lines),
+          ...(envelopeProposalOwnerUserId === undefined ? {} : { envelopeProposalOwnerUserId }),
           ...(req.expectedVersion !== undefined
             ? { envelopeProposalExpectedVersion: req.expectedVersion }
             : {}),
@@ -11806,7 +11824,7 @@ export const store = {
       })
       emit({ type: 'contribution.changed', projectId })
       persist()
-      return publicContribution(c, tenantId)
+      return publicContribution(c, tenantId, actorUserId)
     })
   },
   /** Current containing ledger row for one durable envelope-approval receipt.
@@ -11818,6 +11836,7 @@ export const store = {
     contributionId: string,
     tenantId: string,
     expectedVersion?: number,
+    actorUserId?: string,
   ): Contribution | 'invalid' | undefined {
     if (!isContributionEnvelopeApprovalId(id)) return 'invalid'
     const contribution = contributions.find(
@@ -11836,7 +11855,7 @@ export const store = {
       event.approvedByTenant !== tenantId ||
       (expectedVersion !== undefined && event.envelopeVersion !== expectedVersion)
     ) return 'invalid'
-    return publicContribution(contribution, tenantId)
+    return publicContribution(contribution, tenantId, actorUserId)
   },
   /** Approve the envelope AS PROPOSED — the human judgment moment (the floor
    *  rule: external acts need at least one human approval per envelope; what
@@ -11851,6 +11870,7 @@ export const store = {
     eventActor?: string,
     options: { logicalId?: string; expectedVersion?: number } = {},
   ): Contribution | 'forbidden' | 'conflict' | undefined {
+    const actorUserId = principal?.kind === 'user' ? activeMcpActor(tenantId, principal.id) : undefined
     if (options.logicalId) {
       const represented = this.getContributionEnvelopeApproval(
         options.logicalId,
@@ -11858,6 +11878,7 @@ export const store = {
         cid,
         tenantId,
         options.expectedVersion,
+        actorUserId,
       )
       if (typeof represented === 'object') return represented
       if (represented === 'invalid') {
@@ -11897,7 +11918,7 @@ export const store = {
       })
       emit({ type: 'contribution.changed', projectId })
       persist()
-      return publicContribution(c, tenantId)
+      return publicContribution(c, tenantId, actorUserId)
     })
   },
   /** Current containing ledger row and outcome for one durable effect receipt. */
@@ -11933,16 +11954,19 @@ export const store = {
     cid: string,
     lineId: string,
     tenantId: string,
-    options: { logicalId: string; expectedVersion: number },
+    options: { logicalId: string; expectedVersion: number; actorUserId?: string },
   ): Promise<Contribution | 'forbidden' | 'invalid' | 'conflict' | undefined> {
     if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return undefined
-    const { logicalId, expectedVersion } = options
+    const { logicalId, expectedVersion, actorUserId } = options
     if (!isContributionEffectExecutionId(logicalId) || !Number.isSafeInteger(expectedVersion) || expectedVersion < 1 || !lineId) return 'invalid'
     const c = contributions.find((entry) => entry.id === cid && entry.projectId === projectId)
     if (!c) return undefined
     const represented = c.effectAttempts?.find((run) => run.id === logicalId)
-    if (represented) return represented.tenantId === tenantId && represented.lineId === lineId && represented.envelopeVersion === expectedVersion
-      ? publicContribution(c, tenantId) : 'conflict'
+    if (represented) {
+      if (represented.tenantId !== tenantId || represented.lineId !== lineId || represented.envelopeVersion !== expectedVersion) return 'conflict'
+      if (represented.ownerUserId && activeMcpActor(tenantId, actorUserId) !== represented.ownerUserId) return 'forbidden'
+      return publicContribution(c, tenantId, actorUserId)
+    }
     if (contributions.some((entry) => entry.events.some((event) => event.id === logicalId) ||
       entry.effectAttempts?.some((run) => run.id === logicalId) || entry.reviewAttempts?.some((run) => run.id === logicalId) ||
       entry.judgmentAttempts?.some((run) => run.id === logicalId))) return 'conflict'
@@ -11952,10 +11976,11 @@ export const store = {
     if (c.status !== 'open' || !envelope || envelope.status !== 'approved' || envelope.version !== expectedVersion ||
       envelope.approvedVersion !== expectedVersion || !line?.mcpAuthority || !line.mcp || line.used >= line.cardinality ||
       (c.effectAttempts?.length ?? 0) >= CONTRIBUTION_EFFECT_ATTEMPT_MAX || c.effectAttempts?.some((run) => run.status === 'pending')) return 'conflict'
-    if (!currentContributionMcpLine(this, tenantId, line)) return 'forbidden'
+    if (!currentContributionMcpLine(this, tenantId, line, activeMcpActor(tenantId, actorUserId))) return 'forbidden'
     const run = createContributionEffectAttempt({ id: logicalId, tenantId, projectId, contributionId: cid,
       envelopeVersion: expectedVersion, lineId, actor: tenantName(tenantId), connectionLabel: line.mcp.connectionLabel,
-      call: line.mcpAuthority.call, startedAt: Date.now() })
+      call: line.mcpAuthority.call, startedAt: Date.now(),
+      ...(line.mcpAuthority.ownerUserId ? { ownerUserId: line.mcpAuthority.ownerUserId } : {}) })
     const fence = {}
     commitMutationBatch(() => {
       c.effectAttempts ??= []
@@ -11975,7 +12000,8 @@ export const store = {
           activeContributionEffects.get(logicalId) === fence && contributions.includes(c) &&
           contributionEffectActor(c, tenantId) && c.status === 'open' && c.envelope === envelope &&
           envelope.status === 'approved' && envelope.approvedVersion === expectedVersion &&
-          c.effectAttempts?.includes(run) === true && run.status === 'pending' && currentContributionMcpLine(this, tenantId, line))
+          c.effectAttempts?.includes(run) === true && run.status === 'pending' &&
+          currentContributionMcpLine(this, tenantId, line, activeMcpActor(tenantId, actorUserId)), actorUserId)
       } catch {
         outcome = { status: 'uncertain', summary: '' }
       }
@@ -11988,7 +12014,9 @@ export const store = {
         persist()
         // A revoked caller receives no fresh content even if their submitted
         // call completed; its receipt remains available to current readers.
-        return this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId) ? publicContribution(c, tenantId) : undefined
+        return this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId) &&
+          (!run.ownerUserId || activeMcpActor(tenantId, actorUserId) === run.ownerUserId)
+          ? publicContribution(c, tenantId, actorUserId) : undefined
       })
     } finally {
       if (activeContributionEffects.get(logicalId) === fence) activeContributionEffects.delete(logicalId)

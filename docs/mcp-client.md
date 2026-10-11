@@ -142,9 +142,14 @@ endpoint, connection revision and a live fence; bearer resolution cannot be a
 fallback. The optional OAuth capability remains absent until an explicitly
 configured resolver and startup custody synchronization are available. The
 native host now configures it after secure storage is available. Interactive
-turns retain private person-bound proposal and receipt authority; tenant-only
-Contribution/Routine callers still cannot select OAuth rows. Those workflows
-need separate person-attributed approval, not inherited sign-in consent.
+turns and Contribution envelopes retain private person-bound proposal and receipt
+authority. Contribution Project approval stays separate from each explicit Run;
+the connection's person must still have current membership and Project authority.
+Current ledger/acknowledgement projections expose only Run availability, never
+private owner IDs. Shared readers keep arguments and results. Exact owner replay
+after disconnect is receipt-only; JSON/SQLite join historical proposals and
+attempts to retained connection ownership without guessed migration. Routine
+OAuth remains unavailable pending separately attributed bounded approval.
 
 Internal native orchestration now composes an asynchronous authenticated source
 adapter with discovery, issuer/scope review, sign-in and exact inspection receipt
@@ -168,7 +173,10 @@ fixture exercises actual OS custody and restart with networking/browser handoff
 replaced. Its excluded local Messages peer continues through rendered attachment,
 a truthful pending proposal and separate Run tool consent. The actual MCP call,
 exact private owner and result persist in SQLite across signed-in relaunch;
-same-key receipt replay and later Disconnect do not repeat the call. OAuth token
+same-key receipt replay and later Disconnect do not repeat the call. The same
+native walk separately exercises Contribution proposal, Project approval and
+per-call confirmation, exact owner/result persistence and replay across relaunch;
+Disconnect removes its remaining Run availability without erasing the receipt. OAuth token
 canaries are checked against model input, public transcript and persisted bytes.
 The source ASAR is unchanged. Public-service, actual system-browser, signed and
 Intel acceptance remain separate.

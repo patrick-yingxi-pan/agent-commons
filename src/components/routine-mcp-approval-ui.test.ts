@@ -81,7 +81,7 @@ test('approval request projects presentation-only review details out of the wire
 
 test('routine and audience events re-read the private approval projection', () => {
   const events = source('src', 'api', 'events.ts')
-  assert.match(events, /function invalidateRoutineMcpReviews\(\): void \{\s*invalidatePrefix\('schedule-mcp-permission:'\)/)
+  assert.match(events, /function invalidateRoutineMcpReviews\(\): void \{\s*invalidatePrefix\(keys\.scheduleMcpPermission\(\)\)/)
   const scheduleChanged = events.split("case 'schedule.changed':")[1]?.split('break')[0] ?? ''
   assert.match(scheduleChanged, /invalidateRoutineMcpReviews\(\)/)
   const grantChanged = events.split("case 'grant.changed':")[1]?.split('break')[0] ?? ''

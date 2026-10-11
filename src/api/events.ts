@@ -23,7 +23,7 @@ let knownEpoch: string | null = null
 
 /** Routine consent includes Agent/provider configuration and destination grants. */
 function invalidateRoutineMcpReviews(): void {
-  invalidatePrefix('schedule-mcp-permission:')
+  invalidatePrefix(keys.scheduleMcpPermission())
 }
 
 /** Profile and search projections share the public findability boundary. */
@@ -234,6 +234,7 @@ function route(e: ServerEvent): void {
     case 'savedcontext.changed':
       invalidate(keys.savedContexts)
       invalidateRoutineMcpReviews()
+      invalidatePrefix(keys.contributions())
       invalidate(keys.mcpConnections)
       invalidate(keys.mcpConnection(e.id))
       invalidate(keys.connectorDetail(e.id))

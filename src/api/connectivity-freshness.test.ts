@@ -188,6 +188,26 @@ test('savedcontext.changed re-reads the saved-contexts snapshot (the Contexts pa
   assert.match(eventCase(events, 'savedcontext.changed'), /invalidate\(keys\.savedContexts\)/)
 })
 
+test('MCP lifecycle events refresh Contribution availability and Routine permission key families', () => {
+  for (const [family, builder] of [['contributions', keys.contributions], ['schedule-mcp-permission', keys.scheduleMcpPermission]] as const) {
+    assert.equal(builder(), family, 'a family prefix omits the separator added by invalidatePrefix')
+    for (const id of ['one', 'project:two', 'routine/three']) {
+      assert.ok(builder(id).startsWith(`${builder()}:`), `the actual ${family} reader key is reached`)
+    }
+  }
+  const events = src('src', 'api', 'events.ts')
+  const start = events.indexOf("case 'connector.status':")
+  const end = events.indexOf('break', start)
+  assert.ok(start >= 0 && end > start)
+  const branch = events.slice(start, end)
+  assert.ok(branch.includes("case 'savedcontext.changed':"), 'disconnect, inspection and removal share the refresh funnel')
+  assert.ok(branch.includes('invalidatePrefix(keys.contributions())'), 'loaded Contribution ledgers re-read actor-relative Run availability')
+  assert.ok(branch.includes('invalidateRoutineMcpReviews()'), 'loaded Routine permissions re-read current connection authority')
+  const helper = events.match(/function invalidateRoutineMcpReviews\(\): void \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(helper?.includes('invalidatePrefix(keys.scheduleMcpPermission())'), 'Routine events use the same non-vacuous key builder')
+  assert.doesNotMatch(branch, /setData\(|mutate\(/, 'a connection event never invents execution authority')
+})
+
 test('routine context readiness reads the live registry and respects connector kind', () => {
   const section = src('src', 'components', 'SectionView.tsx')
   const panel = section.slice(section.indexOf('function ContextToolsPanel('), section.indexOf('const FREQ_OPTIONS'))

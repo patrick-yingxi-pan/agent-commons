@@ -75,6 +75,7 @@ import type {
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
+import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
@@ -216,6 +217,9 @@ export type StoredContributionEvent = ContributionEvent & {
    * envelope and timeline, not to transport metadata. */
   envelopeProposalLines?: NormalizedEnvelopeProposalLine[]
   envelopeProposalExpectedVersion?: number
+  /** Private OAuth provenance survives replacement of the current envelope
+   * and requires a retained exact connection identity, even with no attempts. */
+  envelopeProposalOwnerUserId?: string
 }
 
 /** A Delegation as STORED (CW8, Phase F) — the wire row plus the DELEGATOR's
@@ -715,8 +719,11 @@ function validStoredContributionEnvelope(value: unknown): value is StoredContrib
         typeof line.mcp.connectionLabel !== 'string' || !line.mcp.connectionLabel.trim() ||
         line.mcp.connectionLabel.length > CONTRIBUTION_FIELD_MAX || typeof line.mcp.toolName !== 'string' ||
         !persistedRecord(line.mcp.arguments) || !persistedRecord(line.mcpAuthority) ||
-        !exactFieldSet(line.mcpAuthority, ['tenantId', 'call']) || typeof line.mcpAuthority.tenantId !== 'string' ||
+        !exactFieldSet(line.mcpAuthority, ['tenantId', 'call'], ['ownerUserId']) || typeof line.mcpAuthority.tenantId !== 'string' ||
         !line.mcpAuthority.tenantId.trim()) return false
+    if (Object.hasOwn(line.mcpAuthority, 'ownerUserId') &&
+        (typeof line.mcpAuthority.ownerUserId !== 'string' || line.mcpAuthority.ownerUserId.length > 200 ||
+          !line.mcpAuthority.ownerUserId.trim() || !/^[\x20-\x7e]+$/.test(line.mcpAuthority.ownerUserId))) return false
     const boundCall = snapshotMcpBoundToolCall(line.mcpAuthority.call)
     if (!boundCall || line.target !== boundCall.toolName || line.mcp.toolName !== boundCall.toolName ||
         !sameMcpJson(line.mcp.arguments, boundCall.arguments)) return false
@@ -821,7 +828,7 @@ function validStoredContributionEffectAttempts(contribution: StoredContribution)
       const line = contribution.envelope.lines.find((candidate) => candidate.id === attempt.lineId)
       const call = line?.mcpAuthority && snapshotMcpBoundToolCall(line.mcpAuthority.call)
       if (!line || !call || line.harness !== 'explicit-call' || line.type !== 'mcp.mutate' ||
-          line.mcpAuthority?.tenantId !== attempt.tenantId ||
+          line.mcpAuthority?.tenantId !== attempt.tenantId || line.mcpAuthority.ownerUserId !== attempt.ownerUserId ||
           call.connectionId !== attempt.call.connectionId || call.connectionRevision !== attempt.call.connectionRevision ||
           call.toolName !== attempt.call.toolName || call.schemaHash !== attempt.call.schemaHash ||
           !sameMcpJson(call.arguments, attempt.call.arguments)) return false
@@ -862,6 +869,10 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       for (const event of contribution.events ?? []) {
         if (event.envelopeProposalLines !== undefined &&
             (event.kind !== 'envelope-proposed' || !validNormalizedEnvelopeProposalLines(event.envelopeProposalLines))) return false
+        if (Object.hasOwn(event, 'envelopeProposalOwnerUserId') &&
+            (event.kind !== 'envelope-proposed' || typeof event.envelopeProposalOwnerUserId !== 'string' ||
+              event.envelopeProposalOwnerUserId.length > 200 || !event.envelopeProposalOwnerUserId.trim() ||
+              !/^[\x20-\x7e]+$/.test(event.envelopeProposalOwnerUserId))) return false
       }
       for (const run of contribution.reviewAttempts ?? []) {
         if (reviewIds.has(run.id)) return false
@@ -1057,6 +1068,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     const authorities = parseMcpActivityAuthorities(state?.mcpActivityAuthorities)
     const connections = parseMcpConnectionState(state?.mcpConnections)
     if (!validateMcpActivityAuthorities(authorities, state?.sessions ?? [], connections)) return false
+    if (!validateContributionMcpAuthorities(state?.contributions ?? [], connections)) return false
   } catch { return false }
   if (state?.routineMcp !== undefined) {
     try {

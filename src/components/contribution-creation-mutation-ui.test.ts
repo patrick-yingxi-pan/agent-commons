@@ -46,7 +46,7 @@ test('Declare work holds one exact Contribution until server truth', () => {
   assert.match(commands, /contributionCreationId\([\s\S]*intent\.tenantId,[\s\S]*intent\.projectId,[\s\S]*idempotencyKey/)
   assert.match(commands, /apiPost<Contribution>[\s\S]*idempotencyKey/, 'Retry retains one logical key')
   assert.match(route, /r\.post\('\/projects\/:id\/contributions', idempotent\(/)
-  assert.match(route, /if \(represented\) return sendJson\(res, represented\)/,
+  assert.match(route, /if \(represented\) return sendContribution\(res, represented, who\)/,
     'durable replay returns represented work before parsing changed input')
   assert.match(store, /id = options\.logicalId \?\? `contrib-/)
   assert.match(store, /return commitMutationBatch\(\(\) => \{[\s\S]*?contributions\.push\(c\)[\s\S]*?persist\(\)/,

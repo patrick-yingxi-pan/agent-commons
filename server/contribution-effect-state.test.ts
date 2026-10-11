@@ -246,3 +246,51 @@ test('intent matching binds every owner, target, reviewed call field, and canoni
     assert.equal(sameContributionEffectIntent(row, changed), false)
   }
 })
+
+test('optional OAuth owner binds private receipt identity without changing legacy hashes', () => {
+  const legacy = createContributionEffectAttempt(input())
+  assert.equal(legacy.callHash, 'edb032cf58b3730df5ba7b62f37cc914f5e2d418c7cf8a223df92e6009fe4567')
+  assert.equal(Object.hasOwn(legacy, 'ownerUserId'), false)
+  assert.deepEqual(parseStoredContributionEffectAttempt(legacy), legacy)
+
+  const ownedInput = { ...input(), ownerUserId: 'person-private-owner' }
+  const owned = createContributionEffectAttempt(ownedInput)
+  assert.equal(owned.ownerUserId, ownedInput.ownerUserId)
+  assert.notEqual(owned.callHash, legacy.callHash)
+  assert.deepEqual(parseStoredContributionEffectAttempt(owned), owned)
+  assert.equal(sameContributionEffectIntent(owned, ownedInput), true)
+  assert.equal(sameContributionEffectIntent(owned, input()), false)
+  assert.equal(sameContributionEffectIntent(legacy, ownedInput), false)
+  assert.equal(sameContributionEffectIntent(owned, { ...ownedInput, ownerUserId: 'another-person' }), false)
+  assert.throws(() => parseStoredContributionEffectAttempt({ ...owned, ownerUserId: 'another-person' }), Error)
+  assert.throws(() => parseStoredContributionEffectAttempt({ ...legacy, ownerUserId: ownedInput.ownerUserId }), Error)
+  const { ownerUserId: _owner, ...stripped } = owned
+  assert.throws(() => parseStoredContributionEffectAttempt(stripped), Error)
+})
+
+test('present OAuth receipt owners are strictly bounded and cannot normalize to absence', () => {
+  const legacy = createContributionEffectAttempt(input())
+  for (const ownerUserId of [undefined, null, false, 12, {}, [], '', ' ', 'x'.repeat(201), 'owner\u0000private', 'person-é']) {
+    assert.throws(() => createContributionEffectAttempt({ ...input(), ownerUserId } as never), Error)
+    assert.throws(() => parseStoredContributionEffectAttempt({ ...legacy, ownerUserId }), Error)
+  }
+  assert.equal(createContributionEffectAttempt({ ...input(), ownerUserId: 'x'.repeat(200) }).ownerUserId?.length, 200)
+})
+
+test('settlement and interruption retain OAuth receipt owners without exposing them in any public state', () => {
+  const owned = createContributionEffectAttempt({ ...input(), ownerUserId: 'person-private-owner' })
+  const states = [
+    owned,
+    settleContributionEffectAttempt(owned, done(), 10_001),
+    settleContributionEffectAttempt(owned, { status: 'failed' as const, summary: 'Private refusal.' }, 10_001),
+    settleContributionEffectAttempt(owned, { status: 'failed' as const, summary: 'Private tool error.', result: result({ isError: true }) }, 10_001),
+    interruptContributionEffectAttempt(owned, 10_001),
+  ]
+  for (const state of states) {
+    assert.equal(state.ownerUserId, owned.ownerUserId)
+    assert.equal(state.callHash, owned.callHash)
+    assert.deepEqual(parseStoredContributionEffectAttempt(state), state)
+    assert.equal(Object.hasOwn(publicContributionEffectRun(state), 'ownerUserId'), false)
+    assert.equal(JSON.stringify(publicContributionEffectRun(state)).includes(owned.ownerUserId!), false)
+  }
+})

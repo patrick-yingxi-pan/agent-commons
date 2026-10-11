@@ -38,7 +38,7 @@ export const keys = {
   /** A Project's open-work backlog (docs/agent-commons.md, D19). */
   openSubGoals: (projectId: string) => `open-subgoals:${projectId}`,
   /** A Project's contribution ledger (agent-contribution workflow Phase A). */
-  contributions: (projectId: string) => `contributions:${projectId}`,
+  contributions: (projectId?: string) => projectId === undefined ? 'contributions' : `contributions:${projectId}`,
   /** A Project's delegation roster (CW8, Phase F). */
   delegations: (projectId: string) => `delegations:${projectId}`,
   /** A resource's grant roster (social S1) — keyed per subject ref; no-arg =
@@ -118,7 +118,7 @@ export const keys = {
   projects: 'projects',
   artifacts: 'artifacts',
   schedules: 'schedules',
-  scheduleMcpPermission: (id: string) => `schedule-mcp-permission:${id}`,
+  scheduleMcpPermission: (id?: string) => id === undefined ? 'schedule-mcp-permission' : `schedule-mcp-permission:${id}`,
   relations: 'relations',
   recents: 'recents',
   /** The detective audit trail (docs/agent-commons.md, D15/OQ7) — the cross-user effect log. */

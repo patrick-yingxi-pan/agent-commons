@@ -33,6 +33,12 @@ function row(): PrivateMcpConnection {
   }
 }
 
+const ownerUserId = 'person-private-owner'
+function oauthRow(): PrivateMcpConnection {
+  return { ...row(), authentication: 'device-oauth', ownerUserId,
+    credentialReference: `MCP_DESKTOP_${'A'.repeat(32)}` }
+}
+
 function store(initial = row()) {
   let current = initial
   const value = {
@@ -144,4 +150,91 @@ test('current private binding recheck rejects owner/revision/schema/admission ch
   disconnected.connected = false
   source.replace(disconnected)
   assert.equal(currentContributionMcpLine(source, 'tenant-a', stored), false)
+})
+
+test('OAuth preparation forwards the explicit person to both lookups and keeps the owner private', async () => {
+  const backing = store(oauthRow())
+  const lookups: Array<{ surface: string; actorUserId?: string }> = []
+  let member = true
+  const source = {
+    privateMcpConnection(id: string, tenantId: string, actorUserId?: string) {
+      lookups.push({ surface: 'private', actorUserId })
+      return member && actorUserId === ownerUserId ? backing.privateMcpConnection(id, tenantId) : undefined
+    },
+    mcpConnection(id: string, tenantId: string, actorUserId?: string) {
+      lookups.push({ surface: 'public', actorUserId })
+      return member && actorUserId === ownerUserId ? backing.mcpConnection(id, tenantId) : undefined
+    },
+  }
+  const prepared = await prepareContributionMcpLines(source, 'tenant-a', normalize(), ownerUserId)
+  assert.ok(prepared)
+  assert.equal(prepared[0].mcpAuthority?.ownerUserId, ownerUserId)
+  assert.deepEqual(lookups, [
+    { surface: 'private', actorUserId: ownerUserId }, { surface: 'public', actorUserId: ownerUserId },
+    { surface: 'private', actorUserId: ownerUserId }, { surface: 'public', actorUserId: ownerUserId },
+  ], 'preparation and its post-validation recheck both use the person identity')
+  assert.equal(JSON.stringify(prepared[0].mcp).includes(ownerUserId), false)
+  const stored = { ...prepared[0], id: 'line-1', used: 0 } as StoredContributionEnvelopeLine
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', stored, ownerUserId), true)
+  member = false
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', stored, ownerUserId), false,
+    'loss of live owner membership invalidates an existing binding')
+})
+
+test('OAuth preparation requires an exact valid owner even when a store exposes the connection broadly', async () => {
+  for (const actorUserId of [undefined, 'another-person']) {
+    assert.equal(await prepareContributionMcpLines(store(oauthRow()), 'tenant-a', normalize(), actorUserId), undefined)
+  }
+  for (const invalidOwner of [undefined, '', ' ', 'x'.repeat(201), 'owner\u0000private', 'person-é']) {
+    const malformed = { ...oauthRow(), ownerUserId: invalidOwner }
+    assert.equal(await prepareContributionMcpLines(store(malformed), 'tenant-a', normalize(), invalidOwner), undefined)
+  }
+  const ownerStampedLegacy = { ...row(), ownerUserId }
+  assert.equal(await prepareContributionMcpLines(store(ownerStampedLegacy), 'tenant-a', normalize(), ownerUserId), undefined)
+})
+
+test('OAuth rechecks bind the actor and stored owner, and reject owner-stamped legacy lines', async () => {
+  const source = store()
+  const prepared = await prepareContributionMcpLines(source, 'tenant-a', normalize(), ownerUserId)
+  assert.ok(prepared)
+  const legacy = { ...prepared[0], id: 'line-1', used: 0 } as StoredContributionEnvelopeLine
+  assert.equal(Object.hasOwn(legacy.mcpAuthority!, 'ownerUserId'), false)
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', legacy), true)
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', legacy, 'another-person'), true)
+  const bound = { ...legacy, mcpAuthority: { ...legacy.mcpAuthority!, ownerUserId } }
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', bound, ownerUserId), false,
+    'a non-OAuth connection cannot carry a person-bound authority stamp')
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', {
+    ...legacy, mcpAuthority: { ...legacy.mcpAuthority!, ownerUserId: undefined },
+  }, ownerUserId), false, 'present undefined is not an absent owner stamp')
+
+  source.replace(oauthRow())
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', bound, ownerUserId), true)
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', bound), false)
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', bound, 'another-person'), false)
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', legacy, ownerUserId), false,
+    'an old unstamped authority never inherits the current OAuth owner')
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', {
+    ...bound, mcpAuthority: { ...bound.mcpAuthority, ownerUserId: 'another-person' },
+  }, ownerUserId), false)
+  source.replace({ ...oauthRow(), ownerUserId: 'another-person' })
+  assert.equal(currentContributionMcpLine(source, 'tenant-a', bound, 'another-person'), false,
+    'a connection owner change cannot transfer an existing envelope authority')
+})
+
+test('OAuth preparation refuses owner authority lost while schema validation waits', async () => {
+  const backing = store(oauthRow())
+  let privateReads = 0
+  const source = {
+    privateMcpConnection(id: string, tenantId: string, actorUserId?: string) {
+      privateReads += 1
+      if (privateReads > 1) return undefined
+      return actorUserId === ownerUserId ? backing.privateMcpConnection(id, tenantId) : undefined
+    },
+    mcpConnection(id: string, tenantId: string, actorUserId?: string) {
+      return actorUserId === ownerUserId ? backing.mcpConnection(id, tenantId) : undefined
+    },
+  }
+  assert.equal(await prepareContributionMcpLines(source, 'tenant-a', normalize(), ownerUserId), undefined)
+  assert.equal(privateReads, 2, 'the initially available owner binding must be rechecked after worker validation')
 })

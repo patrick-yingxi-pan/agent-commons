@@ -383,7 +383,28 @@ test('ignore, index, ref and working-tree changes invalidate the whole review', 
       if (target === 'working') await writeFile(join(repo.root, 'tracked.txt'), 'changed while reviewing\n')
     }
     const reads: Array<{ path: string; maxBytes: number | null; status: string }> = []
-    await assert.rejects(readLocalGitReview(repo.pinned, reviewOptions(repo.pinned.path, { reads, afterRead: mutateAfterContent })), /Git baseline|repository/i, target)
-    assert.equal(fired, true, `${target} mutation occurred after the source was initially observed`)
+    const options = reviewOptions(repo.pinned.path, { reads, afterRead: mutateAfterContent })
+    const failures: string[] = []
+    const read = options.readFile
+    options.readFile = async (...args: Parameters<typeof read>) => {
+      try { return await read(...args) }
+      catch (error) {
+        failures.push(`read ${args[0].path}/${args[1]} (${args[2].maxBytes}): ${String(error)}`)
+        throw error
+      }
+    }
+    const run = options.runGit
+    options.runGit = async (...args: Parameters<typeof run>) => {
+      try {
+        const result = await run(...args)
+        if (result.status !== 0) failures.push(`git ${JSON.stringify(args[0])}: ${result.status}; ${result.stderr}`)
+        return result
+      } catch (error) {
+        failures.push(`git ${JSON.stringify(args[0])}: ${String(error)}`)
+        throw error
+      }
+    }
+    await assert.rejects(readLocalGitReview(repo.pinned, options), /Git baseline|repository/i, target)
+    assert.equal(fired, true, `${target} mutation occurred after the source was initially observed; ${JSON.stringify({ failures, reads })}`)
   }
 })

@@ -104,7 +104,8 @@ never generic bearer fallback. Public HTTPS remains required for OAuth even
 when the development deployment admits loopback MCP. These are backend boundary
 fixtures, not product OAuth activation. At that checkpoint, interactive, Contribution and Routine callers refused OAuth
 rather than borrowing a tenant member's grant. The current layer below adds
-interactive attribution; Contribution and Routine OAuth remain unavailable.
+interactive attribution; the Contribution layer below extends the same person
+boundary, while Routine OAuth remains unavailable.
 
 Fail-first registry tests rejected the absent ownership implementation. Review
 also found tenant-wide lifecycle events revealing personal connection existence;
@@ -180,8 +181,55 @@ Transcript captures wait for settled entry animation before visual review.
 Only the copied DNS/socket destination, browser handoff and model peer are
 fixtures; the source package remains public-HTTPS-only and fixture helpers never
 ship. This does not prove public issuer, actual system-browser, paid-service,
-signed or Intel acceptance. Contribution and Routine OAuth attribution remain
-next core work. The final handoff records the complete verifier results.
+signed or Intel acceptance. The final handoff records the complete verifier results.
+
+### Person-owned Contribution OAuth (2026-10-11)
+
+Contribution envelopes now bind OAuth selections to the authenticated person,
+using the private proposal principal plus a retained OAuth-owner stamp. The stamp
+keeps a replaced proposal person-bound even if its connection identity is lost;
+admission refuses that orphan rather than reclassifying it as legacy history.
+Project approval remains a separate governance act; only the bound person with
+current membership and Project authority can confirm each exact Run. Shared
+readers retain reviewed arguments and saved results without private owner IDs,
+connection authority or credentials. Ledger reads and mutation acknowledgements
+use the same current person-relative availability projection.
+
+Private attempts include the person in their immutable call hash. JSON/SQLite
+admission joins current and historical proposals, calls and receipts to exact
+live or retired connection ownership; missing or contradictory owners fail
+closed rather than migrating from tenant identity. Pending recovery preserves
+that person and its occupied slot. Credential-wait revocation refuses dispatch;
+known outcomes after dispatch remain recordable without returning fresh content
+to a revoked caller. Exact owner receipt replay remains read-only after disconnect.
+Legacy unauthenticated/bearer hashes and tenant semantics are unchanged.
+
+Acceptance extends the existing isolated OAuth native walk with rendered
+Contribution proposal, separate approval and per-call confirmation, exact SQLite
+owner/result retention, signed-in relaunch and no-redispatch replay. One unused
+act remains available before Disconnect and unavailable afterward. Browser
+checks cover the owner, same-workspace peer, explicitly shared reader and foreign
+account. These are local fixture gates; no public service or owner profile is used.
+Complete unsigned arm64 native acceptance passed. Removing the execution seam's
+person argument in a disposable package copy made the new Contribution result
+assertion fail after the earlier interactive call passed; cleanup verified the
+original ASAR unchanged. The separate UI matrix covered all 135 cells with zero
+violations or skips. Screenshot review also tightened the foreign-account walk
+to await the settled unavailable Project instead of accepting a loading shell.
+Final live-state review found connection events did not refresh already-open
+Contribution Run controls, and Routine permission invalidation used a nonmatching
+prefix. Shared key-family builders and event invalidation now cover both. The
+rendered disconnect regression first observed the stale Run button; prefix locks
+also failed before repair. The browser walk retains a usable owner connection
+through all peer/reader checks before testing live disconnect without navigation.
+One full Node run refused a Git review before its injected mutation ran; the
+generic baseline error did not preserve a cause. Its unchanged mutation assertion
+passed in isolation and in the full nine-test Git-review suite. Test-only read
+and command diagnostics now retain early-refusal evidence; there are no retries,
+weakened assertions or production deadline changes.
+The checkpoint handoff records their final outcomes. Routine OAuth attribution
+is the next complete workflow, followed by the remaining real-service and release
+acceptance gates; sign-in itself will not grant unattended execution.
 
 During this checkpoint, a newly written persistence test omitted its temporary
 JSON path and overwrote the local development store; the watch process then

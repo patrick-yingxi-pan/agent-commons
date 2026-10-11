@@ -60,6 +60,7 @@ import type {
   ReserveSubGoalRequest,
   PostOpenSubGoalRequest,
   OpenContributionRequest,
+  Contribution,
   PostContributionNoteRequest,
   ProposeEnvelopeRequest,
   ApproveEnvelopeRequest,
@@ -250,6 +251,21 @@ function gate(res: ServerResponse, feature: 'localFs' | 'localGit' | 'osPicker' 
   return false
 }
 
+/** Every Contribution acknowledgement uses the ledger's current viewer
+ * projection, including writes unrelated to its person-owned MCP envelope. */
+function sendContribution(res: ServerResponse, contribution: Contribution, who: ReturnType<typeof store.identity>) {
+  const current = store.contributionForViewer(contribution.projectId, contribution.id, who.tenant.id, who.user.id)
+  return current ? sendJson(res, current) : sendError(res, 'not_found', `No contribution '${contribution.id}'`)
+}
+
+/** Cached bodies here were produced by our Contribution handlers. Their stable
+ * identity selects a fresh projection; retained bytes confer no read authority. */
+function replayContribution(ctx: Ctx, response: CachedResponse): void {
+  const contribution = JSON.parse(response.body) as Contribution
+  ctx.res.setHeader('idempotency-replayed', 'true')
+  sendContribution(ctx.res, contribution, store.identity(ctx.req.headers))
+}
+
 /** A social subject from an untrusted body — `undefined` unless it is exactly a
  *  declared kind plus a non-empty id (INV-9's strict core: the server refuses
  *  what isn't a declared shape rather than storing whatever arrived). */
@@ -409,12 +425,14 @@ export function buildRouter(): Router {
   // and in-flight work. Transparent without the header; never applied to SSE.
   const idem = new IdempotencyCache()
   const idempotent =
-    (handler: (ctx: Ctx) => void | Promise<void>, visible?: ReplayVisibility) =>
+    (handler: (ctx: Ctx) => void | Promise<void>, visible?: ReplayVisibility,
+      replayCurrent?: (ctx: Ctx, response: CachedResponse) => void) =>
     async (ctx: Ctx): Promise<void> => {
       const replay = (response: CachedResponse): void => {
         if (response.status >= 200 && response.status < 300 && visible && !visible(ctx, response)) {
           return sendError(ctx.res, 'not_found', 'This saved response is no longer available. Review the current workspace state.')
         }
+        if (response.status >= 200 && response.status < 300 && replayCurrent) return replayCurrent(ctx, response)
         replayResponse(ctx.res, response)
       }
       const key = headerValue(ctx.req.headers, 'idempotency-key')
@@ -3218,7 +3236,8 @@ export function buildRouter(): Router {
   r.get('/projects/:id/contributions', ({ req, res, params }) => {
     if (!accountTransitionSourceMatches(req, res)) return
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
-    sendJson(res, store.listContributions(params.id, store.identity(req.headers).tenant.id))
+    const who = store.identity(req.headers)
+    sendJson(res, store.listContributions(params.id, who.tenant.id, who.user.id))
   })
   r.post('/projects/:id/contributions', idempotent(async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
@@ -3228,12 +3247,12 @@ export function buildRouter(): Router {
       ? contributionCreationId(who.tenant.id, params.id, idempotencyKey)
       : undefined
     const represented = logicalContributionId
-      ? store.listContributions(params.id, who.tenant.id)
+      ? store.listContributions(params.id, who.tenant.id, who.user.id)
         .find((contribution) => contribution.id === logicalContributionId)
       : undefined
     // The durable row identity outlives the response cache. A changed Retry
     // cannot duplicate or rewrite work that was already declared.
-    if (represented) return sendJson(res, represented)
+    if (represented) return sendContribution(res, represented, who)
     const input = await body<OpenContributionRequest>()
     if (!input?.title?.trim()) return sendError(res, 'bad_request', 'a non-empty title is required')
     const out = store.openContribution(
@@ -3245,8 +3264,8 @@ export function buildRouter(): Router {
     )
     if (out === 'capped') return sendError(res, 'conflict', 'This project’s ledger is at its open-contribution cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This Contribution identity is not valid for this Project')
-    sendJson(res, out)
-  }))
+    sendContribution(res, out, who)
+  }, undefined, replayContribution))
   r.post('/projects/:id/contributions/:cid/comments', async ({ req, res, params, body }) => {
     const input = await body<PostContributionNoteRequest>()
     if (typeof input?.body !== 'string' || !input.body.trim()) {
@@ -3267,7 +3286,7 @@ export function buildRouter(): Router {
           who.tenant.id,
         )
       : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
+    if (typeof represented === 'object') return sendContribution(res, represented, who)
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This comment identity is not valid for this account, Contribution, and exact body')
     }
@@ -3282,7 +3301,7 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s discussion is at its cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This comment body or durable identity is invalid')
-    sendJson(res, out)
+    sendContribution(res, out, who)
   })
   // The attention ledger (CW9, Phase G): behind the project wall; counts are
   // public-timeline arithmetic, asks are computed for the CALLER.
@@ -3401,7 +3420,7 @@ export function buildRouter(): Router {
       if (out === 'conflict') return sendError(res, 'conflict', 'The policy, work, or reviewer changed, a judgment is running, or the retained judgment limit was reached')
       if (out === 'unconfigured') return sendError(res, 'capability_unavailable', 'The delegate needs a configured endpoint provider. No judgment was run.')
       if (out === 'limit') return sendError(res, 'limit_exceeded', 'The owner’s judgment budget is exhausted. No judgment was run.')
-      return sendJson(res, out)
+      return sendContribution(res, out, who)
     }
     // Legacy fixture requests retain their old replay semantics. Explicit model
     // requests above use only the durable exact-body receipt, never this cache.
@@ -3418,7 +3437,7 @@ export function buildRouter(): Router {
       const represented = logicalJudgmentId
         ? store.getDelegatedJudgment(logicalJudgmentId, params.id, params.cid, params.did, who.tenant.id)
         : undefined
-      if (typeof represented === 'object') return sendJson(res, represented)
+      if (typeof represented === 'object') return sendContribution(res, represented, who)
       if (represented === 'invalid') {
         return sendError(res, 'bad_request', 'This delegated judgment identity is not valid for this account, Contribution, and Delegation')
       }
@@ -3436,8 +3455,8 @@ export function buildRouter(): Router {
       if (out === 'inapplicable') return sendError(res, 'conflict', 'Nothing for this delegation to decide here (no pending act, or the contribution landed)')
       if (out === 'invalid') return sendError(res, 'bad_request', 'This delegated judgment identity is invalid')
       if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.delegation)
-      sendJson(res, out)
-    })({ ...ctx, body: async <T>() => input as T })
+      sendContribution(res, out, who)
+    }, undefined, replayContribution)({ ...ctx, body: async <T>() => input as T })
   })
   // The changeset (CW3/CW4, Phase D): crystallize a version — contributor or
   // owner (the work's own act), append-only, behind the same project wall.
@@ -3459,7 +3478,7 @@ export function buildRouter(): Router {
           who.tenant.id,
         )
       : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
+    if (typeof represented === 'object') return sendContribution(res, represented, who)
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This crystallization identity is not valid for this account, Contribution, and exact changeset')
     }
@@ -3476,8 +3495,8 @@ export function buildRouter(): Router {
     if (out === 'closed') return sendError(res, 'conflict', 'A landed contribution’s changeset is immutable history')
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s changeset (or timeline) is at its cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'each entry needs a valid kind, a target, and after-text (before optional); one entry per kind+target')
-    sendJson(res, out)
-  }))
+    sendContribution(res, out, who)
+  }, undefined, replayContribution))
   // The effect envelope (CW1, Phase C): propose/amend is open to any viewer
   // (deliberation, behind the same wall); approve is owner-only; an act is a
   // MECHANICAL match against the approved envelope (refusals recorded, 409).
@@ -3504,9 +3523,10 @@ export function buildRouter(): Router {
           params.cid,
           input!,
           who.tenant.id,
+          who.user.id,
         )
       : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
+    if (typeof represented === 'object') return sendContribution(res, represented, who)
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This envelope proposal identity is not valid for this account, Contribution, base version, and exact payload')
     }
@@ -3526,7 +3546,7 @@ export function buildRouter(): Router {
     if (out === 'conflict') return sendError(res, 'conflict', 'The effect envelope changed after this draft was opened')
     if (out === 'capped') return sendError(res, 'conflict', 'This contribution’s timeline is at its cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'each distinct line needs a valid type, target, cardinality 1–20, known harness, and text note')
-    sendJson(res, out)
+    sendContribution(res, out, who)
   })
   r.post('/projects/:id/contributions/:cid/envelope/approve', async ({ req, res, params, body }) => {
     if (!accountTransitionSourceMatches(req, res)) return
@@ -3551,9 +3571,10 @@ export function buildRouter(): Router {
           params.cid,
           who.tenant.id,
           expectedVersion,
+          who.user.id,
         )
       : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
+    if (typeof represented === 'object') return sendContribution(res, represented, who)
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This approval identity is not valid for this account, Contribution, and reviewed envelope version')
     }
@@ -3568,7 +3589,7 @@ export function buildRouter(): Router {
     if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may approve an effect envelope')
     if (out === 'conflict') return sendError(res, 'conflict', 'The reviewed envelope version is no longer awaiting approval')
-    sendJson(res, out)
+    sendContribution(res, out, who)
   })
   r.post('/projects/:id/contributions/:cid/effects', async ({ req, res, params, body }) => {
     if (!accountTransitionSourceMatches(req, res)) return
@@ -3587,12 +3608,12 @@ export function buildRouter(): Router {
         return sendError(res, 'bad_request', 'A real MCP Run requires lineId, a positive expectedVersion, and an Idempotency-Key of at most 200 characters')
       }
       const out = await store.runContributionMcpEffect(params.id, params.cid, input.lineId, who.tenant.id,
-        { logicalId: logicalExecutionId, expectedVersion: input.expectedVersion })
+        { logicalId: logicalExecutionId, expectedVersion: input.expectedVersion, actorUserId: who.user.id })
       if (out === undefined) return sendError(res, 'not_found', `No contribution '${params.cid}'`)
       if (out === 'forbidden') return sendError(res, 'forbidden', 'Run requires your own current MCP connection and contributor or Project owner permission')
       if (out === 'invalid') return sendError(res, 'bad_request', 'This MCP Run identity or reviewed version is invalid')
       if (out === 'conflict') return sendError(res, 'conflict', 'This exact approved call is no longer available, is already pending, or has no remaining capacity')
-      return sendJson(res, out)
+      return sendContribution(res, out, who)
     }
     if (contributionRuntimeMode() === 'unconfigured') {
       return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.effect)
@@ -3607,7 +3628,7 @@ export function buildRouter(): Router {
         )
       : undefined
     if (typeof represented === 'object') {
-      if (represented.result === 'executed') return sendJson(res, represented.contribution)
+      if (represented.result === 'executed') return sendContribution(res, represented.contribution, who)
       if (represented.result === 'unapproved') {
         return sendError(res, 'conflict', 'No approved envelope covers this act — the refusal is on the timeline')
       }
@@ -3630,7 +3651,7 @@ export function buildRouter(): Router {
     if (out === 'unapproved') return sendError(res, 'conflict', 'No approved envelope covers this act — the refusal is on the timeline')
     if (out === 'refused') return sendError(res, 'conflict', 'Outside the approved envelope — the refusal is on the timeline; amend and re-approve')
     if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.effect)
-    sendJson(res, out)
+    sendContribution(res, out, who)
   })
   r.post('/projects/:id/contributions/:cid/land', ({ req, res, params }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
@@ -3642,7 +3663,7 @@ export function buildRouter(): Router {
     const represented = logicalLandingId
       ? store.getContributionLanding(logicalLandingId, params.id, params.cid, who.tenant.id)
       : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
+    if (typeof represented === 'object') return sendContribution(res, represented, who)
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This landing identity is not valid for this account and Contribution')
     }
@@ -3659,7 +3680,7 @@ export function buildRouter(): Router {
     if (out === 'needs-owner') return sendError(res, 'forbidden', 'Tier 2 — irreversible effects land only by the project owner (the floor; no record buys past it)')
     if (out === 'needs-review') return sendError(res, 'conflict', 'Tier 1 — the adversarial review must pass over the latest crystallized version before landing')
     if (out === 'pending-effect') return sendError(res, 'conflict', 'Wait for the pending MCP call to settle before landing this Contribution')
-    sendJson(res, out)
+    sendContribution(res, out, who)
   })
   // The tier machinery (CW5, Phase E): the owner's tighten-only act, and the
   // mock adversarial review (the declared model-seam — real interface, canned
@@ -3679,7 +3700,7 @@ export function buildRouter(): Router {
           who.tenant.id,
         )
       : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
+    if (typeof represented === 'object') return sendContribution(res, represented, who)
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This review-requirement identity is not valid for this account and Contribution')
     }
@@ -3694,7 +3715,7 @@ export function buildRouter(): Router {
     if (out === 'forbidden') return sendError(res, 'forbidden', 'Only the project owner may tighten a contribution’s gate')
     if (out === 'conflict') return sendError(res, 'conflict', 'Already required, or the contribution landed')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This review-requirement identity is not valid for this account and Contribution')
-    sendJson(res, out)
+    sendContribution(res, out, who)
   })
   r.post('/projects/:id/contributions/:cid/review', async ({ req, res, params, body }) => {
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
@@ -3716,7 +3737,7 @@ export function buildRouter(): Router {
       if (out === 'conflict') return sendError(res, 'conflict', 'The review intent or Contribution changed, a review is running, or the retained review limit was reached')
       if (out === 'unconfigured') return sendError(res, 'capability_unavailable', 'Select an Agent bound to a configured endpoint provider. No review was run.')
       if (out === 'limit') return sendError(res, 'limit_exceeded', 'The owner’s review budget is exhausted. No review was run.')
-      return sendJson(res, out)
+      return sendContribution(res, out, who)
     }
     if (contributionRuntimeMode() === 'unconfigured') {
       return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.review)
@@ -3735,7 +3756,7 @@ export function buildRouter(): Router {
     const represented = logicalReviewId
       ? store.getContributionReview(logicalReviewId, params.id, params.cid, who.tenant.id, expectedVersion)
       : undefined
-    if (typeof represented === 'object') return sendJson(res, represented)
+    if (typeof represented === 'object') return sendContribution(res, represented, who)
     if (represented === 'invalid') {
       return sendError(res, 'bad_request', 'This review identity is not valid for this account, Contribution, and changeset version')
     }
@@ -3752,7 +3773,7 @@ export function buildRouter(): Router {
     if (out === 'conflict') return sendError(res, 'conflict', 'This contribution’s timeline is at its cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This review identity or expected version is invalid')
     if (out === 'unconfigured') return sendError(res, 'capability_unavailable', CONTRIBUTION_RUNTIME_UNAVAILABLE.review)
-    sendJson(res, out)
+    sendContribution(res, out, who)
   })
 
   // ── A2A: the protocol edge (docs/a2a-integration.md, D20) ──────────────────

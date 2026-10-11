@@ -14,6 +14,8 @@ import type { McpBoundExecutionOutcome } from './mcpBoundExecution.ts'
 export interface ContributionEffectIntent {
   id: string
   tenantId: string
+  /** Private OAuth owner; absent for legacy connection authority. */
+  ownerUserId?: string
   projectId: string
   contributionId: string
   envelopeVersion: number
@@ -43,6 +45,8 @@ const SUMMARIES = {
 const invalid = (): never => { throw new Error('Invalid Contribution execution receipt.') }
 const record = (value: unknown): value is Record<string, McpJsonValue> => !!value && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown, max = 200): value is string => typeof value === 'string' && value.length > 0 && value.length <= max && value.trim() === value
+const ownerUserId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 &&
+  value.length <= 200 && value.trim().length > 0 && /^[\x20-\x7e]+$/.test(value)
 const timestamp = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
 
 function canonical(value: McpJsonValue): McpJsonValue {
@@ -64,10 +68,12 @@ function invocation(value: McpJsonValue): McpBoundToolCall {
 
 function intentFrom(copy: Record<string, McpJsonValue>): ContributionEffectIntent {
   if (!text(copy.id) || !isContributionEffectExecutionId(copy.id) ||
+      (Object.hasOwn(copy, 'ownerUserId') && !ownerUserId(copy.ownerUserId)) ||
       !['tenantId', 'projectId', 'contributionId', 'lineId'].every((key) => text(copy[key])) ||
       !text(copy.actor, 2000) || !text(copy.connectionLabel, 2000) ||
       !timestamp(copy.startedAt) || !timestamp(copy.envelopeVersion) || copy.envelopeVersion < 1) return invalid()
   return { id: copy.id, tenantId: copy.tenantId as string, projectId: copy.projectId as string,
+    ...(Object.hasOwn(copy, 'ownerUserId') ? { ownerUserId: copy.ownerUserId as string } : {}),
     contributionId: copy.contributionId as string, lineId: copy.lineId as string, actor: copy.actor,
     connectionLabel: copy.connectionLabel, envelopeVersion: copy.envelopeVersion,
     startedAt: copy.startedAt, call: invocation(copy.call) }
@@ -76,6 +82,7 @@ function intentFrom(copy: Record<string, McpJsonValue>): ContributionEffectInten
 function callHash(intent: ContributionEffectIntent): string {
   return createHash('sha256').update(JSON.stringify(canonical({
     id: intent.id, tenantId: intent.tenantId, projectId: intent.projectId, contributionId: intent.contributionId,
+    ...(intent.ownerUserId === undefined ? {} : { ownerUserId: intent.ownerUserId }),
     envelopeVersion: intent.envelopeVersion, lineId: intent.lineId, call: intent.call as unknown as McpJsonValue,
   }))).digest('hex')
 }
@@ -90,7 +97,8 @@ function exactResult(value: unknown): McpToolResult {
 export function createContributionEffectAttempt(input: ContributionEffectIntent): StoredContributionEffectAttempt {
   try {
     const copy = detached(input)
-    if (Object.keys(copy).length !== INTENT_FIELDS.length || Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key))) return invalid()
+    if (Object.keys(copy).length !== INTENT_FIELDS.length + Number(Object.hasOwn(copy, 'ownerUserId')) ||
+        Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key) && key !== 'ownerUserId')) return invalid()
     const intent = intentFrom(copy)
     return { ...intent, callHash: callHash(intent), status: 'pending' }
   } catch { return invalid() }
@@ -101,7 +109,7 @@ export function createContributionEffectAttempt(input: ContributionEffectIntent)
 export function parseStoredContributionEffectAttempt(value: unknown): StoredContributionEffectAttempt {
   try {
     const copy = detached(value)
-    if (Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key) && !TERMINAL_FIELDS.includes(key))) return invalid()
+    if (Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key) && key !== 'ownerUserId' && !TERMINAL_FIELDS.includes(key))) return invalid()
     const intent = intentFrom(copy)
     if (copy.callHash !== callHash(intent)) return invalid()
     const base = { ...intent, callHash: copy.callHash }
