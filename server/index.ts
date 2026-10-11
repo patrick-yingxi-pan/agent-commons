@@ -155,6 +155,11 @@ server.listen(PORT, HOST, () => {
   // Reclaim any execution-aware run left in-flight by the previous process
   // before the cadence producer admits new work.
   routineRunner.start()
+  // Waiting person reviews own no open remote session and never resume I/O on
+  // restart. Local expiry only releases their private state and history hold.
+  store.expireMcpInputReviews()
+  const inputReviewExpiry = setInterval(() => store.expireMcpInputReviews(), 30_000)
+  inputReviewExpiry.unref()
   // One desktop process owns the durable routine cursor. The same narrow port
   // can later sit behind a hosted queue/leader without changing run identity.
   const stopScheduler = startRoutineScheduler({
@@ -178,6 +183,7 @@ server.listen(PORT, HOST, () => {
     store.beginDraining()
     stopScheduler()
     routineRunner.stop()
+    clearInterval(inputReviewExpiry)
     server.close(() => process.exit(0)) // exits once all connections have closed
     // Let normal in-flight requests finish, then force-close lingering streams so close()
     // can complete; a hard fallback guarantees exit even then. Both unref'd so they never

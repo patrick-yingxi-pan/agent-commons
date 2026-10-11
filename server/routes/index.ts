@@ -21,6 +21,7 @@ import { parseConversationSearchQuery, searchSessionMessages } from '../sessionM
 import { sessionMarkdownExport } from '../sessionExport.ts'
 import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnections.ts'
 import { registerRoutineMcpRoutes } from './routineMcp.ts'
+import { registerMcpInputRoutes } from './mcpInput.ts'
 import type {
   ApplyOpRequest,
   DeleteSavedContextRequest,
@@ -199,7 +200,8 @@ import { LimitError } from '../limit.ts'
 import { enforceOrigin } from '../http/origin.ts'
 import { TOOL_CATALOG, TOOL_NAMES } from '../model/tools.ts'
 import { executeConnectorActivity } from '../connectorRuntime.ts'
-import { executeApprovedMcpActivity } from '../mcpExecution.ts'
+import { executeApprovedMcpActivity, executeApprovedMcpFormActivity } from '../mcpExecution.ts'
+import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, SELF_PROJECT_HOLDER, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
 import { providerConnectionUpdate } from './providerConnection.ts'
@@ -5005,12 +5007,14 @@ export function buildRouter(): Router {
         claimed = true
         if (decision === 'confirm') {
           if (pending.mcp) {
+            const forms = who.via !== 'default' && store.privateMcpConnection(pending.connectorId, who.tenant.id, who.user.id)?.inspection?.protocolVersion === MCP_MODERN_VERSION
             const running = store.beginMcpToolActivityExecution(
               params.id,
               params.activityId,
               logicalDecisionId!,
               who.tenant.id,
               who.user.id,
+              forms,
             )
             if (!running || running === 'invalid') {
               return sendError(res, running === 'invalid' ? 'bad_request' : 'not_found',
@@ -5020,9 +5024,9 @@ export function buildRouter(): Router {
             }
             store.releaseToolActivity(params.id, params.activityId)
             claimed = false
-            let outcome: Awaited<ReturnType<typeof executeApprovedMcpActivity>>
+            let outcome: Awaited<ReturnType<typeof executeApprovedMcpFormActivity>>
             try {
-              outcome = await executeApprovedMcpActivity(store, params.id, who.tenant.id, running, who.user.id)
+              outcome = await (forms ? executeApprovedMcpFormActivity : executeApprovedMcpActivity)(store, params.id, who.tenant.id, running, who.user.id)
             } catch {
               // The durable running receipt already owns this attempt. An
               // unexpected adapter failure cannot justify a replay or leave an
@@ -5037,7 +5041,7 @@ export function buildRouter(): Router {
               params.activityId,
               logicalDecisionId!,
               who.tenant.id,
-              { status: outcome.status, summary: outcome.summary, ...('result' in outcome && outcome.result ? { result: outcome.result } : {}) },
+              outcome,
               who.user.id,
             )
             if (!activity || activity === 'invalid') {
@@ -5323,6 +5327,7 @@ export function buildRouter(): Router {
   // ── Contexts (set-up) + connector detail ──────────────────────────────────
   registerMcpConnectionRoutes(r, accountTransitionSourceMatches)
   registerRoutineMcpRoutes(r, accountTransitionSourceMatches)
+  registerMcpInputRoutes(r, accountTransitionSourceMatches)
   // Demo browse candidates are a public projection of the snapshot's stored
   // world choice. User-owned set-ups and real external MCP connections remain
   // on their separate tenant-scoped registries.

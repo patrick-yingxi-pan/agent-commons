@@ -17,6 +17,9 @@ import { clearArtifactPermanentAbsences } from './artifactPermanentAbsences.ts'
 import { helloRequiresReset } from './streamPolicy.ts'
 import { activeAccount, onAccountSwitch } from './account.ts'
 import { ambientSyncHealth } from './syncHealth.ts'
+import { makeSeam } from './eventSeam.ts'
+import { refreshOpenSession as notifySessionPush } from './sessionRefresh.ts'
+export { onSessionPush } from './sessionRefresh.ts'
 
 let source: EventSource | null = null
 let knownEpoch: string | null = null
@@ -31,34 +34,6 @@ function invalidateProfilesAndSearch(): void {
   invalidatePrefix(keys.ownerProfile())
   invalidatePrefix(keys.search())
 }
-
-/** A narrow, event-shape-free listener seam (subscribe + notify) — the one
- *  shape every controller-facing fan-out below uses, so the one-door rule
- *  holds (nothing outside src/api knows an SSE event type). */
-function makeSeam<Args extends unknown[]>() {
-  const listeners = new Set<(...args: Args) => void>()
-  return {
-    on(fn: (...args: Args) => void): () => void {
-      listeners.add(fn)
-      return () => {
-        listeners.delete(fn)
-      }
-    },
-    notify(...args: Args): void {
-      for (const fn of listeners) fn(...args)
-    },
-  }
-}
-
-/** Session-scoped push fan-out for the pane controllers. An open thread is
- *  controller state (not a `useQuery` read), so cache invalidation alone can't
- *  heal it — a context attached on another client, or a rename, would stay
- *  invisible until the session was reopened. Callbacks get the session id
- *  whose server-side state moved; each pane decides whether that's its
- *  session and how to reconcile. */
-const sessionPush = makeSeam<[sessionId: string]>()
-export const onSessionPush = sessionPush.on
-const notifySessionPush = sessionPush.notify
 
 /** The definitive GONE-signal fan-out (`session.removed`) — the live-prune
  *  seam: the split controller drops every pane hosting the removed session
@@ -111,6 +86,7 @@ function route(e: ServerEvent): void {
       // No-op unless some view has read this session (then it refetches).
       invalidate(keys.session(e.session.id))
       invalidatePrefix(keys.toolActivityEligibilityPrefix(e.session.id))
+      invalidatePrefix(keys.mcpInputPrefix(e.session.id))
       invalidatePrefix(keys.sessionCompactedMessages(e.session.id))
       invalidatePrefix(keys.conversationSearch(e.session.id))
       // The usage snapshot is session-resolved (its context capacity + model ref
@@ -127,6 +103,7 @@ function route(e: ServerEvent): void {
     case 'session.contexts.changed':
       invalidate(keys.sessionContexts(e.sessionId))
       invalidatePrefix(keys.toolActivityEligibilityPrefix(e.sessionId))
+      invalidatePrefix(keys.mcpInputPrefix(e.sessionId))
       notifySessionPush(e.sessionId)
       break
     // A session was DELETED (this client's own action echoes too — the prune
@@ -239,6 +216,7 @@ function route(e: ServerEvent): void {
       invalidate(keys.mcpConnection(e.id))
       invalidate(keys.connectorDetail(e.id))
       invalidatePrefix('tool-activity-eligibility')
+      invalidatePrefix(keys.mcpInputPrefix())
       break
     // Recents changed (attached on another device/tab) — re-read the snapshot.
     case 'recents.changed':

@@ -27,6 +27,11 @@ import { RoutineMcpPolicyError, routineMcpCallPermitted, routineMcpJsonText } fr
 import { reserveRoutineMcpCall, settleRoutineMcpCall, interruptRoutineMcpRun, publicRoutineMcpReceipt } from '../routineMcpState.ts'
 import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
+import { parseMcpInputFlows, validateMcpInputFlows, mcpInputFlowKey, mcpInputBindingHash, mcpInputCommandHash, hasMcpInputFlowCapacity, MCP_INPUT_MAX_ROUNDS, MCP_INPUT_MAX_FLOWS, MCP_INPUT_TTL_MS, type McpInputFlow } from '../mcpInputState.ts'
+import { parseMcpFormInputRequired, parseMcpFormResponses, type McpFormInputRequired } from '../mcpElicitation.ts'
+import { parseMcpInputCommand } from '../mcpInputCommand.ts'
+import type { McpInputReceipt, McpInputReviewState } from '../../contract/mcpInput.ts'
+import type { McpBoundFormContinuation } from '../mcpBoundExecution.ts'
 import type { RoutineMcpReview, RoutineMcpDecisionRequest, RoutineMcpDecisionResponse } from '../../contract/routineMcpApi.ts'
 import type { RoutineMcpCallReceipt } from '../../contract/routineMcp.ts'
 import type { McpBoundToolCall } from '../../contract/mcpExecution.ts'
@@ -319,16 +324,16 @@ function compactionState(session: Session): string {
   return JSON.stringify({ messages: session.messages ?? [], compactedMessages: session.compactedMessages ?? [] })
 }
 
-type UnresolvedExternalMcpStatus = 'proposed' | 'running'
+type UnresolvedExternalMcpStatus = 'proposed' | 'running' | 'awaiting-input'
 function hasExternalMcpActivity(messages: readonly Message[], statuses: ReadonlySet<UnresolvedExternalMcpStatus>): boolean {
   return messages.some((message) => message.toolActivities?.some((activity) =>
     !!activity.mcp && isExternalMcpId(activity.connectorId) &&
-    (activity.status === 'proposed' || activity.status === 'running') && statuses.has(activity.status)))
+    (activity.status === 'proposed' || activity.status === 'running' || activity.status === 'awaiting-input') && statuses.has(activity.status)))
 }
-const pendingExternalMcp = new Set<UnresolvedExternalMcpStatus>(['proposed', 'running'])
-const runningExternalMcp = new Set<UnresolvedExternalMcpStatus>(['running'])
+const pendingExternalMcp = new Set<UnresolvedExternalMcpStatus>(['proposed', 'running', 'awaiting-input'])
+const runningExternalMcp = new Set<UnresolvedExternalMcpStatus>(['running', 'awaiting-input'])
 const unresolvedMcpConflict = () => new ConflictError(
-  'Resolve proposed MCP tool requests and wait for running MCP tools before changing this conversation history.',
+  'Resolve proposed MCP tool requests and finish or stop pending MCP input before changing this conversation history.',
 )
 
 function sameLocalFolderCapture(left: LocalFolderCapture, right: LocalFolderCapture): boolean {
@@ -405,6 +410,8 @@ function activeMcpActor(tenantId: string, actorUserId?: string): string | undefi
 }
 
 function mcpActivityOwner(session: Session, activity: ToolActivity): string | undefined {
+  const flow = activity.decisionId && mcpInputFlows.get(mcpInputFlowKey(session.id, activity.decisionId))
+  if (flow) return flow.ownerUserId
   const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(session.id, activity.id))
   if (authority) return authority.ownerUserId
   const connection = mcpConnectionRegistry.snapshot()
@@ -419,6 +426,8 @@ function mcpActivityOwner(session: Session, activity: ToolActivity): string | un
 }
 
 function mcpActivityActorAllowed(session: Session, activity: ToolActivity, actorUserId?: string): boolean {
+  const flow = activity.decisionId && mcpInputFlows.get(mcpInputFlowKey(session.id, activity.decisionId))
+  if (flow) return flow.activityId === activity.id && flow.ownerUserId === actorUserId && activeMcpActor(flow.tenantId, actorUserId) === actorUserId
   const ownerUserId = mcpActivityOwner(session, activity)
   if (ownerUserId === undefined) return true
   const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(session.id, activity.id))
@@ -426,6 +435,8 @@ function mcpActivityActorAllowed(session: Session, activity: ToolActivity, actor
 }
 
 function mcpActivitySettlementActorAllowed(session: Session, activity: ToolActivity, actorUserId?: string): boolean {
+  const flow = activity.decisionId && mcpInputFlows.get(mcpInputFlowKey(session.id, activity.decisionId))
+  if (flow) return flow.activityId === activity.id && flow.ownerUserId === actorUserId
   const ownerUserId = mcpActivityOwner(session, activity)
   if (ownerUserId === undefined) return true
   const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(session.id, activity.id))
@@ -2394,9 +2405,11 @@ const contextRegistry = createContextRegistry({
 const mcpConnectionRegistry = createMcpConnectionRegistry()
 const routineMcpRegistry = new RoutineMcpRegistry()
 const mcpActivityAuthorities = new Map<string, McpActivityAuthority>()
+const mcpInputFlows = new Map<string, McpInputFlow>()
 const mcpActivityAuthorityKey = (sessionId: string, activityId: string) => JSON.stringify([sessionId, activityId])
 function discardMcpActivityAuthorities(sessionId: string): void {
   for (const [key, authority] of mcpActivityAuthorities) if (authority.sessionId === sessionId) mcpActivityAuthorities.delete(key)
+  for (const [key, flow] of mcpInputFlows) if (flow.sessionId === sessionId) mcpInputFlows.delete(key)
 }
 
 /** Only stable reviewed facts enter the digest. Run progress, cadence cursors,
@@ -2965,6 +2978,7 @@ function snapshot(): PersistedState {
     savedContexts: contextRegistry.persistedContexts(),
     mcpConnections: mcpConnectionRegistry.snapshot(),
     mcpActivityAuthorities: [...mcpActivityAuthorities.values()].map(row => ({ ...row })),
+    mcpInputFlows: structuredClone([...mcpInputFlows.values()]),
     routineMcp: routineMcpRegistry.snapshot(),
     usageMeters: usageRegistry.snapshot(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
@@ -3422,6 +3436,10 @@ function rehydrate(s: PersistedState): boolean {
     guardian.clear()
   }
   SESSIONS.splice(0, SESSIONS.length, ...s.sessions)
+  const inputFlows = parseMcpInputFlows(s.mcpInputFlows)
+  if (!validateMcpInputFlows(inputFlows, SESSIONS)) throw new Error('Persisted MCP input has invalid activity bindings.')
+  mcpInputFlows.clear()
+  for (const flow of inputFlows) mcpInputFlows.set(mcpInputFlowKey(flow.sessionId, flow.decisionId), flow)
   const interruptedMcp: Array<{ tenantId: string; connector: string }> = []
   for (const session of SESSIONS) {
     for (const message of session.messages ?? []) {
@@ -5217,7 +5235,7 @@ export const store = {
       const { activity, archived } = exact[0]!
       if (!mcpActivityActorAllowed(session, activity, actorUserId)) return undefined
       const represented = decision === 'confirm'
-        ? (!archived && activity.status === 'running') || activity.status === 'done' || activity.status === 'failed' || activity.status === 'uncertain'
+        ? (!archived && (activity.status === 'running' || activity.status === 'awaiting-input')) || activity.status === 'done' || activity.status === 'failed' || activity.status === 'uncertain'
         : activity.status === 'declined'
       return activity.kind === 'action' && represented ? activity : 'invalid'
     }
@@ -5236,6 +5254,7 @@ export const store = {
     decisionId: string,
     tenantId: string,
     actorUserId?: string,
+    forms = false,
   ): ToolActivity | 'invalid' | undefined {
     if (!isToolActivityDecisionId(decisionId)) return 'invalid'
     const represented = this.getToolActivityDecision(sessionId, activityId, decisionId, tenantId, 'confirm', actorUserId)
@@ -5246,12 +5265,24 @@ export const store = {
     if (!activity || activity.kind !== 'action' || activity.status !== 'proposed' || !activity.mcp ||
         !isExternalMcpId(activity.connectorId) || activity.op || activity.decisionId !== undefined) return 'invalid'
     if (!mcpActivityActorAllowed(session, activity, actorUserId)) return undefined
+    if (forms && !activeMcpActor(tenantId, actorUserId)) return undefined
+    if (forms && !hasMcpInputFlowCapacity(mcpInputFlows.size)) {
+      throw new LimitError(`Private MCP input flow capacity is full (${MCP_INPUT_MAX_FLOWS}).`)
+    }
     return commitMutationBatch(() => {
       activity.status = 'running'
       activity.decisionId = decisionId
       activity.summary = 'Running the approved MCP tool…'
       delete activity.failure
       delete activity.mcpResult
+      if (forms) {
+        const now = Date.now()
+        mcpInputFlows.set(mcpInputFlowKey(sessionId, decisionId), {
+          sessionId, activityId, decisionId, tenantId, ownerUserId: actorUserId!,
+          bindingHash: mcpInputBindingHash(activity), createdAt: now, expiresAt: now + MCP_INPUT_TTL_MS,
+          round: 0, receipts: [],
+        })
+      }
       persist()
       emit({ type: 'session.updated', session })
       return activity
@@ -5266,6 +5297,7 @@ export const store = {
     tenantId: string,
     outcome: unknown,
     actorUserId?: string,
+    expectedRound = 0,
   ): ToolActivity | 'invalid' | undefined {
     const session = SESSIONS.find((candidate) => candidate.id === sessionId)
     if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
@@ -5279,6 +5311,32 @@ export const store = {
     // result if membership was revoked during the already-authorized call, but
     // still require the exact frozen owner identity for OAuth-backed work.
     if (!mcpActivitySettlementActorAllowed(session, activity, actorUserId)) return undefined
+    const flow = mcpInputFlows.get(mcpInputFlowKey(sessionId, decisionId))
+    if (flow && (flow.round !== expectedRound || flow.bindingHash !== mcpInputBindingHash(activity))) return 'invalid'
+    if (flow && outcome && typeof outcome === 'object' && 'status' in outcome && outcome.status === 'awaiting-input') {
+      let pending: McpFormInputRequired
+      try { pending = parseMcpFormInputRequired('pending' in outcome ? outcome.pending : undefined) }
+      catch { return 'invalid' }
+      if (flow.round < MCP_INPUT_MAX_ROUNDS && flow.expiresAt > Date.now() && activeMcpActor(flow.tenantId, actorUserId)) {
+        return commitMutationBatch(() => {
+          flow.round += 1
+          flow.pending = pending
+          activity.status = 'awaiting-input'
+          activity.summary = 'Waiting for private input from the person who approved this MCP call.'
+          delete activity.failure
+          delete activity.mcpResult
+          persist()
+          emit({ type: 'session.updated', session })
+          return activity
+        })
+      }
+      outcome = { status: 'uncertain', summary: 'This MCP input review ended because its limit or current person authority was lost. Earlier remote effects may have occurred; no follow-up was sent.' }
+    }
+    if (!isMcpExecutionSettlement(outcome)) return 'invalid'
+    // A refused continuation cannot erase the fact that an earlier round ran.
+    if (flow && flow.round > 0 && outcome.status === 'failed' && outcome.result === undefined) {
+      outcome = { status: 'uncertain', summary: 'The follow-up could not be sent. Earlier remote effects may have occurred; the final outcome is unknown.' }
+    }
     if (!isMcpExecutionSettlement(outcome)) return 'invalid'
     let result: McpToolResult | undefined
     try { result = outcome.result === undefined ? undefined : parseMcpToolResult(outcome.result, MCP_MODERN_VERSION) }
@@ -5287,6 +5345,7 @@ export const store = {
     if (outcome.status === 'failed' && result !== undefined && !result.isError) return 'invalid'
     if (outcome.status === 'uncertain' && result !== undefined) return 'invalid'
     return commitMutationBatch(() => {
+      if (flow) delete flow.pending
       activity.status = outcome.status
       activity.summary = outcome.summary
       if (result) activity.mcpResult = result
@@ -5306,6 +5365,129 @@ export const store = {
       persist()
       emit({ type: 'session.updated', session })
       return activity
+    })
+  },
+  /** A private view never leaks the pending schema or opaque state to other
+   * transcript readers. The exact flow, not a namespace owner, owns input. */
+  mcpInputReview(sessionId: string, activityId: string, tenantId: string, actorUserId?: string, decisionId?: string): McpInputReviewState | undefined {
+    const session = SESSIONS.find(row => row.id === sessionId)
+    if (!session || !this.sessionVisibleToTenant(session, tenantId)) return undefined
+    const exact = decisionId === undefined ? [] : [...session.messages ?? [], ...session.compactedMessages ?? []]
+      .flatMap(row => row.toolActivities ?? []).filter(row => row.id === activityId && row.decisionId === decisionId)
+    const activity = decisionId === undefined ? this.getToolActivity(sessionId, activityId) : exact.length === 1 ? exact[0] : undefined
+    if (!activity?.mcp) return undefined
+    const flow = activity.decisionId && mcpInputFlows.get(mcpInputFlowKey(sessionId, activity.decisionId))
+    if (!flow || flow.activityId !== activityId || flow.tenantId !== tenantId ||
+        flow.ownerUserId !== activeMcpActor(tenantId, actorUserId) || !this.sessionOwnedBy(session, tenantId) ||
+        activity.status !== 'awaiting-input' || !flow.pending) return { activity: structuredClone(activity), review: null }
+    const refusal = this.mcpInputRefusal(flow, activity)
+    return { activity: structuredClone(activity), review: {
+      decisionId: flow.decisionId, round: flow.round, expiresAt: flow.expiresAt,
+      connectionLabel: activity.connector, toolName: activity.mcp.toolName,
+      inputRequests: structuredClone(flow.pending.inputRequests), canContinue: !refusal,
+      ...(refusal ? { refusal } : {}),
+    } }
+  },
+  /** Current authority is rechecked immediately before reserving a response;
+   * the executor repeats these checks around credential and network awaits. */
+  mcpInputRefusal(flow: McpInputFlow, activity: ToolActivity): string | undefined {
+    if (flow.expiresAt <= Date.now()) return 'This private input review expired. Stop locally; earlier remote effects may have occurred.'
+    if (flow.bindingHash !== mcpInputBindingHash(activity)) return 'The original approved call changed. No follow-up can be sent.'
+    const view = this.mcpConnection(activity.connectorId, flow.tenantId, flow.ownerUserId)
+    const tool = view?.tools.find(row => row.name === activity.mcp?.toolName)
+    if (!view || view.status !== 'connected' || view.protocolVersion !== MCP_MODERN_VERSION ||
+        view.revision !== activity.mcp?.connectionRevision || !tool || mcpToolSchemaHash(tool) !== activity.mcp?.schemaHash ||
+        !view.executableTools?.includes(tool.name) ||
+        !this.sessionContexts(flow.sessionId, flow.ownerUserId).some(row => row.id === activity.connectorId && row.type === 'mcp')) {
+      return 'The approved connection or attached tool is no longer available. Stop locally; no follow-up will be sent.'
+    }
+    return undefined
+  },
+  /** Used by the form executor around every asynchronous boundary, including
+   * none/bearer connections whose ordinary registry access is tenant-scoped. */
+  mcpInputExecutionPermitted(sessionId: string, activityId: string, decisionId: string, tenantId: string,
+    actorUserId?: string): boolean {
+    const flow = mcpInputFlows.get(mcpInputFlowKey(sessionId, decisionId))
+    const activity = this.getToolActivity(sessionId, activityId)
+    const session = SESSIONS.find(row => row.id === sessionId)
+    return !!flow && !!activity && !!session && flow.activityId === activityId && flow.tenantId === tenantId &&
+      this.sessionOwnedBy(session, tenantId) && flow.ownerUserId === activeMcpActor(tenantId, actorUserId) &&
+      activity.decisionId === decisionId && activity.status === 'running' && !this.mcpInputRefusal(flow, activity)
+  },
+  /** Exact receipt reads never perform cleanup, credential lookup or network
+   * work. Current public truth can advance beyond the acknowledged round. */
+  mcpInputReceipt(sessionId: string, activityId: string, decisionId: string, responseId: string,
+    tenantId: string, actorUserId?: string): McpInputReceipt | undefined {
+    const session = SESSIONS.find(row => row.id === sessionId)
+    const flow = mcpInputFlows.get(mcpInputFlowKey(sessionId, decisionId))
+    if (!session || !flow || flow.activityId !== activityId || flow.tenantId !== tenantId ||
+        !this.sessionOwnedBy(session, tenantId) || flow.ownerUserId !== activeMcpActor(tenantId, actorUserId)) return undefined
+    const saved = flow.receipts.find(row => row.responseId === responseId)
+    const matches = [...session.messages ?? [], ...session.compactedMessages ?? []].flatMap(row => row.toolActivities ?? [])
+      .filter(row => row.id === activityId && row.decisionId === decisionId)
+    if (!saved || matches.length !== 1) return undefined
+    return { responseId, decisionId, round: saved.round, action: saved.action, activity: structuredClone(matches[0]!) }
+  },
+  /** Freeze and persist one response before I/O. A concurrent or restarted
+   * request can only recover its receipt, never dispatch another attempt. */
+  beginMcpInputResponse(sessionId: string, activityId: string, tenantId: string, actorUserId: string, input: unknown):
+    { kind: 'execute'; activity: ToolActivity; continuation: McpBoundFormContinuation } |
+    { kind: 'receipt'; receipt: McpInputReceipt } | 'invalid' | undefined {
+    const command = parseMcpInputCommand(input)
+    if (!command) return 'invalid'
+    const session = SESSIONS.find(row => row.id === sessionId)
+    const flow = mcpInputFlows.get(mcpInputFlowKey(sessionId, command.decisionId))
+    if (!session || !flow || flow.activityId !== activityId || flow.tenantId !== tenantId ||
+        !this.sessionOwnedBy(session, tenantId) || flow.ownerUserId !== activeMcpActor(tenantId, actorUserId)) return undefined
+    const payloadHash = mcpInputCommandHash(command)
+    const saved = flow.receipts.find(row => row.responseId === command.responseId)
+    if (saved) {
+      if (saved.payloadHash !== payloadHash) return 'invalid'
+      const receipt = this.mcpInputReceipt(sessionId, activityId, command.decisionId, command.responseId, tenantId, actorUserId)
+      return receipt ? { kind: 'receipt', receipt } : undefined
+    }
+    const activity = this.getToolActivity(sessionId, activityId)
+    if (!activity || activity.decisionId !== command.decisionId || activity.status !== 'awaiting-input' ||
+        !flow.pending || flow.round !== command.round || flow.bindingHash !== mcpInputBindingHash(activity)) return 'invalid'
+    let continuation: McpBoundFormContinuation | undefined
+    if (command.action === 'respond') {
+      if (this.mcpInputRefusal(flow, activity)) return 'invalid'
+      try { continuation = { pending: structuredClone(flow.pending), responses: parseMcpFormResponses(flow.pending, command.responses) } }
+      catch { return 'invalid' }
+    }
+    return commitMutationBatch(() => {
+      flow.receipts.push({ responseId: command.responseId, payloadHash, round: command.round, action: command.action })
+      delete flow.pending
+      activity.status = command.action === 'stop' ? 'uncertain' : 'running'
+      activity.summary = command.action === 'stop'
+        ? 'Stopped locally. No follow-up was sent; earlier remote effects may have occurred and their final outcome is unknown.'
+        : 'Sending the privately reviewed MCP response…'
+      activity.failure = command.action === 'stop' ? { code: 'connector_unavailable', retryable: false } : undefined
+      persist()
+      emit({ type: 'session.updated', session })
+      if (continuation) return { kind: 'execute', activity, continuation }
+      return { kind: 'receipt', receipt: this.mcpInputReceipt(sessionId, activityId, command.decisionId, command.responseId, tenantId, actorUserId)! }
+    })
+  },
+  /** Time and membership revoke only waiting local reviews. Never race a live
+   * request into apparent cancellation or dispatch anything from housekeeping. */
+  expireMcpInputReviews(now = Date.now()): number {
+    let count = 0
+    return commitMutationBatch(() => {
+      for (const flow of mcpInputFlows.values()) {
+        if (!flow.pending || (flow.expiresAt > now && activeMcpActor(flow.tenantId, flow.ownerUserId))) continue
+        const activity = this.getToolActivity(flow.sessionId, flow.activityId)
+        const session = SESSIONS.find(row => row.id === flow.sessionId)
+        if (!session || !activity || activity.decisionId !== flow.decisionId || activity.status !== 'awaiting-input') continue
+        delete flow.pending
+        activity.status = 'uncertain'
+        activity.summary = 'The private MCP input review expired or its person lost access. No follow-up was sent; earlier remote effects may have occurred.'
+        activity.failure = { code: 'connector_unavailable', retryable: false }
+        count += 1
+        emit({ type: 'session.updated', session })
+      }
+      if (count) persist()
+      return count
     })
   },
   /** Claim a proposed action for execution — the synchronous gate that makes a
@@ -5584,6 +5766,15 @@ export const store = {
     if (cut < 0) return undefined
     const taken = structuredClone(msgs.slice(0, cut + 1))
     if (hasExternalMcpActivity(taken, pendingExternalMcp)) throw unresolvedMcpConflict()
+    const inputFlowCopies = new Map<string, McpInputFlow>()
+    for (const activity of taken.flatMap(message => message.toolActivities ?? [])) {
+      if (!activity.decisionId) continue
+      const flow = mcpInputFlows.get(mcpInputFlowKey(source.id, activity.decisionId))
+      if (flow && flow.tenantId === tenantId) inputFlowCopies.set(flow.decisionId, flow)
+    }
+    if (!hasMcpInputFlowCapacity(mcpInputFlows.size, inputFlowCopies.size)) {
+      throw new LimitError(`Private MCP input flow capacity is full (${MCP_INPUT_MAX_FLOWS}).`)
+    }
     return commitMutationBatch(() => {
       const fork = mintSession({
         id: options.logicalId ?? `sess-${(sessionSeq += 1)}`,
@@ -5597,6 +5788,9 @@ export const store = {
       for (const activityId of forkActivityIds) {
         const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(source.id, activityId))
         if (authority) mcpActivityAuthorities.set(mcpActivityAuthorityKey(fork.id, activityId), { ...authority, sessionId: fork.id })
+      }
+      for (const flow of inputFlowCopies.values()) {
+        mcpInputFlows.set(mcpInputFlowKey(fork.id, flow.decisionId), { ...structuredClone(flow), sessionId: fork.id })
       }
       // Public credit, like a definition fork: the source's owner is told.
       notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {

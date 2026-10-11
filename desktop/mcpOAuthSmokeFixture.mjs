@@ -16,6 +16,10 @@ export const MCP_OAUTH_FIXTURE_SECRET_CANARIES = Object.freeze([
   MCP_OAUTH_FIXTURE_REFRESHED_ACCESS_CANARY,
   MCP_OAUTH_FIXTURE_REFRESHED_REFRESH_CANARY,
 ])
+export const MCP_OAUTH_FORM_QUERY = 'native-oauth-approved-record'
+export const MCP_OAUTH_FORM_STATE = ' native-form-state\u0000雪 '
+export const MCP_OAUTH_FORM_ANSWER = 'native-private-form-answer-canary'
+export const MCP_OAUTH_FORM_MESSAGE = 'Private native fixture review; this prompt is not shared history.'
 
 const RESOURCE_METADATA_PATH = '/.well-known/oauth-protected-resource/mcp'
 const SERVER_METADATA_PATH = '/.well-known/oauth-authorization-server'
@@ -43,9 +47,9 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
-function createFixturePeer({ accessTokenLifetimeSeconds = 60, now = Date.now } = {}) {
+function createFixturePeer({ accessTokenLifetimeSeconds = 60, now = Date.now, formReview = false } = {}) {
   if (!Number.isSafeInteger(accessTokenLifetimeSeconds) || accessTokenLifetimeSeconds < 1 || accessTokenLifetimeSeconds > 3_600 ||
-      typeof now !== 'function') throw new TypeError('Invalid local MCP fixture configuration.')
+      typeof now !== 'function' || typeof formReview !== 'boolean') throw new TypeError('Invalid local MCP fixture configuration.')
   const requests = []
   const registrations = new Map()
   const codes = new Map()
@@ -56,6 +60,7 @@ function createFixturePeer({ accessTokenLifetimeSeconds = 60, now = Date.now } =
   let refreshCount = 0
   let forceExpire = false
   let closed = false
+  let formPhase = 0
   const server = createServer()
   const sockets = new Set()
   server.on('connection', socket => {
@@ -217,6 +222,31 @@ function createFixturePeer({ accessTokenLifetimeSeconds = 60, now = Date.now } =
         const query = params?.arguments?.query
         if (params?.name !== TOOL_NAME || typeof query !== 'string' || query.length < 1 || query.length > 256 ||
             headers['mcp-name'] === undefined) return failure(400)
+        if (formReview && query === MCP_OAUTH_FORM_QUERY) {
+          const capability = params._meta?.['io.modelcontextprotocol/clientCapabilities']?.elicitation?.form
+          if (!record(capability) || Object.keys(capability).length !== 0) return failure(400)
+          if (!Object.hasOwn(params, 'inputResponses') && !Object.hasOwn(params, 'requestState')) {
+            if (formPhase !== 0) return failure(409)
+            formPhase = 1
+            return json(200, { jsonrpc: '2.0', id: input.id, result: { resultType: 'input_required',
+              requestState: MCP_OAUTH_FORM_STATE, inputRequests: { review: { method: 'elicitation/create', params: {
+                mode: 'form', message: MCP_OAUTH_FORM_MESSAGE, requestedSchema: {
+                  type: 'object', title: 'Native private review', properties: {
+                    note: { type: 'string', title: 'Review note', minLength: 1, maxLength: 128 },
+                    approved: { type: 'boolean', title: 'Approve this response' },
+                  }, required: ['note', 'approved'],
+                },
+              } } },
+            } })
+          }
+          const response = params.inputResponses?.review
+          if (formPhase !== 1 || params.requestState !== MCP_OAUTH_FORM_STATE || !record(params.inputResponses) ||
+              Object.keys(params.inputResponses).join(',') !== 'review' || !record(response) ||
+              Object.keys(response).sort().join(',') !== 'action,content' || response.action !== 'accept' ||
+              !record(response.content) || Object.keys(response.content).sort().join(',') !== 'approved,note' ||
+              response.content.note !== MCP_OAUTH_FORM_ANSWER || response.content.approved !== true) return failure(400)
+          formPhase = 2
+        } else if (Object.hasOwn(params, 'inputResponses') || Object.hasOwn(params, 'requestState')) return failure(400)
         const resultText = `Fixture record for ${query}`
         return json(200, { jsonrpc: '2.0', id: input.id, result: {
           resultType: 'complete',

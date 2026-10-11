@@ -37,7 +37,7 @@ const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
 const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
 const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
-const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences', 'artifactHistory', 'artifactHistoryRestoreReceipts', 'artifactRetirements', 'artifactDeletionReceipts'] as const
+const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences', 'artifactHistory', 'artifactHistoryRestoreReceipts', 'artifactRetirements', 'artifactDeletionReceipts', 'mcpInputFlows'] as const
 
 const snapshotImage: ImageSnapshot = {
   mimeType: 'image/png',
@@ -464,11 +464,18 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'saved contexts retain their server-owned tenant partition')
   assert.ok(s.savedContexts?.some((context) => context.connectionRevision === 1),
     'a saved-context connection revision survives the durable snapshot')
-  assert.equal(s.mcpConnections?.connections.length, 1, 'the private MCP slice is exercised, not merely empty')
-  assert.equal(s.mcpConnections?.connections[0]?.inspection?.tools[0]?.name, 'snapshot_fixture', 'the inert catalog survives')
-  assert.equal(s.mcpConnections?.connections[0]?.credentialReference, undefined, 'the playground creates no credential')
+  assert.equal(s.mcpConnections?.connections.length, 2, 'the private MCP slice is exercised for both a legacy fixture and Ada input flow')
+  assert.ok(s.mcpConnections?.connections.some(row => row.tenantId === 'tenant-zeta' && row.inspection?.tools[0]?.name === 'snapshot_fixture'), 'the inert tenant-zeta catalog survives')
+  assert.ok(s.mcpConnections?.connections.some(row => row.tenantId === 'tenant-acme' && row.inspection?.tools[0]?.name === 'snapshot.input'), 'Ada’s inert input catalog survives')
+  assert.ok(s.mcpConnections?.connections.every(row => row.credentialReference === undefined), 'the playground creates no credential')
   assert.equal(s.mcpConnections?.retired.length, 1, 'removed MCP setup retains a non-resurrecting identity')
-  assert.ok(!s.savedContexts?.some(row => row.id === s.mcpConnections?.connections[0]?.id), 'public context rows are projections, not duplicate storage')
+  assert.ok(!s.savedContexts?.some(row => s.mcpConnections?.connections.some(connection => row.id === connection.id)), 'public context rows are projections, not duplicate storage')
+  assert.equal(s.mcpInputFlows?.length, 1, 'the private MCP input slice is populated through real store mutations')
+  assert.equal(s.mcpInputFlows?.[0]?.tenantId, 'tenant-acme', 'the flow is bound to Ada’s current tenant')
+  assert.equal(s.mcpInputFlows?.[0]?.ownerUserId, 'user-ada', 'the flow is bound to the exact seeded Ada account')
+  assert.equal(s.mcpInputFlows?.[0]?.round, 1, 'the first form round is durable')
+  assert.equal(s.mcpInputFlows?.[0]?.pending?.requestState, 'snapshot-private-opaque-state', 'the private continuation state survives')
+  assert.equal(s.mcpInputFlows?.[0]?.receipts.length, 0, 'no submitted answer is stored in the comprehensive fixture')
   assert.equal(s.routineMcp?.policies.length, 1, 'the private Routine MCP policy slice is populated')
   assert.equal(s.routineMcp?.decisions.length, 1, 'the exact owner decision receipt survives the snapshot')
   assert.equal(s.routineMcp?.runs.length, 1, 'a queued run keeps its frozen permission proof')

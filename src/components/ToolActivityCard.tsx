@@ -14,6 +14,8 @@ import {
 import type { RevisionedMutationStatus } from '../controller/revisionedMutationCore.ts'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS } from '../lib/button'
 import { Spinner } from './Spinner.tsx'
+import { DeferredMcpInputReview } from './DeferredMcpInputReview.tsx'
+import { useMcpInputHeld } from '../controller/mcpInputState.ts'
 
 /** An account of the tools the model touched this turn: connector/MCP tools (P6)
  *  and the generated API tools (access-parity INV-11 — the in-app leg). A *read*
@@ -96,6 +98,7 @@ function ActivityRow({
   mutation: RevisionedMutationStatus
 }) {
   const held = heldToolActivityDecisionIntent(sessionId, a.id)
+  const inputHeld = useMcpInputHeld({ sessionId, activityId: a.id, decisionId: a.decisionId ?? '', sourceUserId })
   // Ambient terminal state cannot dismiss an uncertain local decision: keep the
   // exact controls visible until this client's receipt reconciles or is Dismissed.
   const mcp = a.mcp
@@ -196,6 +199,8 @@ function ActivityRow({
           </div>
         )}
         {running && <div role="status" className="mt-1 text-[11px] text-ink-soft">Approved. Waiting for the external server…</div>}
+        {externalMcp && a.decisionId && (displayStatus === 'awaiting-input' || !!inputHeld?.attempt) &&
+          <DeferredMcpInputReview sessionId={sessionId} activityId={a.id} decisionId={a.decisionId} />}
         {displayStatus === 'declined' && <div className="mt-0.5 text-[11px] text-ink-faint">{externalMcp ? 'Declined — the external tool was not run.' : 'Declined — nothing was done.'}</div>}
         {uncertain && <div role="alert" className="mt-1 text-[11px] leading-snug text-warn-text">
           The tool may have run, but no result was confirmed. It won’t be retried automatically.

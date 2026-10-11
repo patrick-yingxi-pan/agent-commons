@@ -1,18 +1,22 @@
 /** Reusable one-attempt executor for an exact MCP call bound to current
  * inspected connection authority. Callers own consent and durable receipts. */
 import type { McpBoundToolCall, McpJsonValue, McpToolResult } from '../contract/mcpExecution.ts'
+import type { McpFormInputRequired, McpFormInputResponses } from '../contract/mcpElicitation.ts'
 import type { McpConnectionView, McpDiscoveredTool } from '../contract/mcpConnections.ts'
 import { mcpRuntimeConfiguration } from './mcpRuntime.ts'
 import { mcpConnectionEndpoint, type PrivateMcpConnection } from './mcpConnections.ts'
-import { McpToolCallError } from './mcpToolCall.ts'
+import { McpToolCallError, snapshotMcpFormToolInvocation } from './mcpToolCall.ts'
 import { callMcpToolWithSession } from './mcpToolSession.ts'
-import { isMcpProtocolVersion } from './mcpProtocol.ts'
+import { createMcpFormToolSession } from './mcpFormToolSession.ts'
+import type { McpFormToolResult } from './mcpToolCall.ts'
+import { isMcpProtocolVersion, MCP_MODERN_VERSION } from './mcpProtocol.ts'
 import { MCP_SCHEMA_ADMISSION_VERSION, admitMcpTool, mcpToolSchemaHash } from './mcpToolAdmission.ts'
 import { validateMcpSchema } from './mcpSchema.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
 
 const EXECUTION_TIMEOUT_MS = 30_000
+const callMcpFormToolSession = createMcpFormToolSession()
 
 export interface McpBoundExecutionStore {
   privateMcpConnection(id: string, tenantId: string, actorUserId?: string): PrivateMcpConnection | undefined
@@ -23,6 +27,10 @@ export type McpBoundExecutionOutcome =
   | { status: 'done'; summary: string; result: McpToolResult }
   | { status: 'failed'; summary: string; result?: McpToolResult }
   | { status: 'uncertain'; summary: string }
+
+export type McpBoundFormContinuation = { pending: McpFormInputRequired; responses: McpFormInputResponses }
+export type McpBoundFormExecutionOutcome = McpBoundExecutionOutcome |
+  { status: 'awaiting-input'; summary: string; pending: McpFormInputRequired }
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -89,10 +97,12 @@ function containsPrivateLiteral(value: McpJsonValue | McpToolResult, literals: s
 
 const failed = (summary: string): McpBoundExecutionOutcome => ({ status: 'failed', summary })
 const unavailable = 'The reviewed MCP connection or tool is no longer available. Start a new tool request.'
-const uncertain = (): McpBoundExecutionOutcome => ({
+const uncertain = (summary = 'The MCP server may have accepted this call, but no valid result was received. It will not be run again automatically.'): McpBoundExecutionOutcome => ({
   status: 'uncertain',
-  summary: 'The MCP server may have accepted this call, but no valid result was received. It will not be run again automatically.',
+  summary,
 })
+
+const CONTINUATION_UNKNOWN = 'The MCP tool was already submitted, but its follow-up could not be completed. Its final outcome is unknown; it will not be retried automatically.'
 
 function authorized(authorize: () => boolean): boolean {
   let decision: unknown
@@ -118,11 +128,13 @@ function executableTool(row: PrivateMcpConnection, binding: McpBoundToolCall): M
 /** Execute one exact binding. The callback is deliberately synchronous: only
  * literal `true` admits work, and thenables are refusals rather than a second
  * authority protocol. Callers persist consent/receipts outside this module. */
-export function createBoundMcpExecutor({
+function createBoundMcpExecutionCore({
   call = callMcpToolWithSession,
+  callWithForms = callMcpFormToolSession,
   runtimeConfiguration = mcpRuntimeConfiguration,
 }: {
   call?: typeof callMcpToolWithSession
+  callWithForms?: ReturnType<typeof createMcpFormToolSession>
   runtimeConfiguration?: typeof mcpRuntimeConfiguration
 } = {}) {
   return async (
@@ -131,9 +143,15 @@ export function createBoundMcpExecutor({
     exactBinding: McpBoundToolCall,
     authorize: () => boolean,
     actorUserId?: string,
-  ): Promise<McpBoundExecutionOutcome> => {
+    options: { formElicitation?: boolean; continuation?: McpBoundFormContinuation } = {},
+  ): Promise<McpBoundFormExecutionOutcome> => {
+    const continuation = options.continuation
+    const hasContinuation = continuation !== undefined
+    const refuse = (summary: string): McpBoundFormExecutionOutcome => hasContinuation
+      ? uncertain(CONTINUATION_UNKNOWN)
+      : failed(summary)
     const binding = snapshotMcpBoundToolCall(exactBinding)
-    if (!binding || !authorized(authorize)) return failed('This MCP execution no longer matches its durable approval.')
+    if (!binding || !authorized(authorize)) return refuse('This MCP execution no longer matches its durable approval.')
 
     const currentRow = store.privateMcpConnection(binding.connectionId, tenantId, actorUserId)
     const initial = currentRow && snapshotConnection(currentRow, binding)
@@ -143,17 +161,29 @@ export function createBoundMcpExecutor({
         (initial.authentication === 'device-oauth' && (!actorUserId || !initial.ownerUserId || initial.ownerUserId !== actorUserId)) ||
         !view || view.id !== binding.connectionId || view.revision !== binding.connectionRevision ||
         view.execution !== 'approval-required' || !view.executableTools?.includes(binding.toolName)) {
-      return failed(unavailable)
+      return refuse(unavailable)
     }
     if (!isMcpProtocolVersion(initial.inspection!.protocolVersion)) {
-      return failed('The reviewed MCP protocol is no longer supported. Refresh the connection and start a new tool request.')
+      return refuse('The reviewed MCP protocol is no longer supported. Refresh the connection and start a new tool request.')
     }
 
     // The binding, row, reviewed tool/schema, and runtime are detached before
     // the first await. Later mutation cannot rewrite this logical invocation.
     const protocolVersion = initial.inspection!.protocolVersion
+    if (hasContinuation && protocolVersion !== MCP_MODERN_VERSION) return uncertain(CONTINUATION_UNKNOWN)
     const input = binding.arguments
     const reviewedTool = tool
+    let frozenContinuation: McpBoundFormContinuation | undefined
+    if (continuation) {
+      try {
+        frozenContinuation = snapshotMcpFormToolInvocation({
+          tool: { name: binding.toolName, inputSchema: reviewedTool.inputSchema },
+          arguments: input,
+          continuation,
+        }).continuation
+      } catch { return uncertain(CONTINUATION_UNKNOWN) }
+      if (!frozenContinuation) return uncertain(CONTINUATION_UNKNOWN)
+    }
     const runtime = { ...runtimeConfiguration() }
     const stillBound = (): boolean => {
       if (!authorized(authorize)) return false
@@ -175,21 +205,21 @@ export function createBoundMcpExecutor({
     const remaining = () => Math.max(1, Math.floor(EXECUTION_TIMEOUT_MS - (performance.now() - startedAt)))
     let resultReceived = false
     try {
-      if (!stillBound()) return failed(unavailable)
+      if (!stillBound()) return refuse(unavailable)
       const admitted = await admitMcpTool(reviewedTool, { signal: controller.signal })
-      if (!admitted.ok) return failed('The reviewed MCP schema is no longer executable. Refresh the connection and start a new tool request.')
+      if (!admitted.ok) return refuse('The reviewed MCP schema is no longer executable. Refresh the connection and start a new tool request.')
       const acceptedInput = await validateMcpSchema(reviewedTool.inputSchema, { value: input }, {
         signal: controller.signal, timeoutMs: Math.min(2_000, remaining()),
       })
-      if (!acceptedInput.ok) return failed('The reviewed MCP arguments are not valid for this tool. Start a new tool request.')
-      if (!stillBound()) return failed(unavailable)
+      if (!acceptedInput.ok) return refuse('The reviewed MCP arguments are not valid for this tool. Start a new tool request.')
+      if (!stillBound()) return refuse(unavailable)
 
       const { endpoint, scope } = mcpConnectionEndpoint(initial.endpoint,
         initial.authentication === 'device-oauth' ? false : runtime.allowLoopback)
       let bearerToken: string | undefined
       if (initial.authentication === 'device-bearer') {
         if (!runtime.deviceBearerAvailable || !runtime.resolveCredential || !initial.credentialReference) {
-          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+          return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         }
         const aborted = rejectOnAbort(controller.signal)
         try {
@@ -198,15 +228,15 @@ export function createBoundMcpExecutor({
             aborted.promise,
           ])
         } catch {
-          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+          return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         } finally { aborted.cleanup() }
         if (!bearerToken || bearerToken.length > 8192 || /[^\x21-\x7e]/.test(bearerToken)) {
-          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+          return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         }
       } else if (initial.authentication === 'device-oauth') {
         if (!actorUserId || !initial.ownerUserId || actorUserId !== initial.ownerUserId || !runtime.deviceOAuthAvailable ||
             !runtime.resolveOAuthCredential || !initial.credentialReference) {
-          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+          return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         }
         const aborted = rejectOnAbort(controller.signal)
         try {
@@ -217,26 +247,48 @@ export function createBoundMcpExecutor({
             aborted.promise,
           ])
         } catch {
-          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+          return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         } finally { aborted.cleanup() }
         if (!bearerToken || bearerToken.length > 8192 || /[^\x21-\x7e]/.test(bearerToken)) {
-          return failed('The MCP credential is unavailable. Reconnect it and start a new tool request.')
+          return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         }
       }
       // Credentials may resolve after consent or the reviewed connection was
       // revoked. Refuse before opening a transport handshake as well as at
       // the final tools/call dispatch boundary below.
-      if (!stillBound()) return failed(unavailable)
+      if (!stillBound()) return refuse(unavailable)
 
-      const result = await call(endpoint, {
+      const invocation = {
         tool: { name: binding.toolName, inputSchema: reviewedTool.inputSchema },
         arguments: input,
-      }, {
-        scope, bearerToken, signal: controller.signal, timeoutMs: remaining(), expectedProtocolVersion: protocolVersion,
+      }
+      const callOptions = {
+        scope, bearerToken, signal: controller.signal, timeoutMs: remaining(),
         beforeCall: () => { if (!stillBound()) throw new McpToolCallError('request', false) },
-      })
+      }
+      let toolResult: McpToolResult | McpFormToolResult
+      if (options.formElicitation && protocolVersion === MCP_MODERN_VERSION) {
+        toolResult = (await callWithForms(endpoint, {
+          ...invocation,
+          ...(frozenContinuation ? { continuation: frozenContinuation } : {}),
+        }, callOptions)).result
+      } else {
+        toolResult = (await call(endpoint, invocation, { ...callOptions, expectedProtocolVersion: protocolVersion })).result
+      }
       resultReceived = true
       const privateLiterals = [endpoint, initial.credentialReference ?? '', bearerToken ?? '']
+      if ('resultType' in toolResult && toolResult.resultType === 'input_required') {
+        // The result is already a remote continuation point. Only the request
+        // form—not opaque requestState—is inspected for private literals.
+        if (!options.formElicitation || protocolVersion !== MCP_MODERN_VERSION ||
+            containsPrivateLiteral(toolResult.inputRequests as unknown as McpJsonValue, privateLiterals)) return uncertain()
+        return {
+          status: 'awaiting-input',
+          summary: 'The MCP server needs input before it can finish this call.',
+          pending: toolResult,
+        }
+      }
+      const result = { result: toolResult as McpToolResult }
       if (containsPrivateLiteral(result.result, privateLiterals)) return uncertain()
       if (reviewedTool.outputSchema !== undefined) {
         if (result.result.structuredContent === undefined) return uncertain()
@@ -249,14 +301,49 @@ export function createBoundMcpExecutor({
         ? { status: 'failed', summary: 'The MCP server returned a tool error.', result: result.result }
         : { status: 'done', summary: 'The MCP tool completed.', result: result.result }
     } catch (error) {
-      return resultReceived || (error instanceof McpToolCallError && error.mayHaveExecuted)
-        ? uncertain()
+      return resultReceived || (error instanceof McpToolCallError && error.mayHaveExecuted) || hasContinuation
+        ? uncertain(hasContinuation ? CONTINUATION_UNKNOWN : undefined)
         : failed('The MCP call was refused before execution. Start a new tool request.')
     } finally {
       clearTimeout(timer)
       controller.abort()
     }
   }
+}
+
+export function createBoundMcpExecutor({
+  call = callMcpToolWithSession,
+  runtimeConfiguration = mcpRuntimeConfiguration,
+}: {
+  call?: typeof callMcpToolWithSession
+  runtimeConfiguration?: typeof mcpRuntimeConfiguration
+} = {}) {
+  const execute = createBoundMcpExecutionCore({ call, runtimeConfiguration })
+  return async (store: McpBoundExecutionStore, tenantId: string, exactBinding: McpBoundToolCall,
+    authorize: () => boolean, actorUserId?: string): Promise<McpBoundExecutionOutcome> =>
+    execute(store, tenantId, exactBinding, authorize, actorUserId) as Promise<McpBoundExecutionOutcome>
+}
+
+export function createBoundMcpFormExecutor({
+  call = callMcpToolWithSession,
+  callWithForms = callMcpFormToolSession,
+  runtimeConfiguration = mcpRuntimeConfiguration,
+}: {
+  call?: typeof callMcpToolWithSession
+  callWithForms?: ReturnType<typeof createMcpFormToolSession>
+  runtimeConfiguration?: typeof mcpRuntimeConfiguration
+} = {}) {
+  const execute = createMcpBoundFormExecutorCore({ call, callWithForms, runtimeConfiguration })
+  return (store: McpBoundExecutionStore, tenantId: string, exactBinding: McpBoundToolCall,
+    authorize: () => boolean, actorUserId?: string, continuation?: McpBoundFormContinuation) =>
+    execute(store, tenantId, exactBinding, authorize, actorUserId, continuation)
+}
+
+function createMcpBoundFormExecutorCore(dependencies: Parameters<typeof createBoundMcpExecutionCore>[0]) {
+  const execute = createBoundMcpExecutionCore(dependencies)
+  return (store: McpBoundExecutionStore, tenantId: string, exactBinding: McpBoundToolCall,
+    authorize: () => boolean, actorUserId?: string, continuation?: McpBoundFormContinuation) =>
+    execute(store, tenantId, exactBinding, authorize, actorUserId, { formElicitation: true, continuation })
 }
 
 export const executeBoundMcpCall = createBoundMcpExecutor()

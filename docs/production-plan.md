@@ -20,25 +20,64 @@ elicitation as the next core MCP workflow. It will not grant standing authority,
 auto-answer with a model, or broaden Routine/Contribution execution. URL mode,
 sampling, roots and local process transports remain separate work.
 
-This first checkpoint implements the bounded protocol boundary only: strict
+The first checkpoint implemented the bounded protocol boundary: strict
 inert form/response admission, modern capability opt-in, exact opaque-state echo,
 one request per transaction, and fixed uncertainty semantics. Default callers
-remain complete-only and a cross-layer lock prevents accidental product wiring.
+remain complete-only outside the private conversation follow-up path.
 Local HTTP fixture tests cover actual request bodies/metadata, fresh identities,
 original argument preservation, explicit rounds, legacy refusal and no replay.
-No UI, persistence slice, native IPC or production form consent is enabled here.
-The next checkpoint must complete durable person-bound rounds and the review
-screen together; do not count protocol parsing alone as the user-facing feature.
+The current checkpoint integrates private durable rounds and the review screen
+together. Four rounds and one hour bound each original decision. Only the actual
+approving person may read or answer a form, including on tenant-owned none/bearer
+connections. Exact tool/schema/arguments and current membership/attachment remain
+required. Pending forms and opaque state stay outside public activity history;
+submitted answers remain in client memory and the dispatched request, while the
+durable receipt stores only identity and a command hash.
 
-Independent review found and fixed raw session-facade descriptor bypasses, a
+Continue reserves its exact round before I/O. Stop locally sends no remote
+cancellation. Expiry or lost membership releases waiting state as uncertain;
+restart settles reserved calls as uncertain without replay. Check status is a
+receipt GET, never a resubmission. Explicit Review latest rereads current truth
+before discarding local answers; only another reviewed Continue can send again.
+Routine/Contribution and legacy calls retain their complete-only behavior.
+Native IPC and credential scope are unchanged. JSON/SQLite restart locks now
+cover private waiting forms and reserved responses that become uncertain without
+replay. The rendered workflow covers all five viewports, actual owner/reader/
+foreign identities, failed review reads, lost acknowledgement, GET-only recovery,
+another reviewed round and local Stop. The separate UI sweep passed 135/135 cells
+with no violations or skips; every capture was visually reviewed.
+
+Fresh unsigned arm64 packaging passed with the existing 800 KB startup budget.
+The opt-in packaged form walk passed with native OAuth custody, a pending form
+across full signed-in relaunch, one explicit continuation, lost acknowledgement,
+exact receipt recovery and completed relaunch without replay. The fixture's
+answer appeared in neither SQLite/WAL, model input nor shared history; its final
+result deliberately does not echo answers. Ordinary OAuth acceptance separately
+passed interactive, Contribution and Routine consent, refresh, relaunch, revoke
+and Disconnect. Both walks used disposable copies/profiles and verified the
+original ASAR unchanged. An initial acceptance-driver race was fixed by awaiting
+the exact Check status response, not an already-visible receipt. These are local
+fixture results, not public issuer/system-browser, signed or Intel acceptance.
+The complete local verifier remains the mandatory pre-push gate; its final
+outcome is recorded in the checkpoint handoff.
+
+Review also aligned runtime/fork admission with the fixed 100,000-flow snapshot
+bound and replaced repeated history scans with one exact activity index per
+session. Removing each capacity guard made its lock fail; the old validator
+required 3,168 activity-list reads for 32 flows and failed the linear-work lock.
+Acknowledged follow-up commands now refresh open transcripts without waiting for
+SSE, using the shared API listener factory. The rendered offline-Stop regression
+failed before that fix; the startup budget stayed unchanged after deduplication.
+
+At the protocol-only checkpoint, independent review found and fixed raw session-facade descriptor bypasses, a
 vacuous invalid-response fixture, standard result-metadata refusal and malformed
 format coercion. Fail-first mutations proved the direct-facade guard, exact
 opaque-state wire comparison, strict schema/response validation and fixed-error
 locks; the correct implementations were restored. Adjacent ordinary transport,
 discovery, OAuth authority and cancellation regressions passed before the full
-local verifier. No UI rendering changed in this checkpoint.
+local verifier. That earlier checkpoint changed no UI rendering.
 
-Before activation, bind every round to the original person, connection revision,
+The activation constraints bind every round to the original person, connection revision,
 tool/schema/arguments and activity decision. Save awaiting-input privately; save
 continuation intent before dispatch; make response-loss/restart receipt-only.
 Require explicit review/edit/Continue and a clear local Stop, recheck current

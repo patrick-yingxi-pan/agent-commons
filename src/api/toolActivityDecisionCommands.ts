@@ -28,7 +28,7 @@ function assertScope(intent: ToolActivityDecisionIntent, issuedGeneration: numbe
   }
 }
 
-const confirmedMcpStatuses: readonly ToolActivity['status'][] = ['running', 'done', 'failed', 'uncertain']
+const confirmedMcpStatuses: readonly ToolActivity['status'][] = ['running', 'awaiting-input', 'done', 'failed', 'uncertain']
 
 const expectedDecisionStatus = (
   activity: ToolActivity,

@@ -150,6 +150,8 @@ export async function startMcpFixture(options: {
   toolBehavior?: 'success' | 'error' | 'uncertain'
   resultResourceName?: string
   resultMimeType?: string
+  /** Test-owned peer response, including bounded multi-round input requests. */
+  toolResult?: (params: Record<string, unknown>, callIndex: number) => unknown
 } = {}): Promise<McpFixture> {
   const calls: string[] = []
   const authorization: string[] = []
@@ -193,7 +195,8 @@ export async function startMcpFixture(options: {
         response.destroy()
         return
       }
-      const result = toolBehavior === 'error'
+      const result = options.toolResult ? options.toolResult(body.params as Record<string, unknown>, toolCalls.length)
+        : toolBehavior === 'error'
         ? { resultType: 'complete', isError: true, content: [{ type: 'text', text: 'Fixture rejected the requested operation.' }] }
         : {
             resultType: 'complete',

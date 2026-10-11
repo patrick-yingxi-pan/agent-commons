@@ -75,6 +75,7 @@ import type {
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
+import { parseMcpInputFlows, validateMcpInputFlows, type McpInputFlow } from '../mcpInputState.ts'
 import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
 import { validateRoutineMcpAuthorities } from '../routineMcpAuthority.ts'
@@ -485,6 +486,9 @@ export interface PersistedState {
   /** Person authority for OAuth-backed MCP activities. Private and never
    * projected into Session/Message wire rows; older non-OAuth snapshots omit it. */
   mcpActivityAuthorities?: McpActivityAuthority[]
+  /** Private form continuation state; answer payloads are represented only by
+   * command hashes and never retained in Session or snapshot rows. */
+  mcpInputFlows?: McpInputFlow[]
   /** Owner-only unattended permissions, frozen run grants and exact receipts. */
   routineMcp?: RoutineMcpRegistryState
   /** The account registry (multi-account P7 — real onboarded accounts): users
@@ -607,6 +611,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   a2aPeers: 'mapEntries',
   mcpConnections: 'singleton',
   mcpActivityAuthorities: 'array',
+  mcpInputFlows: 'array',
   routineMcp: 'singleton',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
@@ -1136,11 +1141,17 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
           if (status === 'failed' && activity.mcpResult !== undefined && !receipt) return false
           if (status === 'failed' && activity.mcpResult !== undefined &&
               (!mcpResultValid(activity.mcpResult) || (activity.mcpResult as { isError?: unknown }).isError !== true)) return false
-          if (!['proposed', 'running', 'done', 'failed', 'uncertain', 'declined'].includes(String(status))) return false
+          if (!['proposed', 'running', 'awaiting-input', 'done', 'failed', 'uncertain', 'declined'].includes(String(status))) return false
         }
       }
     }
     return true
+  }
+  const mcpInputFlowsValid = (sessions: unknown): boolean => {
+    try {
+      const flows = parseMcpInputFlows(state?.mcpInputFlows)
+      return validateMcpInputFlows(flows, sessions)
+    } catch { return false }
   }
   const graphContextsValid = (graph: unknown): boolean => {
     if (!record(graph)) return false
@@ -1228,6 +1239,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       && Array.isArray(state.sessions)
       && validDispatchState(state.dispatch, state.sessions, state.retiredSessionCreationIds)
       && mcpActivitiesValid(state.sessions)
+      && mcpInputFlowsValid(state.sessions)
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)
       && servedSnapshotsValid(state.workspaces)

@@ -228,7 +228,7 @@ export interface ToolActivity {
    * `uncertain` = the external call may have executed but no valid result is
    * known. Running/uncertain calls are never replayed automatically. Absent is
    * treated as `done` (back-compat with the read-only slice). */
-  status?: 'done' | 'proposed' | 'running' | 'declined' | 'failed' | 'uncertain'
+  status?: 'done' | 'proposed' | 'running' | 'awaiting-input' | 'declined' | 'failed' | 'uncertain'
   /** Opaque durable acknowledgement for a first-party consent decision. Present
    *  only after a keyed Confirm / Decline lands; the containing Session remains
    *  the private tenant authority, so no raw account identity crosses the wire. */

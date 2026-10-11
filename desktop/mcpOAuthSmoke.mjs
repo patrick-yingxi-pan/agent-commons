@@ -13,7 +13,8 @@ import { expect } from '@playwright/test'
 import { launchPackagedDesktop, closePackagedDesktop } from './smoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { createMcpFixturePackage } from './mcpLoopbackSmokePackage.mjs'
-import { startMcpOAuthSmokeFixture, MCP_OAUTH_FIXTURE_SECRET_CANARIES } from './mcpOAuthSmokeFixture.mjs'
+import { startMcpOAuthSmokeFixture, MCP_OAUTH_FIXTURE_SECRET_CANARIES, MCP_OAUTH_FORM_QUERY,
+  MCP_OAUTH_FORM_STATE, MCP_OAUTH_FORM_ANSWER, MCP_OAUTH_FORM_MESSAGE } from './mcpOAuthSmokeFixture.mjs'
 import { MCP_CREDENTIAL_FILE } from './mcpCredentialVault.mjs'
 import { startMcpOAuthMessagesSmokeFixture, MCP_OAUTH_MESSAGES_SMOKE_MODEL,
   MCP_OAUTH_MESSAGES_SMOKE_PROMPT } from './mcpOAuthMessagesSmokeFixture.mjs'
@@ -57,6 +58,141 @@ function persistedActivity(profile, sessionId, activityId) {
     assert.equal(authorities.length, 1, 'the native call retains exactly one private person anchor')
     return { activity: matches[0], authority: authorities[0] }
   } finally { db.close() }
+}
+
+function persistedInputFlow(profile, sessionId, decisionId) {
+  const db = new DatabaseSync(join(profile, 'store.db'), { readOnly: true })
+  try {
+    const flows = db.prepare('SELECT json FROM entities WHERE slice = ?').all('mcpInputFlows')
+      .map(row => JSON.parse(row.json)).filter(row => row.sessionId === sessionId && row.decisionId === decisionId)
+    assert.equal(flows.length, 1, 'the exact private MCP form flow exists in actual SQLite')
+    return flows[0]
+  } finally { db.close() }
+}
+
+/** Feature-specific mode reuses the same real native custody and product path.
+ * A bounded opt-in peer asks once; a lost HTTP acknowledgement is not a retry. */
+async function smokePrivateInput({ initialRun, relaunch, profile, evidence, fixture, model, identity, connectionId }) {
+  let { page, origin } = initialRun
+  const proposed = await prepareInteractiveCall(page, origin, model, connectionId)
+  const decisionPath = `/sessions/${proposed.sessionId}/tool-activities/${proposed.activity.id}`
+  const inputPath = `${decisionPath}/input`
+  const protocolCalls = () => fixture.snapshot().requests.filter(row => row.headers['mcp-method'] === 'tools/call')
+  assert.equal(protocolCalls().length, 0)
+  await proposed.card.getByRole('button', { name: 'Run tool', exact: true }).click()
+  await expect(page.locator('[data-mcp-input-review]')).toHaveAttribute('data-mcp-input-round', '1', { timeout: 30_000 })
+  const waiting = persistedActivity(profile, proposed.sessionId, proposed.activity.id)
+  assert.equal(waiting.activity.status, 'awaiting-input')
+  const decisionId = waiting.activity.decisionId
+  const flow = persistedInputFlow(profile, proposed.sessionId, decisionId)
+  assert.equal(flow.ownerUserId, identity.user.id)
+  assert.equal(flow.tenantId, identity.tenant.id)
+  assert.equal(flow.round, 1)
+  assert.equal(flow.pending.requestState, MCP_OAUTH_FORM_STATE)
+  assert.deepEqual(flow.receipts, [])
+  const sharedSession = await api(page, `/sessions/${proposed.sessionId}`)
+  assert.equal(JSON.stringify(waiting.activity).includes(identity.user.id), false, 'public activity omits its private person anchor')
+  for (const hidden of [MCP_OAUTH_FORM_STATE, MCP_OAUTH_FORM_MESSAGE, MCP_OAUTH_FORM_ANSWER]) {
+    const encoded = JSON.stringify(hidden).slice(1, -1)
+    assert.equal(JSON.stringify(waiting.activity).includes(encoded), false, 'public activity omits private form state')
+    assert.equal(JSON.stringify(sharedSession).includes(encoded), false)
+  }
+  assert.equal(protocolCalls().length, 1)
+  await captureTranscript(page, join(evidence, 'private-form-awaiting.png'))
+
+  ;({ page, origin } = await relaunch())
+  assert.equal((await api(page, '/me')).user.id, identity.user.id)
+  await page.goto(`${origin}/s/${proposed.sessionId}`)
+  const review = page.locator('[data-mcp-input-review]')
+  await expect(review).toHaveAttribute('data-mcp-input-round', '1', { timeout: 30_000 })
+  assert.deepEqual(persistedInputFlow(profile, proposed.sessionId, decisionId), flow)
+  assert.deepEqual(persistedActivity(profile, proposed.sessionId, proposed.activity.id), waiting)
+  assert.equal(protocolCalls().length, 1, 'waiting review relaunch cannot resubmit its tool')
+  await captureTranscript(page, join(evidence, 'private-form-relaunched.png'))
+
+  const inputRequests = []
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.startsWith(`/api/v1${inputPath}`)) inputRequests.push({
+      method: request.method(), path: new URL(request.url()).pathname + new URL(request.url()).search,
+      ...(request.method() === 'POST' ? { body: request.postDataJSON() } : {}),
+    })
+  })
+  let lostAcknowledgements = 0
+  await page.route(url => url.pathname === `/api/v1${inputPath}`, async route => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    const headers = { ...route.request().headers() }; delete headers.origin
+    const response = await route.fetch({ headers })
+    assert.equal(response.status(), 200, 'the real response commits before transport loss')
+    lostAcknowledgements += 1
+    await route.abort()
+  })
+  await review.getByLabel('Review note (required)', { exact: true }).fill(MCP_OAUTH_FORM_ANSWER)
+  await review.getByLabel('Approve this response (required)', { exact: true }).selectOption('true')
+  await review.getByRole('button', { name: 'Continue with responses', exact: true }).click()
+  const recovery = page.locator('[data-mcp-input-recovery]')
+  await expect(page.locator('[data-mcp-input-attempt="receipt"]')).toBeVisible({ timeout: 30_000 })
+  assert.equal(lostAcknowledgements, 1)
+  const submissions = inputRequests.filter(row => row.method === 'POST')
+  assert.equal(submissions.length, 1, 'automatic and explicit recovery never rePOST the reviewed response')
+  const command = submissions[0].body
+  assert.deepEqual(command.responses, { review: { action: 'accept', content: { note: MCP_OAUTH_FORM_ANSWER, approved: true } } })
+  assert.equal(command.decisionId, decisionId)
+  assert.equal(command.round, 1)
+  const receiptPath = `${inputPath}/receipts/${command.responseId}?decisionId=${encodeURIComponent(decisionId)}`
+  // The recovery command loads lazily: the existing receipt can still be
+  // visible immediately after click. Await this exact new read, not old UI.
+  const checking = page.waitForResponse(response => response.request().method() === 'GET' &&
+    new URL(response.url()).pathname + new URL(response.url()).search === `/api/v1${receiptPath}`)
+  await recovery.getByRole('button', { name: 'Check status', exact: true }).click()
+  const checked = await checking
+  assert.equal(checked.status(), 200)
+  assert.equal((await checked.json()).activity.status, 'done')
+  await expect(page.locator('[data-mcp-input-attempt="receipt"]')).toBeVisible()
+  await expect.poll(() => inputRequests.filter(row => row.method === 'GET' && row.path === `/api/v1${receiptPath}`).length,
+    { message: 'both lost-acknowledgement recovery and Check status read the exact receipt' }).toBe(2)
+  assert.equal(inputRequests.filter(row => row.method === 'POST').length, 1, 'Check status never rePOSTs')
+  const completedReceipt = await api(page, receiptPath)
+  assert.equal(completedReceipt.activity.status, 'done')
+  const completed = persistedActivity(profile, proposed.sessionId, proposed.activity.id)
+  const completedFlow = persistedInputFlow(profile, proposed.sessionId, decisionId)
+  assert.equal(completed.activity.status, 'done')
+  assert.equal(completedFlow.pending, undefined)
+  assert.equal(completedFlow.receipts.length, 1)
+  assert.deepEqual(Object.keys(completedFlow.receipts[0]).sort(), ['action', 'payloadHash', 'responseId', 'round'])
+  assert.equal(completedFlow.receipts[0].responseId, command.responseId)
+  assert.match(completedFlow.receipts[0].payloadHash, /^[a-f0-9]{64}$/)
+  assert.equal(JSON.stringify(completedFlow).includes(MCP_OAUTH_FORM_ANSWER), false)
+  const calls = protocolCalls().map(row => JSON.parse(row.body))
+  assert.equal(calls.length, 2)
+  assert.notEqual(calls[0].id, calls[1].id)
+  assert.deepEqual(calls[0].params.arguments, { query: MCP_OAUTH_FORM_QUERY })
+  assert.deepEqual(calls[1].params.arguments, calls[0].params.arguments)
+  assert.equal(calls[1].params.requestState, MCP_OAUTH_FORM_STATE)
+  assert.deepEqual(calls[1].params.inputResponses, command.responses)
+  assert.deepEqual(calls[1].params._meta['io.modelcontextprotocol/clientCapabilities'], { elicitation: { form: {} } })
+  for (const file of ['store.db', 'store.db-wal', 'store.db-shm']) {
+    const bytes = await readFile(join(profile, file)).catch(error => { if (error.code === 'ENOENT') return Buffer.alloc(0); throw error })
+    assert.equal(bytes.includes(Buffer.from(MCP_OAUTH_FORM_ANSWER)), false, `private answers never persist in ${file}`)
+  }
+  assert.equal(JSON.stringify(model.requests).includes(MCP_OAUTH_FORM_ANSWER), false)
+  assert.equal(JSON.stringify(await api(page, `/sessions/${proposed.sessionId}`)).includes(MCP_OAUTH_FORM_ANSWER), false)
+  await recovery.getByRole('button', { name: 'Review latest', exact: true }).click()
+  await expect(recovery).toHaveCount(0)
+  await expect(page.locator('[data-mcp-tool-status="done"]')).toContainText(`Fixture record for ${MCP_OAUTH_FORM_QUERY}`)
+  await captureTranscript(page, join(evidence, 'private-form-result.png'))
+
+  ;({ page, origin } = await relaunch())
+  assert.equal((await api(page, '/me')).user.id, identity.user.id)
+  assert.deepEqual(persistedActivity(profile, proposed.sessionId, proposed.activity.id), completed)
+  assert.deepEqual(persistedInputFlow(profile, proposed.sessionId, decisionId), completedFlow)
+  assert.deepEqual(await api(page, receiptPath), completedReceipt)
+  await page.goto(`${origin}/s/${proposed.sessionId}`)
+  await expect(page.locator('[data-mcp-tool-status="done"]')).toContainText(`Fixture record for ${MCP_OAUTH_FORM_QUERY}`)
+  await expect(page.locator('[data-mcp-input-review]')).toHaveCount(0)
+  assert.equal(protocolCalls().length, 2, 'completed relaunch and exact receipt GET do not dispatch another call')
+  assert.equal(model.requests.length, 2, 'form review and recovery never invoke the model')
+  await assertPrivateStorage(profile, MCP_OAUTH_FIXTURE_SECRET_CANARIES)
+  await captureTranscript(page, join(evidence, 'private-form-result-relaunched.png'))
 }
 
 function persistedContribution(profile, contributionId) {
@@ -390,8 +526,9 @@ async function assertPrivateStorage(profile, canaries) {
   }
 }
 
-export async function smokePackagedMcpOAuth({ executable = packagedExecutable() } = {}) {
+export async function smokePackagedMcpOAuth({ executable = packagedExecutable(), formReview = false } = {}) {
   if (process.platform !== 'darwin') throw new Error('Packaged OAuth acceptance requires macOS')
+  if (typeof formReview !== 'boolean') throw new TypeError('Invalid packaged form-review mode')
   const profile = await mkdtemp(join(tmpdir(), 'ac-native-oauth-smoke-'))
   const evidenceRoot = join(ROOT, '.data', 'desktop-oauth-smoke')
   await mkdir(evidenceRoot, { recursive: true })
@@ -402,7 +539,7 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
   let fixture, model, routineModel, copied, run
   let stage = 'startup'
   try {
-    fixture = await startMcpOAuthSmokeFixture()
+    fixture = await startMcpOAuthSmokeFixture(formReview ? { formReview: true, accessTokenLifetimeSeconds: 3_600 } : undefined)
     copied = await createMcpFixturePackage(executable, oauthSmokePatches(fixture.origin))
     run = await launchPackagedDesktop(copied.executable, profile)
     let { page, origin } = run
@@ -446,6 +583,20 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
     assert.equal(fixture.snapshot().counts.refreshes, 0)
     assert.equal(fixture.snapshot().counts.mcpCalls, 0, 'sign-in/inspection grants no tool-call consent')
     await page.screenshot({ path: join(evidence, 'connected.png'), fullPage: true })
+
+    if (formReview) {
+      stage = 'private-form-review-relaunch-and-receipt-only-recovery'
+      model = await startMcpOAuthMessagesSmokeFixture()
+      await smokePrivateInput({ initialRun: run, profile, evidence, fixture, model, identity, connectionId: id,
+        relaunch: async () => {
+          await closePackagedDesktop(run); run = undefined
+          run = await launchPackagedDesktop(copied.executable, profile)
+          return run
+        } })
+      console.log('[desktop-oauth-form-smoke] native OAuth custody · private saved form · awaiting signed-in relaunch without dispatch · one explicit continuation · lost POST acknowledgement · exact GET-only recovery · verbatim opaque state/original arguments · SQLite digest-only receipt · completed relaunch without replay')
+      console.log(`[desktop-oauth-form-smoke] evidence ${evidence}`)
+      return
+    }
 
     stage = 'full-native-relaunch'
     await closePackagedDesktop(run); run = undefined
@@ -635,4 +786,4 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) await smokePackagedMcpOAuth()
+if (process.argv[1] === fileURLToPath(import.meta.url)) await smokePackagedMcpOAuth({ formReview: process.argv.includes('--forms') })

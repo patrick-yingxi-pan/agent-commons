@@ -97,6 +97,9 @@ export const keys = {
   toolActivityEligibility: (id: string, tenantId: string, userId: string) =>
     `tool-activity-eligibility:${JSON.stringify(id)}:${JSON.stringify([tenantId, userId])}`,
   toolActivityEligibilityPrefix: (id: string) => `tool-activity-eligibility:${JSON.stringify(id)}`,
+  mcpInput: (id: string, activityId: string, decisionId: string, tenantId: string, userId: string) =>
+    `mcp-input:${JSON.stringify(id)}:${JSON.stringify([activityId, decisionId, tenantId, userId])}`,
+  mcpInputPrefix: (id?: string) => id === undefined ? 'mcp-input' : `mcp-input:${JSON.stringify(id)}`,
   dispatch: 'dispatch',
   savedContexts: 'saved-contexts',
   contextCatalog: 'context-catalog',
@@ -323,6 +326,10 @@ export const paths = {
   sessionPreferences: (id: string) => `/sessions/${encodePathSegment(id)}/preferences`,
   toolActivity: (id: string, activityId: string) =>
     `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}`,
+  mcpInput: (id: string, activityId: string, decisionId?: string) =>
+    `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}/input${decisionId === undefined ? '' : `?decisionId=${encodeURIComponent(decisionId)}`}`,
+  mcpInputReceipt: (id: string, activityId: string, responseId: string, decisionId: string) =>
+    `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}/input/receipts/${encodePathSegment(responseId)}?decisionId=${encodeURIComponent(decisionId)}`,
   sessionCompact: (id: string) => `/sessions/${encodePathSegment(id)}/compact`,
   sessionCompactedMessages: (id: string, page: { limit: number; cursor?: string }) => {
     const cursor = page.cursor ? `&cursor=${encodePathSegment(page.cursor)}` : ''

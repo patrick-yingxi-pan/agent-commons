@@ -17,12 +17,13 @@ import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
-test('form-elicitation protocol data stays unwired until a private consent workflow owns it', () => {
-  const allowed = new Set(['server/mcpToolCall.ts', 'server/mcpSession.ts', 'server/mcpFormToolSession.ts']
+test('form-elicitation execution is confined to the private person-consent workflow', () => {
+  const allowed = new Set(['server/mcpToolCall.ts', 'server/mcpSession.ts', 'server/mcpFormToolSession.ts',
+    'server/mcpBoundExecution.ts', 'server/mcpExecution.ts', 'server/routes/index.ts', 'server/routes/mcpInput.ts']
     .map(path => join(ROOT, path)))
-  const symbols = /\b(?:createMcpFormToolCaller|createMcpFormSession|createMcpFormToolSession|callToolWithForms)\b/
+  const symbols = /\b(?:createMcpFormToolCaller|createMcpFormSession|createMcpFormToolSession|callToolWithForms|createBoundMcpFormExecutor|createApprovedMcpFormExecutor|executeApprovedMcpFormActivity)\b/
   const check = (source: string, path: string) => assert.doesNotMatch(source, symbols,
-    `${path}: product code must not opt into form exchange before durable person-bound consent exists`)
+    `${path}: form exchange requires the private person-bound consent workflow`)
   for (const directory of ['server', 'src', 'desktop']) {
     for (const path of filesUnder(directory, ['.ts', '.tsx', '.mjs', '.cjs'])) {
       if (path.endsWith('.test.mjs') || path.endsWith('.d.mts') || allowed.has(path)) continue

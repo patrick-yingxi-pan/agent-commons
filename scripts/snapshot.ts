@@ -61,6 +61,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
   } = await import('../server/relay.ts')
   const { providerSecretRotationId } = await import('../server/providerSecretRotationIdentity.ts')
   const { mcpConnectionCreationId } = await import('../server/mcpConnections.ts')
+  const { admitMcpCatalog, mcpToolSchemaHash } = await import('../server/mcpToolAdmission.ts')
+  const { accounts: seededAccounts } = await import('../server/accounts.ts')
 
   // Re-seed from the source-controlled fixtures (no configured store → seed,
   // then write the baseline). Every store mutation from here persists.
@@ -98,6 +100,50 @@ export async function buildComprehensive(): Promise<PersistedState> {
     tools: [{ name: 'snapshot_fixture', inputSchema: { type: 'object' } }],
   }, 1)
   store.removeMcpConnection(retiredMcpId, mcpOwner, 0)
+
+  // Exercise private MCP form persistence through the real store transitions.
+  // This uses Ada's seeded person and tenant, with an offline-admitted catalog;
+  // no transport, credential, or submitted answer is involved.
+  const mcpAdaTenant = 'tenant-acme'
+  const mcpAdaUser = 'user-ada'
+  if (!seededAccounts.identityFor(mcpAdaUser, mcpAdaTenant)) throw new Error('The seeded Ada identity is unavailable for the MCP input fixture.')
+  const mcpAdaId = mcpConnectionCreationId(mcpAdaTenant, 'snapshot-input')
+  const mcpAdaTool = {
+    name: 'snapshot.input',
+    inputSchema: { type: 'object', properties: { request: { type: 'string' } }, required: ['request'], additionalProperties: false },
+  }
+  const mcpAdaAdmission = await admitMcpCatalog([mcpAdaTool])
+  store.createMcpConnection({
+    id: mcpAdaId, label: 'Snapshot input fixture', endpoint: 'https://mcp.example/snapshot-input', authentication: 'none',
+  }, mcpAdaTenant)
+  store.commitMcpInspection(mcpAdaId, mcpAdaTenant, 0, {
+    protocolVersion: '2026-07-28', cleanup: 'not-needed',
+    tools: [mcpAdaTool],
+    schemaAdmission: mcpAdaAdmission,
+  }, 2)
+  const mcpAdaSession = store.createSession('Private MCP input snapshot fixture', mcpAdaTenant)
+  store.attachContext(mcpAdaSession.id, { id: mcpAdaId, type: 'mcp', label: 'Snapshot input fixture', scope: '*' }, mcpAdaUser)
+  const mcpAdaActivity = {
+    id: 'mcp-input-snapshot-fixture', tool: 'mcp__snapshot__input', connector: 'Snapshot input fixture',
+    connectorId: mcpAdaId, kind: 'action' as const, status: 'proposed' as const,
+    summary: 'A private input action for the snapshot fixture.', input: { request: 'snapshot-only' },
+    mcp: { connectionRevision: 1, toolName: mcpAdaTool.name, schemaHash: mcpToolSchemaHash(mcpAdaTool) },
+  }
+  store.appendMessage(mcpAdaSession.id, {
+    id: store.mintMessageId('assistant'), role: 'assistant', content: 'Review the inert MCP action.', toolActivities: [mcpAdaActivity],
+  })
+  const mcpAdaDecisionId = 'tool-activity-decision-aaaaaaaaaaaaaaaaaaaaaaaa'
+  store.beginMcpToolActivityExecution(mcpAdaSession.id, mcpAdaActivity.id, mcpAdaDecisionId, mcpAdaTenant, mcpAdaUser, true)
+  store.settleMcpToolActivityExecution(mcpAdaSession.id, mcpAdaActivity.id, mcpAdaDecisionId, mcpAdaTenant, {
+    status: 'awaiting-input', summary: 'The MCP snapshot fixture needs private input.',
+    pending: {
+      resultType: 'input_required', requestState: 'snapshot-private-opaque-state',
+      inputRequests: { request: { method: 'elicitation/create', params: {
+        mode: 'form', message: 'Choose a snapshot fixture value.',
+        requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['one', 'two'] } }, required: ['choice'] },
+      } } },
+    },
+  }, mcpAdaUser)
 
   // ── Projects ── a created project (extraProjects) the rest files into.
   store.applyRelationOp({

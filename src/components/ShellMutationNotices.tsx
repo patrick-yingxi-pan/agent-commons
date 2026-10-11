@@ -62,6 +62,7 @@ import { DiscussionPostDeletionMutationNotice } from './DiscussionPostDeletionMu
 import { DiscussionStateMutationNotice } from './DiscussionStateMutationNotice'
 import { SessionForkMutationNotice } from './SessionForkMutationNotice'
 import { ToolActivityDecisionMutationNotice } from './ToolActivityDecisionMutationNotice'
+import { McpInputMutationNotice } from './McpInputMutationNotice'
 import { RelationActionDecisionMutationNotice } from './RelationActionDecisionMutationNotice'
 import { ApiTokenRevocationMutationNotice } from './ApiTokenRevocationMutationNotice'
 import { ApiTokenMintMutationNotice } from './ApiTokenMintMutationNotice'
@@ -90,6 +91,7 @@ export function ShellMutationNotices() {
       <DiscussionStateMutationNotice />
       <SessionForkMutationNotice />
       <ToolActivityDecisionMutationNotice />
+      <McpInputMutationNotice />
       <RelationActionDecisionMutationNotice />
       <ApiTokenMintMutationNotice />
       <ApiTokenRevocationMutationNotice />

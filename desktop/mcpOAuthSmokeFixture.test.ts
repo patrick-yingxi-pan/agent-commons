@@ -5,7 +5,7 @@ import { Readable } from 'node:stream'
 import { test } from 'node:test'
 import { createMcpDiscovery } from '../server/mcpDiscovery.ts'
 import { createMcpHttpTransport } from '../server/mcpHttpTransport.ts'
-import { createMcpToolCaller } from '../server/mcpToolCall.ts'
+import { createMcpFormToolCaller, createMcpToolCaller } from '../server/mcpToolCall.ts'
 import {
   createMcpOAuthSmokeFixture,
   MCP_OAUTH_FIXTURE_ACCESS_CANARY,
@@ -14,6 +14,10 @@ import {
   MCP_OAUTH_FIXTURE_REFRESHED_ACCESS_CANARY,
   MCP_OAUTH_FIXTURE_REFRESHED_REFRESH_CANARY,
   MCP_OAUTH_FIXTURE_RESOURCE,
+  MCP_OAUTH_FORM_QUERY,
+  MCP_OAUTH_FORM_STATE,
+  MCP_OAUTH_FORM_ANSWER,
+  MCP_OAUTH_FORM_MESSAGE,
 } from './mcpOAuthSmokeFixture.mjs'
 
 const VERSION = '2026-07-28'
@@ -220,4 +224,42 @@ test('fixture exposes a local HTTP origin and drains it on close when socket bin
     assert.equal((await response.json()).resource, MCP_OAUTH_FIXTURE_RESOURCE)
   } finally { await fixture.close() }
   assert.equal(fixture.origin, undefined)
+})
+
+test('opt-in private form fixture requires explicit capabilities and one exact continuation; default calls stay ordinary', async () => {
+  const ordinary = createMcpOAuthSmokeFixture()
+  const ordinaryPost = fixtureTransport(ordinary)
+  const ordinaryOptions = { scope: 'public', bearerToken: await issueAccessToken(ordinary) }
+  const ordinaryCatalog = await createMcpDiscovery({ post: ordinaryPost })(MCP_OAUTH_FIXTURE_RESOURCE, ordinaryOptions)
+  const ordinaryResult = await createMcpToolCaller({ post: ordinaryPost })(MCP_OAUTH_FIXTURE_RESOURCE, {
+    protocolVersion: VERSION, tool: ordinaryCatalog.tools[0], arguments: { query: MCP_OAUTH_FORM_QUERY },
+  }, ordinaryOptions)
+  assert.equal(ordinaryResult.resultType, 'complete', 'default comprehensive smoke never receives form requests')
+
+  const fixture = createMcpOAuthSmokeFixture({ formReview: true })
+  const post = fixtureTransport(fixture)
+  const options = { scope: 'public', bearerToken: await issueAccessToken(fixture) }
+  const catalog = await createMcpDiscovery({ post })(MCP_OAUTH_FIXTURE_RESOURCE, options)
+  const invocation = { protocolVersion: VERSION, tool: catalog.tools[0], arguments: { query: MCP_OAUTH_FORM_QUERY } }
+  await assert.rejects(createMcpToolCaller({ post })(MCP_OAUTH_FIXTURE_RESOURCE, invocation, options), /MCP tool call failed/)
+  const call = createMcpFormToolCaller({ post })
+  const pending = await call(MCP_OAUTH_FIXTURE_RESOURCE, invocation, options)
+  assert.equal(pending.resultType, 'input_required')
+  assert.equal(pending.requestState, MCP_OAUTH_FORM_STATE)
+  assert.equal(pending.inputRequests.review.params.message, MCP_OAUTH_FORM_MESSAGE)
+  const responses = { review: { action: 'accept', content: { note: MCP_OAUTH_FORM_ANSWER, approved: true } } }
+  await assert.rejects(call(MCP_OAUTH_FIXTURE_RESOURCE, { ...invocation,
+    continuation: { pending: { ...pending, requestState: pending.requestState.trim() }, responses },
+  }, options), /MCP tool call failed/, 'opaque state cannot be normalized')
+  const completed = await call(MCP_OAUTH_FIXTURE_RESOURCE, { ...invocation, continuation: { pending, responses } }, options)
+  assert.equal(completed.resultType, 'complete')
+  assert.deepEqual(completed.structuredContent, { query: MCP_OAUTH_FORM_QUERY, record: 'fixture-record-1' })
+  assert.equal(JSON.stringify(completed).includes(MCP_OAUTH_FORM_ANSWER), false)
+  await assert.rejects(call(MCP_OAUTH_FIXTURE_RESOURCE, { ...invocation, continuation: { pending, responses } }, options),
+    /MCP tool call failed/, 'the fixture refuses a second explicit continuation')
+  const bodies = fixture.snapshot().requests.filter(row => row.headers['mcp-method'] === 'tools/call').map(row => JSON.parse(row.body))
+  assert.notEqual(bodies[1].id, bodies[3].id)
+  assert.deepEqual(bodies[1].params.arguments, bodies[3].params.arguments)
+  assert.equal(bodies[3].params.requestState, MCP_OAUTH_FORM_STATE)
+  assert.deepEqual(bodies[3].params.inputResponses, responses)
 })

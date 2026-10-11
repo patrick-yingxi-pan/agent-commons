@@ -50,6 +50,8 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     .sort()
   assert.deepEqual(intrinsic, [
     'GET /image-assets/:id/original',
+    'GET /sessions/:id/tool-activities/:activityId/input',
+    'GET /sessions/:id/tool-activities/:activityId/input/receipts/:responseId',
     'POST /artifacts',
     'POST /image-assets',
     'POST /projects',
@@ -57,6 +59,7 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     'POST /sessions/:id/messages',
     'POST /sessions/:id/messages/:messageId/relations',
     'POST /sessions/:id/tool-activities/:activityId',
+    'POST /sessions/:id/tool-activities/:activityId/input',
     'POST /sessions/:id/turns/:turnId/cancel',
   ])
   for (const mustBeForm of [
@@ -72,6 +75,8 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
   const { byName } = deriveApiTools(catalog)
   assert.ok(!byName.has('api__post_artifacts'), 'the in-app model cannot self-authorize direct Artifact creation')
   assert.ok(!byName.has('api__get_image_assets_by_id_original'), 'the in-app model cannot widen normalized input to original source bytes')
+  for (const name of byName.keys()) assert.ok(!/tool_activities.*_input(?:_|$)/.test(name),
+    'the in-app model cannot read or answer human follow-up forms')
   assert.ok(byName.has('api__get_admin_users'), 'maintainer reads are present and rely on the same route wall')
   assert.ok(byName.has('api__post_admin_users_by_id_deactivate'), 'maintainer mutations are consent-gated, not hidden')
 })
