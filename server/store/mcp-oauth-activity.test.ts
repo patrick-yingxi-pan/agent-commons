@@ -39,7 +39,7 @@ test('OAuth MCP proposal, exact receipt replay and settlement stay bound to the 
   const unowned = store.createSession('No implicit OAuth actor', tenantId)
   assert.throws(() => store.appendMessage(unowned.id, {
     id: store.mintMessageId('assistant'), role: 'assistant', content: 'Review.', toolActivities: [{ ...activity, id: `${activity.id}-without-owner` }],
-  }), /OAuth-backed MCP proposal/)
+  }), /person-owned MCP proposal/)
   assert.equal(store.getToolActivity(unowned.id, `${activity.id}-without-owner`), undefined)
   assert.equal(store.getToolActivityDecision(session.id, activity.id, receipt, tenantId, 'confirm'), undefined)
   assert.equal(store.beginMcpToolActivityExecution(session.id, activity.id, receipt, tenantId, other), undefined)

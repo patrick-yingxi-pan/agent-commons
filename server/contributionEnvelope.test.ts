@@ -39,13 +39,21 @@ function oauthRow(): PrivateMcpConnection {
     credentialReference: `MCP_DESKTOP_${'A'.repeat(32)}` }
 }
 
+function stdioRow(): PrivateMcpConnection {
+  return { transport: 'stdio', tenantId: 'tenant-a', id: connectionId, label: 'Local writer', ownerUserId,
+    revision: 8, connected: true, grantReference: `MCP_STDIO_${'A'.repeat(32)}`,
+    inspection: { protocolVersion: MCP_MODERN_VERSION, cleanup: 'released', inspectedAt: 1, tools: [structuredClone(tool)],
+      schemaAdmission: { version: MCP_SCHEMA_ADMISSION_VERSION, hashes: [schemaHash] } } }
+}
+
 function store(initial = row()) {
   let current = initial
   const value = {
     privateMcpConnection: (id: string, tenantId: string) => id === current.id && tenantId === current.tenantId ? structuredClone(current) : undefined,
     mcpConnection: (id: string, tenantId: string): McpConnectionView | undefined => id === current.id && tenantId === current.tenantId
       ? { id: current.id, label: current.label, status: current.connected ? 'connected' : 'disconnected', revision: current.revision,
-        authentication: current.authentication, protocolVersion: current.inspection?.protocolVersion ?? null, inspectedAt: 1,
+        ...(current.transport === 'stdio' ? { transport: 'stdio' as const } : { authentication: current.authentication }),
+        protocolVersion: current.inspection?.protocolVersion ?? null, inspectedAt: 1,
         tools: structuredClone(current.inspection?.tools ?? []), execution: current.connected ? 'approval-required' : 'unavailable',
         executableTools: current.connected ? [tool.name] : [] }
       : undefined,
@@ -191,6 +199,18 @@ test('OAuth preparation requires an exact valid owner even when a store exposes 
   }
   const ownerStampedLegacy = { ...row(), ownerUserId }
   assert.equal(await prepareContributionMcpLines(store(ownerStampedLegacy), 'tenant-a', normalize(), ownerUserId), undefined)
+})
+
+test('stdio connections are refused before Contribution preparation and rechecks, despite an exact person-owned grant', async () => {
+  const local = store(stdioRow())
+  assert.equal(await prepareContributionMcpLines(local, 'tenant-a', normalize(), ownerUserId), undefined)
+
+  const legacy = store()
+  const prepared = await prepareContributionMcpLines(legacy, 'tenant-a', normalize())
+  assert.ok(prepared)
+  const stored = { ...prepared[0], id: 'line-1', used: 0 } as StoredContributionEnvelopeLine
+  local.replace(stdioRow())
+  assert.equal(currentContributionMcpLine(local, 'tenant-a', stored, ownerUserId), false)
 })
 
 test('OAuth rechecks bind the actor and stored owner, and reject owner-stamped legacy lines', async () => {

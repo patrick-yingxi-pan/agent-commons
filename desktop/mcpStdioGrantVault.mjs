@@ -218,6 +218,41 @@ export async function openMcpStdioGrantVault({ filePath, storage, platform = pro
         await publish(next, options)
       })
     },
+    async reconcile(rawBindings, rawOptions) {
+      const options = optionsSnapshot(rawOptions)
+      const keep = new Map()
+      try {
+        if (!Array.isArray(rawBindings) || Object.getPrototypeOf(rawBindings) !== Array.prototype ||
+            rawBindings.length > MCP_STDIO_GRANT_LIMITS.entries ||
+            Reflect.ownKeys(rawBindings).length !== rawBindings.length + 1) fail('invalid')
+        for (let index = 0; index < rawBindings.length; index += 1) {
+          const descriptor = Object.getOwnPropertyDescriptor(rawBindings, String(index))
+          if (!descriptor?.enumerable || !Object.hasOwn(descriptor, 'value') ||
+              !exactRecord(descriptor.value, ['reference', 'binding'])) fail('invalid')
+          const row = descriptor.value, binding = inputs(row.reference, row.binding)
+          if (keep.has(row.reference)) fail('invalid')
+          keep.set(row.reference, binding)
+        }
+      } catch { fail('invalid') }
+      current(options)
+      // Retire leases before the disk queue: failure to erase custody cannot
+      // revive a process whose authoritative binding has already been removed.
+      for (const [reference, entry] of entries) {
+        const binding = keep.get(reference)
+        if (!binding || !sameBinding(entry.binding, binding)) entry.controller.abort()
+      }
+      return enqueue(async () => {
+        current(options)
+        const next = new Map()
+        for (const [reference, binding] of keep) {
+          const entry = entries.get(reference)
+          if (entry && sameBinding(entry.binding, binding)) next.set(reference, entry)
+        }
+        if (next.size !== entries.size) await publish(next, options)
+        // Missing, mismatched, or already-retired custody is not a usable grant.
+        return next.size === keep.size && [...next.values()].every(entry => !entry.controller.signal.aborted)
+      })
+    },
     close() { closed = true; abortAll() },
   })
 }

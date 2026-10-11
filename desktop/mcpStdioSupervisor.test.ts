@@ -372,3 +372,19 @@ test('leader exit retires group signaling immediately, never on delayed pipe clo
   await connection.closed
   assert.deepEqual(child.kills, ['SIGKILL'])
 })
+
+test('disposal acknowledgement waits for every owned physical close, not EOF or TERM', async t => {
+  const h = harness(t)
+  h.open(); h.open()
+  let settled = false
+  const disposal = h.supervisor.dispose().then(() => { settled = true })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(settled, false)
+  h.children[0].emit('close', 0)
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(settled, false)
+  h.children[1].emit('close', 0)
+  await disposal
+  assert.equal(settled, true)
+  assert.throws(() => h.open(), errorCode('cancelled'))
+})

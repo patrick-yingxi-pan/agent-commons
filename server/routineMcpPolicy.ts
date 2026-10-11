@@ -110,7 +110,7 @@ export function parseRoutineMcpPolicy(value: unknown): StoredRoutineMcpPolicy {
 }
 
 function matchesConnection(permission: RoutineMcpToolPermission, view: McpConnectionView | undefined): boolean {
-  if (!view || view.id !== permission.connectionId || view.revision !== permission.connectionRevision ||
+  if (!view || view.transport === 'stdio' || view.id !== permission.connectionId || view.revision !== permission.connectionRevision ||
       view.status !== 'connected' || view.execution !== 'approval-required' || !view.executableTools?.includes(permission.toolName)) return false
   const matches = view.tools.filter(tool => tool.name === permission.toolName)
   try { return matches.length === 1 && mcpToolSchemaHash(matches[0]) === permission.schemaHash } catch { return false }

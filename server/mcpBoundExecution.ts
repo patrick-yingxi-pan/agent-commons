@@ -14,6 +14,8 @@ import { MCP_SCHEMA_ADMISSION_VERSION, admitMcpTool, mcpToolSchemaHash } from '.
 import { validateMcpSchema } from './mcpSchema.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
+import { createMcpStdioClient, McpStdioClientError } from './mcpStdioClient.ts'
+import type { McpStdioBinding } from './mcpRuntime.ts'
 
 const EXECUTION_TIMEOUT_MS = 30_000
 const callMcpFormToolSession = createMcpFormToolSession()
@@ -42,7 +44,6 @@ function snapshotConnection(value: PrivateMcpConnection, binding: McpBoundToolCa
     // discovered catalog can be much larger than one selected schema, and
     // unrelated tools must neither enter this call's snapshot nor its budget.
     if (typeof value.id !== 'string' || typeof value.tenantId !== 'string' || typeof value.label !== 'string' ||
-        typeof value.endpoint !== 'string' || !['none', 'device-bearer', 'device-oauth'].includes(value.authentication) ||
         !Number.isSafeInteger(value.revision) || typeof value.connected !== 'boolean' || !value.inspection ||
         typeof value.inspection.protocolVersion !== 'string' || typeof value.inspection.cleanup !== 'string' ||
         !Number.isSafeInteger(value.inspection.inspectedAt) || !Array.isArray(value.inspection.tools)) return undefined
@@ -54,12 +55,10 @@ function snapshotConnection(value: PrivateMcpConnection, binding: McpBoundToolCa
         admission.hashes.length > value.inspection.tools.length) return undefined
     const hashes = snapshotMcpJson(admission.hashes, { maxBytes: 16_384, maxDepth: 3, maxNodes: 512 })
     if (!Array.isArray(hashes)) return undefined
-    const snapshot: PrivateMcpConnection = {
+    const base = {
       id: value.id,
       tenantId: value.tenantId,
       label: value.label,
-      endpoint: value.endpoint,
-      authentication: value.authentication,
       ...(value.ownerUserId === undefined ? {} : { ownerUserId: value.ownerUserId }),
       revision: value.revision,
       connected: value.connected,
@@ -70,9 +69,16 @@ function snapshotConnection(value: PrivateMcpConnection, binding: McpBoundToolCa
         tools: [tool as unknown as McpDiscoveredTool],
         schemaAdmission: { version: admission.version, hashes: hashes as string[] },
       },
-      ...(value.credentialReference === undefined ? {} : { credentialReference: value.credentialReference }),
     }
-    return snapshot
+    if (value.transport === 'stdio') {
+      if (value.ownerUserId === undefined || value.endpoint !== undefined || value.authentication !== undefined ||
+          (value.grantReference !== undefined && (typeof value.grantReference !== 'string' || !/^MCP_STDIO_[A-F0-9]{32}$/.test(value.grantReference)))) return undefined
+      return { ...base, transport: 'stdio', ownerUserId: value.ownerUserId,
+        ...(value.grantReference === undefined ? {} : { grantReference: value.grantReference }) }
+    }
+    if (typeof value.endpoint !== 'string' || !['none', 'device-bearer', 'device-oauth'].includes(value.authentication)) return undefined
+    return { ...base, transport: 'http', endpoint: value.endpoint, authentication: value.authentication,
+      ...(value.credentialReference === undefined ? {} : { credentialReference: value.credentialReference }) }
   } catch { return undefined }
 }
 
@@ -158,7 +164,7 @@ function createBoundMcpExecutionCore({
     const view = store.mcpConnection(binding.connectionId, tenantId, actorUserId)
     const tool = initial && executableTool(initial, binding)
     if (!initial || initial.id !== binding.connectionId || initial.tenantId !== tenantId || !tool ||
-        (initial.authentication === 'device-oauth' && (!actorUserId || !initial.ownerUserId || initial.ownerUserId !== actorUserId)) ||
+        (initial.ownerUserId !== undefined && (!actorUserId || initial.ownerUserId !== actorUserId)) ||
         !view || view.id !== binding.connectionId || view.revision !== binding.connectionRevision ||
         view.execution !== 'approval-required' || !view.executableTools?.includes(binding.toolName)) {
       return refuse(unavailable)
@@ -185,13 +191,22 @@ function createBoundMcpExecutionCore({
       if (!frozenContinuation) return uncertain(CONTINUATION_UNKNOWN)
     }
     const runtime = { ...runtimeConfiguration() }
+    let endpoint: string | undefined
+    if (initial.transport !== 'stdio') {
+      try {
+        const destination = mcpConnectionEndpoint(initial.endpoint, initial.authentication === 'device-oauth' ? false : runtime.allowLoopback)
+        endpoint = destination.endpoint
+      } catch { return refuse(unavailable) }
+    }
     const stillBound = (): boolean => {
       if (!authorized(authorize)) return false
       const live = store.privateMcpConnection(binding.connectionId, tenantId, actorUserId)
-      if (!live || live.id !== binding.connectionId || live.tenantId !== tenantId ||
-          live.endpoint !== initial.endpoint || live.authentication !== initial.authentication ||
-          live.credentialReference !== initial.credentialReference || live.ownerUserId !== initial.ownerUserId ||
-          live.inspection?.protocolVersion !== protocolVersion) return false
+      if (!live || live.id !== binding.connectionId || live.tenantId !== tenantId || (live.transport ?? 'http') !== initial.transport ||
+          live.ownerUserId !== initial.ownerUserId || live.inspection?.protocolVersion !== protocolVersion ||
+          (initial.transport === 'stdio'
+            ? live.transport !== 'stdio' || live.grantReference !== initial.grantReference
+            : live.transport === 'stdio' || live.endpoint !== initial.endpoint || live.authentication !== initial.authentication ||
+              live.credentialReference !== initial.credentialReference)) return false
       const liveView = store.mcpConnection(binding.connectionId, tenantId, actorUserId)
       return Boolean(liveView && liveView.id === binding.connectionId &&
         liveView.revision === binding.connectionRevision && liveView.execution === 'approval-required' &&
@@ -214,17 +229,15 @@ function createBoundMcpExecutionCore({
       if (!acceptedInput.ok) return refuse('The reviewed MCP arguments are not valid for this tool. Start a new tool request.')
       if (!stillBound()) return refuse(unavailable)
 
-      const { endpoint, scope } = mcpConnectionEndpoint(initial.endpoint,
-        initial.authentication === 'device-oauth' ? false : runtime.allowLoopback)
       let bearerToken: string | undefined
-      if (initial.authentication === 'device-bearer') {
+      if (initial.transport !== 'stdio' && initial.authentication === 'device-bearer') {
         if (!runtime.deviceBearerAvailable || !runtime.resolveCredential || !initial.credentialReference) {
           return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         }
         const aborted = rejectOnAbort(controller.signal)
         try {
           bearerToken = await Promise.race([
-            runtime.resolveCredential(initial.credentialReference, { tenantId, connectionId: initial.id, endpoint }),
+            runtime.resolveCredential(initial.credentialReference, { tenantId, connectionId: initial.id, endpoint: endpoint! }),
             aborted.promise,
           ])
         } catch {
@@ -233,7 +246,7 @@ function createBoundMcpExecutionCore({
         if (!bearerToken || bearerToken.length > 8192 || /[^\x21-\x7e]/.test(bearerToken)) {
           return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
         }
-      } else if (initial.authentication === 'device-oauth') {
+      } else if (initial.transport !== 'stdio' && initial.authentication === 'device-oauth') {
         if (!actorUserId || !initial.ownerUserId || actorUserId !== initial.ownerUserId || !runtime.deviceOAuthAvailable ||
             !runtime.resolveOAuthCredential || !initial.credentialReference) {
           return refuse('The MCP credential is unavailable. Reconnect it and start a new tool request.')
@@ -241,7 +254,7 @@ function createBoundMcpExecutionCore({
         const aborted = rejectOnAbort(controller.signal)
         try {
           bearerToken = await Promise.race([
-            runtime.resolveOAuthCredential(initial.credentialReference, { tenantId, connectionId: initial.id, endpoint,
+            runtime.resolveOAuthCredential(initial.credentialReference, { tenantId, connectionId: initial.id, endpoint: endpoint!,
               ownerUserId: initial.ownerUserId, connectionRevision: binding.connectionRevision },
             { signal: controller.signal, isCurrent: stillBound }),
             aborted.promise,
@@ -262,21 +275,40 @@ function createBoundMcpExecutionCore({
         tool: { name: binding.toolName, inputSchema: reviewedTool.inputSchema },
         arguments: input,
       }
-      const callOptions = {
-        scope, bearerToken, signal: controller.signal, timeoutMs: remaining(),
-        beforeCall: () => { if (!stillBound()) throw new McpToolCallError('request', false) },
-      }
       let toolResult: McpToolResult | McpFormToolResult
-      if (options.formElicitation && protocolVersion === MCP_MODERN_VERSION) {
-        toolResult = (await callWithForms(endpoint, {
-          ...invocation,
-          ...(frozenContinuation ? { continuation: frozenContinuation } : {}),
-        }, callOptions)).result
+      if (initial.transport === 'stdio') {
+        if (!runtime.localProcessesAvailable || !runtime.openStdio || !initial.grantReference || !actorUserId ||
+            actorUserId !== initial.ownerUserId) return refuse('The local MCP process is unavailable. Reconnect it and start a new tool request.')
+        const stdioBinding: McpStdioBinding = { tenantId, ownerUserId: actorUserId,
+          connectionId: initial.id, connectionRevision: binding.connectionRevision }
+        const client = createMcpStdioClient({ open: openOptions => runtime.openStdio!(initial.grantReference!, stdioBinding,
+          { ...openOptions, purpose: 'call' }) })
+        const callOptions = { signal: controller.signal, timeoutMs: remaining(), isCurrent: stillBound,
+          expectedProtocolVersion: protocolVersion, beforeCall: stillBound }
+        const stdioInvocation = { ...invocation, ...(frozenContinuation ? { continuation: frozenContinuation } : {}) }
+        toolResult = options.formElicitation && protocolVersion === MCP_MODERN_VERSION
+          ? (await client.callToolWithForms(stdioInvocation, callOptions)).result
+          : (await client.callTool(stdioInvocation, callOptions)).result
       } else {
-        toolResult = (await call(endpoint, invocation, { ...callOptions, expectedProtocolVersion: protocolVersion })).result
+        const { endpoint, scope } = mcpConnectionEndpoint(initial.endpoint,
+          initial.authentication === 'device-oauth' ? false : runtime.allowLoopback)
+        if (!stillBound()) return refuse(unavailable)
+        const callOptions = {
+          scope, bearerToken, signal: controller.signal, timeoutMs: remaining(),
+          beforeCall: () => { if (!stillBound()) throw new McpToolCallError('request', false) },
+        }
+        if (options.formElicitation && protocolVersion === MCP_MODERN_VERSION) {
+          toolResult = (await callWithForms(endpoint, {
+            ...invocation,
+            ...(frozenContinuation ? { continuation: frozenContinuation } : {}),
+          }, callOptions)).result
+        } else {
+          toolResult = (await call(endpoint, invocation, { ...callOptions, expectedProtocolVersion: protocolVersion })).result
+        }
       }
       resultReceived = true
-      const privateLiterals = [endpoint, initial.credentialReference ?? '', bearerToken ?? '']
+      const privateLiterals = [initial.transport === 'stdio' ? initial.grantReference ?? '' : initial.endpoint,
+        initial.transport === 'stdio' ? '' : initial.credentialReference ?? '', bearerToken ?? '']
       if ('resultType' in toolResult && toolResult.resultType === 'input_required') {
         // The result is already a remote continuation point. Only the request
         // form—not opaque requestState—is inspected for private literals.
@@ -301,7 +333,8 @@ function createBoundMcpExecutionCore({
         ? { status: 'failed', summary: 'The MCP server returned a tool error.', result: result.result }
         : { status: 'done', summary: 'The MCP tool completed.', result: result.result }
     } catch (error) {
-      return resultReceived || (error instanceof McpToolCallError && error.mayHaveExecuted) || hasContinuation
+      return resultReceived || (error instanceof McpToolCallError && error.mayHaveExecuted) ||
+        (error instanceof McpStdioClientError && error.mayHaveExecuted) || hasContinuation
         ? uncertain(hasContinuation ? CONTINUATION_UNKNOWN : undefined)
         : failed('The MCP call was refused before execution. Start a new tool request.')
     } finally {

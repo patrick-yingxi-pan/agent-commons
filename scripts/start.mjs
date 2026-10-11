@@ -7,6 +7,7 @@ import { installCredentialRuntime } from '../desktop/credentialProtocol.mjs'
 import { installDataRuntime } from '../desktop/dataProtocol.mjs'
 import { installMcpCredentialRuntime } from '../desktop/mcpCredentialProtocol.mjs'
 import { installMcpOAuthCredentialRuntime } from '../desktop/mcpOAuthCredentialProtocol.mjs'
+import { installMcpStdioRuntime } from '../desktop/mcpStdioProtocol.mjs'
 
 const profile = process.argv[2] ?? 'desktop'
 if (profile !== 'desktop' && profile !== 'web') {
@@ -19,6 +20,8 @@ const credentialRuntime = installCredentialRuntime()
 const mcpCredentialRuntime = installMcpCredentialRuntime()
 const mcpOAuthRuntime = profile === 'desktop' && process.env.AGENT_COMMONS_MCP_OAUTH_AVAILABLE === 'true'
   ? installMcpOAuthCredentialRuntime() : null
+const mcpStdioRuntime = profile === 'desktop' && process.platform === 'darwin' && process.env.AGENT_COMMONS_MCP_STDIO_AVAILABLE === 'true'
+  ? installMcpStdioRuntime() : null
 installDataRuntime()
 
 console.log(`[startup] ${profile} profile · ${resolved.HOST}:${resolved.PORT} · ${resolved.PERSIST_BACKEND}`)
@@ -34,6 +37,9 @@ configureMcpRuntime({
   // so could retire valid device credentials before persistence is loaded.
   deviceBearerAvailable: false,
   deviceOAuthAvailable: Boolean(mcpOAuthRuntime && mcpCredentialRuntime),
+  localProcessesAvailable: Boolean(mcpStdioRuntime),
+  openStdio: mcpStdioRuntime ? (reference, binding, options) => mcpStdioRuntime.open(reference, binding, options) : undefined,
+  synchronizeStdioBindings: mcpStdioRuntime ? bindings => mcpStdioRuntime.synchronize(bindings) : undefined,
   allowLoopback: false,
 })
 await import('../server/index.ts')

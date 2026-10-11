@@ -1,0 +1,71 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+
+const source = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8')
+
+test('local MCP creation is native/capability/person gated and saves no launch configuration', () => {
+  const panel = source('./McpConnectionPanel.tsx')
+  assert.match(panel, /desktopMcpStdioAvailable\(\) && catalog\.data\?\.capabilities\.localProcesses === true && me\?\.via === 'session'/)
+  assert.match(panel, /transport === 'stdio' \? \{ \.\.\.common, transport: 'stdio' \}/)
+  assert.match(panel, /<option value="stdio" disabled=\{!localAvailable\}>Local process \(this desktop\)/)
+  assert.match(panel, /Saving does not run a program/)
+  assert.match(panel, /localHeld \? 'Review local setup' : 'Configure local server'/)
+  assert.match(panel, /if \(!localHeld\) mcpStdioSetup\.dismiss\(id\)/)
+  assert.match(panel, /const held = .*localHeld/)
+  assert.match(panel, /Owned processes are stopped; earlier program effects are not undone/)
+  assert.match(panel, /<button disabled=\{isMcpConnectionHeld\(id\) \|\| !me\}[^>]*[\s\S]*?kind: 'cleanup'[\s\S]*?>Retry credential cleanup<\/button>/,
+    'native uncertainty must not disable safe explicit custody reconciliation; only the HTTP mutation queue holds cleanup')
+  assert.doesNotMatch(panel, /executable:|args:|cwd:|env:|grantReference:/)
+})
+
+test('stdio review is deferred, bounded, write-only and terminal reviews cannot resubmit an old revision', () => {
+  const deferred = source('./DeferredMcpStdioSetupDialog.tsx')
+  const dialog = source('./McpStdioSetupDialog.tsx')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/McpStdioSetupDialog\.tsx'\)/)
+  assert.match(deferred, /static getDerivedStateFromError/)
+  assert.match(deferred, /useBoundedDialog\(dialogRef\)/)
+  assert.match(deferred, /reload clears in-memory setup recovery, but does not undo an inspection/)
+  assert.doesNotMatch(deferred, /\.begin\(|\.authorize\(/)
+  assert.match(dialog, /useRef\(\{ connection, source \}\)\.current/)
+  assert.match(dialog, /useBoundedDialog\(dialogRef\)/)
+  assert.match(dialog, /dialogReadRegionProps\('Local MCP setup review'\)/)
+  assert.match(dialog, /initialFocus: close/)
+  assert.match(dialog, /if \(state \|\| submitted\) return/)
+  assert.match(dialog, /setSubmitted\(true\)/)
+  assert.match(dialog, /!state && !submitted && <form/)
+  assert.match(dialog, /!state && !submitted && <button type="submit"/)
+  assert.match(dialog, /mcpStdioSetup\.begin\(reviewed\.connection, reviewed\.source, result\.launch\)/)
+  assert.match(dialog, /setDraft\(\{ \.\.\.EMPTY_MCP_STDIO_DRAFT \}\)/)
+  assert.match(dialog, /not sandboxed/)
+  assert.match(dialog, /native review defaults to Cancel/)
+  assert.match(dialog, /Local servers are not available to Routines or Contribution effects/)
+  assert.match(dialog, /No shell is used/)
+  assert.doesNotMatch(dialog, /localStorage|sessionStorage|fetch\(|grantReference|\.authorize\(/)
+})
+
+test('shell recovery survives pane navigation and uses the same account-scoped controller without launch data', () => {
+  const shell = source('./ShellMutationNotices.tsx')
+  const notice = source('./McpStdioSetupNotice.tsx')
+  const runtime = source('../controller/mcpStdioSetup.ts')
+  const api = source('../api/desktopMcpStdio.ts')
+  assert.match(shell, /<McpStdioSetupNotice\s*\/>/)
+  assert.match(notice, /data-mcp-stdio-recovery/)
+  assert.match(notice, /RECOVERY_NOTICE_REGION_CLASS/)
+  assert.match(notice, /role="region" aria-label="Local server setup recovery" tabIndex=\{0\}/)
+  assert.match(notice, /data-recovery-notice-message className=\{RECOVERY_NOTICE_MESSAGE_CLASS\}/)
+  assert.match(notice, /mcpStdioSetup\.check\(state\.connectionId\)/)
+  assert.match(notice, /mcpStdioSetup\.cancel\(state\.connectionId\)/)
+  assert.match(runtime, /onAccountSwitch\(.*reset/)
+  assert.match(runtime, /keys\.mcpConnection\(id\)/)
+  assert.match(api, /start: \(request: McpStdioSetupStartRequest\) => call\('start', request\)/)
+  assert.match(api, /reconcile: request => call\('reconcile', request\)/)
+  assert.doesNotMatch(notice + runtime + api, /localStorage|sessionStorage|fetch\(|JSON\.stringify\(.*launch/)
+})
+
+test('recovery notice layout reserves readable text and bounds retained states without hiding controls', () => {
+  const layout = source('../lib/recoveryNotice.ts')
+  assert.match(layout, /max-h-\[35dvh\] overflow-y-auto overscroll-contain/)
+  assert.match(layout, /min-w-0 grow basis-64 break-words \[overflow-wrap:anywhere\]/)
+  assert.doesNotMatch(layout, /overflow-hidden|truncate|line-clamp/)
+})

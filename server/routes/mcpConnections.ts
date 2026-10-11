@@ -9,6 +9,7 @@ import { createMcpConnectionService } from '../mcpConnectionService.ts'
 import { McpDiscoveryError } from '../mcpDiscovery.ts'
 import { McpHttpError } from '../mcpHttpTransport.ts'
 import { McpCatalogError } from '../mcpCatalog.ts'
+import { McpStdioClientError } from '../mcpStdioClient.ts'
 import { mcpRuntimeCapabilities, mcpRuntimeConfiguration } from '../mcpRuntime.ts'
 import { sendError, sendJson, type Ctx } from '../http/respond.ts'
 import type { Router } from '../http/router.ts'
@@ -37,6 +38,12 @@ export function mcpConnectionRoute(handler: (ctx: Ctx) => void | Promise<void>) 
           error.code === 'timeout' ? 'The MCP server did not finish inspection in time.' :
           error.code === 'busy' ? 'An MCP inspection is already running. Check its status before retrying.' :
           'MCP inspection was cancelled. Refresh its status before continuing.'
+      } else if (error instanceof McpStdioClientError) {
+        code = error.code === 'unavailable' ? 'capability_unavailable' :
+          ['busy', 'cancelled', 'stale'].includes(error.code) ? 'conflict' : 'upstream_unavailable'
+        message = error.code === 'unavailable' ? 'Local MCP processes are unavailable on this device.' :
+          code === 'conflict' ? 'Local MCP inspection changed or was cancelled. Check its status before continuing.' :
+          'The local MCP server could not provide a supported, valid tool catalog.'
       } else if (error instanceof McpHttpError || error instanceof McpDiscoveryError || error instanceof McpCatalogError) {
         code = 'upstream_unavailable'
         message = error instanceof McpHttpError && error.code === 'authentication' ?
@@ -70,7 +77,7 @@ export function registerMcpConnectionRoutes(
     if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
     const request = parseMcpConnectionCreate(await ctx.body<unknown>(), mcpRuntimeConfiguration().allowLoopback)
     const actor = identity(ctx)
-    sendJson(ctx.res, service.create(request, actor.tenant.id, actor.user.id))
+    sendJson(ctx.res, await service.create(request, actor.tenant.id, actor.user.id))
   }))
   router.uiFormGet('/mcp-connections/:id/credential-binding',
     'exact audience lookup for native write-only bearer provisioning is authentication ceremony; ordinary connection reads omit endpoints',
@@ -120,6 +127,32 @@ export function registerMcpConnectionRoutes(
           status: view.status,
           ...(view.inspectionOperationId ? { inspectionOperationId: view.inspectionOperationId } : {}),
         },
+      })
+    }))
+  router.formGet('/mcp-connections/:id/stdio-source',
+    'native local-process setup reads the cookie-bound person and exact connection revision; launch configuration and grants never enter renderer reads',
+    mcpConnectionRoute((ctx) => {
+      if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
+      const cookies = parseCookies(typeof ctx.req.headers.cookie === 'string' ? ctx.req.headers.cookie : undefined)
+      if (!cookies[SESSION_COOKIE] || ctx.req.headers.authorization !== undefined) {
+        sendError(ctx.res, 'unauthorized', 'A signed-in browser session is required for local MCP setup.')
+        return
+      }
+      const actor = identity(ctx)
+      if (actor.via !== 'session') {
+        sendError(ctx.res, 'unauthorized', 'A signed-in browser session is required for local MCP setup.')
+        return
+      }
+      ctx.res.setHeader('Cache-Control', 'no-store')
+      const connection = store.privateMcpConnection(ctx.params.id, actor.tenant.id, actor.user.id)
+      if (!connection || connection.ownerUserId !== actor.user.id) throw new McpConnectionError('missing')
+      if (connection.transport !== 'stdio') throw new McpConnectionError('invalid')
+      if (!mcpRuntimeCapabilities().localProcesses) throw new McpInspectionError('credentials_unavailable')
+      const view = store.mcpConnection(connection.id, actor.tenant.id, actor.user.id)
+      if (!view) throw new McpConnectionError('missing')
+      sendJson(ctx.res, {
+        binding: { tenantId: actor.tenant.id, ownerUserId: actor.user.id, connectionId: connection.id, connectionRevision: connection.revision },
+        connection: { revision: view.revision, status: view.status, inspectionOperationId: view.inspectionOperationId ?? null },
       })
     }))
   router.post('/mcp-connections/:id/inspect', mcpConnectionRoute(async (ctx) => {

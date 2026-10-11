@@ -372,7 +372,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   )
   assert.doesNotMatch(startupScript, /process\.env\[[^\]]*MCP|process\.env\.MCP/, 'MCP secrets never enter environment setup')
   const entrypoint = readFileSync(new URL('../server/index.ts', import.meta.url), 'utf8')
-  const initialization = entrypoint.indexOf('await initializeMcpRuntime(store.mcpCredentialBindings())')
+  const initialization = entrypoint.indexOf('await initializeMcpRuntime(store.mcpCredentialBindings(), store.mcpStdioBindings())')
   assert.ok(initialization > entrypoint.indexOf('store.initPersistence()'), 'credential reconciliation follows durable state loading')
   assert.ok(initialization < entrypoint.indexOf('const server = createServer('), 'HTTP admission waits for the credential acknowledgement')
 
@@ -585,7 +585,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(pkg.scripts['desktop:smoke:routine-mcp'], 'node desktop/routineMcpSmoke.mjs')
   assert.equal(pkg.scripts['desktop:smoke:oauth'], 'node desktop/mcpOAuthSmoke.mjs')
   assert.equal(pkg.scripts['desktop:smoke:mcp-input'], 'node desktop/mcpOAuthSmoke.mjs --forms')
-  assert.equal(pkg.scripts['desktop:verify'], 'npm run desktop:package && npm run desktop:smoke && npm run desktop:smoke:mcp-effects && npm run desktop:smoke:routine-mcp && npm run desktop:smoke:oauth && npm run desktop:smoke:mcp-input')
+  assert.equal(pkg.scripts['desktop:smoke:stdio'], 'node desktop/mcpStdioSmoke.mjs')
+  assert.equal(pkg.scripts['desktop:verify'], 'npm run desktop:package && npm run desktop:smoke && npm run desktop:smoke:mcp-effects && npm run desktop:smoke:routine-mcp && npm run desktop:smoke:oauth && npm run desktop:smoke:mcp-input && npm run desktop:smoke:stdio')
   assert.equal(pkg.scripts['desktop:release:mac'], 'node desktop/release.mjs')
   assert.equal(pkg.scripts['desktop:release:mac:finalize'], 'node desktop/release-set.mjs')
   assert.match(pkg.scripts.test, /desktop\/\*\*\/\*\.test\.ts/)

@@ -50,3 +50,31 @@ test('authority rejects orphan, wrong activity, wrong connection, wrong owner an
   const reused = { ...connection, connections: [{ ...connection.connections[0], authentication: 'device-bearer', ownerUserId: undefined }] }
   assert.equal(validateMcpActivityAuthorities([authority], [session], reused), false)
 })
+
+test('stdio activity owner authority is mandatory for live and retired person-owned connections', () => {
+  const stdioActivity: ToolActivity = { ...activity, connectorId: `mcp-connection-${'e'.repeat(32)}` }
+  const sharedSession: Session = { ...session, tenantId: 'session-source-tenant', messages: [{
+    ...session.messages![0]!, toolActivities: [stdioActivity],
+  }] }
+  const stdioAuthority: McpActivityAuthority = {
+    sessionId: sharedSession.id, activityId: stdioActivity.id, connectionId: stdioActivity.connectorId,
+    tenantId: 'connection-owner-tenant', ownerUserId: 'user-a',
+  }
+  const live: McpConnectionState = { connections: [{
+    transport: 'stdio', tenantId: 'connection-owner-tenant', ownerUserId: 'user-a', id: stdioActivity.connectorId,
+    label: 'Local', revision: 1, connected: true, grantReference: `MCP_STDIO_${'A'.repeat(32)}`,
+    inspection: { protocolVersion: '2025-11-25', cleanup: 'released', inspectedAt: 1, tools: [] },
+  }], retired: [] }
+  assert.equal(validateMcpActivityAuthorities([stdioAuthority], [sharedSession], live), true)
+  assert.equal(validateMcpActivityAuthorities([], [sharedSession], live), false,
+    'stdio action history cannot lose its person anchor')
+  assert.equal(validateMcpActivityAuthorities([{ ...stdioAuthority, ownerUserId: 'user-b' }], [sharedSession], live), false)
+
+  const compacted: Session = { ...sharedSession, messages: [], compactedMessages: sharedSession.messages }
+  const retired: McpConnectionState = { connections: [], retired: [{
+    transport: 'stdio', tenantId: 'connection-owner-tenant', id: stdioActivity.connectorId, ownerUserId: 'user-a',
+  }] }
+  assert.equal(validateMcpActivityAuthorities([stdioAuthority], [compacted], retired), true)
+  assert.equal(validateMcpActivityAuthorities([], [compacted], retired), false,
+    'retired stdio history still needs the private owner anchor')
+})

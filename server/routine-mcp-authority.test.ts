@@ -97,6 +97,20 @@ test('live and retired OAuth sources require exact ownership; selected OAuth IDs
     'leaf admission forbids overlapping live/retired identities before indexing')
 })
 
+test('persisted Routine authority cannot select current or retired stdio identities', () => {
+  const approved = permission()
+  const state = parseRoutineMcpRegistryState({ policies: [approved], runs: [], decisions: [decision()] })
+  const local = parseMcpConnectionState({ connections: [{ transport: 'stdio', tenantId, id: connectionId,
+    ownerUserId: first.ownerUserId, label: 'Local writer', revision: 1, connected: true,
+    grantReference: `MCP_STDIO_${'A'.repeat(32)}`,
+    inspection: { protocolVersion: '2026-07-28', cleanup: 'released', inspectedAt: 1, tools: [] } }], retired: [] })
+  assert.equal(validateRoutineMcpAuthorities(state, local), false)
+  const retired = parseMcpConnectionState({ connections: [], retired: [{ tenantId, id: connectionId,
+    ownerUserId: first.ownerUserId, transport: 'stdio' }] })
+  assert.equal(validateRoutineMcpAuthorities(state, retired), false)
+  assert.throws(() => parseMcpConnectionState({ connections: [], retired: [{ tenantId, id: connectionId, transport: 'stdio' }] }))
+})
+
 test('legacy absence remains compatible, but a known foreign OAuth identity cannot masquerade as an orphan legacy source', () => {
   const approved = permission(scope, 3, undefined)
   // Explicitly remove the defaulted fixture authority to construct legacy data.

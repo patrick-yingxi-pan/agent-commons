@@ -442,3 +442,68 @@ test('uncertain directory-fsync failure retains published bytes but invalidates 
       launch('uncertain'), 'a future recovery can identify the uncertain durable grant without rewriting it')
   })
 })
+
+test('authoritative reconciliation revokes orphan leases before disk cleanup and preserves only exact requested custody', async () => {
+  await fixture(async ({ filePath, open }) => {
+    const vault = await open()
+    const kept = await vault.provision(binding, launch('kept'), current)
+    const orphan = await vault.provision(binding, launch('orphan'), current)
+    const keptLease = await vault.read(kept, binding), orphanLease = await vault.read(orphan, binding)
+    const reconciling = vault.reconcile([{ reference: kept, binding }], current)
+    assert.equal(orphanLease.signal.aborted, true, 'revocation precedes the queued persistence acknowledgement')
+    assert.equal(orphanLease.isCurrent(), false)
+    assert.equal(keptLease.signal.aborted, false)
+    assert.equal(await reconciling, true)
+    assert.equal(await vault.read(orphan, binding), null)
+    const before = await readFile(filePath)
+    assert.equal(await vault.reconcile([{ reference: kept, binding }], current), true)
+    assert.deepEqual(await readFile(filePath), before, 'matching reconciliation performs no rewrite')
+    vault.close()
+    const reopened = await open()
+    assert.deepEqual((await reopened.read(kept, binding)).launch, launch('kept'))
+    assert.equal(await reopened.read(orphan, binding), null)
+    reopened.close()
+  })
+})
+
+test('failed cleanup cannot revive retired leases and reconciliation retries without repairing or exposing failures', async () => {
+  await fixture(async ({ filePath, open }) => {
+    let failEncryption = false
+    const storage = { ...secureStorage(), encryptString(text) {
+      if (failEncryption) throw new Error('PRIVATE reconciliation key diagnostics')
+      return encrypt(text)
+    } }
+    const vault = await open({ storage })
+    const kept = await vault.provision(binding, launch('kept'), current)
+    const orphan = await vault.provision(binding, launch('orphan'), current)
+    const orphanLease = await vault.read(orphan, binding), before = await readFile(filePath)
+    failEncryption = true
+    await assert.rejects(vault.reconcile([{ reference: kept, binding }], current), errorCode('unavailable'))
+    assert.equal(orphanLease.signal.aborted, true)
+    assert.deepEqual(await readFile(filePath), before)
+    assert.equal(await vault.reconcile([{ reference: kept, binding }, { reference: orphan, binding }], current), false,
+      'an aborted orphan cannot become usable through a stale keep-list')
+    failEncryption = false
+    assert.equal(await vault.reconcile([{ reference: kept, binding }], current), true)
+    assert.equal(await vault.read(orphan, binding), null)
+    assert.equal(await vault.reconcile([{ reference: `MCP_STDIO_${'0'.repeat(32)}`, binding }], current), false,
+      'missing saved custody is not a usable authoritative binding')
+    vault.close()
+  })
+})
+
+test('reconciliation validates the whole exact keep-list before revoking or writing anything', async () => {
+  await fixture(async ({ filePath, open }) => {
+    const vault = await open(), reference = await vault.provision(binding, launch(), current)
+    const lease = await vault.read(reference, binding), before = await readFile(filePath)
+    for (const rows of [undefined, {}, Array(1), [{ reference, binding }, { reference, binding }],
+      [{ reference, binding, extra: true }], [{ reference, binding: { ...binding, connectionRevision: 0 } }],
+      [{ get reference() { assert.fail('accessor must not execute') }, binding }]]) {
+      await assert.rejects(vault.reconcile(rows, current), errorCode('invalid'))
+    }
+    assert.equal(lease.signal.aborted, false)
+    assert.equal(lease.isCurrent(), true)
+    assert.deepEqual(await readFile(filePath), before)
+    vault.close()
+  })
+})

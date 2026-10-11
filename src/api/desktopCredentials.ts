@@ -9,6 +9,7 @@ import type { NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
 import type { NativeImageOcrBridge } from '../../contract/imageOcr.mjs'
 import type { NativePdfOcrBridge } from '../../contract/pdfOcr.mjs'
 import type { NativeMcpOAuthBridge } from '../../contract/mcpOAuth.ts'
+import type { NativeMcpStdioBridge } from '../../contract/mcpStdioSetup.ts'
 
 /** The renderer-side face of Electron's narrow native capabilities. The web
  * build has no bridge and keeps browser pickers plus the existing PROVIDER_*
@@ -83,6 +84,7 @@ export interface DesktopBridge {
     provision(binding: McpCredentialBinding, secret: string): Promise<string>
   }
   mcpOAuth?: NativeMcpOAuthBridge
+  mcpStdio?: NativeMcpStdioBridge
   data?: {
     createBackup(): Promise<DesktopBackupMetadata>
     getRecoveryStatus(): Promise<DesktopRecoveryStatus>

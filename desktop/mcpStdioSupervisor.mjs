@@ -1,6 +1,6 @@
 /** Internal macOS stdio transport, not a launch permission or a sandbox.
  * Callers must own user-approved configuration and a current native identity.
- * No renderer, HTTP, model or startup path imports this foundation yet. */
+ * Only the native lifecycle supplies launch configuration and authority. */
 import { spawn } from 'node:child_process'
 import { snapshotMcpStdioLaunch } from './mcpStdioLaunch.mjs'
 import { createMcpStdioDecoder, encodeMcpStdioMessage } from './mcpStdioCodec.mjs'
@@ -149,7 +149,7 @@ export function createMcpStdioSupervisor({
       }, MCP_STDIO_PROCESS_LIMITS.shutdownGraceMs)
     }
     const onHostAbort = () => stop('cancelled', true)
-    const job = { stop }
+    const job = { stop, closed: closedPromise }
     active.add(job)
     child.once('error', () => stop('io'))
     child.stdin.on('error', () => stop('io'))
@@ -281,6 +281,11 @@ export function createMcpStdioSupervisor({
 
   return Object.freeze({
     open,
-    dispose() { disposed = true; for (const job of active) job.stop('cancelled', true) },
+    dispose() {
+      disposed = true
+      const closing = [...active]
+      for (const job of closing) job.stop('cancelled', true)
+      return Promise.all(closing.map(job => job.closed))
+    },
   })
 }

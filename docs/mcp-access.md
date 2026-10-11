@@ -240,6 +240,19 @@ Tool results are the JSON `{status, body}` of the underlying HTTP response.
 
 ## 5. Where the pieces live
 
+Local-process MCP setup is a native ceremony, not a new command-execution tool.
+The portable connection uses explicit `transport: 'stdio'`, person ownership and
+opaque grant authority; executable, arguments, directory and environment never
+enter HTTP connection bodies or model context. The private cookie-only
+`/mcp-connections/:id/stdio-source` form read supplies only the current authenticated
+binding and inspection receipt to the trusted native host. It is excluded from
+generated semantic tools, just like credential-ceremony reads. Native review
+defaults to Cancel and discloses unsandboxed OS access. Catalog inspection still
+grants no tool permission: attachment and separate interactive call confirmation
+reuse the ordinary route-owned authorities. Routine and Contribution flows
+explicitly reject this transport. Receipt recovery reads only; neither app
+startup nor an ambiguous acknowledgement automatically launches a process.
+
 | Piece | File | Locked by |
 |---|---|---|
 | The endpoint, remote tool projection, and dispatch | `server/mcp.ts` | `server/mcp.test.ts`, `server/mcp-parity.test.ts` |

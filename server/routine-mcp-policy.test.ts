@@ -282,6 +282,13 @@ test('OAuth call checks require exact frozen owner and authentication binding wi
   assert.equal(routineMcpCallPermitted(otherOwner, otherOwner, 4, call(), now, lookup, reviewHash), false)
 })
 
+test('stdio connections cannot be approved for unattended Routine MCP authority or admitted for a frozen call', () => {
+  const stdio = { ...connection(), transport: 'stdio' } as unknown as McpConnectionView
+  errorCode(() => approve(intent(), undefined, reader(stdio)), 'unavailable')
+  const ordinary = approve()
+  assert.equal(routineMcpCallPermitted(ordinary, ordinary, 4, call(), now, reader(stdio), reviewHash), false)
+})
+
 test('OAuth authority standalone admission allows sixteen exact IDs but rejects noncanonical order without normalizing it', () => {
   const connectionIds = Array.from({ length: 16 }, (_, i) => 'mcp-connection-' + i.toString(16).padStart(32, '0'))
   const value = { ownerUserId: ' person-owner ', connectionIds }

@@ -5,13 +5,14 @@ import type {
 } from '../../contract/mcpConnections.ts'
 import { ValidationError } from '../conflict.ts'
 import { mcpConnectionEndpoint } from '../mcpConnections.ts'
+import { MCP_STDIO_REFERENCE_PATTERN } from '../mcpConnections.ts'
 
 const MAX_LOGICAL_KEY_CHARS = 128
 const MAX_LABEL_CHARS = 256
 const MAX_ENDPOINT_CHARS = 2_048
 const REFERENCE_PATTERN = /^MCP_DESKTOP_[A-F0-9]{32}$/
-const CREATE_FIELDS = ['creationId', 'label', 'endpoint', 'authentication'] as const
-const INSPECTION_FIELDS = ['operationId', 'expectedRevision', 'credentialReference'] as const
+const CREATE_FIELDS = ['creationId', 'label', 'transport', 'endpoint', 'authentication'] as const
+const INSPECTION_FIELDS = ['operationId', 'expectedRevision', 'credentialReference', 'grantReference'] as const
 const LIFECYCLE_FIELDS = ['expectedRevision'] as const
 
 type Input = Record<string, unknown>
@@ -63,9 +64,15 @@ export function parseMcpConnectionCreate(value: unknown, allowLoopback = false):
   const input = record(value, 'create')
   exactFields(input, CREATE_FIELDS, 'create')
   if (typeof allowLoopback !== 'boolean') invalid('create')
+  if (input.transport !== undefined && input.transport !== 'http' && input.transport !== 'stdio') invalid('create')
+  if (input.transport === 'stdio') {
+    if (Object.hasOwn(input, 'endpoint') || Object.hasOwn(input, 'authentication')) invalid('create')
+    return { transport: 'stdio', creationId: logicalKey(input.creationId, 'create'), label: label(input.label) }
+  }
   const authentication = input.authentication
   if (authentication !== 'none' && authentication !== 'device-bearer' && authentication !== 'device-oauth') invalid('create')
   return {
+    ...(input.transport === 'http' ? { transport: 'http' as const } : {}),
     creationId: logicalKey(input.creationId, 'create'),
     label: label(input.label),
     endpoint: endpoint(input.endpoint, authentication === 'device-oauth' ? false : allowLoopback),
@@ -76,14 +83,20 @@ export function parseMcpConnectionCreate(value: unknown, allowLoopback = false):
 export function parseMcpConnectionInspection(value: unknown): McpConnectionInspectionRequest {
   const input = record(value, 'inspection')
   exactFields(input, INSPECTION_FIELDS, 'inspection')
-  const result: McpConnectionInspectionRequest = {
+  const result: { operationId: string; expectedRevision: number; credentialReference?: string } = {
     operationId: logicalKey(input.operationId, 'inspection'),
     expectedRevision: revision(input.expectedRevision, 'inspection'),
   }
   if (Object.hasOwn(input, 'credentialReference')) {
+    if (Object.hasOwn(input, 'grantReference')) invalid('inspection')
     const credentialReference = input.credentialReference
     if (typeof credentialReference !== 'string' || !REFERENCE_PATTERN.test(credentialReference)) invalid('inspection')
     result.credentialReference = credentialReference
+  }
+  if (Object.hasOwn(input, 'grantReference')) {
+    const grantReference = input.grantReference
+    if (typeof grantReference !== 'string' || !MCP_STDIO_REFERENCE_PATTERN.test(grantReference)) invalid('inspection')
+    return { operationId: result.operationId, expectedRevision: result.expectedRevision, grantReference }
   }
   return result
 }

@@ -10,11 +10,13 @@ const scopeKey = (scope: { tenantId: string; routineId: string }): string => ide
 interface ConnectionIndex {
   identities: Map<string, McpConnectionState['retired'][number]>
   knownOAuthIds: Set<string>
+  knownStdioIds: Set<string>
 }
 
 function indexConnections(connections: McpConnectionState): ConnectionIndex {
   const identities: ConnectionIndex['identities'] = new Map()
   const knownOAuthIds = new Set<string>()
+  const knownStdioIds = new Set<string>()
   const add = (row: McpConnectionState['retired'][number], oauth: boolean) => {
     const id = row.id
     const key = identityKey(row.tenantId, id)
@@ -22,10 +24,14 @@ function indexConnections(connections: McpConnectionState): ConnectionIndex {
     // current-before-retired, first-row lookup semantics regardless.
     if (!identities.has(key)) identities.set(key, row)
     if (oauth) knownOAuthIds.add(id)
+    if (row.transport === 'stdio') knownStdioIds.add(key)
   }
-  for (const row of connections.connections) add(row, row.authentication === 'device-oauth')
+  for (const row of connections.connections) add({ tenantId: row.tenantId, id: row.id,
+    ...(row.ownerUserId === undefined ? {} : { ownerUserId: row.ownerUserId }),
+    ...(row.transport === 'stdio' ? { transport: 'stdio' as const } : {}) },
+  row.transport !== 'stdio' && row.authentication === 'device-oauth')
   for (const row of connections.retired) add(row, row.ownerUserId !== undefined)
-  return { identities, knownOAuthIds }
+  return { identities, knownOAuthIds, knownStdioIds }
 }
 
 interface DecisionHistory {
@@ -94,6 +100,7 @@ function validPermission(permission: StoredRoutineMcpPolicy, connections: Connec
   const selectedOAuth = new Set<string>()
   for (const tool of approval.tools) {
     const identity = connections.identities.get(identityKey(permission.tenantId, tool.connectionId))
+    if (connections.knownStdioIds.has(identityKey(permission.tenantId, tool.connectionId))) return false
     if (!identity) {
       if (connections.knownOAuthIds.has(tool.connectionId)) return false
       continue

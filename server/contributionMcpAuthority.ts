@@ -14,6 +14,11 @@ function knownOAuthIdentity(connections: McpConnectionState, connectionId: strin
     connections.retired.some(row => row.id === connectionId && row.ownerUserId !== undefined)
 }
 
+function knownStdioIdentity(connections: McpConnectionState, tenantId: string | undefined, connectionId: string): boolean {
+  return connections.connections.some(row => row.tenantId === tenantId && row.id === connectionId && row.transport === 'stdio') ||
+    connections.retired.some(row => row.tenantId === tenantId && row.id === connectionId && row.transport === 'stdio')
+}
+
 /** Classify admitted proposal replay from its durable private stamp. Registry
  * loss can invalidate a restore, but can never turn OAuth into legacy replay. */
 export function contributionMcpProposalOwner(event: StoredContributionEvent): string | undefined {
@@ -51,6 +56,7 @@ export function validateContributionMcpAuthorities(
       let hasOAuthSelection = false
       for (const line of proposal.envelopeProposalLines ?? []) {
         if (!line.mcp) continue
+        if (knownStdioIdentity(connections, proposal.proposedByTenant, line.mcp.connectionId)) return false
         const identity = connectionIdentity(connections, proposal.proposedByTenant, line.mcp.connectionId)
         if (!identity) {
           if (proposalOwner !== undefined || knownOAuthIdentity(connections, line.mcp.connectionId)) return false
@@ -66,6 +72,7 @@ export function validateContributionMcpAuthorities(
     for (const line of contribution.envelope?.lines ?? []) {
       const authority = line.mcpAuthority
       if (!authority) continue
+      if (knownStdioIdentity(connections, authority.tenantId, authority.call.connectionId)) return false
       if (!matchesConnectionOwner(connections, authority.tenantId, authority.call.connectionId, authority.ownerUserId)) return false
       if (authority.ownerUserId !== undefined) {
         const matches = proposals.filter(event => event.envelopeVersion === contribution.envelope!.version)
@@ -74,6 +81,7 @@ export function validateContributionMcpAuthorities(
       }
     }
     for (const attempt of contribution.effectAttempts ?? []) {
+      if (knownStdioIdentity(connections, attempt.tenantId, attempt.call.connectionId)) return false
       if (!matchesConnectionOwner(connections, attempt.tenantId, attempt.call.connectionId, attempt.ownerUserId)) return false
       if (attempt.ownerUserId !== undefined) {
         const matches = proposals.filter(event => event.envelopeVersion === attempt.envelopeVersion)

@@ -10,12 +10,11 @@ export interface McpDiscoveredTool {
   annotations?: Record<string, unknown>
 }
 
-export interface McpConnectionView {
+interface McpConnectionViewBase {
   id: string
   label: string
   status: 'unverified' | 'connected' | 'disconnected'
   revision: number
-  authentication: 'none' | 'device-bearer' | 'device-oauth'
   protocolVersion: string | null
   inspectedAt: number | null
   /** Most recent durable inspection receipt. A later disconnect retains this
@@ -29,12 +28,36 @@ export interface McpConnectionView {
   executableTools?: string[]
 }
 
-export interface McpConnectionCreateRequest {
+export interface McpHttpConnectionView extends McpConnectionViewBase {
+  /** Missing is the fixed legacy HTTP transport; new projections normalize it. */
+  transport?: 'http'
+  authentication: 'none' | 'device-bearer' | 'device-oauth'
+}
+
+export interface McpStdioConnectionView extends McpConnectionViewBase {
+  transport: 'stdio'
+  authentication?: never
+}
+
+export type McpConnectionView = McpHttpConnectionView | McpStdioConnectionView
+
+export interface McpHttpConnectionCreateRequest {
+  transport?: 'http'
   creationId: string
   label: string
   endpoint: string
   authentication: 'none' | 'device-bearer' | 'device-oauth'
 }
+
+export interface McpStdioConnectionCreateRequest {
+  transport: 'stdio'
+  creationId: string
+  label: string
+  endpoint?: never
+  authentication?: never
+}
+
+export type McpConnectionCreateRequest = McpHttpConnectionCreateRequest | McpStdioConnectionCreateRequest
 
 export interface McpConnectionCreateResult {
   connection: McpConnectionView
@@ -49,11 +72,22 @@ export interface McpCredentialBinding {
 }
 export interface McpCredentialBindingResponse { binding: McpCredentialBinding }
 
-export interface McpConnectionInspectionRequest {
+interface McpConnectionInspectionRequestBase {
   operationId: string
   expectedRevision: number
-  credentialReference?: string
 }
+
+export interface McpHttpConnectionInspection extends McpConnectionInspectionRequestBase {
+  credentialReference?: string
+  grantReference?: never
+}
+
+export interface McpStdioConnectionInspection extends McpConnectionInspectionRequestBase {
+  grantReference: string
+  credentialReference?: never
+}
+
+export type McpConnectionInspectionRequest = McpHttpConnectionInspection | McpStdioConnectionInspection
 
 export interface McpConnectionLifecycleRequest {
   expectedRevision: number
@@ -63,6 +97,8 @@ export interface McpConnectionCapabilities {
   deviceBearerCredentials: boolean
   /** Absent means unavailable. Requires the trusted native OAuth resolver. */
   deviceOAuthCredentials?: boolean
+  /** Absent means unavailable. Requires a trusted native local-process owner. */
+  localProcesses?: boolean
   loopbackConnections: boolean
   credentialCleanupPending: boolean
 }
@@ -92,10 +128,11 @@ export function isExternalMcpId(id: string): boolean {
 
 /** One context synopsis for server truth and a held reviewed UI snapshot. */
 export function mcpConnectionContext(connection: McpConnectionView): SavedContext {
+  const transportLabel = connection.transport === 'stdio' ? 'Local MCP process' : 'External MCP'
   return {
     id: connection.id, label: connection.label, kind: 'mcp',
     status: connection.status === 'connected' ? 'connected' : 'needs-auth',
     connectionRevision: connection.revision, lastUsedAt: null, sessions: 0,
-    detail: connection.status === 'connected' ? `External MCP · ${connection.tools.length} tools inspected` : 'External MCP · connection required',
+    detail: connection.status === 'connected' ? `${transportLabel} · ${connection.tools.length} tools inspected` : `${transportLabel} · connection required`,
   }
 }

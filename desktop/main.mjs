@@ -29,6 +29,15 @@ import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
 import { createMcpCredentialLifecycle } from './mcpCredentialLifecycle.mjs'
 import { createMcpOAuthCredentialHost } from './mcpOAuthCredentialProtocol.mjs'
 import { createDesktopMcpOAuthRuntime, mcpOAuthChannels, mcpOAuthReply } from './mcpOAuthRuntime.mjs'
+import { MCP_STDIO_GRANT_FILE, openMcpStdioGrantVault } from './mcpStdioGrantVault.mjs'
+import { createMcpStdioSupervisor } from './mcpStdioSupervisor.mjs'
+import { mcpStdioReviewLiteral } from './mcpStdioLaunch.mjs'
+import { createMcpStdioLaunchAuthority } from './mcpStdioLaunchAuthority.mjs'
+import { createMcpStdioLifecycle } from './mcpStdioLifecycle.mjs'
+import { createMcpStdioHost } from './mcpStdioProtocol.mjs'
+import { createMcpStdioSource } from './mcpStdioSource.mjs'
+import { createMcpStdioSetup, mcpStdioChannels, mcpStdioReply } from './mcpStdioSetup.mjs'
+import { waitForMcpStdioShutdown } from './mcpStdioShutdown.mjs'
 import { createDataBackendClient, desktopRecoveryStatus } from './dataProtocol.mjs'
 import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
 import { createDesktopUpdateController, desktopUpdateMenuLabel } from './updateController.mjs'
@@ -76,6 +85,11 @@ let mcpCredentialLifecycle = null
 let mcpOAuthRuntime = null
 let mcpOAuthBackend = null
 let mcpOAuthSourceGeneration = 0
+let mcpStdioVault = null
+let mcpStdioSupervisor = null
+let mcpStdioLifecycle = null
+let mcpStdioSetup = null
+let mcpStdioBackend = null
 let dataBackend = null
 let localFolderStore = null
 let localFolderHost = null
@@ -98,6 +112,7 @@ function beginShutdown() {
   pdfOcrHost?.dispose()
   mcpOAuthRuntime?.close()
   mcpOAuthBackend?.close()
+  closeMcpStdio()
 }
 let updateInProgress = false
 let desktopUpdater = null
@@ -201,6 +216,23 @@ async function startDesktop() {
     },
     openBrowser: url => shell.openExternal(url),
   })
+  if (process.platform === 'darwin') {
+    try {
+      mcpStdioVault = await openMcpStdioGrantVault({ filePath: join(app.getPath('userData'), MCP_STDIO_GRANT_FILE), storage: safeStorage })
+      mcpStdioSupervisor = createMcpStdioSupervisor()
+      const authority = createMcpStdioLaunchAuthority({ vault: mcpStdioVault, supervisor: mcpStdioSupervisor,
+        confirmLaunch: confirmMcpStdioLaunch })
+      mcpStdioLifecycle = createMcpStdioLifecycle({ vault: mcpStdioVault, authority })
+      mcpStdioSetup = createMcpStdioSetup({ lifecycle: mcpStdioLifecycle,
+        source: createMcpStdioSource({ readSession: readMcpOAuthSession, isSessionCurrent: isMcpOAuthSessionCurrent }),
+        assertCaller: assertTrustedMcpStdioCaller })
+    } catch {
+      closeMcpStdio()
+      mcpStdioLifecycle = null
+      mcpStdioSetup = null
+      console.warn('[desktop] local MCP process custody is unavailable for this run.')
+    }
+  }
 
   configureSessionPermissions(trustedOrigin)
   const backendHandle = await launchBackend({ port, backendOrigin, rendererOrigin: trustedOrigin, providerCredentials, authSecret })
@@ -214,6 +246,7 @@ async function startDesktop() {
   if (credentialVault) installCredentialIpc()
   if (mcpCredentialVault) installMcpCredentialIpc()
   if (mcpOAuthRuntime) installMcpOAuthIpc()
+  if (mcpStdioSetup) installMcpStdioIpc()
   installContextIpc()
   installLocalFolderIpc()
   installLocalGitIpc()
@@ -415,6 +448,7 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       authSecret,
       providerCredentials,
       mcpOAuthAvailable: Boolean(mcpOAuthRuntime),
+      mcpStdioAvailable: Boolean(mcpStdioLifecycle),
     }),
     serviceName: 'Agent Commons Backend',
     stdio: 'pipe',
@@ -435,6 +469,11 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
   })
   if (mcpOAuthRuntime) mcpOAuthBackend = createMcpOAuthCredentialHost(child, {
     resolve: (reference, binding, options) => mcpOAuthRuntime.resolveCredential(reference, binding, options),
+  })
+  if (mcpStdioLifecycle) mcpStdioBackend = createMcpStdioHost(child, {
+    open: (reference, binding, options) => mcpStdioLifecycle.open(reference, binding, options),
+    isCurrent: (reference, binding, purpose) => mcpStdioLifecycle.isCurrent(reference, binding, purpose),
+    synchronize: async bindings => ({ available: await mcpStdioLifecycle.synchronize(bindings) }),
   })
 
   const handle = { child, exitError: null }
@@ -469,6 +508,7 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       mcpOAuthBackend?.close()
       mcpOAuthBackend = null
       mcpOAuthRuntime?.close()
+      closeMcpStdio()
       dataBackend?.close()
       dataBackend = null
       backend = null
@@ -629,6 +669,7 @@ function installMcpCredentialIpc() {
 function resetMcpOAuthFlows() {
   mcpOAuthSourceGeneration += 1
   mcpOAuthRuntime?.resetFlows()
+  mcpStdioSetup?.resetFlows()
 }
 
 function isMcpOAuthSessionCurrent(stamp) {
@@ -650,6 +691,43 @@ function installMcpOAuthIpc() {
   for (const [method, channel] of Object.entries(mcpOAuthChannels)) {
     ipcMain.handle(channel, (event, request) => mcpOAuthReply(() => mcpOAuthRuntime.host[method](event, request)))
   }
+}
+
+function assertTrustedMcpStdioCaller(event) {
+  assertTrustedMcpCredentialCaller(event)
+  if (event.senderFrame !== event.sender.mainFrame || !mcpStdioLifecycle) {
+    throw new Error('Local MCP setup requires the trusted main frame.')
+  }
+}
+
+async function confirmMcpStdioLaunch({ binding, launch }, { signal }) {
+  if (signal.aborted || quitting || !mainWindow || mainWindow.isDestroyed()) return false
+  // Render the exact configuration as escaped data. Control and bidi characters
+  // cannot disguise paths/arguments; nothing here is emitted to logs or HTTP.
+  const literal = mcpStdioReviewLiteral
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'warning', buttons: ['Cancel', 'Allow local server'], defaultId: 0, cancelId: 0, noLink: true,
+    message: 'Allow this local MCP server to run?',
+    detail: 'This is executable code, not a sandbox. It can access files, credentials and the network with your macOS account’s permissions, including during inspection. Only allow software you trust.\n\n' +
+      'Agent Commons uses no shell and passes only the environment listed below. The saved configuration belongs to this person and connection. Each tool call still needs separate review; Routines and Contributions cannot use it.\n\n' +
+      `Person: ${literal(binding.ownerUserId)}\nConnection: ${literal(binding.connectionId)}\n\n${literal(launch)}`,
+  })
+  return !signal.aborted && !quitting && result.response === 1
+}
+
+function installMcpStdioIpc() {
+  for (const [method, channel] of Object.entries(mcpStdioChannels)) {
+    ipcMain.handle(channel, (event, request) => mcpStdioReply(() => mcpStdioSetup[method](event, request)))
+  }
+}
+
+function closeMcpStdio() {
+  mcpStdioSetup?.close()
+  mcpStdioBackend?.close()
+  mcpStdioLifecycle?.close()
+  const closing = mcpStdioSupervisor?.dispose()
+  mcpStdioVault?.close()
+  return closing
 }
 
 function installDataIpc() {
@@ -875,6 +953,7 @@ async function createMainWindow(url, origin) {
         ...(credentialVault ? ['--agent-commons-secure-credentials'] : []),
         ...(mcpCredentialVault ? ['--agent-commons-mcp-credentials'] : []),
         ...(mcpOAuthRuntime ? ['--agent-commons-mcp-oauth=true'] : []),
+        ...(mcpStdioSetup ? ['--agent-commons-mcp-stdio=true'] : []),
       ],
     },
   })
@@ -985,8 +1064,13 @@ async function failStartup(error) {
 }
 
 async function stopBackend({ requireExit = false } = {}) {
+  const nativeStopped = await waitForMcpStdioShutdown(closeMcpStdio)
+  if (!nativeStopped) {
+    if (requireExit) throw new Error('Local MCP process cleanup is unconfirmed; the requested operation was refused.')
+    console.warn('[desktop] local MCP process cleanup could not be confirmed before shutdown.')
+  }
   const child = backend
-  if (!child) return true
+  if (!child) return nativeStopped
   const exited = await new Promise((resolve) => {
     let settled = false
     const finish = (didExit) => {
@@ -1010,10 +1094,11 @@ async function stopBackend({ requireExit = false } = {}) {
   mcpOAuthBackend?.close()
   mcpOAuthBackend = null
   mcpOAuthRuntime?.close()
+  closeMcpStdio()
   dataBackend?.close()
   dataBackend = null
   backendReady = false
-  return true
+  return nativeStopped
 }
 
 async function runRestoreWorker(snapshotName) {

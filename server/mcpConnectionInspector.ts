@@ -8,6 +8,8 @@ import { admitMcpCatalog, McpSchemaAdmissionError } from './mcpToolAdmission.ts'
 
 import type { McpCredentialBinding } from '../contract/mcpConnections.ts'
 export type { McpCredentialBinding } from '../contract/mcpConnections.ts'
+import { createMcpStdioClient, type McpStdioConnection } from './mcpStdioClient.ts'
+import type { McpStdioBinding } from './mcpRuntime.ts'
 export type McpCredentialResolver = (reference: string, binding: McpCredentialBinding) => Promise<string>
 export interface McpOAuthCredentialBinding extends McpCredentialBinding {
   ownerUserId: string
@@ -18,8 +20,11 @@ export type McpOAuthCredentialResolver = (reference: string, binding: McpOAuthCr
 export interface McpInspectionStore {
   privateMcpConnection(id: string, tenantId: string, actorUserId?: string): PrivateMcpConnection | undefined
   commitMcpInspection(id: string, tenantId: string, expectedRevision: number, discovery: McpDiscovery,
-    inspectedAt: number, credentialReference?: string, operation?: McpInspectionOperation, actorUserId?: string): McpConnectionView
+    inspectedAt: number, credentialReference?: string, operation?: McpInspectionOperation, actorUserId?: string,
+    grantReference?: string): McpConnectionView
 }
+export type McpStdioOpen = (reference: string, binding: McpStdioBinding,
+  options: { signal: AbortSignal; isCurrent: () => boolean; purpose: 'inspect' | 'call' }) => McpStdioConnection
 export class McpInspectionError extends Error {
   readonly code: 'credentials_unavailable' | 'cancelled' | 'timeout' | 'busy'
   constructor(code: McpInspectionError['code']) {
@@ -29,13 +34,14 @@ export class McpInspectionError extends Error {
 }
 
 export function createMcpConnectionInspector({
-  store, discover = discoverMcpTools, resolveCredential, resolveOAuthCredential, allowLoopback = false,
+  store, discover = discoverMcpTools, resolveCredential, resolveOAuthCredential, openStdio, allowLoopback = false,
   timeoutMs = 30_000, now = Date.now,
 }: {
   store: McpInspectionStore
   discover?: typeof discoverMcpTools
   resolveCredential?: McpCredentialResolver
   resolveOAuthCredential?: McpOAuthCredentialResolver
+  openStdio?: McpStdioOpen
   allowLoopback?: boolean
   timeoutMs?: number
   now?: () => number
@@ -43,8 +49,8 @@ export function createMcpConnectionInspector({
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) throw new McpConnectionError('invalid')
   const active = new Set<string>()
   return async (id: string, tenantId: string, expectedRevision: number,
-    { credentialReference: replacementReference, signal, operation, actorUserId }: {
-      credentialReference?: string; signal?: AbortSignal; operation?: McpInspectionOperation; actorUserId?: string
+    { credentialReference: replacementReference, grantReference: replacementGrantReference, signal, operation, actorUserId }: {
+      credentialReference?: string; grantReference?: string; signal?: AbortSignal; operation?: McpInspectionOperation; actorUserId?: string
     } = {}): Promise<McpConnectionView> => {
     const row = store.privateMcpConnection(id, tenantId, actorUserId)
     if (!row) throw new McpConnectionError('missing')
@@ -52,12 +58,22 @@ export function createMcpConnectionInspector({
     if (row.revision !== expectedRevision) throw new McpConnectionError('conflict')
     // A refresh may reuse only this exact revision's private credential. A
     // disconnect removes it, so reconnect must provision a fresh reference.
-    const savedCredentialReference = row.credentialReference
-    const credentialReference = replacementReference ?? row.credentialReference
-    const { endpoint, scope } = mcpConnectionEndpoint(row.endpoint,
-      row.authentication === 'device-oauth' ? false : allowLoopback)
-    const oauthOwner = row.authentication === 'device-oauth' ? row.ownerUserId : undefined
-    if (row.authentication === 'device-oauth') {
+    const isStdio = row.transport === 'stdio'
+    const savedCredentialReference = isStdio ? undefined : row.credentialReference
+    const savedGrantReference = isStdio ? row.grantReference : undefined
+    const credentialReference = isStdio ? undefined : replacementReference ?? row.credentialReference
+    const grantReference = isStdio ? replacementGrantReference ?? row.grantReference : undefined
+    const endpoint = isStdio ? undefined : mcpConnectionEndpoint(row.endpoint,
+      row.authentication === 'device-oauth' ? false : allowLoopback).endpoint
+    const scope = isStdio ? undefined : mcpConnectionEndpoint(row.endpoint,
+      row.authentication === 'device-oauth' ? false : allowLoopback).scope
+    const oauthOwner = !isStdio && row.authentication === 'device-oauth' ? row.ownerUserId : undefined
+    if (isStdio) {
+      if (!actorUserId || actorUserId !== row.ownerUserId) throw new McpConnectionError('missing')
+      if (!openStdio) throw new McpInspectionError('credentials_unavailable')
+      if (replacementReference !== undefined || !grantReference || !/^MCP_STDIO_[A-F0-9]{32}$/.test(grantReference)) throw new McpConnectionError('invalid')
+    } else if (replacementGrantReference !== undefined) throw new McpConnectionError('invalid')
+    else if (row.authentication === 'device-oauth') {
       if (!actorUserId || !oauthOwner || actorUserId !== oauthOwner) throw new McpConnectionError('missing')
       if (!resolveOAuthCredential) throw new McpInspectionError('credentials_unavailable')
       if (typeof credentialReference !== 'string' || !/^MCP_DESKTOP_[A-F0-9]{32}$/.test(credentialReference)) throw new McpConnectionError('invalid')
@@ -89,8 +105,11 @@ export function createMcpConnectionInspector({
       if (performance.now() - started >= timeoutMs) { stop('timeout'); throw stopReason }
       const current = store.privateMcpConnection(id, tenantId, actorUserId)
       if (!current) throw new McpConnectionError('missing')
-      if (current.revision !== expectedRevision || current.endpoint !== row.endpoint || current.authentication !== row.authentication ||
-          current.credentialReference !== savedCredentialReference || (oauthOwner !== undefined && current.ownerUserId !== oauthOwner)) {
+      const connectionChanged = current.revision !== expectedRevision || current.transport !== row.transport ||
+        (row.transport === 'stdio' ? current.transport !== 'stdio' || current.ownerUserId !== row.ownerUserId || current.grantReference !== savedGrantReference :
+          current.transport === 'stdio' || current.endpoint !== row.endpoint || current.authentication !== row.authentication ||
+          current.credentialReference !== savedCredentialReference || (oauthOwner !== undefined && current.ownerUserId !== oauthOwner))
+      if (connectionChanged) {
         throw new McpConnectionError('conflict')
       }
     }
@@ -99,12 +118,29 @@ export function createMcpConnectionInspector({
     }
     try {
       let bearerToken: string | undefined
+      if (isStdio) {
+        const binding: McpStdioBinding = { tenantId, ownerUserId: row.ownerUserId, connectionId: id, connectionRevision: expectedRevision }
+        const client = createMcpStdioClient({ open: options => openStdio!(grantReference!, binding, { ...options, purpose: 'inspect' }) })
+        try {
+          const discovery = await Promise.race([client.discover({ signal: controller.signal, isCurrent, timeoutMs: Math.max(1,
+            Math.floor(timeoutMs - (performance.now() - started))) }), stopped])
+          ensureCurrent()
+          const schemaAdmission = await Promise.race([admitMcpCatalog(discovery.tools, { signal: controller.signal }), stopped])
+          ensureCurrent()
+          return store.commitMcpInspection(id, tenantId, expectedRevision, { ...discovery, schemaAdmission }, now(),
+            undefined, operation, actorUserId, grantReference)
+        } catch (error) {
+          if (stopReason) throw stopReason
+          if (error instanceof McpSchemaAdmissionError) throw new McpInspectionError(error.code === 'cancelled' ? 'cancelled' : 'busy')
+          throw error
+        }
+      }
       if (credentialReference) {
         try {
           const resolution = Promise.resolve().then(() => row.authentication === 'device-oauth'
-            ? resolveOAuthCredential!(credentialReference, { tenantId, connectionId: id, endpoint,
+            ? resolveOAuthCredential!(credentialReference, { tenantId, connectionId: id, endpoint: endpoint!,
               ownerUserId: oauthOwner!, connectionRevision: expectedRevision }, { signal: controller.signal, isCurrent })
-            : resolveCredential!(credentialReference, { tenantId, connectionId: id, endpoint }))
+            : resolveCredential!(credentialReference, { tenantId, connectionId: id, endpoint: endpoint! }))
           bearerToken = await Promise.race([resolution, stopped])
         } catch {
           if (stopReason) throw stopReason
@@ -117,7 +153,7 @@ export function createMcpConnectionInspector({
       // Credential resolution can outlive a disconnect or remove. Revalidate
       // before sending anything to the endpoint, and again after discovery.
       ensureCurrent()
-      const discovery = await Promise.race([discover(endpoint, { scope, bearerToken, signal: controller.signal,
+      const discovery = await Promise.race([discover(endpoint!, { scope: scope!, bearerToken, signal: controller.signal,
         timeoutMs: Math.max(1, Math.floor(timeoutMs - (performance.now() - started))) }), stopped])
       ensureCurrent()
       const schemaAdmission = await Promise.race([admitMcpCatalog(discovery.tools, { signal: controller.signal }), stopped])

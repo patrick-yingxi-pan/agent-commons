@@ -159,7 +159,7 @@ function selectedBinding(
   try {
     const row = store.privateMcpConnection(selection.connectionId, tenantId, actorUserId)
     const view = store.mcpConnection(selection.connectionId, tenantId, actorUserId)
-    if (!row || row.id !== selection.connectionId || row.tenantId !== tenantId || !row.connected ||
+    if (!row || row.transport === 'stdio' || row.id !== selection.connectionId || row.tenantId !== tenantId || !row.connected ||
         (row.authentication === 'device-oauth'
           ? !ownerUserId(actorUserId) || row.ownerUserId !== actorUserId
           : Object.hasOwn(row, 'ownerUserId')) ||

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { pathToFileURL } from 'node:url'
-import { mcpConnectionCreationId, McpConnectionError } from '../mcpConnections.ts'
+import { mcpConnectionCreationId, mcpStdioConnectionCreationId, McpConnectionError } from '../mcpConnections.ts'
 import { store } from '../store/index.ts'
 import { closePersistence, STORE_VERSION, type PersistedState } from './persist.ts'
 import { JsonFileBackend } from './json.ts'
@@ -40,6 +40,7 @@ function baseline(): PersistedState {
 
 function connectionState() {
   const id = mcpConnectionCreationId('tenant-alpha', 'primary')
+  const stdioId = mcpStdioConnectionCreationId('tenant-alpha', 'local-primary', 'user-alpha')
   return {
     connections: [{
       tenantId: 'tenant-alpha', id, label: 'Metrics', endpoint: 'https://8.8.8.8/mcp',
@@ -47,6 +48,13 @@ function connectionState() {
       inspection: {
         protocolVersion: '2026-07-28', cleanup: 'not-needed' as const, inspectedAt: 123,
         tools: [{ name: 'metrics.read', inputSchema: { type: 'object' as const } }],
+      },
+    }, {
+      transport: 'stdio' as const, tenantId: 'tenant-alpha', ownerUserId: 'user-alpha', id: stdioId,
+      label: 'Local tool', revision: 2, connected: true, grantReference: `MCP_STDIO_${'A'.repeat(32)}`,
+      inspection: {
+        protocolVersion: '2026-07-28', cleanup: 'released' as const, inspectedAt: 456,
+        tools: [{ name: 'local.read', inputSchema: { type: 'object' as const } }],
       },
     }],
     retired: [],
@@ -73,6 +81,10 @@ test('the MCP registry round-trips through real JSON and SQLite store paths', ()
   process.env.DATA_FILE = JSON_PATH
   json.save(state)
   assert.deepEqual(json.load()?.mcpConnections, state.mcpConnections)
+  assert.equal(Object.hasOwn(json.load()!.mcpConnections!.connections[0]!, 'transport'), false,
+    'legacy HTTP rows retain their absence-as-HTTP encoding')
+  assert.equal(json.load()?.mcpConnections?.connections[1]?.transport, 'stdio')
+  assert.equal(json.load()?.mcpConnections?.connections[1]?.grantReference, `MCP_STDIO_${'A'.repeat(32)}`)
 
   const sqlite = new SqliteBackend(SQLITE_PATH)
   sqlite.save(state)

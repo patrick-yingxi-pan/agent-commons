@@ -46,7 +46,7 @@ process.env.AUTH_GATE ??= 'require'
 // recents, relation edits) survive a restart. Only the real server does this;
 // tests import the router directly and stay in-memory.
 store.initPersistence()
-await initializeMcpRuntime(store.mcpCredentialBindings())
+await initializeMcpRuntime(store.mcpCredentialBindings(), store.mcpStdioBindings())
 // Release/checkpoint the embedded database on every orderly exit, including the
 // graceful signal path below and its bounded hard-exit fallback. A crash still
 // relies on SQLite WAL recovery; an ordinary app quit should not.

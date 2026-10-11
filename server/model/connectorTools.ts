@@ -168,6 +168,7 @@ export function deriveConnectorTools(
       const connection = options.externalMcpConnections?.find(row => row.id === permission.connectionId)
       const matches = connection?.tools.filter(row => row.name === permission.toolName) ?? []
       if (!context || !isExternalMcpId(permission.connectionId) || !connection || connection.status !== 'connected' ||
+          connection.transport === 'stdio' ||
           connection.execution !== 'approval-required' || connection.revision !== permission.connectionRevision ||
           !connection.executableTools?.includes(permission.toolName) || matches.length !== 1 ||
           mcpToolSchemaHash(matches[0]!) !== permission.schemaHash) {

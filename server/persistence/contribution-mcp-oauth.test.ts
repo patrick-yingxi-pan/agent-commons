@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { contributionEffectExecutionId } from '../contributionEffectExecutionIdentity.ts'
 import { createContributionEffectAttempt, settleContributionEffectAttempt } from '../contributionEffectState.ts'
-import { mcpConnectionCreationId } from '../mcpConnections.ts'
+import { mcpConnectionCreationId, mcpStdioConnectionCreationId } from '../mcpConnections.ts'
 import { contributionMcpProposalOwner } from '../contributionMcpAuthority.ts'
 import { hasCorePersistedShape, STORE_VERSION, type PersistedState, type StoredContribution } from './format.ts'
 import { JsonFileBackend } from './json.ts'
@@ -93,6 +93,17 @@ function fixture({ stamp = true, oauth = true, attempt = false, historical = fal
 test('OAuth Contribution lines cannot omit their private person owner', () => {
   assert.equal(hasCorePersistedShape(fixture({ stamp: false })), false,
     'a tenant-only MCP line cannot adopt the personal OAuth connection')
+})
+
+test('Contribution authority cannot attach to a person-owned stdio connection, even with matching owner and grant', () => {
+  const state = fixture()
+  const id = mcpStdioConnectionCreationId(tenantId, 'contribution-oauth', ownerUserId)
+  state.contributions![0]!.envelope!.lines[0]!.mcpAuthority!.call.connectionId = id
+  state.contributions![0]!.events[0]!.envelopeProposalLines![0]!.mcp!.connectionId = id
+  state.mcpConnections = { connections: [{ transport: 'stdio', tenantId, ownerUserId, id, label: 'Local calendar',
+    revision: 4, connected: true, grantReference: `MCP_STDIO_${'A'.repeat(32)}`,
+    inspection: { protocolVersion: '2026-07-28', cleanup: 'released', inspectedAt: 1, tools: [] } }], retired: [] }
+  assert.equal(hasCorePersistedShape(state), false, 'unattended Contribution authority must not opt into native stdio')
 })
 
 test('historical OAuth proposal provenance survives replacement by a non-MCP envelope', () => {

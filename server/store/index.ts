@@ -403,7 +403,7 @@ function tenantWritesAs(callerTenant: string, owner: string): boolean {
   return owner === callerTenant || accounts.seatIn(callerTenant, owner) === 'owner'
 }
 
-/** OAuth requires the actual person and a current membership. Namespace
+/** Person-owned MCP connections require the actual person and a current membership. Namespace
  * ownership is not person identity; legacy connections need neither inference. */
 function activeMcpActor(tenantId: string, actorUserId?: string): string | undefined {
   return actorUserId && accounts.identityFor(actorUserId, tenantId) ? actorUserId : undefined
@@ -416,7 +416,7 @@ function mcpActivityOwner(session: Session, activity: ToolActivity): string | un
   if (authority) return authority.ownerUserId
   const connection = mcpConnectionRegistry.snapshot()
   const identities = [
-    ...connection.connections.filter(row => row.id === activity.connectorId && row.authentication === 'device-oauth')
+    ...connection.connections.filter(row => row.id === activity.connectorId && row.ownerUserId !== undefined)
       .map(row => row.ownerUserId),
     ...connection.retired.filter(row => row.id === activity.connectorId && row.ownerUserId !== undefined)
       .map(row => row.ownerUserId!),
@@ -4168,20 +4168,20 @@ function commitSessionContextState(
       if (!isAttachedMcp) continue
       const mcpRow = mcpState.connections.find(row => row.id === contextId && row.tenantId === tenantId)
       const retiredMcp = mcpState.retired.find(row => row.id === contextId && row.tenantId === tenantId)
-      const oauthOwner = mcpRow?.authentication === 'device-oauth' ? mcpRow.ownerUserId : retiredMcp?.ownerUserId
-      if (oauthOwner !== undefined && oauthOwner !== activeMcpActor(tenantId, actorUserId)) {
-        throw new ValidationError('Only the OAuth connection owner can detach this MCP context.')
+      const connectionOwner = mcpRow?.ownerUserId ?? retiredMcp?.ownerUserId
+      if (connectionOwner !== undefined && connectionOwner !== activeMcpActor(tenantId, actorUserId)) {
+        throw new ValidationError('Only the connection owner can detach this MCP context.')
       }
       continue
     }
     if (operation.context.type !== 'mcp') throw new ValidationError('An external MCP connection must be attached as MCP context.')
     const mcpRow = mcpState.connections.find(row => row.id === operation.context.id && row.tenantId === tenantId)
     const retiredMcp = mcpState.retired.find(row => row.id === operation.context.id && row.tenantId === tenantId)
-    const oauthOwner = mcpRow?.authentication === 'device-oauth' ? mcpRow.ownerUserId : retiredMcp?.ownerUserId
-    if (oauthOwner !== undefined && oauthOwner !== activeMcpActor(tenantId, actorUserId)) {
-      throw new ValidationError('Only the OAuth connection owner can attach this MCP context.')
+    const connectionOwner = mcpRow?.ownerUserId ?? retiredMcp?.ownerUserId
+    if (connectionOwner !== undefined && connectionOwner !== activeMcpActor(tenantId, actorUserId)) {
+      throw new ValidationError('Only the connection owner can attach this MCP context.')
     }
-    if ((!originalContextIds.has(operation.context.id) || mcpRow?.authentication === 'device-oauth') &&
+    if ((!originalContextIds.has(operation.context.id) || mcpRow?.ownerUserId !== undefined) &&
         store.mcpConnection(operation.context.id, tenantId, actorUserId)?.execution !== 'approval-required') {
       throw new ValidationError('Inspect and connect this MCP server before attaching it.')
     }
@@ -5194,7 +5194,7 @@ export const store = {
           confirmActivityIds.push(activity.id)
           continue
         }
-        if (!connection || connection.authentication !== 'device-oauth') continue
+        if (!connection) continue
         const tool = connection.tools.find(candidate => candidate.name === activity.mcp!.toolName)
         const exactCurrentBinding = connection.status === 'connected' &&
           connection.revision === activity.mcp.connectionRevision &&
@@ -6973,11 +6973,11 @@ export const store = {
       if (!activity.mcp || !isExternalMcpId(activity.connectorId)) continue
       const row = connectionState.connections.find(candidate => candidate.id === activity.connectorId && candidate.tenantId === tenantId)
       const retired = connectionState.retired.find(candidate => candidate.id === activity.connectorId && candidate.tenantId === tenantId)
-      if (row?.authentication !== 'device-oauth') {
-        const oauthIdentityExists = connectionState.connections.some(candidate => candidate.id === activity.connectorId && candidate.authentication === 'device-oauth') ||
+      if (row?.ownerUserId === undefined) {
+        const oauthIdentityExists = connectionState.connections.some(candidate => candidate.id === activity.connectorId && candidate.ownerUserId !== undefined) ||
           connectionState.retired.some(candidate => candidate.id === activity.connectorId && candidate.ownerUserId !== undefined)
         if (retired?.ownerUserId !== undefined || oauthIdentityExists) {
-          throw new ConflictError('This OAuth MCP connection has been removed; its historical receipt cannot be recreated.')
+          throw new ConflictError('This person-owned MCP connection has been removed; its historical receipt cannot be recreated.')
         }
         continue
       }
@@ -6988,7 +6988,7 @@ export const store = {
           seenOAuthIds.has(activity.id) || mcpActivityAuthorities.has(activityKey) ||
           [...(session.messages ?? []), ...(session.compactedMessages ?? [])]
             .some(existing => (existing.toolActivities ?? []).some(candidate => candidate.id === activity.id))) {
-        throw new ConflictError('This OAuth-backed MCP proposal is no longer authorized for this person or connection.')
+        throw new ConflictError('This person-owned MCP proposal is no longer authorized for this person or connection.')
       }
       seenOAuthIds.add(activity.id)
       authorities.push({ sessionId: session.id, activityId: activity.id, connectionId: activity.connectorId, tenantId, ownerUserId: actor })
@@ -7282,11 +7282,11 @@ export const store = {
       const mcpState = mcpConnectionRegistry.snapshot()
       const row = mcpState.connections.find(candidate => candidate.id === ctx.id && candidate.tenantId === tenantId)
       const retired = mcpState.retired.find(candidate => candidate.id === ctx.id && candidate.tenantId === tenantId)
-      const oauthOwner = row?.authentication === 'device-oauth' ? row.ownerUserId : retired?.ownerUserId
-      if (oauthOwner !== undefined && oauthOwner !== activeMcpActor(tenantId, actorUserId)) {
-        throw new ValidationError('Only the OAuth connection owner can attach this MCP context.')
+      const connectionOwner = row?.ownerUserId ?? retired?.ownerUserId
+      if (connectionOwner !== undefined && connectionOwner !== activeMcpActor(tenantId, actorUserId)) {
+        throw new ValidationError('Only the connection owner can attach this MCP context.')
       }
-      if ((!alreadyAttached || row?.authentication === 'device-oauth') && this.mcpConnection(ctx.id, tenantId, actorUserId)?.execution !== 'approval-required') {
+      if ((!alreadyAttached || row?.ownerUserId !== undefined) && this.mcpConnection(ctx.id, tenantId, actorUserId)?.execution !== 'approval-required') {
         throw new ValidationError('Inspect and connect this MCP server before attaching it.')
       }
     }
@@ -7531,7 +7531,7 @@ export const store = {
       const result = mcpConnectionRegistry.create(setup, tenantId, allowLoopback, activeMcpActor(tenantId, actorUserId))
       if (result.created) {
         emit({ type: 'savedcontext.changed', id: result.connection.id, tenantId,
-          ...(result.connection.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
+          ...(result.connection.transport === 'stdio' || result.connection.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
         persist()
       }
       return result
@@ -7546,13 +7546,14 @@ export const store = {
     credentialReference?: string,
     operation?: McpInspectionOperation,
     actorUserId?: string,
+    grantReference?: string,
   ): McpConnectionView {
     return commitMutationBatch(() => {
       const result = mcpConnectionRegistry.commitInspection(
-        id, tenantId, expectedRevision, discovery, inspectedAt, credentialReference, operation, activeMcpActor(tenantId, actorUserId),
+        id, tenantId, expectedRevision, discovery, inspectedAt, credentialReference, operation, activeMcpActor(tenantId, actorUserId), grantReference,
       )
       emit({ type: 'connector.status', id, status: 'connected', tenantId,
-        ...(result.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
+        ...(result.transport === 'stdio' || result.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
       persist()
       return result
     })
@@ -7561,7 +7562,7 @@ export const store = {
     return commitMutationBatch(() => {
       const result = mcpConnectionRegistry.disconnect(id, tenantId, expectedRevision, activeMcpActor(tenantId, actorUserId))
       emit({ type: 'connector.status', id, status: 'needs-auth', tenantId,
-        ...(result.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
+        ...(result.transport === 'stdio' || result.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
       persist()
       return result
     })
@@ -7572,7 +7573,7 @@ export const store = {
       const removed = mcpConnectionRegistry.remove(id, tenantId, expectedRevision, activeMcpActor(tenantId, actorUserId))
       if (removed) {
         emit({ type: 'savedcontext.changed', id, tenantId,
-          ...(row?.authentication === 'device-oauth' ? { ownerUserId: actorUserId! } : {}) })
+          ...(row?.ownerUserId ? { ownerUserId: actorUserId! } : {}) })
         persist()
       }
       return removed
@@ -7581,6 +7582,10 @@ export const store = {
   /** Internal credential bindings for the authenticated MCP transport. */
   mcpCredentialBindings() {
     return mcpConnectionRegistry.credentialBindings()
+  },
+  /** Private owner/revision bindings for the native stdio grant authority. */
+  mcpStdioBindings() {
+    return mcpConnectionRegistry.stdioBindings()
   },
   /** The sidebar detail for one connector / MCP server (mock: derived locally;
    *  a real backend fetches live resources from the connected service). */

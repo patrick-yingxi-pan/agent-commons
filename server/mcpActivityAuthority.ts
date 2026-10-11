@@ -1,4 +1,4 @@
-/** Private per-activity person authority for OAuth MCP consent. This deliberately
+/** Private per-activity person authority for person-owned OAuth/stdio MCP consent. This deliberately
  * lives beside persistence, not in the public Session/Message contract. */
 import type { Session, ToolActivity } from '../contract/index.ts'
 import type { McpConnectionState } from './mcpConnections.ts'
@@ -42,8 +42,9 @@ function activities(session: Session): ToolActivity[] {
     .flatMap(message => message.toolActivities ?? [])
 }
 
-/** Validate exact transcript joins. If a live or retired OAuth connection is
- * known, every matching MCP activity must have a private owner anchor. */
+/** Validate exact transcript joins. If a live or retired person-owned OAuth
+ * or stdio connection is known, every matching MCP activity must have a
+ * private owner anchor. */
 export function validateMcpActivityAuthorities(
   authorities: McpActivityAuthority[],
   sessions: Session[],
@@ -64,23 +65,26 @@ export function validateMcpActivityAuthorities(
     const row = connections.connections.find(item => item.id === authority.connectionId && item.tenantId === tenantId)
     const retired = connections.retired.find(item => item.id === authority.connectionId && item.tenantId === tenantId)
     if (!row && !retired) return false
-    if (row && (row.authentication !== 'device-oauth' || row.ownerUserId !== authority.ownerUserId)) return false
+    if (row && ((row.transport !== 'stdio' && row.authentication !== 'device-oauth') ||
+        row.ownerUserId !== authority.ownerUserId)) return false
     if (retired && retired.ownerUserId !== authority.ownerUserId) return false
     const key = JSON.stringify([authority.sessionId, authority.activityId])
     if (byActivity.has(key)) return false
     byActivity.set(key, authority)
   }
 
-  const oauthIdentityById = (id: string) => [
-    ...connections.connections.filter(item => item.id === id && item.authentication === 'device-oauth')
+  const personOwnedIdentityById = (id: string) => [
+    ...connections.connections.filter(item => item.id === id &&
+      (item.transport === 'stdio' || item.authentication === 'device-oauth'))
       .map(item => ({ tenantId: item.tenantId, ownerUserId: item.ownerUserId })),
-    ...connections.retired.filter(item => item.id === id && item.ownerUserId !== undefined)
+    ...connections.retired.filter(item => item.id === id &&
+      (item.transport === 'stdio' || item.ownerUserId !== undefined))
       .map(item => ({ tenantId: item.tenantId, ownerUserId: item.ownerUserId! })),
   ]
   for (const session of sessions) {
     for (const activity of activities(session)) {
       if (!activity.mcp || !connectionId(activity.connectorId)) continue
-      const identities = oauthIdentityById(activity.connectorId)
+      const identities = personOwnedIdentityById(activity.connectorId)
       if (identities.length === 0) continue
       if (identities.length !== 1) return false
       const authority = byActivity.get(JSON.stringify([session.id, activity.id]))

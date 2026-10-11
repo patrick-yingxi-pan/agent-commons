@@ -13,6 +13,7 @@ import { keys } from './keys.ts'
 import type { McpConnectionListResponse, McpConnectionView } from '../../contract/mcpConnections.ts'
 import { createAcknowledgedActionMutationController } from '../controller/acknowledgedActionMutationCore.ts'
 import type { RevisionedMutationStatus } from '../controller/revisionedMutationCore.ts'
+import { mcpConnectionCreationId, mcpStdioConnectionCreationId } from '../../server/mcpConnections.ts'
 
 const view: McpConnectionView = {
   id: 'mcp-connection-' + 'a'.repeat(32), label: 'Server', status: 'connected', revision: 2,
@@ -255,6 +256,33 @@ test('Dismiss/reconcile never replays a create or cleanup side effect', async (t
   )
   assert.equal(calls.length, 2)
   assert.ok(calls.every((call) => call.startsWith('GET ')))
+})
+
+test('lost create acknowledgements read the exact transport and person-bound identity without replay', async (t) => {
+  const originalFetch = globalThis.fetch
+  t.after(() => { globalThis.fetch = originalFetch; refreshAccount(null) })
+  refreshAccount({ userId: 'mcp-user', tenantId: 'mcp-tenant' })
+  const calls: string[] = []
+  const creationId = 'same-reviewed-create'
+  for (const transport of ['stdio', 'device-oauth', 'device-bearer', 'none'] as const) {
+    const expectedId = transport === 'stdio' ? mcpStdioConnectionCreationId('mcp-tenant', creationId, 'mcp-user')
+      : mcpConnectionCreationId('mcp-tenant', creationId, transport === 'device-oauth' ? 'mcp-user' : undefined)
+    globalThis.fetch = async (input, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${String(input)}`)
+      assert.ok(String(input).endsWith(`/mcp-connections/${expectedId}`), 'receipt reads use the same namespace as the authoritative create operation')
+      return jsonResponse({ ...view, id: expectedId })
+    }
+    const request = transport === 'stdio'
+      ? { transport: 'stdio' as const, creationId, label: 'Local fixture' }
+      : { creationId, label: 'HTTP fixture', endpoint: 'https://mcp.example.test', authentication: transport }
+    assert.equal(await reconcileMcpConnectionMutation({ kind: 'create', tenantId: 'mcp-tenant', sourceUserId: 'mcp-user', request }, undefined, creationId), true)
+  }
+  assert.equal(new Set(calls).size, 3, 'stdio, OAuth and legacy HTTP occupy distinct identity namespaces')
+  assert.ok(calls.every(call => call.startsWith('GET ')))
+  const before = calls.length
+  await assert.rejects(reconcileMcpConnectionMutation({ kind: 'create', tenantId: 'mcp-tenant', sourceUserId: null,
+    request: { transport: 'stdio', creationId, label: 'Missing owner' } }, undefined, creationId))
+  assert.equal(calls.length, before, 'never guess a person from the current cookie when the frozen creation source is missing')
 })
 
 test('MCP detail reads have an authoritative bounded request path', async (t) => {

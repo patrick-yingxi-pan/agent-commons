@@ -50,6 +50,7 @@ test('Routine MCP exposes only selected exact inspected executable tools and dis
 test('stale, detached, wrong-status, non-executable, duplicate, or schema-changed selections fail closed', () => {
   for (const overrides of [
     { revision: 8 }, { status: 'disconnected' as const }, { execution: 'unavailable' as const },
+    { transport: 'stdio' as const },
     { executableTools: [] }, { tools: [{ ...inspectedTool, inputSchema: { ...schema, properties: { query: { type: 'number' } } } }] },
   ]) {
     const derived = derive(overrides)

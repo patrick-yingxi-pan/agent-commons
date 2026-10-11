@@ -43,6 +43,12 @@ const mcpOAuthChannels = Object.freeze({
   reconcile: 'agent-commons:mcp-oauth:reconcile',
   cancel: 'agent-commons:mcp-oauth:cancel',
 })
+const mcpStdioChannels = Object.freeze({
+  start: 'agent-commons:mcp-stdio:start',
+  authorize: 'agent-commons:mcp-stdio:authorize',
+  reconcile: 'agent-commons:mcp-stdio:reconcile',
+  cancel: 'agent-commons:mcp-stdio:cancel',
+})
 const imageOcrChannels = Object.freeze({
   recognize: 'agent-commons:image-ocr:recognize',
   cancel: 'agent-commons:image-ocr:cancel',
@@ -119,6 +125,18 @@ async function invokeMcpOAuth(channel, request) {
   throw error
 }
 
+async function invokeMcpStdio(channel, request) {
+  let reply
+  try { reply = await ipcRenderer.invoke(channel, request) } catch {}
+  const keys = reply && typeof reply === 'object' && !Array.isArray(reply) ? Object.keys(reply).sort().join(',') : ''
+  if (keys === 'ok,value' && reply.ok === true) return reply.value
+  const code = keys === 'error,ok' && reply.ok === false &&
+    ['invalid', 'busy', 'stale', 'expired', 'cancelled', 'unavailable'].includes(reply.error) ? reply.error : 'unavailable'
+  const error = new Error(`Local MCP setup could not be completed (${code}).`)
+  error.code = code
+  throw error
+}
+
 // Backup and user-mediated context selection are available in every desktop
 // run. Credentials join only after OS-backed encryption is available. A
 // spoofed command-line flag gains no authority: every invocation is also
@@ -180,6 +198,14 @@ if (process.argv.includes('--agent-commons-mcp-oauth=true')) {
     authorize: request => invokeMcpOAuth(mcpOAuthChannels.authorize, request),
     reconcile: request => invokeMcpOAuth(mcpOAuthChannels.reconcile, request),
     cancel: request => invokeMcpOAuth(mcpOAuthChannels.cancel, request),
+  })
+}
+if (process.platform === 'darwin' && process.argv.includes('--agent-commons-mcp-stdio=true')) {
+  bridge.mcpStdio = Object.freeze({
+    start: request => invokeMcpStdio(mcpStdioChannels.start, request),
+    authorize: request => invokeMcpStdio(mcpStdioChannels.authorize, request),
+    reconcile: request => invokeMcpStdio(mcpStdioChannels.reconcile, request),
+    cancel: request => invokeMcpStdio(mcpStdioChannels.cancel, request),
   })
 }
 contextBridge.exposeInMainWorld('agentCommonsDesktop', Object.freeze(bridge))

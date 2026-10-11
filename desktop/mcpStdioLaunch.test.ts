@@ -1,9 +1,18 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MCP_STDIO_LAUNCH_LIMITS, snapshotMcpStdioLaunch } from './mcpStdioLaunch.mjs'
+import { MCP_STDIO_LAUNCH_LIMITS, snapshotMcpStdioLaunch, mcpStdioReviewLiteral } from './mcpStdioLaunch.mjs'
 
 const valid = () => ({ executable: '/usr/local/bin/example-mcp', args: ['--mode', 'read only'],
   cwd: '/Users/example/project', env: { LANG: 'C.UTF-8', TOKEN: 'explicit-only' } })
+
+test('native review escapes invisible and bidi formatting without changing exact launch data', () => {
+  const input = { ...valid(), args: ['\u061c\u200e\u200f\u202e\u2066\ufeff\u{e0001}', 'line\nnext\u2028\u2029', 'literal \\u202e 😀'] }
+  const rendered = mcpStdioReviewLiteral(input)
+  assert.deepEqual(JSON.parse(rendered), input)
+  assert.doesNotMatch(rendered, /[\u007f-\u009f\u2028\u2029]|\p{Cf}/u)
+  assert.match(rendered, /\\u061c\\u200e\\u200f\\u202e\\u2066\\ufeff\\udb40\\udc01/)
+  assert.ok(rendered.includes('\n  "args"'), 'pretty-print layout remains readable')
+})
 
 test('stdio launch config is a detached, deeply frozen exact snapshot', () => {
   const source = valid()

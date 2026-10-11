@@ -80,6 +80,20 @@ test('device configuration requires both resolver and synchronizer, and does not
   assert.doesNotMatch(JSON.stringify(mcpRuntimeCapabilities()), new RegExp(rawSecret))
 })
 
+test('effective runtime snapshots keep stable identity before and after partial capability synchronization', async () => {
+  configureMcpRuntime({ deviceBearerAvailable: true, deviceOAuthAvailable: true, allowLoopback: false,
+    localProcessesAvailable: true, resolveCredential: async () => 'unused', resolveOAuthCredential: async () => 'unused',
+    openStdio: () => { throw new Error('not called') },
+    synchronizeBindings: async () => ({ available: false }), synchronizeStdioBindings: async () => ({ available: true }) })
+  const before = mcpRuntimeConfiguration()
+  assert.strictEqual(mcpRuntimeConfiguration(), before, 'unavailable HTTP/OAuth capabilities must not churn the inspector cache')
+  await initializeMcpRuntime([], [])
+  const partial = mcpRuntimeConfiguration()
+  assert.equal(partial.localProcessesAvailable, true)
+  assert.equal(partial.deviceOAuthAvailable, false)
+  assert.strictEqual(mcpRuntimeConfiguration(), partial, 'a stable partial runtime also retains identity')
+})
+
 test('successful synchronization clears pending cleanup, while unavailable storage and failures stay pending', async () => {
   let available = false
   let seen: unknown
@@ -111,6 +125,57 @@ test('successful synchronization clears pending cleanup, while unavailable stora
   })
   assert.equal(await synchronizeMcpCredentials([]), 'complete')
   assert.equal(mcpRuntimeCapabilities().credentialCleanupPending, false)
+})
+
+test('stdio synchronization failure revokes local-process capability and a later acknowledgement can recover it', async () => {
+  let available = false
+  let fail = false
+  const options = {
+    deviceBearerAvailable: false,
+    localProcessesAvailable: true,
+    allowLoopback: false,
+    openStdio: () => { throw new Error('not called') },
+    synchronizeStdioBindings: async () => {
+      if (fail) throw new Error('native lifecycle unavailable')
+      return { available }
+    },
+  }
+  configureMcpRuntime(options)
+  await initializeMcpRuntime([], [])
+  assert.equal(mcpRuntimeCapabilities().localProcesses, undefined)
+  assert.equal(mcpRuntimeConfiguration().localProcessesAvailable, false)
+
+  available = true
+  assert.equal(await synchronizeMcpCredentials([], []), 'complete')
+  assert.equal(mcpRuntimeCapabilities().localProcesses, true)
+  assert.equal(mcpRuntimeConfiguration().localProcessesAvailable, true)
+
+  available = false
+  assert.equal(await synchronizeMcpCredentials([], []), 'pending')
+  assert.equal(mcpRuntimeCapabilities().localProcesses, undefined)
+  assert.equal(mcpRuntimeConfiguration().localProcessesAvailable, false)
+
+  fail = true
+  assert.equal(await synchronizeMcpCredentials([], []), 'pending')
+  assert.equal(mcpRuntimeCapabilities().localProcesses, undefined)
+  assert.equal(mcpRuntimeConfiguration().localProcessesAvailable, false)
+
+  // A new successful boot acknowledgement must use the originally requested
+  // native capability, not the last effective `false` snapshot.
+  fail = false
+  available = true
+  await initializeMcpRuntime([], [])
+  assert.equal(mcpRuntimeCapabilities().localProcesses, true)
+  assert.equal(mcpRuntimeConfiguration().localProcessesAvailable, true)
+})
+
+test('a malformed native availability acknowledgement fails closed', async () => {
+  configureMcpRuntime({ deviceBearerAvailable: false, localProcessesAvailable: true, allowLoopback: false,
+    openStdio: () => { throw new Error('not called') },
+    synchronizeStdioBindings: async () => ({ available: 'yes' as unknown as boolean }) })
+  assert.equal(await synchronizeMcpCredentials([], []), 'pending')
+  assert.equal(mcpRuntimeCapabilities().localProcesses, undefined)
+  assert.equal(mcpRuntimeCapabilities().credentialCleanupPending, true)
 })
 
 test('an old held synchronization cannot overwrite cleanup state after configuration changes', async () => {

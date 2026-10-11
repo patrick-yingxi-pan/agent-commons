@@ -16,6 +16,13 @@ export const MCP_STDIO_LAUNCH_LIMITS = Object.freeze({
 const dangerousEnvironmentKeys = new Set(['__proto__', 'prototype', 'constructor'])
 const fail = () => null
 
+/** Keep native review legible without letting invisible format/bidi controls
+ * disguise the exact saved settings. Preserve pretty-print line breaks. */
+export function mcpStdioReviewLiteral(value) {
+  return JSON.stringify(value, null, 2).replace(/[\u007f-\u009f\u2028\u2029]|\p{Cf}/gu,
+    character => character.split('').map(unit => `\\u${unit.charCodeAt(0).toString(16).padStart(4, '0')}`).join(''))
+}
+
 function plainRecord(value) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const prototype = Object.getPrototypeOf(value)

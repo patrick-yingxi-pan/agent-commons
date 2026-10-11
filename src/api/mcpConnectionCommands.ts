@@ -134,7 +134,7 @@ export async function reconcileMcpConnectionMutation(
 ): Promise<boolean> {
   if (intent.kind === 'create') {
     const issuedGeneration = accountGeneration()
-    const expectedId = await mcpConnectionCreationId(intent.tenantId, intent.request.creationId)
+    const expectedId = await mcpConnectionCreationId(intent)
     assertScope(intent, issuedGeneration)
     try {
       const result = await getMcpConnection(expectedId)
@@ -204,8 +204,15 @@ export async function reconcileMcpConnectionMutation(
   return false
 }
 
-async function mcpConnectionCreationId(tenantId: string, creationId: string): Promise<string> {
-  const bytes = new TextEncoder().encode(JSON.stringify([tenantId, creationId]))
+async function mcpConnectionCreationId(intent: Extract<McpConnectionMutationIntent, { kind: 'create' }>): Promise<string> {
+  const { tenantId, sourceUserId, request } = intent
+  const personTransport = request.transport === 'stdio' ? 'stdio' : request.authentication === 'device-oauth' ? 'device-oauth' : null
+  if (personTransport && !sourceUserId) throw new AccountSwitchedError('MCP creation source is missing')
+  // Keep legacy HTTP identities stable; person-owned transports occupy their
+  // authoritative server namespaces, using the frozen source rather than an
+  // ambient current account. Recovery is a read of that one reserved identity.
+  const identity = personTransport ? [personTransport, sourceUserId, tenantId, request.creationId] : [tenantId, request.creationId]
+  const bytes = new TextEncoder().encode(JSON.stringify(identity))
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   const hex = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, '0')).join('')
   return `mcp-connection-${hex.slice(0, 32)}`

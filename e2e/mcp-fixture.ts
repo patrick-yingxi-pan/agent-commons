@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { once } from 'node:events'
-import { configureMcpRuntime, initializeMcpRuntime, mcpRuntimeConfiguration } from '../server/mcpRuntime.ts'
+import { configureMcpRuntime, initializeMcpRuntime, mcpRuntimeConfiguration, type McpRuntimeConfiguration } from '../server/mcpRuntime.ts'
 import { sendError } from '../server/http/respond.ts'
 import type { Router } from '../server/http/router.ts'
 import type { Page, Route } from '@playwright/test'
@@ -62,6 +62,9 @@ export async function startMcpRouterStack(options: {
   resolveCredential?: (reference: string, binding: { tenantId: string; connectionId: string; endpoint: string }) => Promise<string>
   deviceOAuthAvailable?: boolean
   resolveOAuthCredential?: (reference: string, binding: { tenantId: string; connectionId: string; endpoint: string }, ownerUserId: string) => Promise<string>
+  localProcessesAvailable?: boolean
+  openStdio?: McpRuntimeConfiguration['openStdio']
+  synchronizeStdioBindings?: McpRuntimeConfiguration['synchronizeStdioBindings']
 } = {}): Promise<McpRouterStack> {
   const previousAuth = process.env.AUTH_GATE
   const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL
@@ -95,9 +98,12 @@ export async function startMcpRouterStack(options: {
       allowLoopback: true,
       resolveCredential: options.resolveCredential,
       resolveOAuthCredential: options.resolveOAuthCredential,
+      localProcessesAvailable: options.localProcessesAvailable,
+      openStdio: options.openStdio,
+      synchronizeStdioBindings: options.synchronizeStdioBindings,
       synchronizeBindings: async () => ({ available: cleanupAvailable }),
     })
-    if (options.deviceOAuthAvailable) await initializeMcpRuntime([])
+    if (options.deviceOAuthAvailable || options.localProcessesAvailable) await initializeMcpRuntime([])
     const { buildRouter } = await import('../server/routes/index.ts')
     const router = buildRouter()
     server = createServer(async (request, response) => {
