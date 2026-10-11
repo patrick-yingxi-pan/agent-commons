@@ -13,7 +13,42 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: private MCP follow-up forms
+## Current checkpoint: local MCP process foundation
+
+Autonomous direction (2026-10-11): implement person-owned desktop stdio MCP
+connections next, using the existing inspect, attach and per-call review model.
+Local servers are executable code, not protocol-sandboxed services. Launch
+configuration must stay native and explicitly user-approved; models and portable
+HTTP copies must never select commands, arguments, environment or directories.
+Only repository-authored fixtures are authorized for development acceptance.
+
+PORT-30 establishes the internal transport first: immutable bounded launch
+descriptions with no inherited environment or shell, strict incremental UTF-8
+JSON lines, serialized request IDs, inert notifications, current-source checks,
+deadlines and fixed secret-free errors with conservative submission uncertainty.
+Four live process groups retain capacity until close, including cancelled work.
+Shutdown closes stdin before TERM/KILL escalation; ordinary descendant cleanup
+is included, but deliberately escaped processes and executable filesystem/network
+access are not contained. No restart or call replay occurs automatically.
+The JSON snapshot authority is shared with the existing HTTP MCP implementation.
+
+Review caught and fixed cross-platform path admission on macOS and direct-PID
+cleanup that could leave descendants holding pipes. Regression tests use only
+repository-authored children and generated/in-memory data. Mutations of path
+admission, JSON-root validation and submission uncertainty were watched fail.
+Disabling group signals also failed both uncooperative-descendant close deadlines.
+Final review also removed delayed signaling of a reaped leader's group ID:
+leader exit triggers one immediate kill, retires that identifier and clears
+pending signal timers. A late pipe close never signals it again. The new
+regression failed before this fix and passed afterward; test teardown likewise
+never signals a PID after observing that it exited.
+This checkpoint adds no renderer controls, native IPC, saved launch grants or
+product adapter. Protocol negotiation, private native configuration/consent,
+person-bound backend dispatch and packaged workflow acceptance remain next.
+Full local verification is still required before landing; its final outcome is
+recorded in the checkpoint handoff. The owner's live store remains untouched.
+
+## Previous checkpoint: private MCP follow-up forms
 
 Autonomous direction (2026-10-11): implement modern, person-reviewed form
 elicitation as the next core MCP workflow. It will not grant standing authority,
@@ -3605,7 +3640,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. Bounded macOS local-image OCR (PORT-26) is implemented and accepted for the stated macOS path. Discussion-as-Context (CTX-DISC-1) adds confirmed saved copies under its bounded checkpoint; PORT-28 separately adds explicit macOS scanned-PDF-to-Document review; non-macOS and automatic PDF-attachment OCR, broader PDF recognition accuracy/language acceptance, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain future work. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. OAuth, local transports, standing trust, MRTR and third-party acceptance remain required. Repository content/git and some imported artifact renderers remain declared fixtures. |
+| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-30 adds internal stdio process supervision; native configuration, negotiated sessions and product integration remain required. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 

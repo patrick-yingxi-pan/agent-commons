@@ -7,8 +7,8 @@ now has a real bounded HTTP adapter. Interactive calls require fresh owner
 approval; tool names and annotations never waive it. Unattended Routine calls
 instead require the separate bounded MODEL-40 permission, never inherited from
 an attached context or Commission.
-Public issuer/system-browser OAuth acceptance, local transports, multi-round
-input handling, standing trust and real third-party acceptance remain required.
+Public issuer/system-browser OAuth acceptance, local transport integration,
+broader input modes, standing trust and real third-party acceptance remain required.
 Routine OAuth now has a separately attributed bounded approval path with local
 browser and unsigned arm64 packaged acceptance; the production plan records the
 exact fixture boundary and remaining release gates.
@@ -530,10 +530,10 @@ remain owner-only even when output is shared. The owner route is
 while in-session mutations remain consent proposals. MODEL-40 tracks the current
 integration and its remaining acceptance gates.
 
-## Required next work
+## Private interactive follow-up forms
 
-The separate form-only protocol foundation (`server/mcpFormToolSession.ts`) is
-implemented but **not enabled in any product executor**. Its modern-only session
+The form-only protocol boundary (`server/mcpFormToolSession.ts`) is enabled only
+through the private person-reviewed interactive workflow. Its modern-only session
 advertises `elicitation: { form: {} }` on each request, returns a bounded
 `input_required` form to the trusted host, and closes without continuing. A
 separately invoked continuation snapshots the original tool/arguments, the prior
@@ -559,25 +559,59 @@ remain unsupported. A schema validator cannot detect every request for secrets;
 the protocol prohibits form requests for passwords, access/API tokens and payment
 credentials. It does not prohibit ordinary contact/profile data categorically.
 
-Before enabling this boundary, the product must persist private person-bound
-original-call/round authority, require explicit review/edit/continue or stop,
-keep answers/state out of shared history and model input, recheck membership and
-exact connection revisions at dispatch, cap rounds/expiry, and recover interrupted
-continuations without automatic replay. A parsed form is not proof that it came
+The product persists private person-bound original-call/round authority, requires
+explicit review/edit/Continue or local Stop, keeps answers/state out of shared
+history and model input, rechecks membership and exact connection revisions at
+dispatch, caps each decision at four rounds and one hour, and recovers interrupted
+continuations without automatic replay. Check status is GET-only receipt recovery;
+submitted answers are not persisted, only their command hash. Default, legacy,
+Routine and Contribution callers remain complete-only. A parsed form is not proof that it came
 from this endpoint, tool or person. Sending decline/cancel is itself a new tool
 request; abandoning locally must not claim that the server was informed or that
 earlier effects rolled back. See the official
 [multi-round request](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr)
 and [elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation)
-contracts. Local fixture tests prove the substrate, not the missing user workflow.
+contracts. JSON/SQLite, five-viewport browser and separate unsigned arm64 packaged
+fixtures prove the bounded workflow, not public-service or signed/Intel acceptance.
+
+## Internal local-process foundation
+
+PORT-30 adds native-importable launch admission, JSON framing and process supervision
+without wiring a renderer, HTTP endpoint, model executor, startup task or saved grant.
+The selected executable, arguments, working directory and explicit environment
+are private caller-owned inputs, not MCP-server instructions. No shell or ambient
+environment is used. This is not a sandbox or an executable-integrity check:
+selected code still runs with the local user's authority.
+
+Four process groups, one pending request each, a 60-second total lifetime and
+30-second request deadline bound supervision. Launch data permits 64 arguments,
+64 environment entries and 64 KiB aggregate argument/environment bytes. UTF-8
+JSON frames are at most 1 MiB including LF, with 8 MiB/1,024 incoming messages,
+depth 40 and 32,768 nodes; writes total 2 MiB/128 requests and stderr is drained,
+discarded and capped at 1 MiB. Server requests are refused and notifications do
+not become host actions. A current-source predicate fences dispatch/publication.
+Cancellation is best-effort, then EOF, 250 ms, TERM, 250 ms, KILL; capacity stays
+occupied until close. Leader exit triggers one immediate group kill and retires
+the numeric group ID; delayed pipe close never signals it again. Escaped
+descendants are not contained. Failed calls may already have executed;
+the supervisor never automatically restarts a process or replays a request.
+
+The foundation deliberately does not negotiate a protocol era or attest approved
+tool identity. User-mediated native configuration, person-owned grants, modern
+discovery/legacy initialization, catalog/schema admission, exact per-call authority
+and packaged acceptance must compose before users can run a local server.
+Only repository-authored child programs are used by these tests. The framing
+and lifecycle follow the official [stdio transport](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/stdio).
+
+## Required next work
 
 - Complete protocol execution: discovery supports the
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
   and [legacy initialization](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle),
   but is not a complete MCP client. Execution-specific expiry recovery and
-  multi-round input handling remain. The bounded single-call workflow does not
+  input modes beyond private form elicitation remain. The bounded workflows do not
   replace those requirements or imply general server trust.
-- Local transports remain separate work; neither OAuth setup nor the bounded
+- Local transport integration remains separate work; neither OAuth setup nor the bounded
   Routine permission authorizes arbitrary tools or destinations.
 - Third-party and combined packaged acceptance of the whole journey, including
   tenant walls, restart, secret exclusion, cancellation and failure recovery.
