@@ -179,8 +179,11 @@ delegated request. Locks:
 Local MCP remains unconfigured for users. PORT-30's native supervisor now has
 PORT-31's internal stream protocol client (`server/mcpStdioClient.ts`), exercised
 with repository-authored modern and legacy child programs, not a native setup
-flow or a real third-party server. Launch consent, person-owned durable grants,
-product dispatch and packaged acceptance are still required.
+flow or a real third-party server. PORT-32 adds internal person-bound encrypted
+grant custody and injected native approval/launch composition, tested with
+temporary files and reversible storage stand-ins. Actual setup controls/dialogs,
+trusted product source binding, dispatch, reconciliation and packaged acceptance
+are still required. No local-server launch is user-accessible yet.
 
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |
 |----|--------------------------------------------------|--------|--------|

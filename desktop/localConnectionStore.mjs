@@ -1,9 +1,8 @@
 import { randomBytes } from 'node:crypto'
-import { constants } from 'node:fs'
-import { lstat, open, rename, unlink } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, resolve } from 'node:path'
+import { basename, isAbsolute, resolve } from 'node:path'
 import { secureStorageAvailable } from './credentialVault.mjs'
 import { inspectLocalFolderRoot, readLocalFolderSnapshot } from './localFolderReader.mjs'
+import { openPrivateTextFile } from './privateTextFile.mjs'
 
 export const LOCAL_CONNECTION_FILE = 'local-connections.v1.json'
 export const LOCAL_GIT_CONNECTION_FILE = 'git-connections.v1.json'
@@ -12,7 +11,6 @@ export const MAX_LOCAL_CAPTURES = 4
 const MAX_PLAINTEXT_BYTES = 256 * 1024
 const MAX_FILE_BYTES = 512 * 1024
 const ID = /^LOCAL_[A-F0-9]{32}$/
-const REAL_FS = { lstat, open, rename, unlink }
 
 /** No paths, decrypted state or OS exception causes cross this boundary. */
 export class LocalConnectionError extends Error {
@@ -36,34 +34,6 @@ const validRoot = (value) => exactKeys(value, ['path', 'identity']) && typeof va
   printable(basename(value.path)) && exactKeys(value.identity, ['dev', 'ino']) &&
   [value.identity.dev, value.identity.ino].every((number) => typeof number === 'string' && /^(0|[1-9][0-9]{0,19})$/.test(number))
 const descriptor = (entry) => ({ id: entry.id, name: basename(entry.root.path), remembered: entry.remembered })
-const sameFile = (left, right) => ['dev', 'ino', 'mode', 'size', 'mtimeMs', 'ctimeMs'].every((key) => left[key] === right[key])
-
-async function inspectPrivateDirectory(filePath, io) {
-  const info = await io.lstat(dirname(filePath))
-  if (!info.isDirectory() || info.isSymbolicLink() ||
-    (process.platform !== 'win32' && ((info.mode & 0o777) !== 0o700 || info.uid !== process.geteuid()))) fail()
-  return info
-}
-
-async function readEncryptedFile(filePath, io) {
-  let file
-  try { file = await io.open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)) }
-  catch (error) { if (error?.code === 'ENOENT') return undefined; throw error }
-  try {
-    const before = await file.stat()
-    if (!before.isFile() || before.size > MAX_FILE_BYTES ||
-      (process.platform !== 'win32' && ((before.mode & 0o777) !== 0o600 || before.uid !== process.geteuid()))) fail()
-    const bytes = Buffer.alloc(before.size + 1)
-    let offset = 0
-    while (offset < bytes.length) {
-      const { bytesRead } = await file.read(bytes, offset, bytes.length - offset, offset)
-      if (!bytesRead) break
-      offset += bytesRead
-    }
-    if (offset !== before.size || !sameFile(before, await file.stat())) fail()
-    return bytes.subarray(0, offset).toString('utf8')
-  } finally { await file.close() }
-}
 
 function parseConnections(plaintext, idPattern, validateRoot) {
   if (typeof plaintext !== 'string' || Buffer.byteLength(plaintext) > MAX_PLAINTEXT_BYTES) fail()
@@ -95,7 +65,7 @@ function assertStorage(storage, platform) {
  */
 export async function openLocalConnectionStore({
   filePath, storage, platform = process.platform,
-  inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, review: reviewGit, fsApi = REAL_FS,
+  inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, review: reviewGit, fsApi,
   connectionKind = 'folder', validateRoot = validRoot,
 } = {}) {
   try {
@@ -103,8 +73,8 @@ export async function openLocalConnectionStore({
     const idPattern = connectionKind === 'git' ? /^GIT_[A-F0-9]{32}$/ : ID
     const idPrefix = connectionKind === 'git' ? 'GIT' : 'LOCAL'
     if (typeof filePath !== 'string' || !isAbsolute(filePath)) fail()
-    const directoryIdentity = await inspectPrivateDirectory(filePath, fsApi)
-    let diskText = await readEncryptedFile(filePath, fsApi)
+    const privateFile = await openPrivateTextFile({ filePath, maxBytes: MAX_FILE_BYTES, fsApi })
+    const diskText = privateFile.text
     let entries = new Map()
     if (diskText !== undefined) {
       assertStorage(storage, platform)
@@ -141,37 +111,11 @@ export async function openLocalConnectionStore({
         await storage.decryptString(encrypted) !== plaintext) fail()
       const text = `${JSON.stringify({ version: 1, ciphertext: Buffer.from(encrypted).toString('base64') })}\n`
       if (Buffer.byteLength(text) > MAX_FILE_BYTES) fail()
-      let before
       try {
-        before = await inspectPrivateDirectory(filePath, fsApi)
-        if (before.dev !== directoryIdentity.dev || before.ino !== directoryIdentity.ino ||
-          await readEncryptedFile(filePath, fsApi) !== diskText) fail()
-      } catch { shutdown(); fail() }
-      const temporary = `${filePath}.${randomBytes(16).toString('hex')}.tmp`
-      let file
-      let published = false
-      try {
-        file = await fsApi.open(temporary, 'wx', 0o600)
-        await file.writeFile(text, 'utf8')
-        await file.sync()
-        await file.close()
-        const after = await inspectPrivateDirectory(filePath, fsApi)
-        if (after.dev !== before.dev || after.ino !== before.ino) fail()
-        await fsApi.rename(temporary, filePath)
-        published = true
-        if (process.platform !== 'win32') {
-          const directory = await fsApi.open(dirname(filePath), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
-          try { await directory.sync() } finally { await directory.close() }
-        }
-        diskText = text
+        await privateFile.replace(text, { beforePublish: () => !unavailable })
       } catch (error) {
-        // If directory sync fails after rename, durability is uncertain. Never
-        // publish memory-only success or overwrite that disk truth on a retry.
-        if (published) shutdown()
+        if (privateFile.unavailable) shutdown()
         throw error
-      } finally {
-        await file?.close().catch(() => {})
-        await fsApi.unlink(temporary).catch((error) => { if (error?.code !== 'ENOENT') { shutdown(); fail() } })
       }
     }
 

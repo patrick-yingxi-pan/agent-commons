@@ -13,7 +13,54 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: local MCP protocol transactions
+## Current checkpoint: native local MCP grant custody
+
+Autonomous direction (2026-10-11): the first product integration will admit
+person-owned **interactive** local MCP calls only. Routine and Contribution
+execution must not inherit launch authority; their unattended/separately approved
+effects need a distinct policy before support. HTTP connections retain their
+existing workflow. A stdio connection will be an explicit transport with no
+fabricated URL, and no executable, argument, working-directory or environment
+data in the portable connection record.
+
+PORT-32 adds the internal macOS custody and launch-approval composition. A
+detached description must receive exact approval from an injected native review
+ceremony before an OS-encrypted grant is durably saved. Bindings identify one
+tenant, person and connection. Native-only leases fence subsequent opens and
+abort owned processes on acknowledged revocation or shutdown. Cancelled dialogs
+and custody reads retain capacity until they actually settle. A late cancellation
+cannot hide a durably acknowledged provisional reference from its custodian.
+The composition is not installed in IPC, startup, backend dispatch or the UI;
+it is not yet a user-accessible local-server feature or a sandbox.
+
+Private file comparison/publication is now shared with folder/Git grants. It
+requires an already admitted owner-only profile, pins file and parent identities,
+compares the last acknowledged text, fsyncs a private temporary file, samples
+current authority immediately before rename and syncs the directory. External
+changes, cleanup failure or uncertain publication disable the handle rather than
+repairing or overwriting the file. Existing folder/Git encrypted formats remain
+unchanged. This also closes a final asynchronous-compare/source-check race.
+Final review caught a Windows folder-connection regression in the extraction:
+Windows has no POSIX effective-user API. Its existing admitted-profile behavior
+is retained without POSIX mode checks or directory fsync; identity, regular-file,
+no-follow, bounded-read and CAS checks still apply. This adds no Windows ACL
+assurance. New stdio custody remains explicitly macOS-only.
+
+Focused locks passed with exact durable reopen, source/cancel races, capacity,
+revocation and owned-child cleanup. Mutations that weakened exact review consent,
+removed person binding, sampled authority before the final file comparison or
+imported custody into startup all failed their intended locks and were restored.
+
+The next milestone remains a complete native setup and backend workflow:
+trusted-cookie person binding, default-Cancel native review explaining full OS
+access, opaque-reference inspection and durable receipts, GET-only lost-ack
+recovery, per-call review, revocation/relaunch, and packaged acceptance. No new
+UI/native-dialog, Keychain or packaged stdio acceptance is claimed by these
+temporary-file and repository-authored child tests. Full local verification and
+post-test diff review remain required before landing. The owner's live data is
+not a fixture and remains untouched.
+
+## Previous checkpoint: local MCP protocol transactions
 
 Autonomous direction (2026-10-11): keep executable configuration and physical
 process ownership native, with an injected stream protocol client reusing the

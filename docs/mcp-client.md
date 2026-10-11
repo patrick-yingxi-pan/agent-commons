@@ -641,6 +641,56 @@ does not implement saved grants, native setup, person binding, receipts or produ
 activation. Repository-authored subprocess tests exercise both eras and explicit
 form rounds; packaged and real-service acceptance remain separate gates.
 
+## Internal native local-process custody
+
+PORT-32 introduces macOS-only `desktop/mcpStdioGrantVault.mjs` and
+`desktop/mcpStdioLaunchAuthority.mjs`, not a shipped setup bridge. Exact native
+review approval precedes encrypted publication of the detached executable,
+arguments, directory and explicit environment. The callback receives native-only
+data and must explain unsandboxed execution; real dialog copy and interaction
+remain part of the next product milestone. Stored bindings contain tenant,
+person and connection IDs, never a fake HTTP endpoint. Opaque `MCP_STDIO_`
+references grant no authority without that exact binding and a fresh source
+check. No automatic startup, reconnect, tool attempt or replay is installed.
+
+The grant vault caps 64 entries, eight pending mutations, 1 MiB total plaintext
+and 2 MiB encrypted file bytes. It requires secure OS storage even when empty,
+checks encryption read-back, and never repairs unsafe/corrupt files. Native-only
+leases retain immutable launch data and an abort signal; acknowledged discard,
+shutdown or unavailable custody invalidate them. One serial disk queue preserves
+acknowledgements beyond caller cancellation. If authority disappears before
+rename, publication is refused; once durably acknowledged, a provisional
+reference is returned for exact recovery even if cancellation arrives meanwhile.
+Uncertain post-rename failure disables all leases and requires reopening/recovery,
+not a blind write retry. This is not automatic provisional-grant reconciliation.
+
+The launch authority caps four unsettled setup/read operations with a 60-second
+review/read deadline. Cancellation returns without freeing ignored work's slot;
+custody publication is awaited to preserve its acknowledgement. Each open checks
+both fresh source and the native lease after reading custody and again in the
+supervisor. Revocation and authority shutdown abort its owned processes; only
+physical close releases transport capacity. Saving a launch grant is distinct
+from schema admission or consent to a specific tool effect.
+
+`desktop/privateTextFile.mjs` now owns the shared no-follow, strict-UTF-8 private
+file comparison and durable replacement also used by folder/Git grants. The
+existing effective-user-owned 0700 parent and 0600 file are never repaired.
+Parent and file identities, bounded bytes and acknowledged text are rechecked
+before publication; the synchronous authority fence follows the final awaited
+comparison. External replacement, uncertain publication or failed temporary
+cleanup disables the handle. This relies on trusted parent directories,
+single-instance ownership and same-user/admin integrity, not process confinement.
+The shared helper preserves the prior Windows folder-store policy: it skips
+POSIX owner/mode checks and directory fsync there, while retaining regular-file,
+identity, bounded-read and CAS checks. It does not add Windows ACL verification;
+the new local MCP vault refuses non-macOS targets.
+
+The first product integration is interactive-only. Routine and Contribution
+execution require a separate explicit policy for local code and cannot inherit
+ordinary context attachment or tool consent. The current tests use reversible
+storage stand-ins and repository-authored subprocesses, not Keychain, actual
+native dialogs, third-party servers or packaged acceptance.
+
 ## Required next work
 
 - Complete protocol execution: discovery supports the

@@ -55,6 +55,21 @@ test('internal stdio protocol cannot acquire launch configuration or product exe
   }
 })
 
+test('local MCP launch custody remains native and is not silently activated by product or startup code', () => {
+  const allowed = new Set(['desktop/mcpStdioGrantVault.mjs', 'desktop/mcpStdioLaunchAuthority.mjs'].map(path => join(ROOT, path)))
+  const symbols = /\b(?:openMcpStdioGrantVault|createMcpStdioLaunchAuthority|snapshotMcpStdioGrantBinding)\b|mcpStdio(?:GrantVault|LaunchAuthority)\.mjs/
+  const check = (source: string, path: string) => assert.doesNotMatch(source, symbols,
+    `${path}: saved local launch authority requires the separate authenticated native product workflow`)
+  for (const directory of ['contract', 'server', 'src', 'desktop']) {
+    for (const path of filesUnder(directory, ['.ts', '.tsx', '.mjs', '.cjs'])) {
+      if (path.endsWith('.test.mjs') || path.endsWith('.d.mts') || allowed.has(path)) continue
+      check(stripComments(read(path)), path)
+    }
+  }
+  for (const path of allowed) assert.match(stripComments(read(path)), symbols, `${path}: expected native custody owner`)
+  assert.throws(() => check("openMcpStdioGrantVault({ filePath: 'model-command' })", 'unexpected startup'), /authenticated native product workflow/)
+})
+
 test('Routine MCP policy and receipt preparation share portable types without owning execution or persistence', () => {
   const check = (source: string) => {
     assert.match(source, /from '\.\.\/contract\/routineMcp\.ts'/,
