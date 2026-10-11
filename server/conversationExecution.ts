@@ -26,6 +26,9 @@ export interface ConversationTurnInput {
   providerId: string
   modelId?: string
   tenantId: string
+  /** Authenticated human actor for interactive turns; background Dispatch and
+   * Routine initiators deliberately leave this absent. */
+  actorUserId?: string
   text: string
   history: ReplyHistoryTurn[]
   persist: boolean
@@ -40,7 +43,7 @@ export interface ConversationTurnInput {
 }
 
 export function startConversationTurn(input: ConversationTurnInput) {
-  const { session, known, agent, provider, providerId, modelId, tenantId, text, persist } = input
+  const { session, known, agent, provider, providerId, modelId, tenantId, text, persist, actorUserId } = input
   const ac = new AbortController()
   const active = turns.start(session.id, () => ac.abort(), input.idempotencyKey)
   if (!active) return undefined
@@ -48,7 +51,8 @@ export function startConversationTurn(input: ConversationTurnInput) {
   let channel: SseChannel | undefined
   try {
     if (persist && !input.reusePersistedUser) {
-      store.appendMessage(session.id, { id: store.mintMessageId('user'), role: 'user', content: text })
+      store.appendMessage(session.id, { id: store.mintMessageId('user'), role: 'user', content: text },
+        actorUserId ? { actorUserId } : undefined)
     } else if (persist && known) {
       store.emit({ type: 'session.updated', session: known })
     }
@@ -73,7 +77,7 @@ export function startConversationTurn(input: ConversationTurnInput) {
     if (committed) return
     committed = true
     if (input.commit) input.commit({ outcome, ...(message ? { message } : {}) })
-    else if (persist && message) store.appendMessage(session.id, message)
+    else if (persist && message) store.appendMessage(session.id, message, actorUserId ? { actorUserId } : undefined)
     if (persist && message) turns.markPersisted(active.id, message.id)
   }
   const handlers = {
@@ -90,7 +94,7 @@ export function startConversationTurn(input: ConversationTurnInput) {
 
   const finished = (async () => {
     try {
-      const { commons, contexts, externalMcpConnections } = conversationContext(session.id, tenantId)
+      const { commons, contexts, externalMcpConnections } = conversationContext(session.id, tenantId, actorUserId)
       const result = provider.kind === 'session'
         ? await relayReply(session, agent, text, handlers, ac.signal, store.relay, providerId, commons, contexts, input.history, input.apiRuntime, externalMcpConnections)
         : await generateReply(session, agent, text, handlers, ac.signal, provider, commons, contexts, input.apiRuntime, { externalMcpConnections }, input.history)

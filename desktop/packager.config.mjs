@@ -104,6 +104,8 @@ export function ignoreFromPackage(path) {
       'desktop/routineMcpSmokeFixture.mjs',
       'desktop/routineMessagesSmokeFixture.mjs',
       'desktop/mcpLoopbackSmokePackage.mjs',
+      'desktop/mcpOAuthSmoke.mjs',
+      'desktop/mcpOAuthSmokeFixture.mjs',
       'desktop/discussionContextSmoke.mjs',
       'desktop/artifactContextSmoke.mjs',
       'desktop/artifactHistorySmoke.mjs',

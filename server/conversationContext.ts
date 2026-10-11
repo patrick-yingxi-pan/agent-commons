@@ -5,7 +5,7 @@ import { store } from './store/index.ts'
  * Keep this as a live projection: model turns must resolve names against the
  * registries the caller can currently see, while write targets remain limited
  * to resources the caller owns. */
-export function conversationContext(sessionId: string, tenantId: string) {
+export function conversationContext(sessionId: string, tenantId: string, actorUserId?: string) {
   const createdProjectIds = new Set(store.relationGraph(tenantId).extraProjects.map((project) => project.id))
   const commons = {
     // `isDefault` supports the same default-else-first selection as the UI.
@@ -50,7 +50,7 @@ export function conversationContext(sessionId: string, tenantId: string) {
         connector.id,
         { id: connector.id, label: connector.label, kind: connector.kind },
       ]))
-      for (const context of store.savedContexts(tenantId).contexts) {
+      for (const context of store.savedContexts(tenantId, actorUserId).contexts) {
         if (context.kind === 'connector' || context.kind === 'mcp') {
           byId.set(context.id, { id: context.id, label: context.label, kind: context.connectorKind })
         }
@@ -61,7 +61,7 @@ export function conversationContext(sessionId: string, tenantId: string) {
 
   return {
     commons,
-    contexts: store.sessionContexts(sessionId),
-    externalMcpConnections: store.mcpConnections(tenantId),
+    contexts: store.sessionContexts(sessionId, actorUserId),
+    externalMcpConnections: store.mcpConnections(tenantId, actorUserId),
   }
 }

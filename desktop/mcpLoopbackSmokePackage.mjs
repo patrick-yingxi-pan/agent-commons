@@ -83,12 +83,29 @@ async function removeOwnedRoot(root, parent) {
  * permits the loopback MCP smoke only. The source bundle is read-only here.
  */
 export async function createMcpLoopbackSmokePackage(executable) {
+  return createMcpFixturePackage(executable, [{ path: STARTUP_PATH, before: SOURCE_SWITCH, after: FIXTURE_SWITCH }])
+}
+
+/** Excluded acceptance-only transformations of existing files in an owned copy.
+ * No flag, endpoint or injected module is installed in the source package. */
+export async function createMcpFixturePackage(executable, patches) {
+  if (!Array.isArray(patches) || !patches.length || patches.length > 8 || patches.some(patch =>
+    !patch || Object.keys(patch).sort().join(',') !== 'after,before,path' ||
+    typeof patch.path !== 'string' || !/^(desktop|server|scripts)\/[A-Za-z0-9_./-]+$/.test(patch.path) ||
+    patch.path.split('/').some(part => !part || part === '.' || part === '..') ||
+    typeof patch.before !== 'string' || !patch.before || typeof patch.after !== 'string' || !patch.after)) {
+    throw new Error('Invalid isolated package patches')
+  }
   const source = await resolveSource(executable)
   const originalAsar = await readFile(source.asarPath)
   const sourceAsarSha256 = sha256(originalAsar)
-  const originalStartup = extractFile(source.asarPath, STARTUP_PATH).toString('utf8')
-  const sourceOccurrences = originalStartup.split(SOURCE_SWITCH).length - 1
-  if (sourceOccurrences !== 1) throw new Error(`Expected exactly one ${JSON.stringify(SOURCE_SWITCH)} in ${STARTUP_PATH}; found ${sourceOccurrences}`)
+  const changes = new Map()
+  for (const patch of patches) {
+    const previous = changes.get(patch.path) ?? extractFile(source.asarPath, patch.path).toString('utf8')
+    const occurrences = previous.split(patch.before).length - 1
+    if (occurrences !== 1) throw new Error(`Expected exactly one ${JSON.stringify(patch.before)} in ${patch.path}; found ${occurrences}`)
+    changes.set(patch.path, previous.replace(patch.before, patch.after))
+  }
 
   const parent = await realpath(tmpdir())
   const root = await mkdtemp(join(parent, FIXTURE_PREFIX))
@@ -106,9 +123,7 @@ export async function createMcpLoopbackSmokePackage(executable) {
 
     const extracted = join(root, 'asar-work')
     extractAll(copiedAsar, extracted)
-    const startupPath = join(extracted, ...STARTUP_PATH.split('/'))
-    const changedStartup = (await readFile(startupPath, 'utf8')).replace(SOURCE_SWITCH, FIXTURE_SWITCH)
-    await writeFile(startupPath, changedStartup)
+    for (const [path, contents] of changes) await writeFile(join(extracted, ...path.split('/')), contents)
 
     const header = getRawHeader(copiedAsar)
     const streams = []
@@ -132,9 +147,8 @@ export async function createMcpLoopbackSmokePackage(executable) {
     uncache(copiedAsar)
     await rm(extracted, { recursive: true, force: false })
 
-    const fixtureStartup = extractFile(copiedAsar, STARTUP_PATH).toString('utf8')
-    if (fixtureStartup.split(FIXTURE_SWITCH).length - 1 !== 1 || fixtureStartup.includes(SOURCE_SWITCH)) {
-      throw new Error('Fixture ASAR did not receive exactly the expected startup switch change')
+    for (const [path, contents] of changes) {
+      if (extractFile(copiedAsar, path).toString('utf8') !== contents) throw new Error('Fixture ASAR did not receive exactly the expected changes')
     }
     if (sha256(await readFile(source.asarPath)) !== sourceAsarSha256) throw new Error('Source ASAR changed while the fixture was being built')
     await access(copiedExecutable, constants.X_OK)

@@ -2,7 +2,9 @@ import { AlertCircle, Check, FilePlus2, Pencil, Play, Plug, Send, Trash2, Wrench
 import { API_BASE_PATH } from '../../contract/index.ts'
 import type { McpToolContent, McpToolResult } from '../../contract/mcpExecution.ts'
 import type { ToolActivity, ToolCardFamily } from '../types'
-import { useMe, useSessions } from '../api'
+import { useMe } from '../api'
+import { retryToolActivityEligibility } from '../api/toolActivityEligibility.ts'
+import { useToolActivityEligibility } from '../api/toolActivityEligibilityHook.ts'
 import {
   enqueueToolActivityDecision,
   heldToolActivityDecisionIntent,
@@ -26,7 +28,8 @@ export function ToolActivityCard({ activities, sessionId }: { activities: ToolAc
   const identity = useMe().data
   const tenantId = identity?.tenant.id
   const sourceUserId = identity?.via === 'session' ? identity.user.id : null
-  const canDecide = useSessions().data?.find((session) => session.id === sessionId)?.own === true
+  const eligibility = useToolActivityEligibility(sessionId)
+  const eligibilityKnown = identity !== undefined && eligibility.status === 'success' && !!eligibility.data
   const mutation = useToolActivityDecisionStatus()
   return (
     <div className="mt-2.5 overflow-hidden rounded-xl border border-line bg-panel-2/30">
@@ -45,7 +48,12 @@ export function ToolActivityCard({ activities, sessionId }: { activities: ToolAc
             sessionId={sessionId}
             tenantId={tenantId}
             sourceUserId={sourceUserId}
-            canDecide={canDecide}
+            decisionAllowed={eligibilityKnown && eligibility.data!.decisionActivityIds.includes(a.id)}
+            confirmAllowed={eligibilityKnown && eligibility.data!.confirmActivityIds.includes(a.id)}
+            eligibilityKnown={eligibilityKnown}
+            retryEligibility={identity && eligibility.status === 'error'
+              ? () => retryToolActivityEligibility(sessionId, identity.tenant.id, identity.user.id)
+              : undefined}
             mutation={mutation}
           />
         ))}
@@ -71,14 +79,20 @@ function ActivityRow({
   sessionId,
   tenantId,
   sourceUserId,
-  canDecide,
+  decisionAllowed,
+  confirmAllowed,
+  eligibilityKnown,
+  retryEligibility,
   mutation,
 }: {
   activity: ToolActivity
   sessionId: string
   tenantId?: string
   sourceUserId: string | null
-  canDecide: boolean
+  decisionAllowed: boolean
+  confirmAllowed: boolean
+  eligibilityKnown: boolean
+  retryEligibility?: () => void
   mutation: RevisionedMutationStatus
 }) {
   const held = heldToolActivityDecisionIntent(sessionId, a.id)
@@ -100,7 +114,7 @@ function ActivityRow({
   const refusal = held && mutation.activeResourceId === resourceId ? mutation.error : null
 
   const resolve = (decision: 'confirm' | 'decline') => {
-    if (!tenantId || !canDecide) return
+    if (!tenantId || !decisionAllowed || (decision === 'confirm' && !confirmAllowed)) return
     void enqueueToolActivityDecision({ tenantId, sourceUserId, sessionId, activityId: a.id, decision })
   }
 
@@ -157,10 +171,11 @@ function ActivityRow({
         {refusal && <div className="mt-1 text-[11px] text-danger-text">{refusal}</div>}
 
         {pending && (
-          <div className="mt-1.5 flex items-center gap-2">
+          decisionAllowed || held ? <div className="mt-1.5 flex items-center gap-2">
             <button
               onClick={() => resolve('confirm')}
-              disabled={held !== null || !tenantId || !canDecide}
+              disabled={held !== null || !tenantId || !decisionAllowed || !confirmAllowed}
+              title={!confirmAllowed && mcp ? 'This exact connection is no longer available for confirmation.' : undefined}
               className={`px-2.5 py-1 text-[12px] disabled:opacity-50 ${
                 danger ? DANGER_BUTTON_CLASS : SOFT_BUTTON_CLASS
               }`}
@@ -169,14 +184,17 @@ function ActivityRow({
             </button>
             <button
               onClick={() => resolve('decline')}
-              disabled={held !== null || !tenantId || !canDecide}
+              disabled={held !== null || !tenantId || !decisionAllowed}
               className="rounded-lg px-2 py-1 text-[12px] font-medium text-ink-faint transition hover:text-ink-soft disabled:opacity-50"
             >
               {held?.decision === 'decline' ? 'Declining…' : 'Decline'}
             </button>
+          </div> : <div className="mt-1.5 text-[11px] text-ink-faint">
+            {!eligibilityKnown && retryEligibility
+              ? <button className="underline underline-offset-2" onClick={retryEligibility}>Couldn’t check decision access · Retry</button>
+              : eligibilityKnown ? 'Decision controls are unavailable to this account.' : 'Checking decision access…'}
           </div>
         )}
-        {pending && !canDecide && <div className="mt-1.5 text-[11px] text-ink-faint">Only the conversation owner can approve or decline this call.</div>}
         {running && <div role="status" className="mt-1 text-[11px] text-ink-soft">Approved. Waiting for the external server…</div>}
         {displayStatus === 'declined' && <div className="mt-0.5 text-[11px] text-ink-faint">{externalMcp ? 'Declined — the external tool was not run.' : 'Declined — nothing was done.'}</div>}
         {uncertain && <div role="alert" className="mt-1 text-[11px] leading-snug text-warn-text">

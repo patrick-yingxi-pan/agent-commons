@@ -35,7 +35,7 @@ test('rendered projections and body-name uniqueness use the same ID union', () =
     assert.match(source, /(?:allArtifacts|cachedArtifactRows)[^\n]*registryRows\(/, path)
   }
   const routes = stripComments(read(join(ROOT, 'server/conversationContext.ts')))
-  assert.match(stripComments(read(join(ROOT, 'server/conversationExecution.ts'))), /conversationContext\(session\.id, tenantId\)/)
+  assert.match(stripComments(read(join(ROOT, 'server/conversationExecution.ts'))), /conversationContext\(session\.id, tenantId, actorUserId\)/)
   assert.match(routes, /artifacts: store\.listArtifacts\(tenantId\)\s*\.filter\(\(artifact\) => artifact\.own === true\)\s*\.map\(/)
   assert.doesNotMatch(routes, /\.\.\.graphNow\.extraArtifacts/)
 })

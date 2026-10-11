@@ -3,8 +3,17 @@ import assert from 'node:assert/strict'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { setData } from './cache.ts'
-import { useFsSources, useFsCatalog } from './hooks.ts'
+import { useFsSources, useFsCatalog } from './fsHooks.ts'
 import { keys } from './keys.ts'
+import { readFileSync } from 'node:fs'
+
+test('optional filesystem query code stays outside eager API entries', () => {
+  for (const file of ['hooks.ts', 'index.ts']) {
+    const source = readFileSync(new URL(file, import.meta.url), 'utf8')
+    assert.doesNotMatch(source, /from ['"][^'"]*fs(?:Hooks|Reads)(?:\.ts)?['"]/, file)
+    assert.doesNotMatch(source, /function useFs(?:Query|Sources|Catalog|Folder|Text)\b/, file)
+  }
+})
 
 test('filesystem pickers cannot render cached success before mount revalidation starts', () => {
   const source = { id: 'cloud', kind: 'cloud' as const, label: 'Cloud storage' }

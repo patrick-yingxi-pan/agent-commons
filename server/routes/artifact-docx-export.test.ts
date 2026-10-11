@@ -1,11 +1,18 @@
 /** DOCX adds a format, not a new identity, persistence slice, or access door. */
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, before, test } from 'node:test'
 import { extractDocx } from '../../src/lib/docxExtraction.ts'
 import { DOCX_MEDIA_TYPE, type ArtifactItem } from '../../contract/index.ts'
 import { call } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
-import { loadState } from '../persistence/persist.ts'
+import { closePersistence, loadState } from '../persistence/persist.ts'
+
+before(() => {
+  process.env.PERSIST_BACKEND = 'sqlite'
+  process.env.DATABASE_PATH = ':memory:'
+  store.initPersistence()
+})
+after(() => closePersistence())
 
 const OWNER = 'tenant-personal'
 const READER = 'tenant-beta'
@@ -49,6 +56,7 @@ test('DOCX exports exact saved identity, current edits and rename without mutati
   assert.equal((await call('PATCH', `/artifacts/${row.id}/content`, { block: 1, text: 'Edited <literal> & 🚀.', expectedRevision: 0 }, { 'x-tenant-id': OWNER })).status, 200)
   assert.equal((await call('PATCH', `/artifacts/${row.id}`, { name: 'renamed-brief.md', expectedRevision: 0 }, { 'x-tenant-id': OWNER })).status, 200)
   const before = loadState()
+  assert.ok(before?.graph.extraArtifacts.some(artifact => artifact.id === row.id), 'the compared snapshot contains this test document')
   const events: string[] = []
   const off = store.subscribe((event) => events.push(event.type))
   try {

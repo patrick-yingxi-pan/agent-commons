@@ -141,6 +141,16 @@ async function captureMcpState(page: Page, row: Locator, suffix: string) {
     await page.setViewportSize(viewport)
     await closeMcpDetailPane(page)
     await settleResponsiveView(page)
+    if (suffix === 'read-only-approval' && viewport.width === 320) {
+      const transcript = page.getByRole('region', { name: 'Conversation transcript', exact: true })
+      await expect(transcript).toHaveAttribute('tabindex', '0')
+      await expect.poll(() => transcript.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+      await transcript.focus()
+      await transcript.press('Home')
+      await expect.poll(() => transcript.evaluate(element => element.scrollTop)).toBe(0)
+      await transcript.press('End')
+      await expect.poll(() => transcript.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+    }
     await focus.scrollIntoViewIfNeeded()
     if (viewport.height > 390) {
       await focus.evaluate((element) => {
@@ -168,54 +178,6 @@ async function captureContextsGuidance(page: Page) {
     await page.screenshot({ path: `.data/mcp-execution-review/${viewport.width}x${viewport.height}-contexts.png` })
   }
 }
-
-async function proxyReadOnlySession(page: Page, stack: McpRouterStack, sessionId: string) {
-  const pending = new Set<Promise<void>>()
-  await page.route('**/api/v1/**', async route => {
-    const work = (async () => {
-      const url = new URL(route.request().url())
-      if (url.pathname === '/api/v1/events') {
-        await route.abort()
-        return
-      }
-      const { origin: _origin, ...headers } = route.request().headers()
-      const response = await route.fetch({ url: `${stack.url}${url.pathname}${url.search}`, headers })
-      if (route.request().method() === 'GET' && url.pathname === '/api/v1/sessions' && url.search === '') {
-        const rows = await response.json() as Session[]
-        await route.fulfill({ status: response.status(), contentType: 'application/json', body: JSON.stringify(
-          rows.map(session => session.id === sessionId ? { ...session, own: false } : session),
-        ) })
-        return
-      }
-      await route.fulfill({ response })
-    })()
-    pending.add(work)
-    try { await work } finally { pending.delete(work) }
-  })
-  return async () => {
-    await drainReadOnlyProxy(() => page.unroute('**/api/v1/**'), pending)
-  }
-}
-
-async function drainReadOnlyProxy(unroute: () => Promise<void>, pending: ReadonlySet<Promise<void>>) {
-  await unroute()
-  await Promise.all([...pending])
-}
-
-test('read-only proxy disposal waits for an in-flight handler to release', async () => {
-  let release!: () => void
-  const held = new Promise<void>((resolve) => { release = resolve })
-  const pending = new Set<Promise<void>>([held])
-  let unrouted = false
-  let disposed = false
-  const disposal = drainReadOnlyProxy(async () => { unrouted = true }, pending).then(() => { disposed = true })
-  await new Promise<void>((resolve) => setTimeout(resolve, 0))
-  expect(unrouted).toBe(true)
-  expect(disposed).toBe(false)
-  release()
-  await disposal
-  expect(disposed).toBe(true)
-})
 
 test('the in-process router restores ambient state when setup fails', async () => {
   const previousAuth = process.env.AUTH_GATE
@@ -253,7 +215,7 @@ test('the in-process router owns one socket per exchange instead of racing idle 
   } finally { await stack.close() }
 })
 
-test('an attached HTTPS MCP tool requires owner approval and persists its inert result', async ({ page }) => {
+test('an attached HTTPS MCP tool requires owner approval and persists its inert result', async ({ page, browser }) => {
   test.setTimeout(ms(120_000))
   const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL
   const previousModelPort = process.env.MODEL_PORT
@@ -274,6 +236,10 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
     const created = await page.request.post(`${stack.url}/api/v1/sessions`, { data: {} })
     expect(created.ok()).toBe(true)
     const session = await created.json() as Session
+    const grant = await page.request.post(`${stack.url}/api/v1/grants`, {
+      data: { subject: { kind: 'session', id: session.id }, audience: { kind: 'org', orgId: 'tenant-beta' }, tier: 'view' },
+    })
+    expect(grant.ok(), await grant.text()).toBeTruthy()
     await attachExternalMcp(page, session.id, 'Execution fixture')
     const contexts = await (await page.request.get(`${stack.url}/api/v1/sessions/${session.id}/contexts`)).json() as Array<{ id: string }>
     expect(contexts.map(context => context.id)).toContain(connectionId)
@@ -283,18 +249,38 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
     expect(fixture.calls).toEqual(['server/discover', 'tools/list'])
     await captureMcpState(page, proposed, 'owner-approval')
 
-    const reader = await page.context().newPage()
-    let disposeReaderProxy = async () => {}
+    const readerContext = await browser.newContext({
+      baseURL: new URL(page.url()).origin,
+    })
+    const reader = await readerContext.newPage()
+    const disposeReaderProxy = await proxyMcpApi(reader, stack)
     try {
-      disposeReaderProxy = await proxyReadOnlySession(reader, stack, session.id)
+      await reader.goto('/contexts')
+      const login = await reader.evaluate(async () => {
+        const response = await fetch('/api/v1/auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'grace@acme.example', password: 'grace-demo-password' }),
+        })
+        return { status: response.status, body: await response.json() as { user?: { id?: string } } }
+      })
+      expect(login.status).toBe(200)
+      expect(login.body.user?.id).toBe('user-grace')
+      await reader.reload()
+      const readerIdentity = await reader.evaluate(async () => await (await fetch('/api/v1/me')).json() as {
+        via: string; tenant: { id: string }; user: { id: string }
+      })
+      expect(readerIdentity.via).toBe('session')
+      expect(readerIdentity.user.id).toBe('user-grace')
+      expect(readerIdentity.tenant.id).toBe('tenant-beta')
       await reader.goto(`/s/${session.id}`)
       const readOnly = reader.locator('[data-mcp-tool-status="proposed"]').filter({ hasText: 'inspect_records' }).last()
-      await expect(readOnly).toContainText('Only the conversation owner can approve or decline this call.')
-      await expect(readOnly.getByRole('button', { name: 'Run tool', exact: true })).toBeDisabled()
-      await expect(readOnly.getByRole('button', { name: 'Decline', exact: true })).toBeDisabled()
+      await expect(readOnly).toContainText('inspect_records')
+      await expect(readOnly).toContainText('Decision controls are unavailable to this account.')
+      await expect(readOnly.getByRole('button', { name: 'Run tool', exact: true })).toHaveCount(0)
+      await expect(readOnly.getByRole('button', { name: 'Decline', exact: true })).toHaveCount(0)
       await captureMcpState(reader, readOnly, 'read-only-approval')
     } finally {
-      try { await disposeReaderProxy() } finally { await reader.close() }
+      try { await disposeReaderProxy() } finally { await readerContext.close() }
     }
 
     await proposed.getByRole('button', { name: 'Run tool', exact: true }).click()

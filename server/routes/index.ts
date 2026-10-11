@@ -4294,7 +4294,7 @@ export function buildRouter(): Router {
     if (denyForeignSession(req, res, params.id)) return
     // A scheduled run *is* a session — a persisted row minted through the same
     // funnel as a human one (`srun-*` ids resolve here like any other).
-    const session = store.getSession(params.id)
+    const session = store.getSession(params.id, store.identity(req.headers).user.id)
     if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
     // Project the live turn (if any) onto the read — transient registry state,
     // never persisted (contract/turns.ts): a client arriving mid-generation sees
@@ -4316,6 +4316,18 @@ export function buildRouter(): Router {
       viewerPreferences: store.sessionPreferences(identity.user.id, params.id),
       ...(live ? { activeTurnId: live.id } : {}),
     })
+  })
+  // Actor-relative card controls are metadata for this UI, not a transcript
+  // rewrite or workspace capability. Return ids only; OAuth person anchors
+  // remain private in the store and are never projected to the browser.
+  r.uiFormGet('/sessions/:id/tool-activity-eligibility', 'viewer-relative consent controls for rendered conversation cards; not a shared workspace capability', ({ req, res, params }) => {
+    res.setHeader('Cache-Control', 'no-store')
+    if (!accountTransitionSourceMatches(req, res)) return
+    if (denyForeignSession(req, res, params.id)) return
+    const identity = store.identity(req.headers)
+    const session = store.getSession(params.id, identity.user.id)
+    if (!session) return sendError(res, 'not_found', `No session '${params.id}'`)
+    sendJson(res, store.toolActivityDecisionEligibility(params.id, identity.tenant.id, identity.user.id))
   })
   r.get('/sessions/:id/search', ({ req, res, params, url }) => {
     if (denyForeignSession(req, res, params.id)) return
@@ -4556,11 +4568,12 @@ export function buildRouter(): Router {
   // Session ↔ context bindings — the attachment of record (Primitive 1 of
   // docs/shared-resource-coordination.md). Persisted server-side so every effect a
   // session initiates can be mediated by *naming* an attached context (Tiers A–C).
-  // Attach/detach broadcast `session.contexts.changed`.
+  // Attach/detach broadcast an ID-only invalidation; clients refetch contexts
+  // through this actor-scoped route rather than receiving private attachments.
   r.aliasGet('/sessions/:id/contexts', 'GET /sessions/:id', 'session context is already projected as part of the session detail shown in the UI', ({ req, res, params }) => {
     if (denyForeignSession(req, res, params.id)) return
     if (!store.getSession(params.id)) return sendError(res, 'not_found', `No session '${params.id}'`)
-    sendJson(res, store.sessionContexts(params.id))
+    sendJson(res, store.sessionContexts(params.id, store.identity(req.headers).user.id))
   })
   // One mutation door for both halves of attached context: the authorization
   // bindings every effect is mediated against and the workspace users can see.
@@ -4619,7 +4632,7 @@ export function buildRouter(): Router {
       }
     }
     try {
-      sendJson(res, store.updateSessionContextState(params.id, input.operations, ws, tenantId))
+      sendJson(res, store.updateSessionContextState(params.id, input.operations, ws, tenantId, store.identity(req.headers).user.id))
     } catch (error) {
       if (error instanceof ConflictError || error instanceof NotFoundError || error instanceof ValidationError) return sendError(res, error.code, error.message)
       throw error
@@ -4640,7 +4653,8 @@ export function buildRouter(): Router {
     if (denySessionTurnMutation(req, res, params.id)) return
     // The caller's tenant — usage is metered + budget-gated per tenant (F2/PD9), so one
     // tenant's spend neither 429s nor shows up in another's gauge. Resolved once for the turn.
-    const tenantId = store.identity(req.headers).tenant.id
+    const initiatingActor = store.identity(req.headers)
+    const tenantId = initiatingActor.tenant.id
     const { text, ephemeral, retryLastUser } = await body<SendMessageRequest>()
 
     // Idempotent send (design §5.4, invariant I4): a RETRY of the same logical
@@ -4779,7 +4793,7 @@ export function buildRouter(): Router {
     // this SSE view never cancels the model turn or its consent proposals.
     const work = startConversationTurn({
       session, known, agent, provider: turnConfig, providerId: turnProviderId,
-      modelId: turnModelId, tenantId, text: text ?? '', history: turnHistory,
+      modelId: turnModelId, tenantId, actorUserId: initiatingActor.user.id, text: text ?? '', history: turnHistory,
       persist, reusePersistedUser, idempotencyKey: idemKey,
       apiRuntime: {
         catalog: apiCatalog(),
@@ -4905,9 +4919,12 @@ export function buildRouter(): Router {
     if (!accountTransitionSourceMatches(req, res)) return
     if (denyForeignSession(req, res, params.id)) return
     const who = store.identity(req.headers)
-    const session = store.getSession(params.id)
+    const session = store.getSession(params.id, who.user.id)
     if (session && !store.sessionOwnedBy(session, who.tenant.id)) {
       return sendError(res, 'forbidden', 'Only the conversation owner may decide its proposed tool actions')
+    }
+    if (!store.toolActivityActorPermitted(params.id, params.activityId, who.tenant.id, who.user.id)) {
+      return sendError(res, 'not_found', `No tool activity '${params.activityId}' on session '${params.id}'`)
     }
     const input = await body<unknown>()
     if (
@@ -4933,6 +4950,7 @@ export function buildRouter(): Router {
           logicalDecisionId,
           who.tenant.id,
           decision,
+          who.user.id,
         )
       : undefined
     if (typeof represented === 'object') return sendJson(res, represented)
@@ -4960,7 +4978,7 @@ export function buildRouter(): Router {
         ) {
           return sendError(res, 'conflict', 'A conversation cannot delete the consent record it is carrying. Use Delete conversation instead.')
         }
-        if (!store.claimToolActivity(params.id, params.activityId)) {
+        if (!store.claimToolActivity(params.id, params.activityId, who.user.id)) {
           return sendError(res, 'conflict', `Tool activity '${params.activityId}' is already being processed`)
         }
         claimed = true
@@ -4971,6 +4989,7 @@ export function buildRouter(): Router {
               params.activityId,
               logicalDecisionId!,
               who.tenant.id,
+              who.user.id,
             )
             if (!running || running === 'invalid') {
               return sendError(res, running === 'invalid' ? 'bad_request' : 'not_found',
@@ -4982,7 +5001,7 @@ export function buildRouter(): Router {
             claimed = false
             let outcome: Awaited<ReturnType<typeof executeApprovedMcpActivity>>
             try {
-              outcome = await executeApprovedMcpActivity(store, params.id, who.tenant.id, running)
+              outcome = await executeApprovedMcpActivity(store, params.id, who.tenant.id, running, who.user.id)
             } catch {
               // The durable running receipt already owns this attempt. An
               // unexpected adapter failure cannot justify a replay or leave an
@@ -4998,6 +5017,7 @@ export function buildRouter(): Router {
               logicalDecisionId!,
               who.tenant.id,
               { status: outcome.status, summary: outcome.summary, ...('result' in outcome && outcome.result ? { result: outcome.result } : {}) },
+              who.user.id,
             )
             if (!activity || activity === 'invalid') {
               return sendError(res, activity === 'invalid' ? 'conflict' : 'not_found',
@@ -5047,7 +5067,7 @@ export function buildRouter(): Router {
         params.activityId,
         decision,
         doneSummary,
-        { logicalId: logicalDecisionId, tenantId: who.tenant.id },
+        { logicalId: logicalDecisionId, tenantId: who.tenant.id, actorUserId: who.user.id },
       )
       claimed = false // resolve drops the claim before its durable commit
       if (activity === 'invalid') {

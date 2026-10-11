@@ -1,12 +1,19 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, before, test } from 'node:test'
 import type { Session } from '../../contract/index.ts'
 import { call } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
 import { turns } from '../turns.ts'
-import { loadState } from '../persistence/persist.ts'
+import { closePersistence, loadState } from '../persistence/persist.ts'
 import { buildRouter } from './index.ts'
 import { catalogOf } from '../apiSurface.ts'
+
+before(() => {
+  process.env.PERSIST_BACKEND = 'sqlite'
+  process.env.DATABASE_PATH = ':memory:'
+  store.initPersistence()
+})
+after(() => closePersistence())
 
 const OWNER = 'tenant-personal'
 const READER = 'tenant-beta'
@@ -38,6 +45,7 @@ test('conversation export is exact for owner and granted reader and has no side 
   assert.equal(typeof grant, 'object')
   const before = store.getSession(session.id)
   const stateBefore = loadState()
+  assert.ok(stateBefore?.sessions.some(row => row.id === session.id), 'the compared snapshot contains this test conversation')
   const events: string[] = []
   const unsubscribe = store.subscribe((event) => events.push(event.type))
   const ownerExport = await call('GET', `/sessions/${session.id}/export`, undefined, { 'x-tenant-id': OWNER })

@@ -72,7 +72,7 @@ Intel, paid-provider or all-current-format acceptance claim.
 | CTX-FS-18 | **Truthful directory-read failure.** Failed, missing or replaced root enumeration is unavailable, not a successful empty catalog. Failed folder enumeration cannot create an empty workspace or invent a zero file count. Only successfully enumerated empty directories return empty results; transient read failures can recover against the same pinned tree. Cloud/runner reads preserve failure as 404 without exposing filesystem exceptions, and mapped root/folder invokes return `capability_unavailable` without a success effect. Demo recent-item seeding alone may omit unavailable suggestions. | `server/fs.ts`, `server/runnerFs.ts`, `server/runner-runtime.ts`, `server/store/index.ts` | `server/fs-listing-failures.test.ts`, `server/routes/fs-listing-failures.test.ts`, `server/fs-reader.test.ts`, `server/fs-confinement.test.ts`, `server/runnerFs.test.ts` | ✅ |
 | CTX-FS-19 | **Reachable source selection.** Files, Photos and Folder share wrapping source choices with bounded long labels and fixed-width icons. The source group never needs horizontal scrolling or an overlay scrollbar over its buttons; ordinary pointer selection remains usable at all five canonical viewports. | `src/lib/fsSourceLayout.ts`, `src/components/AddContextButton.tsx` | `src/lib/fs-source-layout.test.ts`, `e2e/fs-source-layout.spec.ts`; packaged attachment smoke | ✅ |
 
-The first-render cache fence is also locked by `src/api/fs-query-admission.test.ts`;
+The first-render cache fence in `src/api/fsHooks.ts` is also locked by `src/api/fs-query-admission.test.ts`;
 local file controls admit both their bridge and `src/components/UiHostDropZone.tsx`
 before selection (`e2e/local-picker-loading.spec.ts`).
 

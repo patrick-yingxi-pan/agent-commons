@@ -28,6 +28,7 @@ import { MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
 import { usePendingFocus } from '../lib/focusContext'
 import { messageWindow } from '../lib/messageWindow'
 import { conversationFocusState } from '../lib/conversationSearch'
+import { namedReadRegionProps } from '../lib/dialog'
 import { InlineOperationStatus } from './InlineOperationStatus'
 import type { approvalView, Live } from '../data/liveSession'
 import type { ModelPick } from '../lib/models'
@@ -294,7 +295,7 @@ export function ConversationView({
             ? { label: 'Retry finding message', onClick: () => { void onLoadEarlier() } }
             : undefined}
       />}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} {...namedReadRegionProps('Conversation transcript', 'conversation')} className="flex-1 overflow-y-auto">
         {live.messages.length === 0 && !typing && empty !== undefined ? (
           empty
         ) : (

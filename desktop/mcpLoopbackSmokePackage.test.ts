@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
-import { createMcpLoopbackSmokePackage } from './mcpLoopbackSmokePackage.mjs'
+import { createMcpFixturePackage, createMcpLoopbackSmokePackage } from './mcpLoopbackSmokePackage.mjs'
 
 const require = createRequire(import.meta.url)
 const { createPackageWithOptions, extractFile, getRawHeader } = require('@electron/asar')
@@ -136,5 +136,36 @@ test('close removes only its generated copy and reports source ASAR mutation', a
       await copy.close().catch(() => {})
     }
     await closeFixture(fixture)
+  }
+})
+
+test('ordered fixture patches compose within and across files without changing the source or unpacked payload', async () => {
+  const fixture = await fixtureApp()
+  const original = await readFile(fixture.asarPath)
+  let copy
+  try {
+    copy = await createMcpFixturePackage(fixture.executable, [
+      { path: 'scripts/start.mjs', before: 'allowLoopback: false', after: 'allowLoopback: true' },
+      { path: 'scripts/start.mjs', before: 'options =', after: 'fixtureOptions =' },
+      { path: 'scripts/unrelated.mjs', before: 'unchanged = true', after: 'fixtureChanged = true' },
+    ])
+    const archive = join(dirname(dirname(copy.executable)), 'Resources', 'app.asar')
+    assert.equal(extractFile(archive, 'scripts/start.mjs').toString(), 'export const fixtureOptions = { allowLoopback: true, }\n')
+    assert.equal(extractFile(archive, 'scripts/unrelated.mjs').toString(), 'export const fixtureChanged = true\n')
+    assert.equal(header(archive).native.files['helper.bin'].unpacked, true)
+    assert.deepEqual(extractFile(archive, 'native/helper.bin'), Buffer.from([0, 1, 2, 3, 255]))
+    assert.deepEqual(await readFile(fixture.asarPath), original)
+  } finally {
+    await copy?.close()
+    await closeFixture(fixture)
+  }
+})
+
+test('fixture patch admission refuses traversal and undeclared shapes before source access', async () => {
+  const valid = { path: 'scripts/start.mjs', before: 'old', after: 'new' }
+  for (const patches of [[], Array(9).fill(valid), [{ ...valid, extra: true }],
+    ...['../scripts/start.mjs', 'scripts/../start.mjs', 'scripts//start.mjs', '/scripts/start.mjs', 'native/helper.bin']
+      .map(path => [{ ...valid, path }]), [{ ...valid, before: '' }], [{ ...valid, after: '' }]]) {
+    await assert.rejects(createMcpFixturePackage('/nonexistent-fixture/Contents/MacOS/app', patches), /Invalid isolated package patches/)
   }
 })

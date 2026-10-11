@@ -79,7 +79,7 @@ export function permissionAllowed(permission, requestingUrl, trustedOrigin) {
 
 /** Environment owned by the shell. Release posture is still resolved inside
  * scripts/start.mjs; these values bind it to this window and this OS user. */
-export function desktopBackendEnvironment({ baseEnv = {}, providerCredentials = {}, port, rendererOrigin, userDataPath, authSecret }) {
+export function desktopBackendEnvironment({ baseEnv = {}, providerCredentials = {}, port, rendererOrigin, userDataPath, authSecret, mcpOAuthAvailable = false }) {
   const backendOrigin = loopbackOrigin(port)
   const corsOrigin = exactLoopbackOrigin(rendererOrigin)
   if (!userDataPath || !authSecret) throw new Error('Desktop user-data path and process secret are required.')
@@ -98,6 +98,7 @@ export function desktopBackendEnvironment({ baseEnv = {}, providerCredentials = 
     DATABASE_PATH: join(userDataPath, 'store.db'),
     SNAPSHOT_DIR: join(userDataPath, 'snapshots'),
     AGENT_COMMONS_BACKEND_ORIGIN: backendOrigin,
+    AGENT_COMMONS_MCP_OAUTH_AVAILABLE: mcpOAuthAvailable === true ? 'true' : 'false',
   }
 }
 

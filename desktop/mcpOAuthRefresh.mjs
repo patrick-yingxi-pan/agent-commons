@@ -75,6 +75,7 @@ export function createMcpOAuthRefreshManager({ vault, exchange, now = Date.now, 
       let dispatches = 0
       const response = await exchange(request, {
         signal: controller.signal,
+        isCurrent: fence,
         beforeDispatch() {
           fence()
           if (dispatches++ !== 0) fail('reauthorization')
@@ -105,14 +106,15 @@ export function createMcpOAuthRefreshManager({ vault, exchange, now = Date.now, 
   }
 
   return {
-    async resolve(reference, rawBinding, ownerId, { isCurrent, signal } = {}) {
+    async resolve(reference, rawBinding, ownerId, { isCurrent, signal, connectionRevision } = {}) {
       try {
         if (closed || signal?.aborted) fail('cancelled')
         checkCurrent(isCurrent)
         if (!isMcpCredentialReference(reference) || !isMcpBinding(rawBinding) || typeof ownerId !== 'string' ||
             ownerId.length === 0 || ownerId.length > 256 || !/^[\x20-\x7e]+$/.test(ownerId)) fail('reauthorization')
+        if (connectionRevision !== undefined && (!Number.isSafeInteger(connectionRevision) || connectionRevision < 0)) fail('reauthorization')
         const binding = Object.freeze({ tenantId: rawBinding.tenantId, connectionId: rawBinding.connectionId, endpoint: rawBinding.endpoint })
-        const identity = JSON.stringify([binding.tenantId, binding.connectionId, binding.endpoint, ownerId])
+        const identity = JSON.stringify([binding.tenantId, binding.connectionId, binding.endpoint, ownerId, connectionRevision ?? null])
         if (waiters >= 64) fail('busy')
         let entry = active.get(reference)
         if (entry && entry.identity !== identity) fail('reauthorization')

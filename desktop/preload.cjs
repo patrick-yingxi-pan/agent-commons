@@ -36,6 +36,13 @@ const localGitChannels = Object.freeze({
 const mcpCredentialChannels = Object.freeze({
   provision: 'agent-commons:mcp-credentials:provision',
 })
+const mcpOAuthChannels = Object.freeze({
+  start: 'agent-commons:mcp-oauth:start',
+  review: 'agent-commons:mcp-oauth:review',
+  authorize: 'agent-commons:mcp-oauth:authorize',
+  reconcile: 'agent-commons:mcp-oauth:reconcile',
+  cancel: 'agent-commons:mcp-oauth:cancel',
+})
 const imageOcrChannels = Object.freeze({
   recognize: 'agent-commons:image-ocr:recognize',
   cancel: 'agent-commons:image-ocr:cancel',
@@ -100,6 +107,18 @@ async function invokeLocalFolder(channel, ...args) {
   throw new Error(unavailable)
 }
 
+async function invokeMcpOAuth(channel, request) {
+  let reply
+  try { reply = await ipcRenderer.invoke(channel, request) } catch {}
+  const keys = reply && typeof reply === 'object' && !Array.isArray(reply) ? Object.keys(reply).sort().join(',') : ''
+  if (keys === 'ok,value' && reply.ok === true) return reply.value
+  const code = keys === 'error,ok' && reply.ok === false &&
+    ['request', 'busy', 'stale', 'expired', 'cancelled', 'conflict', 'unavailable'].includes(reply.error) ? reply.error : 'unavailable'
+  const error = new Error(`MCP sign-in could not be completed (${code}).`)
+  error.code = code
+  throw error
+}
+
 // Backup and user-mediated context selection are available in every desktop
 // run. Credentials join only after OS-backed encryption is available. A
 // spoofed command-line flag gains no authority: every invocation is also
@@ -152,6 +171,15 @@ if (process.argv.includes('--agent-commons-secure-credentials')) {
 if (process.argv.includes('--agent-commons-mcp-credentials')) {
   bridge.mcpCredentials = Object.freeze({
     provision: (binding, secret) => ipcRenderer.invoke(mcpCredentialChannels.provision, binding, secret, MCP_CREDENTIAL_CAPABILITY),
+  })
+}
+if (process.argv.includes('--agent-commons-mcp-oauth=true')) {
+  bridge.mcpOAuth = Object.freeze({
+    start: request => invokeMcpOAuth(mcpOAuthChannels.start, request),
+    review: request => invokeMcpOAuth(mcpOAuthChannels.review, request),
+    authorize: request => invokeMcpOAuth(mcpOAuthChannels.authorize, request),
+    reconcile: request => invokeMcpOAuth(mcpOAuthChannels.reconcile, request),
+    cancel: request => invokeMcpOAuth(mcpOAuthChannels.cancel, request),
   })
 }
 contextBridge.exposeInMainWorld('agentCommonsDesktop', Object.freeze(bridge))

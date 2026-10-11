@@ -110,6 +110,28 @@ test('expired grants refresh once for identical coalesced callers and durably ro
   })
 })
 
+test('different connection revisions cannot join an in-flight native refresh', async () => {
+  await withFixture(async ({ vault }) => {
+    const target = binding()
+    const reference = await vault.provisionOAuth(target, OWNER, grant())
+    const started = deferred<void>()
+    const response = deferred<Record<string, unknown>>()
+    const manager = createMcpOAuthRefreshManager({ vault, now: () => 1_000,
+      exchange: async (_request, { beforeDispatch, isCurrent }) => {
+        assert.equal(isCurrent(), true)
+        beforeDispatch(); started.resolve()
+        return response.promise
+      } })
+    try {
+      const first = manager.resolve(reference, target, OWNER, { isCurrent: () => true, connectionRevision: 1 })
+      await started.promise
+      await assert.rejects(manager.resolve(reference, target, OWNER, { isCurrent: () => true, connectionRevision: 2 }), errorCode('reauthorization'))
+      response.resolve(tokenReply())
+      assert.equal(await first, 'access.rotated-test')
+    } finally { response.resolve(tokenReply()); manager.close() }
+  })
+})
+
 test('an omitted replacement refresh token preserves the encrypted prior token', async () => {
   await withFixture(async ({ vault }) => {
     const target = binding()

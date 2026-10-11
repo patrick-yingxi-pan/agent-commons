@@ -27,6 +27,8 @@ import { runBackendRecovery } from './backendRecovery.mjs'
 import { createCredentialBackendClient } from './credentialProtocol.mjs'
 import { createMcpCredentialHost } from './mcpCredentialProtocol.mjs'
 import { createMcpCredentialLifecycle } from './mcpCredentialLifecycle.mjs'
+import { createMcpOAuthCredentialHost } from './mcpOAuthCredentialProtocol.mjs'
+import { createDesktopMcpOAuthRuntime, mcpOAuthChannels, mcpOAuthReply } from './mcpOAuthRuntime.mjs'
 import { createDataBackendClient, desktopRecoveryStatus } from './dataProtocol.mjs'
 import { runManagedRestoreLifecycle } from './restoreLifecycle.mjs'
 import { createDesktopUpdateController, desktopUpdateMenuLabel } from './updateController.mjs'
@@ -71,6 +73,9 @@ let credentialBackend = null
 let mcpCredentialVault = null
 let mcpCredentialBackend = null
 let mcpCredentialLifecycle = null
+let mcpOAuthRuntime = null
+let mcpOAuthBackend = null
+let mcpOAuthSourceGeneration = 0
 let dataBackend = null
 let localFolderStore = null
 let localFolderHost = null
@@ -91,6 +96,8 @@ function beginShutdown() {
   localGitStore?.shutdown()
   imageOcrHost?.dispose()
   pdfOcrHost?.dispose()
+  mcpOAuthRuntime?.close()
+  mcpOAuthBackend?.close()
 }
 let updateInProgress = false
 let desktopUpdater = null
@@ -178,7 +185,21 @@ async function startDesktop() {
   rendererUrl = DEVELOPMENT ? trustedOrigin : backendOrigin
 
   session.defaultSession.cookies.on('changed', (_event, cookie) => {
-    if (cookie?.name === 'uw_session') localFolderCookieGeneration += 1
+    if (cookie?.name === 'uw_session') {
+      localFolderCookieGeneration += 1
+      resetMcpOAuthFlows()
+    }
+  })
+
+  if (mcpCredentialVault) mcpOAuthRuntime = createDesktopMcpOAuthRuntime({
+    vault: mcpCredentialVault,
+    readSession: readMcpOAuthSession,
+    isSessionCurrent: isMcpOAuthSessionCurrent,
+    assertCaller: event => {
+      assertTrustedMcpCredentialCaller(event)
+      if (event.senderFrame !== event.sender.mainFrame) throw new Error('MCP sign-in requires the main frame.')
+    },
+    openBrowser: url => shell.openExternal(url),
   })
 
   configureSessionPermissions(trustedOrigin)
@@ -192,6 +213,7 @@ async function startDesktop() {
   backendReady = true
   if (credentialVault) installCredentialIpc()
   if (mcpCredentialVault) installMcpCredentialIpc()
+  if (mcpOAuthRuntime) installMcpOAuthIpc()
   installContextIpc()
   installLocalFolderIpc()
   installLocalGitIpc()
@@ -392,6 +414,7 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       userDataPath: app.getPath('userData'),
       authSecret,
       providerCredentials,
+      mcpOAuthAvailable: Boolean(mcpOAuthRuntime),
     }),
     serviceName: 'Agent Commons Backend',
     stdio: 'pipe',
@@ -409,6 +432,9 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       return mcpCredentialVault.read(reference, binding)
     },
     onSynchronizeBindings: bindings => mcpCredentialLifecycle ? mcpCredentialLifecycle.synchronize(bindings) : false,
+  })
+  if (mcpOAuthRuntime) mcpOAuthBackend = createMcpOAuthCredentialHost(child, {
+    resolve: (reference, binding, options) => mcpOAuthRuntime.resolveCredential(reference, binding, options),
   })
 
   const handle = { child, exitError: null }
@@ -440,6 +466,9 @@ async function launchBackend({ port, backendOrigin, rendererOrigin, providerCred
       credentialBackend = null
       mcpCredentialBackend?.close()
       mcpCredentialBackend = null
+      mcpOAuthBackend?.close()
+      mcpOAuthBackend = null
+      mcpOAuthRuntime?.close()
       dataBackend?.close()
       dataBackend = null
       backend = null
@@ -595,6 +624,32 @@ function installMcpCredentialIpc() {
       throw new Error('The MCP credential could not be stored securely on this device.')
     }
   })
+}
+
+function resetMcpOAuthFlows() {
+  mcpOAuthSourceGeneration += 1
+  mcpOAuthRuntime?.resetFlows()
+}
+
+function isMcpOAuthSessionCurrent(stamp) {
+  return !quitting && backendReady && Boolean(mainWindow && !mainWindow.isDestroyed()) &&
+    stamp === `native-oauth:${mcpOAuthSourceGeneration}`
+}
+
+async function readMcpOAuthSession() {
+  const stamp = `native-oauth:${mcpOAuthSourceGeneration}`
+  if (!isMcpOAuthSessionCurrent(stamp)) throw new Error('MCP sign-in is unavailable.')
+  const cookies = await session.defaultSession.cookies.get({ url: trustedOrigin, name: 'uw_session' })
+  if (!isMcpOAuthSessionCurrent(stamp) || cookies.length !== 1 || !cookies[0].value) {
+    throw new Error('MCP sign-in is unavailable.')
+  }
+  return { origin: trustedOrigin, cookie: `uw_session=${cookies[0].value}`, stamp }
+}
+
+function installMcpOAuthIpc() {
+  for (const [method, channel] of Object.entries(mcpOAuthChannels)) {
+    ipcMain.handle(channel, (event, request) => mcpOAuthReply(() => mcpOAuthRuntime.host[method](event, request)))
+  }
 }
 
 function installDataIpc() {
@@ -819,6 +874,7 @@ async function createMainWindow(url, origin) {
       additionalArguments: [
         ...(credentialVault ? ['--agent-commons-secure-credentials'] : []),
         ...(mcpCredentialVault ? ['--agent-commons-mcp-credentials'] : []),
+        ...(mcpOAuthRuntime ? ['--agent-commons-mcp-oauth=true'] : []),
       ],
     },
   })
@@ -839,6 +895,7 @@ async function createMainWindow(url, origin) {
   win.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => {
     if (isMainFrame) imageOcrHost?.cancelSender(contents)
     if (isMainFrame) pdfOcrHost?.cancelSender(contents)
+    if (isMainFrame && !_inPlace) resetMcpOAuthFlows()
   })
   win.webContents.setWindowOpenHandler(({ url: candidate }) => {
     if (isTrustedAppUrl(candidate, origin)) void win.loadURL(candidate)
@@ -846,6 +903,7 @@ async function createMainWindow(url, origin) {
     return { action: 'deny' }
   })
   win.webContents.on('render-process-gone', (_event, details) => {
+    resetMcpOAuthFlows()
     imageOcrHost?.cancelSender(contents)
     pdfOcrHost?.cancelSender(contents)
     if (!initialLoadComplete || quitting || rendererRecoveryInProgress || win.isDestroyed() || mainWindow !== win) return
@@ -882,6 +940,7 @@ async function createMainWindow(url, origin) {
   win.on('closed', () => {
     imageOcrHost?.cancelSender(contents)
     pdfOcrHost?.cancelSender(contents)
+    resetMcpOAuthFlows()
     if (mainWindow === win) mainWindow = null
   })
 
@@ -948,6 +1007,9 @@ async function stopBackend({ requireExit = false } = {}) {
   credentialBackend = null
   mcpCredentialBackend?.close()
   mcpCredentialBackend = null
+  mcpOAuthBackend?.close()
+  mcpOAuthBackend = null
+  mcpOAuthRuntime?.close()
   dataBackend?.close()
   dataBackend = null
   backendReady = false

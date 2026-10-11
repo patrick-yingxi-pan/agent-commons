@@ -19,7 +19,7 @@ import type { Connector, EscalationProposal, Message, ToolActivity } from './ent
 import type { ScheduledRun } from './cowork.ts'
 import type { RelationOp } from './relations.ts'
 import type { AuditEntry } from './audit.ts'
-import type { ContextTypeId, SessionContext } from './contexts.ts'
+import type { ContextTypeId } from './contexts.ts'
 import type { Runner, CapabilityEffect } from './agents.ts'
 
 /** ── Reply-stream events (one assistant turn) ── */
@@ -181,12 +181,11 @@ export interface SessionRemovedEvent {
   session: SessionEventRef
 }
 /** A session's attached contexts changed — attached or detached (Primitive 1 of
- *  docs/shared-resource-coordination.md). Carries the full list so the cache can
- *  upsert without a refetch. */
+ *  docs/shared-resource-coordination.md). This is an invalidation-only hint:
+ *  receivers refetch through the actor-scoped contexts endpoint. */
 export interface SessionContextsChangedEvent {
   type: 'session.contexts.changed'
   sessionId: string
-  contexts: SessionContext[]
 }
 /** A native runner connected — a new enrollment, or a known runner returning from
  *  offline (its durable identity re-bound). Carries the full runner record so the

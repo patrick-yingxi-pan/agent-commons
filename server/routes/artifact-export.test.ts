@@ -2,11 +2,18 @@
  * document body. It must expose the current id-keyed revision without touching
  * graph, body, grant, or event state. */
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, before, test } from 'node:test'
 import type { ArtifactDocumentExport, ArtifactContentLibrary, ArtifactItem } from '../../contract/index.ts'
 import { call } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
-import { loadState } from '../persistence/persist.ts'
+import { closePersistence, loadState } from '../persistence/persist.ts'
+
+before(() => {
+  process.env.PERSIST_BACKEND = 'sqlite'
+  process.env.DATABASE_PATH = ':memory:'
+  store.initPersistence()
+})
+after(() => closePersistence())
 
 const OWNER = 'tenant-personal'
 const READER = 'tenant-beta'
@@ -115,6 +122,7 @@ test('export has no event or state mutation side effects', async () => {
   const stamp = Date.now().toString(36)
   const artifact = await createDocument(`export-readonly-${stamp}.md`, 'Read-only export.')
   const before = loadState()
+  assert.ok(before?.graph.extraArtifacts.some(row => row.id === artifact.id), 'the compared snapshot contains this test document')
   const events: string[] = []
   const unsubscribe = store.subscribe((event) => events.push(event.type))
   try {

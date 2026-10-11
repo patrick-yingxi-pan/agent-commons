@@ -6,6 +6,7 @@ import { resolveRuntimeProfile } from '../server/runtimeProfile.ts'
 import { installCredentialRuntime } from '../desktop/credentialProtocol.mjs'
 import { installDataRuntime } from '../desktop/dataProtocol.mjs'
 import { installMcpCredentialRuntime } from '../desktop/mcpCredentialProtocol.mjs'
+import { installMcpOAuthCredentialRuntime } from '../desktop/mcpOAuthCredentialProtocol.mjs'
 
 const profile = process.argv[2] ?? 'desktop'
 if (profile !== 'desktop' && profile !== 'web') {
@@ -16,12 +17,15 @@ const resolved = resolveRuntimeProfile(profile, process.env, () => randomBytes(3
 for (const [key, value] of Object.entries(resolved)) process.env[key] = value
 const credentialRuntime = installCredentialRuntime()
 const mcpCredentialRuntime = installMcpCredentialRuntime()
+const mcpOAuthRuntime = profile === 'desktop' && process.env.AGENT_COMMONS_MCP_OAUTH_AVAILABLE === 'true'
+  ? installMcpOAuthCredentialRuntime() : null
 installDataRuntime()
 
 console.log(`[startup] ${profile} profile · ${resolved.HOST}:${resolved.PORT} · ${resolved.PERSIST_BACKEND}`)
 const { configureMcpRuntime } = await import('../server/mcpRuntime.ts')
 configureMcpRuntime({
   resolveCredential: mcpCredentialRuntime ? (reference, binding) => mcpCredentialRuntime.resolve(reference, binding) : undefined,
+  resolveOAuthCredential: mcpOAuthRuntime ? (reference, binding, options) => mcpOAuthRuntime.resolve(reference, binding, options) : undefined,
   synchronizeBindings: mcpCredentialRuntime
     ? (bindings) => mcpCredentialRuntime.synchronizeBindings(bindings)
     : undefined,
@@ -29,6 +33,7 @@ configureMcpRuntime({
   // barrier. Never synchronize an empty pre-rehydration registry here: doing
   // so could retire valid device credentials before persistence is loaded.
   deviceBearerAvailable: false,
+  deviceOAuthAvailable: Boolean(mcpOAuthRuntime && mcpCredentialRuntime),
   allowLoopback: false,
 })
 await import('../server/index.ts')

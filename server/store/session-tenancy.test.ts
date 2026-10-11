@@ -57,12 +57,12 @@ test('eventVisibleToTenant gates the SSE fan-out — viewer data is tenant-scope
   assert.equal(store.eventVisibleToTenant(removed, 'tenant-evt'), true)
   assert.equal(store.eventVisibleToTenant(removed, 'tenant-other'), false)
 
-  // session.contexts.changed carries only the id → resolved via the session's tenant.
-  const ctxChanged = { type: 'session.contexts.changed', sessionId: owned.id, contexts: [] } as const
+  // session.contexts.changed carries only the session id; payload is an invalidation hint.
+  const ctxChanged = { type: 'session.contexts.changed', sessionId: owned.id } as const
   assert.equal(store.eventVisibleToTenant(ctxChanged, 'tenant-evt'), true)
   assert.equal(store.eventVisibleToTenant(ctxChanged, 'tenant-other'), false)
   // An unresolvable (ephemeral/removed) session id falls back to the default tenant.
-  const ctxUnknown = { type: 'session.contexts.changed', sessionId: 'gone', contexts: [] } as const
+  const ctxUnknown = { type: 'session.contexts.changed', sessionId: 'gone' } as const
   assert.equal(store.eventVisibleToTenant(ctxUnknown, 'tenant-personal'), true)
   assert.equal(store.eventVisibleToTenant(ctxUnknown, 'tenant-other'), false)
 

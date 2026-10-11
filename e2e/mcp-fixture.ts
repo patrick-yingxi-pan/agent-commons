@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { once } from 'node:events'
-import { configureMcpRuntime, mcpRuntimeConfiguration } from '../server/mcpRuntime.ts'
+import { configureMcpRuntime, initializeMcpRuntime, mcpRuntimeConfiguration } from '../server/mcpRuntime.ts'
 import { sendError } from '../server/http/respond.ts'
 import type { Router } from '../server/http/router.ts'
 import type { Page, Route } from '@playwright/test'
@@ -60,6 +60,8 @@ export async function startMcpRouterStack(options: {
   cleanupAvailable?: boolean
   deviceBearerAvailable?: boolean
   resolveCredential?: (reference: string, binding: { tenantId: string; connectionId: string; endpoint: string }) => Promise<string>
+  deviceOAuthAvailable?: boolean
+  resolveOAuthCredential?: (reference: string, binding: { tenantId: string; connectionId: string; endpoint: string }, ownerUserId: string) => Promise<string>
 } = {}): Promise<McpRouterStack> {
   const previousAuth = process.env.AUTH_GATE
   const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL
@@ -89,10 +91,13 @@ export async function startMcpRouterStack(options: {
   try {
     configureMcpRuntime({
       deviceBearerAvailable: options.deviceBearerAvailable ?? false,
+      deviceOAuthAvailable: options.deviceOAuthAvailable ?? false,
       allowLoopback: true,
       resolveCredential: options.resolveCredential,
+      resolveOAuthCredential: options.resolveOAuthCredential,
       synchronizeBindings: async () => ({ available: cleanupAvailable }),
     })
+    if (options.deviceOAuthAvailable) await initializeMcpRuntime([])
     const { buildRouter } = await import('../server/routes/index.ts')
     const router = buildRouter()
     server = createServer(async (request, response) => {

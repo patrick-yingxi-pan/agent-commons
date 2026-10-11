@@ -2,7 +2,7 @@
  *  (the web backend's cloud storage + any fs-capable runner, from `/fs/sources`)
  *  followed by the client-side UI host. The UI host is appended here, not served,
  *  because a web backend can't read the browser's disk (see lib/uiHostFs.ts). */
-import { useFsSources } from '../api/hooks'
+import { useFsSources } from '../api/fsHooks.ts'
 import { useState } from 'react'
 import { retryFsSources } from '../api/fsReads.ts'
 import { fsReadPhase, selectedFsSource } from './fsReadState.ts'

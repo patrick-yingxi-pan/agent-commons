@@ -94,6 +94,9 @@ export const keys = {
   sessionCompactedMessages: (id: string, cursor?: string) =>
     `session-compacted-messages:${id}${cursor ? `:${cursor}` : ''}`,
   sessionContexts: (id: string) => `session-contexts:${id}`,
+  toolActivityEligibility: (id: string, tenantId: string, userId: string) =>
+    `tool-activity-eligibility:${JSON.stringify(id)}:${JSON.stringify([tenantId, userId])}`,
+  toolActivityEligibilityPrefix: (id: string) => `tool-activity-eligibility:${JSON.stringify(id)}`,
   dispatch: 'dispatch',
   savedContexts: 'saved-contexts',
   contextCatalog: 'context-catalog',
@@ -315,6 +318,8 @@ export const paths = {
   sessionExport: (id: string) => `/sessions/${encodePathSegment(id)}/export`,
   sessionContexts: (id: string) => `/sessions/${encodePathSegment(id)}/contexts`,
   sessionContextState: (id: string) => `/sessions/${encodePathSegment(id)}/context-state`,
+  toolActivityEligibility: (id: string) =>
+    `/sessions/${encodePathSegment(id)}/tool-activity-eligibility`,
   sessionPreferences: (id: string) => `/sessions/${encodePathSegment(id)}/preferences`,
   toolActivity: (id: string, activityId: string) =>
     `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}`,

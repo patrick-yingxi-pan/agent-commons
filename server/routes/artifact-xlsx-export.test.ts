@@ -2,13 +2,20 @@
  * The response is JSON metadata plus a base64 ZIP; it is not a native-file
  * upload or a spreadsheet calculation engine. */
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { after, before, test } from 'node:test'
 import { ZipReader, Uint8ArrayReader, TextWriter } from '@zip.js/zip.js'
 import { SaxesParser } from 'saxes'
 import type { ArtifactItem } from '../../contract/index.ts'
 import { call } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
-import { loadState } from '../persistence/persist.ts'
+import { closePersistence, loadState } from '../persistence/persist.ts'
+
+before(() => {
+  process.env.PERSIST_BACKEND = 'sqlite'
+  process.env.DATABASE_PATH = ':memory:'
+  store.initPersistence()
+})
+after(() => closePersistence())
 
 const OWNER = 'tenant-personal'
 const READER = 'tenant-beta'
@@ -126,6 +133,7 @@ test('XLSX export follows rename, is read-only, and keeps Markdown behavior expl
     assert.equal(renamed.status, 200)
     events.length = 0
     const before = loadState()
+    assert.ok(before?.graph.extraArtifacts.some(row => row.id === artifact.id), 'the compared snapshot contains this test spreadsheet')
     const xlsx = await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, { 'x-tenant-id': OWNER })
     assert.equal(xlsx.status, 200)
     assert.equal(xlsx.json.filename, `renamed-${stamp}.xlsx`)

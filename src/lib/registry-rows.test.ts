@@ -27,7 +27,7 @@ test('Project page/rail model and semantic tools consume the canonical registry 
   const relations = stripComments(read(join(ROOT, 'src/controller/useRelations.tsx')))
   assert.match(relations, /withDescriptions\(registryRows\(graph\.extraProjects, projects\)\)/)
   const routes = stripComments(read(join(ROOT, 'server/conversationContext.ts')))
-  assert.match(stripComments(read(join(ROOT, 'server/conversationExecution.ts'))), /conversationContext\(session\.id, tenantId\)/)
+  assert.match(stripComments(read(join(ROOT, 'server/conversationExecution.ts'))), /conversationContext\(session\.id, tenantId, actorUserId\)/)
   assert.match(routes, /projects: store\.listProjects\(tenantId\)\.map\(/)
   assert.doesNotMatch(routes, /\.\.\.graphNow\.extraProjects/)
   const catalog = routes.slice(routes.indexOf('projects: store.listProjects'), routes.indexOf('artifacts: store.listArtifacts'))

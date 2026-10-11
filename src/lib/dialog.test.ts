@@ -18,6 +18,9 @@ test('prose-only dialog bodies share named keyboard-scroll access', () => {
   assert.deepEqual(namedReadRegionProps('Input schema for inspect_records', 'routine-mcp'), {
     'data-routine-mcp-read-region': true, role: 'region', 'aria-label': 'Input schema for inspect_records', tabIndex: 0,
   })
+  assert.deepEqual(namedReadRegionProps('Conversation transcript', 'conversation'), {
+    'data-conversation-read-region': true, role: 'region', 'aria-label': 'Conversation transcript', tabIndex: 0,
+  })
 })
 
 test('bounded dialog layout reserves viewport space and gives overflow to its body', () => {

@@ -3,15 +3,14 @@
  *  `useSessions()` and gains: a real fetch, a loading/error state, and live
  *  updates when the server pushes a change. Hooks grow per resource as reads
  *  migrate; Phase 1 covers capabilities + sessions. */
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useSyncExternalStore } from 'react'
 import { useQuery, invalidate, type QueryState } from './cache.ts'
-import { apiGet, apiPost, apiUrl } from './client.ts'
+import { apiGet, apiPost } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { MESSAGE_PAGE_SIZE } from './sessionPaging.ts'
 import { ambientSyncHealth, type AmbientSyncHealth } from './syncHealth.ts'
 import { readModelPreferences } from './modelPreferences.ts'
 import { fetchProviderRegistry } from './providerRegistry.ts'
-import { readFsCatalog, readFsSources } from './fsReads.ts'
 export { useContributionMcpEffectAttempt } from '../controller/contributionMcpEffectAttemptState.ts'
 import type { AuthAccount, MyInvite, MyOrg, MyWork, OrgInviteRow, OrgMemberRow } from '../../contract/index.ts'
 import type { AdminInviteRow, AdminTenantRow, AdminTokenRow, AdminUserRow, OpsSummary } from '../../contract/index.ts'
@@ -49,10 +48,6 @@ import type {
   ConnectorDetail,
   DispatchRun,
   Identity,
-  FsCatalog,
-  FsFileContent,
-  FsFolderContents,
-  FsSource,
   ModelProvider,
   ProjectSubGoal,
   SystemPromptEntry,
@@ -493,45 +488,6 @@ export function useUsage(sessionId?: string): QueryState<UsageSnapshot> {
  *  ProposalsPanel renders on routines too, where the library is never touched). */
 export function useArtifactContent(enabled = true): QueryState<ArtifactContentLibrary> {
   return useQuery(keys.artifactContent, () => apiGet<ArtifactContentLibrary>(paths.artifactContent), enabled)
-}
-
-/** Unlike ordinary stale-while-revalidate views, picker rows confer new intake
- * authority. Suppress cached success even on the first render, before useQuery's
- * passive mount effect begins revalidation. Key changes get the same fence. */
-function useFsQuery<T>(key: string, fetcher: () => Promise<T>, enabled = true): QueryState<T> {
-  const state = useQuery(key, fetcher, enabled, true)
-  const [admitted, setAdmitted] = useState<string | null>(null)
-  useEffect(() => { setAdmitted(enabled ? key : null) }, [key, enabled])
-  return !enabled || admitted === key ? state : { ...state, status: 'loading' }
-}
-
-/** The server-known filesystem sources for the picker's source switcher — the web
- *  backend's cloud storage plus any fs-capable runner (contract/fs.ts). The client
- *  appends its own `ui-host` source. Mount revalidates source availability. */
-export function useFsSources(): QueryState<FsSource[]> {
-  return useFsQuery(keys.fsSources, readFsSources)
-}
-
-/** A served source's top-level catalog (files / photos / folders). `enabled` is
- *  false for the client-side `ui-host` source (read in the browser, not here).
- *  Each picker mount rechecks disk contents and current runner grants. */
-export function useFsCatalog(source: string, enabled = true): QueryState<FsCatalog> {
-  return useFsQuery(keys.fsCatalog(source), () => readFsCatalog(source), enabled)
-}
-
-/** The artifacts inside a served folder (the workspace view of an attached folder). */
-export function useFsFolder(source: string, path: string, enabled = true): QueryState<FsFolderContents> {
-  return useQuery(keys.fsFolder(source, path), () => apiGet<FsFolderContents>(paths.fsFolder(source, path)), enabled)
-}
-
-/** A served file's textual content (the editable preview). */
-export function useFsText(source: string, path: string, enabled = true): QueryState<FsFileContent> {
-  return useQuery(keys.fsText(source, path), () => apiGet<FsFileContent>(paths.fsText(source, path)), enabled)
-}
-
-/** Absolute URL for a served file's raw bytes (an image), to use as an `<img src>`. */
-export function fsContentUrl(source: string, path: string): string {
-  return apiUrl(paths.fsContent(source, path))
 }
 
 /** The "New routine" starter templates. */

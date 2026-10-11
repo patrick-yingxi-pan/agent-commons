@@ -25,6 +25,7 @@ import { RoutineMcpRegistry, validateRoutineMcpRegistryJoins } from '../routineM
 import { RoutineMcpPolicyError, routineMcpCallPermitted, routineMcpJsonText } from '../routineMcpPolicy.ts'
 import { reserveRoutineMcpCall, settleRoutineMcpCall, interruptRoutineMcpRun, publicRoutineMcpReceipt } from '../routineMcpState.ts'
 import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
+import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
 import type { RoutineMcpReview, RoutineMcpDecisionRequest, RoutineMcpDecisionResponse } from '../../contract/routineMcpApi.ts'
 import type { RoutineMcpCallReceipt } from '../../contract/routineMcp.ts'
 import type { McpBoundToolCall } from '../../contract/mcpExecution.ts'
@@ -108,6 +109,7 @@ import type {
   SocialEntityRef,
   SocialEntityKind,
   ToolActivity,
+  ToolActivityDecisionEligibility,
   McpToolResult,
   ModelPreferences,
   UsageSnapshot,
@@ -399,6 +401,34 @@ function tenantWritesAs(callerTenant: string, owner: string): boolean {
  * ownership is not person identity; legacy connections need neither inference. */
 function activeMcpActor(tenantId: string, actorUserId?: string): string | undefined {
   return actorUserId && accounts.identityFor(actorUserId, tenantId) ? actorUserId : undefined
+}
+
+function mcpActivityOwner(session: Session, activity: ToolActivity): string | undefined {
+  const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(session.id, activity.id))
+  if (authority) return authority.ownerUserId
+  const connection = mcpConnectionRegistry.snapshot()
+  const identities = [
+    ...connection.connections.filter(row => row.id === activity.connectorId && row.authentication === 'device-oauth')
+      .map(row => row.ownerUserId),
+    ...connection.retired.filter(row => row.id === activity.connectorId && row.ownerUserId !== undefined)
+      .map(row => row.ownerUserId!),
+  ]
+  if (identities.length === 0) return undefined
+  return identities.length === 1 ? identities[0] : ''
+}
+
+function mcpActivityActorAllowed(session: Session, activity: ToolActivity, actorUserId?: string): boolean {
+  const ownerUserId = mcpActivityOwner(session, activity)
+  if (ownerUserId === undefined) return true
+  const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(session.id, activity.id))
+  return !!authority && actorUserId === ownerUserId && activeMcpActor(authority.tenantId, actorUserId) === ownerUserId
+}
+
+function mcpActivitySettlementActorAllowed(session: Session, activity: ToolActivity, actorUserId?: string): boolean {
+  const ownerUserId = mcpActivityOwner(session, activity)
+  if (ownerUserId === undefined) return true
+  const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(session.id, activity.id))
+  return !!authority && actorUserId === ownerUserId && authority.ownerUserId === ownerUserId
 }
 
 /** The tenant-visibility test every scoped read shares: a stamped row matches
@@ -2360,6 +2390,11 @@ const contextRegistry = createContextRegistry({
 })
 const mcpConnectionRegistry = createMcpConnectionRegistry()
 const routineMcpRegistry = new RoutineMcpRegistry()
+const mcpActivityAuthorities = new Map<string, McpActivityAuthority>()
+const mcpActivityAuthorityKey = (sessionId: string, activityId: string) => JSON.stringify([sessionId, activityId])
+function discardMcpActivityAuthorities(sessionId: string): void {
+  for (const [key, authority] of mcpActivityAuthorities) if (authority.sessionId === sessionId) mcpActivityAuthorities.delete(key)
+}
 
 /** Only stable reviewed facts enter the digest. Run progress, cadence cursors,
  * names on receipts and unrelated graph edits cannot manufacture authority. */
@@ -2732,7 +2767,10 @@ function retireOldRuns(task: ScheduledTask): void {
   routineMcpRegistry.retainRuns(task.tenantId ?? defaultTenantId(), task.id, new Set(task.runs.map(run => run.id)))
   const goneIds = new Set(retired.map((r) => runSessionId(task.id, r.id)))
   for (let j = SESSIONS.length - 1; j >= 0; j -= 1) {
-    if (goneIds.has(SESSIONS[j].id)) SESSIONS.splice(j, 1)
+    if (goneIds.has(SESSIONS[j].id)) {
+      discardMcpActivityAuthorities(SESSIONS[j].id)
+      SESSIONS.splice(j, 1)
+    }
   }
 }
 
@@ -2922,6 +2960,7 @@ function snapshot(): PersistedState {
     graph,
     savedContexts: contextRegistry.persistedContexts(),
     mcpConnections: mcpConnectionRegistry.snapshot(),
+    mcpActivityAuthorities: [...mcpActivityAuthorities.values()].map(row => ({ ...row })),
     routineMcp: routineMcpRegistry.snapshot(),
     usageMeters: usageRegistry.snapshot(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
@@ -3421,6 +3460,12 @@ function rehydrate(s: PersistedState): boolean {
     tenantRecents: s.recentsByTenant,
   })
   mcpConnectionRegistry.rehydrate(s.mcpConnections)
+  const activityAuthorities = parseMcpActivityAuthorities(s.mcpActivityAuthorities)
+  if (!validateMcpActivityAuthorities(activityAuthorities, SESSIONS, mcpConnectionRegistry.snapshot())) {
+    throw new Error('Persisted MCP activity authority has invalid owner or activity bindings.')
+  }
+  mcpActivityAuthorities.clear()
+  for (const row of activityAuthorities) mcpActivityAuthorities.set(mcpActivityAuthorityKey(row.sessionId, row.activityId), row)
   routineMcpRegistry.replace(s.routineMcp ?? { policies: [], runs: [], decisions: [] })
   if (!validateRoutineMcpRegistryJoins(routineMcpRegistry.snapshot(), schedules, defaultTenantId())) {
     throw new Error('Persisted Routine MCP state has invalid owner or run bindings.')
@@ -4083,15 +4128,39 @@ function commitSessionContextState(
   refreshLocalFolderId?: string,
   refreshLocalGitFolderId?: string,
   captureTenantId?: string,
+  actorUserId?: string,
 ): SessionContextState {
   let contexts = sessionContextBindings.get(sessionId) ?? []
   const originalContextIds = new Set(contexts.filter((context) => context.type === 'mcp').map((context) => context.id))
   const session = SESSIONS.find((candidate) => candidate.id === sessionId)
   const tenantId = session?.tenantId ?? defaultTenantId()
+  const mcpState = mcpConnectionRegistry.snapshot()
   for (const operation of operations) {
-    if (operation.action !== 'attach' || !isExternalMcpId(operation.context.id)) continue
+    const contextId = operation.action === 'attach' ? operation.context.id : operation.contextId
+    if (!isExternalMcpId(contextId)) continue
+    if (operation.action === 'detach') {
+      // OAuth attachments are deliberately hidden from non-owners in the
+      // shared-session projection. Do not let a tenant peer mutate that hidden
+      // binding by submitting its known connection id.
+      const isAttachedMcp = contexts.some(context => context.id === contextId && context.type === 'mcp')
+      if (!isAttachedMcp) continue
+      const mcpRow = mcpState.connections.find(row => row.id === contextId && row.tenantId === tenantId)
+      const retiredMcp = mcpState.retired.find(row => row.id === contextId && row.tenantId === tenantId)
+      const oauthOwner = mcpRow?.authentication === 'device-oauth' ? mcpRow.ownerUserId : retiredMcp?.ownerUserId
+      if (oauthOwner !== undefined && oauthOwner !== activeMcpActor(tenantId, actorUserId)) {
+        throw new ValidationError('Only the OAuth connection owner can detach this MCP context.')
+      }
+      continue
+    }
     if (operation.context.type !== 'mcp') throw new ValidationError('An external MCP connection must be attached as MCP context.')
-    if (!originalContextIds.has(operation.context.id) && store.mcpConnection(operation.context.id, tenantId)?.execution !== 'approval-required') {
+    const mcpRow = mcpState.connections.find(row => row.id === operation.context.id && row.tenantId === tenantId)
+    const retiredMcp = mcpState.retired.find(row => row.id === operation.context.id && row.tenantId === tenantId)
+    const oauthOwner = mcpRow?.authentication === 'device-oauth' ? mcpRow.ownerUserId : retiredMcp?.ownerUserId
+    if (oauthOwner !== undefined && oauthOwner !== activeMcpActor(tenantId, actorUserId)) {
+      throw new ValidationError('Only the OAuth connection owner can attach this MCP context.')
+    }
+    if ((!originalContextIds.has(operation.context.id) || mcpRow?.authentication === 'device-oauth') &&
+        store.mcpConnection(operation.context.id, tenantId, actorUserId)?.execution !== 'approval-required') {
       throw new ValidationError('Inspect and connect this MCP server before attaching it.')
     }
   }
@@ -4114,7 +4183,7 @@ function commitSessionContextState(
   sessionContextBindings.set(sessionId, contexts)
   sessionWorkspaces.set(sessionId, committedWorkspace)
   pruneSessionPreferences(sessionId, committedWorkspace)
-  emit({ type: 'session.contexts.changed', sessionId, contexts })
+  emit({ type: 'session.contexts.changed', sessionId })
   const updatedSession = SESSIONS.find((candidate) => candidate.id === sessionId)
   if (updatedSession) emit({ type: 'session.updated', session: updatedSession })
   persist()
@@ -5035,10 +5104,10 @@ export const store = {
   /** A full session by id — messages + the live, server-owned `workspace` (its
    *  panels). The workspace is materialized from the flat seed fields on first
    *  read, then reflects any attach/detach write-through. */
-  getSession(id: string): Session | undefined {
+  getSession(id: string, actorUserId?: string): Session | undefined {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
-    return { ...session, workspace: this.sessionWorkspace(id), contexts: this.sessionContexts(id) }
+    return { ...session, workspace: this.sessionWorkspace(id), contexts: this.sessionContexts(id, actorUserId) }
   },
   /** Exact creator-only state for a keyed human Session creation. */
   getSessionCreation(id: string, tenantId: string): Session | 'invalid' | 'retired' | undefined {
@@ -5057,6 +5126,65 @@ export const store = {
       .filter((activity) => activity.id === activityId)
     return matches.length === 1 ? matches[0] : undefined
   },
+  /** Person gate for OAuth consent and replay. Namespace visibility does not
+   * substitute for the frozen OAuth owner. */
+  toolActivityActorPermitted(sessionId: string, activityId: string, tenantId: string, actorUserId?: string): boolean {
+    const session = SESSIONS.find(candidate => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) return false
+    const candidates = [
+      ...(session.messages ?? []).flatMap(message => message.toolActivities ?? []),
+      ...(session.compactedMessages ?? []).flatMap(message => message.toolActivities ?? []),
+    ].filter(activity => activity.id === activityId)
+    // A stable id may be reused after compaction. Exact historical receipts
+    // are resolved by getToolActivityDecision(), which checks the selected
+    // receipt's actor before returning it. This preliminary gate must not hide
+    // an authorized archived receipt merely because a later row reused its id;
+    // fresh ambiguous decisions are still rejected by the receipt lookup.
+    return candidates.some(activity => mcpActivityActorAllowed(session, activity, actorUserId))
+  },
+  /** Actor-relative consent controls for the shared transcript. The projection
+   * contains activity ids only; private OAuth owner identities never cross the
+   * store boundary. A retired OAuth connection may still be declined by its
+   * frozen owner, but cannot be confirmed without its current exact binding. */
+  toolActivityDecisionEligibility(sessionId: string, tenantId: string, actorUserId?: string): ToolActivityDecisionEligibility {
+    const session = SESSIONS.find(candidate => candidate.id === sessionId)
+    if (!session || !this.sessionOwnedBy(session, tenantId)) {
+      return { decisionActivityIds: [], confirmActivityIds: [] }
+    }
+    const allCandidates = [
+      ...(session.messages ?? []).flatMap(message => message.toolActivities ?? []),
+      ...(session.compactedMessages ?? []).flatMap(message => message.toolActivities ?? [])
+        .filter(activity => !!activity.mcp && isExternalMcpId(activity.connectorId)),
+    ]
+    const counts = new Map<string, number>()
+    for (const activity of allCandidates) counts.set(activity.id, (counts.get(activity.id) ?? 0) + 1)
+    // Archives can disambiguate exact receipts, but cannot accept a fresh act.
+    const candidates = (session.messages ?? []).flatMap(message => message.toolActivities ?? [])
+      .filter(activity => activity.kind === 'action' && activity.status === 'proposed')
+    const decisionActivityIds: string[] = []
+    const confirmActivityIds: string[] = []
+    for (const activity of candidates) {
+      if (counts.get(activity.id) !== 1 || !mcpActivityActorAllowed(session, activity, actorUserId)) continue
+      decisionActivityIds.push(activity.id)
+      if (activity.mcp) {
+        const connection = this.mcpConnection(activity.connectorId, tenantId, actorUserId)
+        if (mcpActivityOwner(session, activity) === undefined) {
+          confirmActivityIds.push(activity.id)
+          continue
+        }
+        if (!connection || connection.authentication !== 'device-oauth') continue
+        const tool = connection.tools.find(candidate => candidate.name === activity.mcp!.toolName)
+        const exactCurrentBinding = connection.status === 'connected' &&
+          connection.revision === activity.mcp.connectionRevision &&
+          connection.executableTools?.includes(activity.mcp.toolName) === true &&
+          !!tool && mcpToolSchemaHash(tool) === activity.mcp.schemaHash
+        if (exactCurrentBinding) confirmActivityIds.push(activity.id)
+      } else {
+        confirmActivityIds.push(activity.id)
+      }
+    }
+    return { decisionActivityIds, confirmActivityIds }
+  },
   /** Exact durable acknowledgement for a keyed tool-consent verdict. The
    * containing Session is both the persistence container and private tenant
    * authority; the wire receipt therefore needs no raw account anchor. */
@@ -5066,6 +5194,7 @@ export const store = {
     decisionId: string,
     tenantId: string,
     decision: 'confirm' | 'decline',
+    actorUserId?: string,
   ): ToolActivity | 'invalid' | undefined {
     if (!isToolActivityDecisionId(decisionId)) return 'invalid'
     const session = SESSIONS.find((candidate) => candidate.id === sessionId)
@@ -5082,6 +5211,7 @@ export const store = {
     if (exact.length > 1) return 'invalid'
     if (exact.length === 1) {
       const { activity, archived } = exact[0]!
+      if (!mcpActivityActorAllowed(session, activity, actorUserId)) return undefined
       const represented = decision === 'confirm'
         ? (!archived && activity.status === 'running') || activity.status === 'done' || activity.status === 'failed' || activity.status === 'uncertain'
         : activity.status === 'declined'
@@ -5090,6 +5220,7 @@ export const store = {
     if (candidates.length > 1) return 'invalid'
     const candidate = candidates[0]
     if (!candidate) return undefined
+    if (!mcpActivityActorAllowed(session, candidate.activity, actorUserId)) return undefined
     return !candidate.archived && candidate.activity.kind === 'action' && candidate.activity.status === 'proposed' &&
       candidate.activity.decisionId === undefined ? undefined : 'invalid'
   },
@@ -5100,15 +5231,17 @@ export const store = {
     activityId: string,
     decisionId: string,
     tenantId: string,
+    actorUserId?: string,
   ): ToolActivity | 'invalid' | undefined {
     if (!isToolActivityDecisionId(decisionId)) return 'invalid'
-    const represented = this.getToolActivityDecision(sessionId, activityId, decisionId, tenantId, 'confirm')
+    const represented = this.getToolActivityDecision(sessionId, activityId, decisionId, tenantId, 'confirm', actorUserId)
     if (typeof represented === 'object' || represented === 'invalid') return represented
     const session = SESSIONS.find((candidate) => candidate.id === sessionId)
     if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
     const activity = this.getToolActivity(sessionId, activityId)
     if (!activity || activity.kind !== 'action' || activity.status !== 'proposed' || !activity.mcp ||
         !isExternalMcpId(activity.connectorId) || activity.op || activity.decisionId !== undefined) return 'invalid'
+    if (!mcpActivityActorAllowed(session, activity, actorUserId)) return undefined
     return commitMutationBatch(() => {
       activity.status = 'running'
       activity.decisionId = decisionId
@@ -5128,6 +5261,7 @@ export const store = {
     decisionId: string,
     tenantId: string,
     outcome: unknown,
+    actorUserId?: string,
   ): ToolActivity | 'invalid' | undefined {
     const session = SESSIONS.find((candidate) => candidate.id === sessionId)
     if (!session || !this.sessionOwnedBy(session, tenantId)) return undefined
@@ -5137,6 +5271,10 @@ export const store = {
         activity.kind === 'action' && !!activity.mcp && activity.status === 'running')
     if (exactRunning.length !== 1 || !isToolActivityDecisionId(decisionId)) return 'invalid'
     const activity = exactRunning[0]!
+    // Settlement is worker completion, not fresh consent: preserve a known
+    // result if membership was revoked during the already-authorized call, but
+    // still require the exact frozen owner identity for OAuth-backed work.
+    if (!mcpActivitySettlementActorAllowed(session, activity, actorUserId)) return undefined
     if (!isMcpExecutionSettlement(outcome)) return 'invalid'
     let result: McpToolResult | undefined
     try { result = outcome.result === undefined ? undefined : parseMcpToolResult(outcome.result, MCP_MODERN_VERSION) }
@@ -5174,9 +5312,11 @@ export const store = {
    *  `releaseToolActivity` (inner refusal — the proposal stays open) or by
    *  `resolveToolActivity` (the verdict landed). Applies equally to generated
    *  API operations and connector/MCP actions. */
-  claimToolActivity(sessionId: string, activityId: string): boolean {
+  claimToolActivity(sessionId: string, activityId: string, actorUserId?: string): boolean {
     const act = this.getToolActivity(sessionId, activityId)
     if (!act || act.kind !== 'action' || act.status !== 'proposed') return false
+    const session = SESSIONS.find(candidate => candidate.id === sessionId)
+    if (!session || !mcpActivityActorAllowed(session, act, actorUserId)) return false
     const key = `${sessionId}/${activityId}`
     if (TOOL_ACTIVITY_INFLIGHT.has(key)) return false
     TOOL_ACTIVITY_INFLIGHT.add(key)
@@ -5202,8 +5342,14 @@ export const store = {
     activityId: string,
     decision: 'confirm' | 'decline',
     doneSummary?: string,
-    options: { logicalId?: string; tenantId?: string } = {},
+    options: { logicalId?: string; tenantId?: string; actorUserId?: string } = {},
   ): ToolActivity | 'invalid' | undefined {
+    const session = SESSIONS.find((s) => s.id === sessionId)
+    const activity = session && [
+      ...(session.messages ?? []).flatMap(message => message.toolActivities ?? []),
+      ...(session.compactedMessages ?? []).flatMap(message => message.toolActivities ?? []),
+    ].find(candidate => candidate.id === activityId)
+    if (session && activity && !mcpActivityActorAllowed(session, activity, options.actorUserId)) return undefined
     // The verdict lands (or the record is gone — e.g. a confirmed op deleted its
     // own hosting session): drop any execution claim unconditionally, so no
     // outcome can leave a `sessionId/activityId` key wedged in the in-flight set.
@@ -5216,18 +5362,19 @@ export const store = {
         options.logicalId,
         options.tenantId,
         decision,
+        options.actorUserId,
       )
       if (typeof represented === 'object') return represented
       if (represented === 'invalid') return represented
     }
-    const session = SESSIONS.find((s) => s.id === sessionId)
-    if (!session?.messages) return undefined
-    if (options.tenantId && !this.sessionOwnedBy(session, options.tenantId)) return undefined
-    const matches = session.messages
+    const currentSession = SESSIONS.find((s) => s.id === sessionId)
+    if (!currentSession?.messages) return undefined
+    if (options.tenantId && !this.sessionOwnedBy(currentSession, options.tenantId)) return undefined
+    const matches = currentSession.messages
       .flatMap((message) => message.toolActivities ?? [])
       .filter((activity) => activity.id === activityId)
     if (matches.length > 1) return 'invalid'
-    for (const m of session.messages) {
+    for (const m of currentSession.messages) {
       const act = m.toolActivities?.find((a) => a.id === activityId)
       if (!act) continue
       if (act.kind !== 'action' || act.status !== 'proposed') {
@@ -5246,7 +5393,7 @@ export const store = {
         if (decision === 'confirm') {
           act.summary = doneSummary ?? `${act.op?.method} ${act.op?.path} completed.`
           this.recordAudit({
-            tenantId: session.tenantId ?? defaultTenantId(),
+            tenantId: currentSession.tenantId ?? defaultTenantId(),
             channel: 'proxy',
             capability: act.op ? 'api.write' : 'connector.write',
             target: act.op ? `${act.op.method} ${act.op.path}` : act.connector,
@@ -5254,7 +5401,7 @@ export const store = {
           })
         }
         persist()
-        emit({ type: 'session.updated', session })
+        emit({ type: 'session.updated', session: currentSession })
         return act
       })
     }
@@ -5442,6 +5589,11 @@ export const store = {
         messages: taken,
         forkedFrom: { sessionId: source.id, title: source.title, atMessageId },
       })
+      const forkActivityIds = new Set(taken.flatMap(message => message.toolActivities ?? []).map(activity => activity.id))
+      for (const activityId of forkActivityIds) {
+        const authority = mcpActivityAuthorities.get(mcpActivityAuthorityKey(source.id, activityId))
+        if (authority) mcpActivityAuthorities.set(mcpActivityAuthorityKey(fork.id, activityId), { ...authority, sessionId: fork.id })
+      }
       // Public credit, like a definition fork: the source's owner is told.
       notifyTenants([source.tenantId ?? defaultTenantId()], tenantId, {
         kind: 'social.forked',
@@ -6612,13 +6764,44 @@ export const store = {
    *  follow-up turn in one persists like any other. Refreshes the row's preview +
    *  activity, then broadcasts `session.updated` so every client's list reflects
    *  the new turn. */
-  appendMessage(id: string, message: Message): Session | undefined {
+  appendMessage(id: string, message: Message, options: { actorUserId?: string } = {}): Session | undefined {
     const session = SESSIONS.find((s) => s.id === id)
     if (!session) return undefined
-    applyMessage(session, message)
-    emit({ type: 'session.updated', session })
-    persist()
-    return session
+    const tenantId = session.tenantId ?? defaultTenantId()
+    const connectionState = mcpConnectionRegistry.snapshot()
+    const authorities: McpActivityAuthority[] = []
+    const seenOAuthIds = new Set<string>()
+    for (const activity of message.toolActivities ?? []) {
+      if (!activity.mcp || !isExternalMcpId(activity.connectorId)) continue
+      const row = connectionState.connections.find(candidate => candidate.id === activity.connectorId && candidate.tenantId === tenantId)
+      const retired = connectionState.retired.find(candidate => candidate.id === activity.connectorId && candidate.tenantId === tenantId)
+      if (row?.authentication !== 'device-oauth') {
+        const oauthIdentityExists = connectionState.connections.some(candidate => candidate.id === activity.connectorId && candidate.authentication === 'device-oauth') ||
+          connectionState.retired.some(candidate => candidate.id === activity.connectorId && candidate.ownerUserId !== undefined)
+        if (retired?.ownerUserId !== undefined || oauthIdentityExists) {
+          throw new ConflictError('This OAuth MCP connection has been removed; its historical receipt cannot be recreated.')
+        }
+        continue
+      }
+      const actor = activeMcpActor(tenantId, options.actorUserId)
+      const activityKey = mcpActivityAuthorityKey(session.id, activity.id)
+      if (message.role !== 'assistant' || activity.kind !== 'action' || activity.status !== 'proposed' ||
+          !actor || actor !== row.ownerUserId || !row.connected || row.revision !== activity.mcp.connectionRevision ||
+          seenOAuthIds.has(activity.id) || mcpActivityAuthorities.has(activityKey) ||
+          [...(session.messages ?? []), ...(session.compactedMessages ?? [])]
+            .some(existing => (existing.toolActivities ?? []).some(candidate => candidate.id === activity.id))) {
+        throw new ConflictError('This OAuth-backed MCP proposal is no longer authorized for this person or connection.')
+      }
+      seenOAuthIds.add(activity.id)
+      authorities.push({ sessionId: session.id, activityId: activity.id, connectionId: activity.connectorId, tenantId, ownerUserId: actor })
+    }
+    return commitMutationBatch(() => {
+      applyMessage(session, message)
+      for (const authority of authorities) mcpActivityAuthorities.set(mcpActivityAuthorityKey(authority.sessionId, authority.activityId), authority)
+      emit({ type: 'session.updated', session })
+      persist()
+      return session
+    })
   },
   /** Record the user's verdict on ONE proposed relation edit (keyed by `opKey`)
    *  on the message that carried it — the consent card's resolution, persisted so
@@ -6835,6 +7018,7 @@ export const store = {
       throw new ConflictError('Wait for the running MCP tool to finish before deleting this conversation.')
     }
     const [removed] = SESSIONS.splice(i, 1)
+    discardMcpActivityAuthorities(id)
     if (isSessionCreationId(id)) retiredSessionCreationIds.add(id)
     const dispatchIndex = dispatch.findIndex((run) => run.execution?.sessionId === id)
     if (dispatchIndex !== -1) {
@@ -6872,30 +7056,45 @@ export const store = {
   // ── Session ↔ context bindings (the attachment of record — Primitive 1) ──
   /** The contexts attached to a session — the set every effect this session
    *  initiates is mediated against (docs/shared-resource-coordination.md). */
-  sessionContexts(sessionId: string): SessionContext[] {
-    return sessionContextBindings.get(sessionId) ?? []
+  sessionContexts(sessionId: string, actorUserId?: string): SessionContext[] {
+    const session = SESSIONS.find(candidate => candidate.id === sessionId)
+    const tenantId = session?.tenantId ?? defaultTenantId()
+    const connection = mcpConnectionRegistry.snapshot()
+    return (sessionContextBindings.get(sessionId) ?? []).filter(context => {
+      if (!isExternalMcpId(context.id)) return true
+      const owner = connection.connections.find(row => row.id === context.id && row.tenantId === tenantId)?.ownerUserId ??
+        connection.retired.find(row => row.id === context.id && row.tenantId === tenantId)?.ownerUserId
+      return owner === undefined || (owner === actorUserId && activeMcpActor(tenantId, actorUserId) === owner)
+    })
   },
   /** Resolve one attached context for a session — the lookup the broker uses to
    *  mediate an effect (Primitive 2). Undefined when it isn't attached. */
-  resolveSessionContext(sessionId: string, contextId: string): SessionContext | undefined {
-    return sessionContextBindings.get(sessionId)?.find((c) => c.id === contextId)
+  resolveSessionContext(sessionId: string, contextId: string, actorUserId?: string): SessionContext | undefined {
+    return this.sessionContexts(sessionId, actorUserId).find((c) => c.id === contextId)
   },
   /** Attach a context to a session (idempotent by context id — re-attaching
    *  replaces it). Broadcasts `session.contexts.changed`; returns the new list. */
-  attachContext(sessionId: string, ctx: SessionContext): SessionContext[] {
+  attachContext(sessionId: string, ctx: SessionContext, actorUserId?: string): SessionContext[] {
     const list = sessionContextBindings.get(sessionId) ?? []
     if (isExternalMcpId(ctx.id)) {
       if (ctx.type !== 'mcp') throw new ValidationError('An external MCP connection must be attached as MCP context.')
       const alreadyAttached = list.some((candidate) => candidate.id === ctx.id && candidate.type === 'mcp')
       const session = SESSIONS.find((candidate) => candidate.id === sessionId)
       const tenantId = session?.tenantId ?? defaultTenantId()
-      if (!alreadyAttached && this.mcpConnection(ctx.id, tenantId)?.execution !== 'approval-required') {
+      const mcpState = mcpConnectionRegistry.snapshot()
+      const row = mcpState.connections.find(candidate => candidate.id === ctx.id && candidate.tenantId === tenantId)
+      const retired = mcpState.retired.find(candidate => candidate.id === ctx.id && candidate.tenantId === tenantId)
+      const oauthOwner = row?.authentication === 'device-oauth' ? row.ownerUserId : retired?.ownerUserId
+      if (oauthOwner !== undefined && oauthOwner !== activeMcpActor(tenantId, actorUserId)) {
+        throw new ValidationError('Only the OAuth connection owner can attach this MCP context.')
+      }
+      if ((!alreadyAttached || row?.authentication === 'device-oauth') && this.mcpConnection(ctx.id, tenantId, actorUserId)?.execution !== 'approval-required') {
         throw new ValidationError('Inspect and connect this MCP server before attaching it.')
       }
     }
     const next = [...list.filter((c) => c.id !== ctx.id), ctx]
     sessionContextBindings.set(sessionId, next)
-    emit({ type: 'session.contexts.changed', sessionId, contexts: next })
+    emit({ type: 'session.contexts.changed', sessionId })
     persist()
     return next
   },
@@ -6906,7 +7105,7 @@ export const store = {
     if (!list || !list.some((c) => c.id === contextId)) return undefined
     const next = list.filter((c) => c.id !== contextId)
     sessionContextBindings.set(sessionId, next)
-    emit({ type: 'session.contexts.changed', sessionId, contexts: next })
+    emit({ type: 'session.contexts.changed', sessionId })
     persist()
     return next
   },
@@ -6920,8 +7119,9 @@ export const store = {
     operations: SessionContextOperation[],
     workspace: SessionWorkspace,
     captureTenantId?: string,
+    actorUserId?: string,
   ): SessionContextState {
-    return commitSessionContextState(sessionId, operations, workspace, undefined, undefined, undefined, undefined, captureTenantId)
+    return commitSessionContextState(sessionId, operations, workspace, undefined, undefined, undefined, undefined, captureTenantId, actorUserId)
   },
 
   // ── Dispatch ──
@@ -13033,6 +13233,7 @@ export const store = {
         const session = SESSIONS[j]!
         if (session.scheduledRunOf?.taskId !== gone.id) continue
         removedSessions.push(...SESSIONS.splice(j, 1))
+        discardMcpActivityAuthorities(session.id)
         sessionContextBindings.delete(session.id)
         sessionWorkspaces.delete(session.id)
         removeSessionPreferences(session.id)

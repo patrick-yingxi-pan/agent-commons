@@ -1,10 +1,11 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { Component, lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { McpConnectionView } from '../../contract/mcpConnections.ts'
 import { useMe, resolveResourceUnavailable, retryResourceQueries, keys } from '../api'
 import { accountGeneration } from '../api/account.ts'
 import { useMcpConnection, useMcpConnections } from '../api/mcpConnectionHooks.ts'
 import { desktopMcpCredentialsAvailable, getMcpConnectionCredentialBinding, provisionDesktopMcpCredential } from '../api/desktopMcpCredentials.ts'
+import { desktopMcpOAuthAvailable } from '../api/desktopMcpOAuth.ts'
 import {
   enqueueMcpConnectionMutation, isMcpConnectionHeld, useMcpConnectionMutationStatus, useMcpConnectionHeldViews,
 } from '../controller/mcpConnectionMutations.ts'
@@ -16,14 +17,50 @@ import { McpCatalogBody } from './McpCatalogBody.tsx'
 import { useFocusTrap } from '../lib/useFocusTrap.ts'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader.ts'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
-import { DIALOG_SURFACE_CLASS } from '../lib/dialog.ts'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog.ts'
 import { SCRIM_CLASS } from '../lib/scrim.ts'
+import { useBoundedDialog } from '../lib/useBoundedDialog.ts'
 import type { NavLocation } from '../lib/nav.ts'
 
 const fieldClass = 'mt-1 w-full min-w-0 rounded-md border border-line-strong bg-surface px-3 py-2 text-[13px] text-ink'
 const secondaryClass = `${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`
 const affirmativeClass = `${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`
 const contextsHome: NavLocation = { kind: 'section', section: 'contexts', projectId: null, scheduleId: null }
+const DeferredMcpOAuthSetupDialog = lazy(() => import('./DeferredMcpOAuthSetupDialog.tsx').then(module => ({ default: module.DeferredMcpOAuthSetupDialog })))
+
+function McpOAuthLoadShell({ failed, onClose }: { failed: boolean; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const closeButton = useRef<HTMLButtonElement>(null)
+  useFocusTrap(dialogRef, onClose, { initialFocus: closeButton })
+  useBoundedDialog(dialogRef)
+  return createPortal(<div className={BOUNDED_DIALOG_LAYER_CLASS} data-mcp-oauth-load-layer onMouseDown={onClose} role="dialog" aria-modal="true" aria-label="MCP OAuth review">
+    <div className={SCRIM_CLASS} />
+    <div ref={dialogRef} tabIndex={-1} data-bounded-dialog="mcp-oauth-load" onMouseDown={event => event.stopPropagation()}
+      className={`w-full max-w-md ${BOUNDED_DIALOG_PANEL_CLASS} ${DIALOG_SURFACE_CLASS}`}>
+      <div className={`p-4 ${BOUNDED_DIALOG_BODY_CLASS}`}>
+        {failed
+          ? <div role="alert" data-mcp-oauth-load-error>
+            <p className="text-[13px] font-medium text-ink">Couldn’t load OAuth review.</p>
+            <p className="mt-2 text-[12px] leading-relaxed text-ink-soft">No sign-in or connection change was started. Reloading closes this review and clears unsent workspace text and in-memory recovery; the saved connection remains unchanged.</p>
+          </div>
+          : <p role="status" data-mcp-oauth-load-progress className="text-[13px] text-ink-soft">Loading OAuth review…</p>}
+      </div>
+      <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-line bg-panel px-4 py-3">
+        {failed && <button type="button" className={secondaryClass} onClick={() => window.location.reload()}>Reload app</button>}
+        <button ref={closeButton} type="button" className={secondaryClass} onClick={onClose}>Close</button>
+      </div>
+    </div>
+  </div>, document.body)
+}
+
+class McpOAuthLoadBoundary extends Component<{ children: ReactNode; onClose: () => void }, { failed: boolean }> {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  render() {
+    if (this.state.failed) return <McpOAuthLoadShell failed onClose={this.props.onClose} />
+    return <Suspense fallback={<McpOAuthLoadShell failed={false} onClose={this.props.onClose} />}>{this.props.children}</Suspense>
+  }
+}
 
 function McpFormDialog({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null)
@@ -51,8 +88,9 @@ export function McpConnectionCreateDialog({ onClose }: { onClose: () => void }) 
   const catalog = useMcpConnections()
   const [label, setLabel] = useState('')
   const [endpoint, setEndpoint] = useState('')
-  const [authentication, setAuthentication] = useState<'none' | 'device-bearer'>('none')
+  const [authentication, setAuthentication] = useState<'none' | 'device-bearer' | 'device-oauth'>('none')
   const deviceAvailable = desktopMcpCredentialsAvailable() && catalog.data?.capabilities.deviceBearerCredentials === true
+  const oauthAvailable = desktopMcpOAuthAvailable() && catalog.data?.capabilities.deviceOAuthCredentials === true && me?.via === 'session'
   return <McpFormDialog title="Add an MCP server" onClose={onClose}>
     <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
       Save a server, then inspect its tool catalog. Admitted tools can be attached to conversations, where every call requires approval.
@@ -81,11 +119,14 @@ export function McpConnectionCreateDialog({ onClose }: { onClose: () => void }) 
         <select id={`${id}-authentication`} value={authentication} onChange={event => setAuthentication(event.target.value as typeof authentication)} className={fieldClass}>
           <option value="none">No authentication</option>
           <option value="device-bearer" disabled={!deviceAvailable}>Bearer token on this Mac</option>
+          <option value="device-oauth" disabled={!oauthAvailable}>OAuth sign-in on this Mac</option>
         </select>
       </label>
-      <p className="text-[12px] leading-relaxed text-ink-soft">{deviceAvailable
-        ? 'For bearer authentication, enter the token during inspection. It is encrypted on this Mac and never sent to the application API.'
-        : 'Bearer authentication requires the desktop app and secure device credential storage.'}</p>
+      <p className="text-[12px] leading-relaxed text-ink-soft">{authentication === 'device-oauth'
+        ? 'Sign in with the external service in your browser. OAuth tokens stay in encrypted storage on this Mac.'
+        : deviceAvailable
+          ? 'For bearer authentication, enter the token during inspection. It is encrypted on this Mac and never sent to the application API.'
+          : 'Bearer authentication requires the desktop app and secure device credential storage.'}</p>
       <div className="flex flex-wrap justify-end gap-2 pt-2">
         <button type="button" onClick={onClose} className={secondaryClass}>Cancel</button>
         <button type="submit" disabled={!me || !label.trim() || !endpoint.trim()} className={affirmativeClass}>Save server</button>
@@ -159,21 +200,27 @@ export function McpConnectionDetail({ id, onBack, backTo }: { id: string; onBack
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   const [inspect, setInspect] = useState<McpConnectionView | null>(null)
   const [remove, setRemove] = useState<McpConnectionView | null>(null)
+  const [oauthOpen, setOauthOpen] = useState(false)
   const held = isMcpConnectionHeld(id)
   if (!connection) return <ResourceUnavailablePage title="MCP server" state={resolveResourceUnavailable([read], { notFoundIsMissing: true })}
     message="This MCP server is not available to this account (or no longer exists)." backTo={backTo ?? contextsHome} onBack={onBack}
     onRetry={() => retryResourceQueries([keys.mcpConnection(id)])} />
-  const canInspect = connection.authentication === 'none' || (desktopMcpCredentialsAvailable() && list.data?.capabilities.deviceBearerCredentials === true)
+  const canOAuth = connection.authentication === 'device-oauth' && desktopMcpOAuthAvailable() && list.data?.capabilities.deviceOAuthCredentials === true && me?.via === 'session'
+  const canInspect = connection.authentication === 'none' ||
+    (connection.authentication === 'device-bearer' && desktopMcpCredentialsAvailable() && list.data?.capabilities.deviceBearerCredentials === true) ||
+    (connection.authentication === 'device-oauth' && connection.status === 'connected' && canOAuth)
   return <>
     <AtomicResourcePage data-mcp-connection={id}>
       <header className={PAGE_HEADER_CLASS}>
         <div className="flex min-w-0 grow basis-64 items-start gap-2">
           <BackButton to={backTo ?? contextsHome} onBack={onBack} />
           <div className="min-w-0"><h1 className={`${PAGE_TITLE_CLASS} break-words [overflow-wrap:anywhere]`}>{connection.label}</h1>
-            <p className="mt-1 text-[13px] text-ink-soft">External MCP server · {connection.authentication === 'none' ? 'No authentication' : 'Device bearer authentication'}</p>
+            <p className="mt-1 text-[13px] text-ink-soft">External MCP server · {connection.authentication === 'none' ? 'No authentication' : connection.authentication === 'device-oauth' ? 'Device OAuth' : 'Device bearer authentication'}</p>
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {connection.authentication === 'device-oauth' && <button disabled={held || !me || !canOAuth} title={!canOAuth ? 'OAuth sign-in requires the desktop app and an authenticated account.' : undefined}
+            className={affirmativeClass} onClick={() => setOauthOpen(true)}>{connection.status === 'connected' ? 'Reconnect with OAuth' : 'Sign in with OAuth'}</button>}
           <button disabled={held || !me || !canInspect} title={!canInspect ? 'Secure desktop credentials are unavailable.' : undefined}
             className={affirmativeClass} onClick={() => setInspect(connection)}>{connection.inspectedAt === null ? 'Inspect catalog' : connection.status === 'disconnected' ? 'Reconnect and inspect' : 'Refresh catalog'}</button>
           {connection.status === 'connected' && <button disabled={held || !me} className={secondaryClass} onClick={() => {
@@ -190,6 +237,10 @@ export function McpConnectionDetail({ id, onBack, backTo }: { id: string; onBack
       <ResourcePageSection title="Tool catalog" summary={`${connection.tools.length} tools`}><McpCatalogBody connection={connection} /></ResourcePageSection>
     </AtomicResourcePage>
     {inspect && <McpInspectionDialog connection={inspect} onClose={() => setInspect(null)} />}
+    {oauthOpen && me?.via === 'session' && <McpOAuthLoadBoundary onClose={() => setOauthOpen(false)}>
+      <DeferredMcpOAuthSetupDialog connection={connection} tenantId={me.tenant.id} userId={me.user.id} onClose={() => setOauthOpen(false)}
+        onComplete={() => { setOauthOpen(false); void retryResourceQueries([keys.mcpConnections, keys.mcpConnection(id)]) }} />
+    </McpOAuthLoadBoundary>}
     {remove && <ConfirmDialog title={`Remove ${remove.label}?`}
       body="This removes the saved server and retires its device credential. Existing context references will become unavailable. It does not delete anything on the external server."
       confirmLabel="Remove server" onCancel={() => setRemove(null)} onConfirm={() => {

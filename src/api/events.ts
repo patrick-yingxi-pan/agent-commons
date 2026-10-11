@@ -110,6 +110,7 @@ function route(e: ServerEvent): void {
       // The full session (its thread) changed too — a persisted turn, a rename.
       // No-op unless some view has read this session (then it refetches).
       invalidate(keys.session(e.session.id))
+      invalidatePrefix(keys.toolActivityEligibilityPrefix(e.session.id))
       invalidatePrefix(keys.sessionCompactedMessages(e.session.id))
       invalidatePrefix(keys.conversationSearch(e.session.id))
       // The usage snapshot is session-resolved (its context capacity + model ref
@@ -125,6 +126,7 @@ function route(e: ServerEvent): void {
     // reconcile or the attach never shows here.
     case 'session.contexts.changed':
       invalidate(keys.sessionContexts(e.sessionId))
+      invalidatePrefix(keys.toolActivityEligibilityPrefix(e.sessionId))
       notifySessionPush(e.sessionId)
       break
     // A session was DELETED (this client's own action echoes too — the prune
@@ -235,6 +237,7 @@ function route(e: ServerEvent): void {
       invalidate(keys.mcpConnections)
       invalidate(keys.mcpConnection(e.id))
       invalidate(keys.connectorDetail(e.id))
+      invalidatePrefix('tool-activity-eligibility')
       break
     // Recents changed (attached on another device/tab) — re-read the snapshot.
     case 'recents.changed':

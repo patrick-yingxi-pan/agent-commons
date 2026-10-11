@@ -15,6 +15,16 @@ remain mandatory; GitHub CI is not a dependency.
 
 ## Current checkpoint: desktop MCP OAuth
 
+The local startup budget caught eager consent and filesystem query code crossing
+their existing optional feature boundaries. Their API-owned hooks now load with
+tool cards and file pickers/previews, retaining the same identity and freshness
+semantics. The 800 KB initial-graph budget is unchanged. Boundary locks reject
+eager imports/re-exports; both locks were watched fail before restoration.
+Replacing an older display-flag-only reader fixture with real Grace sign-in and
+a view grant exposed an unfocusable transcript when no consent controls remain.
+The shared transcript now uses the named keyboard-reader funnel; fail-first
+source and rendered Home/End scrolling checks cover that state.
+
 The owner approved system-browser OAuth sign-in on 2026-10-10, with
 connection-specific scope review, Keychain-protected tokens, automatic refresh
 limited to the existing grant, and unchanged tool-call consent. Implementation
@@ -32,10 +42,10 @@ understands OAuth without exposing it through generic credential reads. Refresh
 removes the old token pair durably before dispatch; interrupted reservations
 cannot replay after restart. Exact owner/audience, narrowed scopes, coalesced
 callers, cancellation and publication-time authority fences remain explicit.
-These modules are not yet wired to product HTTP, Electron IPC or browser launch.
+At that checkpoint these modules were not yet wired to product HTTP, Electron IPC or browser launch.
 Local callback tests use test-owned sockets; custody tests
 use real temporary files with fixture encryption/exchange. There is no claim of
-completed OAuth sign-in, Keychain OAuth acceptance or network/tool authority.
+completed OAuth sign-in, Keychain OAuth acceptance or network/tool authority at that layer.
 
 The third layer adds bounded native metadata/token HTTP and staged discovery.
 It shares native-importable address/protocol cores with the backend, checks every
@@ -92,10 +102,9 @@ Store reads recheck live account membership; the credential and single-call
 seams require an exact person/revision binding and a separate OAuth resolver,
 never generic bearer fallback. Public HTTPS remains required for OAuth even
 when the development deployment admits loopback MCP. These are backend boundary
-fixtures, not product OAuth activation. Current interactive, Contribution and
-Routine callers do not yet carry person authority, so they refuse OAuth rather
-than borrowing a tenant member's grant. Routine approval attribution, native
-host wiring and the complete user-facing workflow remain the next work.
+fixtures, not product OAuth activation. At that checkpoint, interactive, Contribution and Routine callers refused OAuth
+rather than borrowing a tenant member's grant. The current layer below adds
+interactive attribution; Contribution and Routine OAuth remain unavailable.
 
 Fail-first registry tests rejected the absent ownership implementation. Review
 also found tenant-wide lifecycle events revealing personal connection existence;
@@ -116,15 +125,62 @@ on uncertainty, and abandoned recovery handles have a bounded lifetime. A
 separate child/main OAuth channel carries exact person/revision authority, refuses
 replayed request IDs and suppresses cancelled or late token responses.
 
-These are internal composition boundaries with deterministic session, HTTP and
-sign-in fixtures, not an installed renderer bridge or completed product sign-in.
-The shipping main process still does not advertise OAuth. Removing the native
+That checkpoint established internal composition boundaries with deterministic
+session, HTTP and sign-in fixtures, before installing the renderer bridge. Removing the native
 adapter's pre-submit owner check caused its no-POST regression to fail, then
 passed after restoration. No public OAuth service or real account was contacted.
 
-Next layers remain required: install native transaction/account/revision wiring and OS-backed custody/refresh
-composition; owner review/status/cancel/recovery UI; and
-complete browser plus packaged-native fixture acceptance. No production client
+The seventh layer installs native main/preload/launcher composition and explicit
+issuer/scope review, cancellation and same-flow recovery. Cookie changes and
+window lifetimes cancel setup without changing a previously approved worker's
+person. The backend advertises OAuth only after native custody synchronization.
+Interactive turns now stamp a private durable activity owner atomically with the
+proposal. Approval/replay/dispatch require that person and live membership; an
+already-running worker can still save its exact known outcome after revocation.
+Compaction/fork/deletion retain or retire exact private anchors. Context SSE is
+invalidation-only, so filtered HTTP reads are the sole context projection.
+Shared transcript readers retain the recorded proposals and results, but cannot
+approve or detach another person's private OAuth connection. Viewer-relative
+decision eligibility is a separate no-store read, not a guessed session-owner
+flag or a public person identifier. Unknown/error states fail closed with an
+explicit retry; an already-held decision retains its exact disabled controls
+until its receipt reconciles. Retired bindings still permit their owner to
+decline history or detach, never to confirm a fresh call.
+
+The lazy sign-in dialog follows the shared bounded-dialog and keyboard-readable
+body rules. Module failure is local to setup: Close receives safe initial focus,
+and explicit Reload warns about unsent text and in-memory recovery loss. Review
+and pending states are checked across the five canonical viewports.
+That walk exposed development lifecycle replay cancelling a recovered handle.
+Deferred same-source cleanup preserves real unmount cancellation without that
+duplicate act; late cancellation and completion settle only the exact held flow,
+so they cannot resurrect a finished handle or clear a newer one.
+The focused browser checkpoint passes all 11 setup/consent/recovery tests.
+Its mounted-query assertion failed when a trailing delimiter was deliberately
+added to the eligibility invalidation prefix; the correct prefix was restored.
+All five review/pending viewport captures and owner/peer/shared-reader captures
+were visually inspected. Live development-profile review remains deferred while
+the separate data-recovery choice below is unresolved; no seeding or restoration
+is used to manufacture that missing evidence.
+
+Local acceptance includes real native callback, encrypted OS custody, child
+resolution, inspection, relaunch, refresh and disconnect in an isolated app copy.
+Only the copied DNS/socket destination and browser handoff are fixtures; the
+source package remains public-HTTPS-only. This does not prove public issuer,
+actual system-browser, paid-service, signed or Intel acceptance. Contribution
+and Routine OAuth attribution and combined native tool-call acceptance remain
+next core work. The final handoff records the complete verifier results.
+
+During this checkpoint, a newly written persistence test omitted its temporary
+JSON path and overwrote the local development store; the watch process then
+reloaded the fixture. The owner was informed and recovery was left untouched
+pending a choice of backup. Node test processes now refuse omitted persistence
+paths and explicit paths resolving to the exact live fallback before backend
+I/O, with mutation-watched regressions. This guard does not claim symlink or
+general path confinement. It also caught five older
+export tests reading the development path without enabling test persistence;
+those suites now compare their own saved fixtures in isolated in-memory SQLite.
+No production client
 metadata URL is invented: its hosted identity is an operator release input.
 Focused metadata, authorization, real loopback-callback and token tests pass.
 Disabling S256 admission, issuer validation and the scope ceiling each made its

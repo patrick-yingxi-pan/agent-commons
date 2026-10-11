@@ -74,6 +74,7 @@ import type {
 } from '../accounts.ts'
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
+import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
@@ -83,6 +84,7 @@ import { parseMcpToolResult } from '../mcpToolResult.ts'
 import { parsePersistedModelPreferences, type PersistedModelPreferences } from '../modelPreferences.ts'
 import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
 import { join } from 'node:path'
+import { persistencePath } from './persistencePath.ts'
 
 /** On-disk schema version. A supported older snapshot migrates forward; an
  *  unsupported/newer snapshot stops startup without changing its bytes.
@@ -475,6 +477,9 @@ export interface PersistedState {
    * snapshots boot with an empty registry; present malformed state refuses
    * startup rather than silently discarding a connection. */
   mcpConnections?: McpConnectionState
+  /** Person authority for OAuth-backed MCP activities. Private and never
+   * projected into Session/Message wire rows; older non-OAuth snapshots omit it. */
+  mcpActivityAuthorities?: McpActivityAuthority[]
   /** Owner-only unattended permissions, frozen run grants and exact receipts. */
   routineMcp?: RoutineMcpRegistryState
   /** The account registry (multi-account P7 — real onboarded accounts): users
@@ -596,6 +601,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   agentProposals: 'mapEntries',
   a2aPeers: 'mapEntries',
   mcpConnections: 'singleton',
+  mcpActivityAuthorities: 'array',
   routineMcp: 'singleton',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
@@ -608,18 +614,19 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
 
 /** Where the JSON snapshot lives. Override with `DATA_FILE`; defaults to
  *  `.data/store.json` under the process's working directory (the repo root for the
- *  run scripts). Read per-call so a test can point it at a throwaway path.
+ *  run scripts). Read per-call so a test can point it at a throwaway path; test
+ *  processes must set DATA_FILE explicitly rather than fall back to this default.
  *  Exported so the backup tool (scripts/snapshot.ts) resolves the SAME path the
  *  store reads/writes, rather than re-deriving (and drifting from) it. */
 export function dataFile(): string {
-  return process.env.DATA_FILE ?? join(process.cwd(), '.data', 'store.json')
+  return persistencePath(process.env.DATA_FILE, join(process.cwd(), '.data', 'store.json'), 'DATA_FILE')
 }
 
 /** Where the embedded SQLite database lives (when `PERSIST_BACKEND=sqlite`).
  *  Override with `DATABASE_PATH`; defaults to `.data/store.db`. Read per-call,
- *  mirroring `dataFile()`. */
+ *  mirroring `dataFile()`; test processes must set it explicitly. */
 export function databaseFile(): string {
-  return process.env.DATABASE_PATH ?? join(process.cwd(), '.data', 'store.db')
+  return persistencePath(process.env.DATABASE_PATH, join(process.cwd(), '.data', 'store.db'), 'DATABASE_PATH')
 }
 
 /** The persistence port: load the last snapshot (or null only on genuine first boot)
@@ -1046,6 +1053,11 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   if (state?.mcpConnections !== undefined) {
     try { parseMcpConnectionState(state.mcpConnections) } catch { return false }
   }
+  try {
+    const authorities = parseMcpActivityAuthorities(state?.mcpActivityAuthorities)
+    const connections = parseMcpConnectionState(state?.mcpConnections)
+    if (!validateMcpActivityAuthorities(authorities, state?.sessions ?? [], connections)) return false
+  } catch { return false }
   if (state?.routineMcp !== undefined) {
     try {
       const routineMcp = parseRoutineMcpRegistryState(state.routineMcp)

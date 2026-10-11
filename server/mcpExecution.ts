@@ -12,17 +12,17 @@ import { callMcpToolWithSession } from './mcpToolSession.ts'
 import { isToolActivityDecisionId } from './toolActivityDecisionIdentity.ts'
 
 export interface McpExecutionStore {
-  privateMcpConnection(id: string, tenantId: string): PrivateMcpConnection | undefined
-  mcpConnection(id: string, tenantId: string): McpConnectionView | undefined
-  sessionContexts(sessionId: string): SessionContext[]
+  privateMcpConnection(id: string, tenantId: string, actorUserId?: string): PrivateMcpConnection | undefined
+  mcpConnection(id: string, tenantId: string, actorUserId?: string): McpConnectionView | undefined
+  sessionContexts(sessionId: string, actorUserId?: string): SessionContext[]
 }
 
 export type McpExecutionOutcome = McpBoundExecutionOutcome
 
 function stillAuthorized(store: McpExecutionStore, sessionId: string, tenantId: string, connectionId: string,
-  toolName: string): boolean {
-  if (!store.sessionContexts(sessionId).some((context) => context.id === connectionId && context.type === 'mcp')) return false
-  const view = store.mcpConnection(connectionId, tenantId)
+  toolName: string, actorUserId?: string): boolean {
+  if (!store.sessionContexts(sessionId, actorUserId).some((context) => context.id === connectionId && context.type === 'mcp')) return false
+  const view = store.mcpConnection(connectionId, tenantId, actorUserId)
   return Boolean(view && view.id === connectionId && view.execution === 'approval-required' &&
     view.executableTools?.includes(toolName))
 }
@@ -42,6 +42,7 @@ export function createApprovedMcpExecutor({
     sessionId: string,
     tenantId: string,
     activity: ToolActivity,
+    actorUserId?: string,
   ): Promise<McpExecutionOutcome> => {
     if (activity.kind !== 'action' || activity.status !== 'running' || !activity.mcp || activity.op !== undefined ||
         !isExternalMcpId(activity.connectorId) || !activity.decisionId || !isToolActivityDecisionId(activity.decisionId)) {
@@ -65,7 +66,8 @@ export function createApprovedMcpExecutor({
     }, () => activity.kind === 'action' && activity.status === 'running' && activity.id === activityId &&
       activity.op === undefined && activity.connectorId === connectionId && activity.decisionId === decisionId &&
       activity.mcp?.connectionRevision === connectionRevision && activity.mcp.toolName === toolName &&
-      activity.mcp.schemaHash === schemaHash && stillAuthorized(store, sessionId, tenantId, connectionId, toolName))
+      activity.mcp.schemaHash === schemaHash && stillAuthorized(store, sessionId, tenantId, connectionId, toolName, actorUserId),
+    actorUserId)
   }
 }
 

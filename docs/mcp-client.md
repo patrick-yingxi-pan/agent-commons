@@ -141,9 +141,10 @@ inspection and bound execution use a dedicated resolver carrying person,
 endpoint, connection revision and a live fence; bearer resolution cannot be a
 fallback. The optional OAuth capability remains absent until an explicitly
 configured resolver and startup custody synchronization are available. The
-shipping native host does not configure it yet. Interactive/Contribution/Routine
-person attribution, native IPC, review/status UI and end-to-end acceptance are
-still required; tenant-only callers cannot select OAuth rows in the meantime.
+native host now configures it after secure storage is available. Interactive
+turns retain private person-bound proposal and receipt authority; tenant-only
+Contribution/Routine callers still cannot select OAuth rows. Those workflows
+need separate person-attributed approval, not inherited sign-in consent.
 
 Internal native orchestration now composes an asynchronous authenticated source
 adapter with discovery, issuer/scope review, sign-in and exact inspection receipt
@@ -159,9 +160,12 @@ and never deletes a possibly committed credential. Unsubmitted work expires in
 three minutes; submitted recovery handles expire after ten minutes without
 discarding the credential. Cancellation retains admission until work drains.
 The separate owner/revision-bound child credential protocol has bounded active
-work, one-use request identities and explicit cancellation. These modules are
-not installed in the shipping main/preload/launcher yet; their deterministic
-composition tests do not prove native UI, Keychain or live-service acceptance.
+work, one-use request identities and explicit cancellation. The main/preload/launcher now install these modules behind native storage and
+startup synchronization. The UI reviews issuer/scopes explicitly, begins with
+unchecked permissions, cancels on account changes, and retains uncertain
+inspection handles for same-flow recovery. An excluded disposable-package
+fixture exercises actual OS custody and restart with only networking/browser
+handoff replaced. Public-service and system-browser acceptance remain separate.
 
 The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)
@@ -172,9 +176,8 @@ and [refresh-token rotation security](https://www.rfc-editor.org/rfc/rfc9700.htm
 Registration follows the [published MCP priority order](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-registration-approaches),
 [RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html#section-3.2.1) and the
 [Client ID Metadata Document draft](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document).
-Native host transaction/custody wiring, connection review
-UI and real packaged acceptance must compose before OAuth is
-advertised as available. A public client metadata URL remains release configuration,
+Native host transaction/custody wiring, connection review UI, and the packaged
+OAuth fixture are one mandatory local acceptance gate. A public client metadata URL remains release configuration,
 not permission to invent or publish a domain.
 
 ## Implemented transport substrate
