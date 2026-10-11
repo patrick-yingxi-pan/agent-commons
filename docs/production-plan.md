@@ -228,10 +228,79 @@ passed in isolation and in the full nine-test Git-review suite. Test-only read
 and command diagnostics now retain early-refusal evidence; there are no retries,
 weakened assertions or production deadline changes.
 The checkpoint handoff records their final outcomes. Routine OAuth attribution
-is the next complete workflow, followed by the remaining real-service and release
-acceptance gates; sign-in itself will not grant unattended execution.
+is now implemented as the next layer below; sign-in itself does not grant
+unattended execution. Public issuer/system-browser and release acceptance gates
+remain separate.
 
-During this checkpoint, a newly written persistence test omitted its temporary
+## Current checkpoint: person-attributed Routine OAuth
+
+Routine MCP now supports selected person-owned OAuth connections only through a
+separate bounded per-Routine review. The private grant records the authenticated
+owner and exact selected OAuth IDs; the queued run freezes that owner. Membership,
+live approval and connection identity are rechecked before credential resolution
+and before output publication. Known outcomes can settle after revocation, but
+remain private and are never retried automatically. Legacy none/bearer connections
+keep their tenant semantics.
+
+Same-workspace peers cannot borrow the grant or replay its exact keyed receipt.
+Their review exposes only whether another person's grant is active; they may
+revoke it or replace it using their own connections, without seeing the other
+person's catalog or receipts. Strict persistence validation joins current and
+historical OAuth authority to live or retired connection ownership. This checks
+snapshot consistency; it is not a claim of protection against arbitrary
+backing-store tampering.
+
+Focused typecheck, pure, route and persistence tests pass. The affected seven
+browser tests cover approval, private history, peer replacement/revoke, shared
+readers and foreign accounts across the five canonical viewports. The separate
+UI sweep passed all 135 cells with zero violations or skips; screenshot review
+excluded stale captures from earlier runs. Peer review exposed adjoining approval
+buttons: UI-211 now owns their shared wrapping/spacing layout, with source and
+rendered geometry locks watched fail before repair.
+
+Adversarial review also found a member removed during the POST body wait could
+replace an OAuth grant with a legacy workspace grant. A real-router held-body
+test reproduced the 200 response; the store now rejects any supplied actor whose
+membership expired before decision or replay. That regression and all 25 adjacent
+route/store tests pass without weakening omitted-actor legacy internal callers.
+Membership loss before dispatch and during credential resolution also has
+mutation-watched refusal coverage.
+
+The first complete verifier caught an older recovery browser fixture using
+desktop development headers as if they could switch people. They kept the local
+device user in Ada's workspace, without actual membership. That fixture now
+signs Ada in and asserts the verified person/workspace before the original
+unavailable-review and transient-error recovery checks; the membership guard
+remains intact.
+
+Post-green review found cross-slice validation repeatedly scanned unrelated
+Routine histories and connection identities within the accepted snapshot limits.
+The joins now index exact scope, revision and connection identity while preserving
+legacy admission, unsorted historical revisions and stable equal-revision ties.
+Two deterministic work-count locks first failed on the old implementation:
+512 decisions required 655,872 scope-identity reads, and a separate 256-connection
+case required 45,056 connection-ID reads. Indexed reads are 2,048 and 256
+respectively, with all eight authority tests and all 63 adjacent pure/persistence
+tests passing. The locks bound lookup work rather than machine-dependent time.
+Complete local and packaged gates must be rerun after this review correction
+before landing.
+
+Complete unsigned arm64 `npm run desktop:verify` passed. The extended local OAuth
+walk proves three separately authorized calls (interactive, Contribution and
+Routine), exact private SQLite policy/decision/receipt ownership, ordinary Routine
+output, and signed-in relaunch/replay/revoke/disconnect without redispatch. All
+seven new Routine native captures were reviewed. Removing the Routine executor's
+person argument only in a disposable ASAR copy made the exact execution gate
+fail; cleanup verified the source ASAR unchanged. The dedicated model peer remains
+excluded from the package and accepts only the exact successful tool result.
+The complete local `E2E_TRACE=1 npm run verify` remains the mandatory pre-push gate;
+the checkpoint handoff records its final outcome. Public issuer/system-browser,
+combined real-service/native, signed/Intel, stdio, standing-trust and MRTR gaps
+remain separate. Live preview handoff remains deferred while the earlier
+development-store recovery choice below is unresolved; this checkpoint leaves
+that store untouched and uses only isolated test data.
+
+During the preceding Contribution OAuth checkpoint, a newly written persistence test omitted its temporary
 JSON path and overwrote the local development store; the watch process then
 reloaded the fixture. The owner was informed and recovery was left untouched
 pending a choice of backup. Node test processes now refuse omitted persistence

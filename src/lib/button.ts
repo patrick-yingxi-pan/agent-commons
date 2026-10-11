@@ -58,3 +58,7 @@ export const PAGE_ACTION_BUTTON_CLASS =
  *  this quiet frame and answer in accent only on hover. */
 export const SECONDARY_BUTTON_CLASS =
   'rounded-md border border-line-strong bg-surface font-medium text-ink transition hover:border-accent hover:text-accent-strong disabled:cursor-not-allowed disabled:opacity-50'
+
+/** Related form decisions remain separate controls when they share or wrap a
+ * row. The caller owns placement, not the space between alternatives. */
+export const FORM_ACTION_GROUP_CLASS = 'flex flex-wrap items-center gap-2'

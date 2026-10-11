@@ -11,19 +11,21 @@ export function registerRoutineMcpRoutes(
   sourceMatches: (req: Ctx['req'], res: Ctx['res']) => boolean,
 ): void {
   router.get('/schedules/:id/mcp-permission', ({ req, res, params }) => {
-    const review = store.routineMcpReview(params.id, store.identity(req.headers).tenant.id)
+    const who = store.identity(req.headers)
+    const review = store.routineMcpReview(params.id, who.tenant.id, who.user.id)
     if (!review) return sendError(res, 'not_found', 'Routine permission is unavailable.')
     sendJson(res, review)
   })
   router.post('/schedules/:id/mcp-permission', async ({ req, res, params, body }) => {
     if (!sourceMatches(req, res)) return
-    const tenantId = store.identity(req.headers).tenant.id
-    if (!store.routineMcpReview(params.id, tenantId)) return sendError(res, 'not_found', 'Routine permission is unavailable.')
+    const who = store.identity(req.headers)
+    const tenantId = who.tenant.id
+    if (!store.routineMcpReview(params.id, tenantId, who.user.id)) return sendError(res, 'not_found', 'Routine permission is unavailable.')
     const request = await body<RoutineMcpDecisionRequest>()
     try {
       // The store rechecks ownership after the body await and validates the
       // closed request before applying its exact durable receipt.
-      const response = store.decideRoutineMcp(params.id, tenantId, request)
+      const response = store.decideRoutineMcp(params.id, tenantId, request, who.user.id)
       if (!response) return sendError(res, 'not_found', 'Routine permission is unavailable.')
       sendJson(res, response)
     } catch (error) {

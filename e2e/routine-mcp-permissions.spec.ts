@@ -309,7 +309,15 @@ test('unavailable owner review hides cached policy while transient read errors r
   const stack = await startMcpRouterStack()
   const disposeProxy = await proxyMcpApi(page, stack)
   try {
-    await page.setExtraHTTPHeaders({ 'x-user-id': 'user-ada', 'x-tenant-id': 'tenant-acme' })
+    // The desktop-shaped router's development headers never change user-local.
+    // A real sign-in supplies Ada's actual workspace membership for decisions.
+    await page.goto('/scheduled')
+    const signedIn = await api(page, 'POST', `${API}/auth/login`, { email: 'ada@acme.example', password: 'ada-demo-password' })
+    expect(signedIn.status).toBe(200)
+    await page.reload()
+    const identity = await api(page, 'GET', `${API}/me`)
+    expect(identity.status).toBe(200)
+    expect(identity.json).toMatchObject({ via: 'session', user: { id: 'user-ada' }, tenant: { id: 'tenant-acme' } })
     await page.goto('/scheduled/s-standup/external-mcp')
     const seededPanel = page.getByRole('region', { name: 'External MCP' })
     await expect(seededPanel.getByText('MCP settings are unavailable for this Routine in the current account.', { exact: true })).toBeVisible({ timeout: ms(20_000) })

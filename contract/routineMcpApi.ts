@@ -10,6 +10,9 @@ export interface RoutineMcpReview {
   reviewHash: string
   policy: RoutineMcpPolicy
   active: boolean
+  /** Another person's grant can be managed without exposing its private tools
+   * or receipts. policy retains its revision but projects approval as null. */
+  otherPersonApproval?: { active: boolean }
   disclosures: string[]
   tools: Array<{
     connectionId: string

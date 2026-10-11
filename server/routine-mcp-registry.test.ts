@@ -262,3 +262,81 @@ test('decision cap reserves its final slot for revocation and exact replay remai
   assert.equal(registry.snapshot().decisions.length, 256)
   assert.deepEqual(parseRoutineMcpRegistryState(registry.snapshot()), registry.snapshot())
 })
+
+const oauthOwner = 'person-owner'
+const oauthContext = (actorUserId: string | undefined = oauthOwner) => ({
+  definitionRevision: 4, reviewHash, now, actorUserId,
+  connection: (id: string, tenant: string, actor?: string) => actor === oauthOwner && tenant === tenantId && id === connectionId
+    ? { ...connection(), authentication: 'device-oauth' as const } : undefined,
+})
+
+test('OAuth decisions keep private authority and actor while exact replay refuses another person', () => {
+  const registry = new RoutineMcpRegistry()
+  const request = approveRequest('oauth-approval')
+  const created = registry.decide({ tenantId, routineId }, request, oauthContext())
+  const authority = { ownerUserId: oauthOwner, connectionIds: [connectionId] }
+  assert.deepEqual(registry.policy(tenantId, routineId)?.oauthAuthority, authority)
+  assert.deepEqual(registry.snapshot().decisions[0]?.oauthAuthority, authority)
+  assert.equal(registry.snapshot().decisions[0]?.actorUserId, oauthOwner)
+  assert.doesNotMatch(JSON.stringify(created), /oauthAuthority|ownerUserId|actorUserId|person-owner/)
+  const unavailable = { ...oauthContext(), connection: () => undefined, definitionRevision: 999, now: now + 99_999 }
+  assert.equal(registry.decide({ tenantId, routineId }, request, unavailable).replayed, true)
+  for (const actorUserId of [undefined, 'person-peer']) {
+    catchesCode(() => registry.decide({ tenantId, routineId }, request, { ...unavailable, actorUserId }), 'denied')
+  }
+  catchesCode(() => registry.decide({ tenantId, routineId }, approveRequest('peer-new', approval({ expectedRevision: 1 })), oauthContext('person-peer')), 'unavailable')
+  assert.equal(registry.snapshot().decisions.length, 1)
+})
+
+test('another manager can revoke OAuth permission without borrowing its grant or decision replay', () => {
+  const registry = new RoutineMcpRegistry()
+  const original = approveRequest('oauth-original')
+  registry.decide({ tenantId, routineId }, original, oauthContext())
+  const revoke = { requestId: 'peer-revoke', action: 'revoke' as const, expectedRevision: 1 }
+  catchesCode(() => registry.decide({ tenantId, routineId }, revoke, { ...oauthContext(), actorUserId: undefined }), 'denied')
+  const revoked = registry.decide({ tenantId, routineId }, revoke, oauthContext('person-peer'))
+  assert.equal(revoked.policy.approval, null)
+  assert.equal(registry.snapshot().decisions[1]?.actorUserId, 'person-peer')
+  assert.equal(registry.snapshot().decisions[1]?.oauthAuthority?.ownerUserId, oauthOwner)
+  assert.deepEqual(registry.policy(tenantId, routineId)?.oauthAuthority, registry.snapshot().decisions[0]?.oauthAuthority)
+  assert.equal(registry.decide({ tenantId, routineId }, revoke, oauthContext('person-peer')).replayed, true)
+  catchesCode(() => registry.decide({ tenantId, routineId }, revoke, oauthContext()), 'denied')
+  assert.equal(registry.decide({ tenantId, routineId }, original, oauthContext()).policy.approval, null)
+
+  decide(registry, approveRequest('legacy-replacement', approval({ expectedRevision: 2 })))
+  const restored = new RoutineMcpRegistry(registry.snapshot())
+  assert.equal(Object.hasOwn(restored.policy(tenantId, routineId)!, 'oauthAuthority'), false)
+  assert.equal(Object.hasOwn(restored.snapshot().decisions[2]!, 'actorUserId'), false)
+  assert.equal(restored.decide({ tenantId, routineId }, original, oauthContext()).replayed, true)
+  catchesCode(() => restored.decide({ tenantId, routineId }, original, oauthContext('person-peer')), 'denied')
+  assert.deepEqual(parseRoutineMcpRegistryState(restored.snapshot()), restored.snapshot())
+})
+
+test('OAuth registry parsing requires paired actor provenance and exact current and frozen authority joins', () => {
+  const registry = new RoutineMcpRegistry()
+  registry.decide({ tenantId, routineId }, approveRequest('oauth-parse'), oauthContext())
+  registry.queue(registry.policy(tenantId, routineId)!, 'run-oauth')
+  const baseline = registry.snapshot()
+  assert.equal(baseline.decisions[0]!.actorUserId, oauthOwner)
+  const mutations = [
+    (state: RoutineMcpRegistryState) => { delete state.decisions[0]!.actorUserId },
+    (state: RoutineMcpRegistryState) => { delete state.decisions[0]!.oauthAuthority },
+    (state: RoutineMcpRegistryState) => { state.decisions[0]!.actorUserId = 'person-peer' },
+    (state: RoutineMcpRegistryState) => { state.decisions[0]!.actorUserId = '\u0080' },
+    (state: RoutineMcpRegistryState) => { state.decisions[0]!.actorUserId = 'x'.repeat(201) },
+    (state: RoutineMcpRegistryState) => { state.decisions[0]!.oauthAuthority!.ownerUserId = 'person-peer'; state.decisions[0]!.actorUserId = 'person-peer' },
+    (state: RoutineMcpRegistryState) => { delete state.policies[0]!.oauthAuthority },
+  ]
+  for (const mutate of mutations) {
+    const state = structuredClone(baseline)
+    mutate(state)
+    assert.throws(() => parseRoutineMcpRegistryState(state), RoutineMcpPolicyError)
+  }
+  registry.suspend(tenantId, routineId)
+  assert.deepEqual(registry.policy(tenantId, routineId)?.oauthAuthority, baseline.policies[0]!.oauthAuthority)
+  assert.deepEqual(parseRoutineMcpRegistryState(registry.snapshot()), registry.snapshot())
+  const frozenMismatch = registry.snapshot()
+  frozenMismatch.decisions[0]!.oauthAuthority!.ownerUserId = 'person-peer'
+  frozenMismatch.decisions[0]!.actorUserId = 'person-peer'
+  assert.throws(() => parseRoutineMcpRegistryState(frozenMismatch), RoutineMcpPolicyError)
+})

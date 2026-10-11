@@ -8,6 +8,25 @@ import { routineMcpApprovalIntent, routineMcpRunLabel } from '../lib/routineMcpP
 
 const source = (...parts: string[]) => stripComments(read(join(ROOT, ...parts)))
 
+test('another person’s Routine approval is manageable without revealing private tool choices or receipts', () => {
+  const panel = source('src', 'components', 'RoutineMcpApprovalPanel.tsx')
+  assert.ok(panel.includes('const otherApproval = review?.otherPersonApproval'))
+  assert.ok(panel.includes('Approved by another member'))
+  assert.ok(panel.includes('Another member’s approval needs review'))
+  assert.ok(panel.includes('Their tool choices and exact call receipts stay private.'))
+  assert.ok(panel.includes('(review.policy.approval || otherApproval) && !held'))
+  assert.doesNotMatch(panel, /ownerUserId|oauthAuthority|actorUserId/, 'person authority never becomes a renderer-owned field')
+})
+
+test('all Routine permission action groups own wrapping and separation at the shared button funnel', () => {
+  const panel = source('src', 'components', 'RoutineMcpApprovalPanel.tsx')
+  const groups = panel.match(/<div data-routine-mcp-actions className=\{[^}]+\}/g) ?? []
+  assert.equal(groups.length, 2, 'choice/revoke and confirm/back are both enumerated')
+  assert.ok(groups.every(group => group.includes('FORM_ACTION_GROUP_CLASS')))
+  const buttons = source('src', 'lib', 'button.ts')
+  assert.match(buttons, /FORM_ACTION_GROUP_CLASS\s*=\s*'flex flex-wrap items-center gap-2'/)
+})
+
 test('External MCP is a distinct owner-only, childless Routine page and rail section', () => {
   const section = SCHEDULE_SECTIONS.find((item) => item.id === 'external-mcp')
   assert.deepEqual(section, { id: 'external-mcp', label: 'External MCP', visibility: 'owner', childKinds: [] })

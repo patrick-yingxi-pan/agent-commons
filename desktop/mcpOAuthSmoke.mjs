@@ -17,6 +17,10 @@ import { startMcpOAuthSmokeFixture, MCP_OAUTH_FIXTURE_SECRET_CANARIES } from './
 import { MCP_CREDENTIAL_FILE } from './mcpCredentialVault.mjs'
 import { startMcpOAuthMessagesSmokeFixture, MCP_OAUTH_MESSAGES_SMOKE_MODEL,
   MCP_OAUTH_MESSAGES_SMOKE_PROMPT } from './mcpOAuthMessagesSmokeFixture.mjs'
+import { startMcpOAuthRoutineMessagesSmokeFixture, MCP_OAUTH_ROUTINE_MODEL, MCP_OAUTH_ROUTINE_PROMPT,
+  MCP_OAUTH_ROUTINE_ARGUMENTS, MCP_OAUTH_ROUTINE_RESULT, MCP_OAUTH_ROUTINE_FINAL_TEXT,
+} from './mcpOAuthRoutineMessagesSmokeFixture.mjs'
+import { runSessionId } from '../contract/ids.ts'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const CONTRIBUTION_ARGUMENTS = Object.freeze({ query: 'native-oauth-contribution-record' })
@@ -30,12 +34,12 @@ async function captureTranscript(page, path) {
   await page.screenshot({ path, fullPage: true })
 }
 
-async function api(page, path, body, key = randomUUID()) {
-  const reply = await page.evaluate(async ({ path, body, key }) => {
-    const response = await fetch(`/api/v1${path}`, { method: body === undefined ? 'GET' : 'POST',
+async function api(page, path, body, key = randomUUID(), method = body === undefined ? 'GET' : 'POST') {
+  const reply = await page.evaluate(async ({ path, body, key, method }) => {
+    const response = await fetch(`/api/v1${path}`, { method,
       headers: { 'content-type': 'application/json', 'idempotency-key': key }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
     return { status: response.status, body: await response.json() }
-  }, { path, body, key })
+  }, { path, body, key, method })
   assert.ok(reply.status >= 200 && reply.status < 300, `${path}: HTTP ${reply.status} ${JSON.stringify(reply.body)}`)
   return reply.body
 }
@@ -62,6 +66,70 @@ function persistedContribution(profile, contributionId) {
     assert.ok(row, 'the exact Contribution exists in the actual SQLite store')
     return JSON.parse(row.json)
   } finally { db.close() }
+}
+
+function persistedRoutineMcp(profile, routineId) {
+  const db = new DatabaseSync(join(profile, 'store.db'), { readOnly: true })
+  try {
+    const row = db.prepare('SELECT json FROM kv WHERE key = ?').get('routineMcp')
+    assert.ok(row, 'the actual SQLite private Routine MCP slice exists')
+    const state = JSON.parse(row.json)
+    return { policies: state.policies.filter(item => item.routineId === routineId),
+      runs: state.runs.filter(item => item.permission.routineId === routineId), decisions: state.decisions.filter(item => item.routineId === routineId) }
+  } finally { db.close() }
+}
+
+/** Compare the actual private ledger, owner-only public review, and ordinary
+ * delivered output. A remaining slot is evidence of bounded authority, not an
+ * instruction for the model or scheduler to spend it. */
+export function assertOAuthRoutineReceipt(stored, current, output, { tenantId, ownerUserId, connectionId, routineId, revoked = false }) {
+  assert.equal(stored.policies.length, 1)
+  assert.equal(stored.runs.length, 1, 'only one queued Routine run exists')
+  assert.equal(stored.decisions.length, revoked ? 2 : 1)
+  const policy = stored.policies[0], run = stored.runs[0], receipt = run.calls[0]
+  const oauthAuthority = { ownerUserId, connectionIds: [connectionId] }
+  for (const permission of [policy, run.permission]) {
+    assert.equal(permission.tenantId, tenantId)
+    assert.equal(permission.routineId, routineId)
+    assert.deepEqual(permission.oauthAuthority, oauthAuthority, 'live and frozen authority retain the exact approving person')
+  }
+  for (const [index, decision] of stored.decisions.entries()) {
+    assert.equal(decision.tenantId, tenantId)
+    assert.equal(decision.routineId, routineId)
+    assert.deepEqual(decision.oauthAuthority, oauthAuthority)
+    assert.equal(decision.actorUserId, ownerUserId, 'the actual approving/revoking actor is privately retained')
+    assert.equal(decision.action, index === 0 ? 'approve' : 'revoke')
+    assert.equal(decision.policyRevision, index + 1)
+  }
+  assert.equal(policy.policy.revision, revoked ? 2 : 1)
+  assert.equal(run.permission.policy.revision, 1)
+  assert.equal(run.permission.policy.approval.maxCallsPerRun, 2)
+  assert.equal(run.calls.length, 1, 'one remaining slot never dispatches itself')
+  assert.equal(run.phase, 'active')
+  assert.equal(receipt.status, 'done')
+  assert.match(run.permissionHash, /^[a-f0-9]{64}$/)
+  assert.match(receipt.callHash, /^[a-f0-9]{64}$/)
+  assert.match(receipt.call.schemaHash, /^[a-f0-9]{64}$/)
+  assert.ok(Number.isSafeInteger(receipt.call.connectionRevision) && receipt.call.connectionRevision >= 0)
+  assert.deepEqual(receipt.call, { connectionId, connectionRevision: receipt.call.connectionRevision,
+    toolName: 'records.search', schemaHash: receipt.call.schemaHash, arguments: MCP_OAUTH_ROUTINE_ARGUMENTS })
+  const { arguments: fixedArguments, ...anchor } = receipt.call
+  assert.deepEqual(run.permission.policy.approval.tools, [{ ...anchor, fixedArguments }])
+  assert.deepEqual(receipt.result, MCP_OAUTH_ROUTINE_RESULT)
+  assert.deepEqual(policy.policy.approval, revoked ? null : run.permission.policy.approval)
+  assert.equal(current.routineId, routineId)
+  assert.deepEqual(current.policy, policy.policy)
+  assert.equal(current.active, !revoked)
+  const { callHash: _private, ...publicReceipt } = receipt
+  assert.deepEqual(current.runs, [{ runId: run.runId, phase: 'active', status: 'ok', calls: [publicReceipt] }])
+  assert.equal(output.id, run.runId)
+  assert.equal(output.status, 'ok')
+  assert.equal(output.detail, MCP_OAUTH_ROUTINE_FINAL_TEXT, 'ordinary output preserves the actual post-result model response')
+  const publicData = JSON.stringify({ current, output })
+  for (const value of [ownerUserId, ...MCP_OAUTH_FIXTURE_SECRET_CANARIES]) assert.equal(publicData.includes(value), false)
+  for (const field of ['oauthAuthority', 'ownerUserId', 'actorUserId', 'callHash', 'permissionHash', 'credentialReference']) {
+    assert.equal(publicData.includes(`"${field}"`), false, `${field} remains private`)
+  }
 }
 
 /** The native acceptance oracle checks actual private SQLite data against the
@@ -168,6 +236,88 @@ async function executeContributionCall({ page, origin, profile, evidence, fixtur
   return { id: contribution.id, path, route, key, body, completed, stored, authority }
 }
 
+async function executeRoutineCall({ page, origin, profile, evidence, fixture, model, identity, connectionId }) {
+  const provider = await api(page, '/providers', { label: 'OAuth Routine local model', modelFamily: 'claude',
+    effortLevels: ['Low'], models: [{ id: MCP_OAUTH_ROUTINE_MODEL, label: 'OAuth Routine fixture' }],
+    config: { baseURL: model.origin, model: MCP_OAUTH_ROUTINE_MODEL } })
+  const prompt = await api(page, '/system-prompts', { label: 'OAuth Routine smoke prompt', targetFamily: 'claude',
+    body: 'Use the exact reviewed external MCP tool once, then report its result.' })
+  const agent = await api(page, '/agents', { label: 'OAuth Routine smoke agent', providerId: provider.id,
+    systemPromptId: prompt.id, tools: [], instructions: 'Use only the reviewed external tool.' })
+  const templates = await api(page, '/schedule-templates')
+  const template = templates.find(row => row.name === 'Blank recipe') ?? templates[0]
+  assert.ok(template)
+  // Paused cadence is part of the reviewed definition. Run now remains the
+  // explicit trigger, so no wall-clock boundary can create a second fixture run.
+  const task = await api(page, '/schedules', { seed: { ...template.seed, name: 'Native OAuth Routine acceptance', enabled: false,
+    prompt: MCP_OAUTH_ROUTINE_PROMPT, agentId: agent.id, providerId: provider.id, modelId: MCP_OAUTH_ROUTINE_MODEL,
+    model: 'OAuth Routine local model', effort: 'Low', steps: [],
+    delivery: { tool: { id: 'session', label: 'New session', tone: 'workspace' }, target: 'New session' }, runs: [] } })
+  const path = `/schedules/${task.id}/mcp-permission`, route = `/scheduled/${task.id}/external-mcp`
+  const authority = { tenantId: identity.tenant.id, ownerUserId: identity.user.id, connectionId, routineId: task.id }
+  await page.goto(`${origin}${route}`)
+  const panel = page.getByRole('region', { name: 'External MCP' })
+  await expect(panel.getByText('records.search', { exact: true })).toBeVisible({ timeout: 25_000 })
+  await panel.getByRole('checkbox').check()
+  await panel.getByLabel('Fixed values for records.search').fill(JSON.stringify(MCP_OAUTH_ROUTINE_ARGUMENTS))
+  await panel.getByLabel('Maximum calls per run').fill('2')
+  await panel.getByRole('button', { name: 'Review approval', exact: true }).click()
+  const review = panel.locator('[aria-label="Approval review"]')
+  await expect(review).toContainText('Native OAuth fixture')
+  await expect(review).toContainText(MCP_OAUTH_ROUTINE_ARGUMENTS.query)
+  await expect(review).toContainText('Up to 2 calls per run')
+  await expect(review).toContainText('not a monetary cap')
+  assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'reviewing Routine permission does not use the grant')
+  assert.equal(model.requests.length, 0)
+  await review.scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(evidence, 'routine-approval-review.png') })
+  const approving = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === `/api/v1${path}`)
+  await review.getByRole('button', { name: 'Approve these tools', exact: true }).click()
+  const approvalRequest = await approving, approvalBody = approvalRequest.postDataJSON(), approvalKey = approvalRequest.headers()['idempotency-key']
+  assert.equal(approvalKey, approvalBody.requestId)
+  assert.equal(approvalBody.action, 'approve')
+  await expect(panel.getByText('Approval active', { exact: true })).toBeVisible({ timeout: 20_000 })
+  assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'separate approval alone never queues work')
+  assert.equal(persistedRoutineMcp(profile, task.id).runs.length, 0)
+  await page.goto(`${origin}/scheduled/${task.id}`)
+  const runPath = `/schedules/${task.id}/run`
+  const running = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === `/api/v1${runPath}`)
+  await page.getByRole('button', { name: 'Run now', exact: true }).click()
+  const runRequest = await running, runKey = runRequest.headers()['idempotency-key']
+  assert.ok(runKey, 'rendered Run now uses a durable logical run identity')
+  assert.equal(runRequest.postData(), null)
+  await expect.poll(async () => (await api(page, path)).runs.some(row => row.status === 'ok' && row.calls.some(call => call.status === 'done')),
+    { timeout: 45_000 }).toBe(true)
+  const current = await api(page, path), stored = persistedRoutineMcp(profile, task.id)
+  const sharedTask = (await api(page, '/schedules')).find(row => row.id === task.id)
+  assert.ok(sharedTask)
+  assert.equal(sharedTask.runs.length, 1)
+  const output = sharedTask.runs[0]
+  assertOAuthRoutineReceipt(stored, current, output, authority)
+  assert.equal(model.requests.length, 2, 'one Routine tool turn and one exact-result final turn complete the queued run')
+  assert.equal(fixture.snapshot().counts.mcpCalls, 3)
+  const protocolCalls = fixture.snapshot().requests.filter(request => request.headers['mcp-method'] === 'tools/call')
+  assert.deepEqual(protocolCalls.map(request => ({ name: JSON.parse(request.body).params.name, arguments: JSON.parse(request.body).params.arguments })), [
+    { name: 'records.search', arguments: { query: 'native-oauth-approved-record' } },
+    { name: 'records.search', arguments: CONTRIBUTION_ARGUMENTS },
+    { name: 'records.search', arguments: MCP_OAUTH_ROUTINE_ARGUMENTS },
+  ])
+  for (const privateValue of [...MCP_OAUTH_FIXTURE_SECRET_CANARIES, identity.user.id]) {
+    assert.equal(JSON.stringify(model.requests).includes(privateValue), false, 'Routine model input contains no OAuth owner or token')
+  }
+  assert.doesNotMatch(JSON.stringify(sharedTask), /"(?:routineMcp|oauthAuthority|ownerUserId|callHash|credentialReference)"/)
+  const outputRoute = `/s/${runSessionId(task.id, output.id)}`
+  await page.goto(`${origin}${outputRoute}`)
+  await expect(page.getByText(MCP_OAUTH_ROUTINE_FINAL_TEXT, { exact: true })).toBeVisible({ timeout: 20_000 })
+  await captureTranscript(page, join(evidence, 'routine-output.png'))
+  await page.goto(`${origin}${route}`)
+  await expect(panel.getByRole('heading', { name: 'Private run receipts', exact: true })).toBeVisible()
+  await expect(panel.getByLabel('Result for records.search', { exact: true })).toContainText(MCP_OAUTH_ROUTINE_ARGUMENTS.query)
+  await panel.getByLabel('Result for records.search', { exact: true }).scrollIntoViewIfNeeded()
+  await page.screenshot({ path: join(evidence, 'routine-private-receipt.png') })
+  return { id: task.id, path, route, runPath, runKey, approvalBody, approvalKey, stored, current, output, outputRoute, authority }
+}
+
 async function prepareInteractiveCall(page, origin, model, connectionId) {
   const provider = await api(page, '/providers', { label: 'OAuth local model', modelFamily: 'claude',
     effortLevels: ['Low'], models: [{ id: MCP_OAUTH_MESSAGES_SMOKE_MODEL, label: 'OAuth smoke fixture' }],
@@ -246,7 +396,10 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
   const evidenceRoot = join(ROOT, '.data', 'desktop-oauth-smoke')
   await mkdir(evidenceRoot, { recursive: true })
   const evidence = await mkdtemp(join(evidenceRoot, 'run-'))
-  let fixture, model, copied, run
+  const priorPersistence = { DATA_FILE: process.env.DATA_FILE, DATABASE_PATH: process.env.DATABASE_PATH }
+  process.env.DATA_FILE = join(profile, 'unused-store.json')
+  process.env.DATABASE_PATH = join(profile, 'store.db')
+  let fixture, model, routineModel, copied, run
   let stage = 'startup'
   try {
     fixture = await startMcpOAuthSmokeFixture()
@@ -358,7 +511,13 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
     assert.equal(model.requests.length, 2, 'Contribution approval and Run add no model calls')
     await assertPrivateStorage(profile, MCP_OAUTH_FIXTURE_SECRET_CANARIES)
 
-    stage = 'tool-and-contribution-receipt-relaunch-and-exact-replay'
+    stage = 'routine-separate-bounded-approval-and-queued-owner-execution'
+    routineModel = await startMcpOAuthRoutineMessagesSmokeFixture()
+    const routine = await executeRoutineCall({ page, origin, profile, evidence, fixture, model: routineModel, identity, connectionId: id })
+    assert.equal(model.requests.length, 2, 'Routine work never reuses or loosens the interactive Messages fixture')
+    await assertPrivateStorage(profile, MCP_OAUTH_FIXTURE_SECRET_CANARIES)
+
+    stage = 'tool-contribution-and-routine-receipt-relaunch-and-exact-replay'
     await closePackagedDesktop(run); run = undefined
     run = await launchPackagedDesktop(copied.executable, profile)
     ;({ page, origin } = run)
@@ -368,7 +527,7 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
     await expect(page.locator('[data-mcp-tool-status="done"]')).toContainText('Fixture record for native-oauth-approved-record')
     const replay = await api(page, decisionPath, { decision: 'confirm' }, decisionKey)
     assert.deepEqual(replay, completed.activity, 'a lost response reconciles the exact durable receipt after full restart')
-    assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'neither relaunch nor exact interactive receipt replay dispatches again')
+    assert.equal(fixture.snapshot().counts.mcpCalls, 3, 'neither relaunch nor exact interactive receipt replay dispatches again')
     await captureTranscript(page, join(evidence, 'tool-result-relaunched.png'))
 
     await page.goto(`${origin}${contribution.route}`)
@@ -379,11 +538,51 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
     assert.deepEqual(contributionReplay.effects, contribution.completed.effects, 'exact Contribution replay returns the saved receipt after restart')
     assert.deepEqual(persistedContribution(profile, contribution.id), contribution.stored, 'private owner, call and result survive full relaunch unchanged')
     assertOAuthContributionReceipt(persistedContribution(profile, contribution.id), contributionReplay, contribution.authority)
-    assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'remaining cardinality and exact Contribution replay grant no automatic dispatch')
+    assert.equal(fixture.snapshot().counts.mcpCalls, 3, 'remaining cardinality and exact Contribution replay grant no automatic dispatch')
     await contributionCard.scrollIntoViewIfNeeded()
     await page.screenshot({ path: join(evidence, 'contribution-result-relaunched.png') })
 
-    stage = 'disconnect-after-tool-and-contribution-receipts'
+    const reopenedRoutine = await api(page, routine.path)
+    const reopenedOutput = (await api(page, '/schedules')).find(row => row.id === routine.id)?.runs[0]
+    assert.deepEqual(reopenedOutput, routine.output, 'the actual delivered Routine output survives full relaunch')
+    assert.deepEqual(persistedRoutineMcp(profile, routine.id), routine.stored, 'private current/frozen owner and call/result survive unchanged')
+    assertOAuthRoutineReceipt(persistedRoutineMcp(profile, routine.id), reopenedRoutine, reopenedOutput, routine.authority)
+    const approvalReplay = await api(page, routine.path, routine.approvalBody, routine.approvalKey)
+    assert.deepEqual(approvalReplay.review.policy, routine.current.policy)
+    assert.deepEqual(await api(page, routine.runPath, undefined, routine.runKey, 'POST'), routine.output,
+      'exact Run-now replay resolves the completed queued run instead of submitting another')
+    assert.deepEqual(persistedRoutineMcp(profile, routine.id), routine.stored)
+    assert.equal(fixture.snapshot().counts.mcpCalls, 3)
+    assert.equal(routineModel.requests.length, 2, 'relaunch and exact replay never restart the completed model loop')
+    await page.goto(`${origin}${routine.outputRoute}`)
+    await expect(page.getByText(MCP_OAUTH_ROUTINE_FINAL_TEXT, { exact: true })).toBeVisible()
+    await captureTranscript(page, join(evidence, 'routine-output-relaunched.png'))
+    await page.goto(`${origin}${routine.route}`)
+    const routinePanel = page.getByRole('region', { name: 'External MCP' })
+    await expect(routinePanel.getByText('Approval active', { exact: true })).toBeVisible()
+    await expect(routinePanel.getByLabel('Result for records.search', { exact: true })).toContainText(MCP_OAUTH_ROUTINE_ARGUMENTS.query)
+    await routinePanel.getByLabel('Result for records.search', { exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(evidence, 'routine-private-receipt-relaunched.png') })
+
+    stage = 'rendered-routine-revoke-retains-personal-receipt-and-output'
+    const revoking = page.waitForRequest(request => request.method() === 'POST' && new URL(request.url()).pathname === `/api/v1${routine.path}`)
+    await routinePanel.getByRole('button', { name: 'Revoke approval', exact: true }).click()
+    const revokeRequest = await revoking, revokeBody = revokeRequest.postDataJSON(), revokeKey = revokeRequest.headers()['idempotency-key']
+    assert.equal(revokeBody.action, 'revoke')
+    assert.equal(revokeKey, revokeBody.requestId)
+    await expect(routinePanel.getByText('No unattended MCP tools', { exact: true })).toBeVisible({ timeout: 20_000 })
+    const revokedStored = persistedRoutineMcp(profile, routine.id), revoked = await api(page, routine.path)
+    assertOAuthRoutineReceipt(revokedStored, revoked, routine.output, { ...routine.authority, revoked: true })
+    assert.deepEqual(revokedStored.runs, routine.stored.runs, 'revocation retains the original frozen grant and completed call')
+    assert.equal((await api(page, routine.path, routine.approvalBody, routine.approvalKey)).review.policy.approval, null,
+      'replaying the old approval acknowledges revoked truth without reviving it')
+    assert.deepEqual(await api(page, routine.runPath, undefined, routine.runKey, 'POST'), routine.output)
+    assert.equal(fixture.snapshot().counts.mcpCalls, 3)
+    assert.equal(routineModel.requests.length, 2)
+    await routinePanel.getByLabel('Result for records.search', { exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(evidence, 'routine-revoked-receipt.png') })
+
+    stage = 'disconnect-after-tool-contribution-and-routine-receipts'
     await page.goto(`${origin}${detailPath}`)
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
     await expect.poll(async () => (await api(page, `/mcp-connections/${id}`)).status).toBe('disconnected')
@@ -399,20 +598,40 @@ export async function smokePackagedMcpOAuth({ executable = packagedExecutable() 
     await expect(page.getByRole('button', { name: 'Review & run', exact: true })).toHaveCount(0)
     await page.locator('[data-contribution-effect-status="done"]').scrollIntoViewIfNeeded()
     await page.screenshot({ path: join(evidence, 'contribution-result-disconnected.png') })
-    assert.equal(fixture.snapshot().counts.mcpCalls, 2, 'disconnect preserves both receipts without granting another dispatch')
-    console.log('[desktop-oauth-smoke] reviewed scopes · real PKCE/callback · OS vault · refresh · rendered attach/model proposal/separate consent · Contribution proposal/separate approval/Run · two exact separately confirmed MCP calls · private SQLite owners + results · signed-in relaunch and exact receipt replays without redispatch · disconnect retains receipts and removes Run')
+    const disconnectedRoutine = await api(page, routine.path)
+    assertOAuthRoutineReceipt(persistedRoutineMcp(profile, routine.id), disconnectedRoutine, routine.output, { ...routine.authority, revoked: true })
+    assert.deepEqual(persistedRoutineMcp(profile, routine.id), revokedStored)
+    assert.equal((await api(page, routine.path, revokeBody, revokeKey)).review.policy.approval, null)
+    assert.deepEqual(await api(page, routine.runPath, undefined, routine.runKey, 'POST'), routine.output)
+    await page.goto(`${origin}${routine.route}`)
+    await expect(routinePanel.getByText('No unattended MCP tools', { exact: true })).toBeVisible()
+    await expect(routinePanel.getByRole('button', { name: 'Approve these tools', exact: true })).toHaveCount(0)
+    await expect(routinePanel.getByLabel('Result for records.search', { exact: true })).toContainText(MCP_OAUTH_ROUTINE_ARGUMENTS.query)
+    await routinePanel.getByLabel('Result for records.search', { exact: true }).scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(evidence, 'routine-disconnected-receipt.png') })
+    assert.equal(fixture.snapshot().counts.mcpCalls, 3, 'revoke/disconnect preserve all receipts without another dispatch')
+    assert.equal(model.requests.length, 2)
+    assert.equal(routineModel.requests.length, 2)
+    console.log('[desktop-oauth-smoke] reviewed scopes · real PKCE/callback · OS vault · refresh · interactive separate consent · Contribution separate approval/Run · Routine separate bounded approval/queued owner execution · three exact MCP calls · private SQLite owners + receipts + Routine output · signed-in relaunch/exact replay without redispatch · Routine revoke and Disconnect retain history')
     console.log(`[desktop-oauth-smoke] evidence ${evidence}`)
   } catch (error) {
     if (model) console.error('[desktop-oauth-smoke] model evidence', JSON.stringify({ accepted: model.requests.length,
       probes: model.probes.length, rejected: model.rejected }))
+    if (routineModel) console.error('[desktop-oauth-smoke] Routine model evidence', JSON.stringify({ accepted: routineModel.requests.length,
+      probes: routineModel.probes.length, rejected: routineModel.rejected }))
     await run?.page.screenshot({ path: join(evidence, 'failure.png'), fullPage: true }).catch(() => {})
     throw new Error(`Packaged OAuth acceptance failed at ${stage}`, { cause: error })
   } finally {
     await closePackagedDesktop(run)
     await copied?.close()
     await model?.close()
+    await routineModel?.close()
     await fixture?.close()
     await rm(profile, { recursive: true, force: true })
+    for (const [key, value] of Object.entries(priorPersistence)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
   }
 }
 

@@ -9,7 +9,7 @@ import { enqueueRoutineMcpMutation, dismissRoutineMcpMutation, isRoutineMcpHeld,
 import { CheckboxRow } from './Checkbox.tsx'
 import { InlineOperationStatus } from './InlineOperationStatus.tsx'
 import { routineMcpApprovalIntent, routineMcpRunLabel } from '../lib/routineMcpPresentation.ts'
-import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
+import { FORM_ACTION_GROUP_CLASS, SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
 import { namedReadRegionProps } from '../lib/dialog.ts'
 import { routineMcpReviewReadErrorKind } from '../api/routineMcpReadErrors.ts'
 
@@ -47,6 +47,7 @@ export function RoutineMcpApprovalPanel({ routineId, routineName }: { routineId:
   const heldDecision = routineMcpHeldDecision(routineId)
   const review = query.data
   const policyApproval = review?.policy.approval
+  const otherApproval = review?.otherPersonApproval
   const [drafts, setDrafts] = useState<Record<string, DraftTool>>({})
   const [expiry, setExpiry] = useState(() => dateValue(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)))
   const [calls, setCalls] = useState('5')
@@ -127,11 +128,13 @@ export function RoutineMcpApprovalPanel({ routineId, routineName }: { routineId:
       {query.error && !review && (reviewUnavailable
         ? <p role="status" className="mt-4 text-[12px] text-ink-soft">MCP settings are unavailable for this Routine in the current account.</p>
         : <InlineOperationStatus tone="alert" message="Couldn’t load the current MCP review." action={{ label: 'Retry read', onClick: () => refreshRoutineMcpReview(routineId) }} />)}
-      {query.status === 'loading' && !review && <p role="status" className="mt-4 text-[12px] text-ink-soft">Loading the owner-only MCP review…</p>}
+      {query.status === 'loading' && !review && <p role="status" className="mt-4 text-[12px] text-ink-soft">Loading the MCP review for this account…</p>}
       {review && !reviewUnavailable && <>
         <div className="mt-4 rounded-lg border border-line bg-panel p-3">
-          <p className="text-[13px] font-medium text-ink">{approvalCurrent ? 'Approval active' : policyApproval && policyApproval.expiresAt <= now ? 'Approval expired' : 'No unattended MCP tools'}</p>
-          <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">{approvalCurrent
+          <p className="text-[13px] font-medium text-ink">{otherApproval ? otherApproval.active ? 'Approved by another member' : 'Another member’s approval needs review' : approvalCurrent ? 'Approval active' : policyApproval && policyApproval.expiresAt <= now ? 'Approval expired' : 'No unattended MCP tools'}</p>
+          <p className="mt-1 text-[12px] leading-relaxed text-ink-soft">{otherApproval
+            ? 'Their tool choices and exact call receipts stay private. You can revoke this approval or review a replacement using your own connections. A replacement never changes a run already queued.'
+            : approvalCurrent
             ? `${policyApproval!.tools.length} exact ${policyApproval!.tools.length === 1 ? 'tool' : 'tools'} · up to ${policyApproval!.maxCallsPerRun} calls per run · expires ${fmtDate(policyApproval!.expiresAt)}`
             : 'Routine runs cannot call external MCP tools until you review and approve them here.'}</p>
           {approvalCurrent && review.policy.approval && <div className="mt-2 space-y-1">{review.policy.approval.tools.map((tool) => (
@@ -161,7 +164,6 @@ export function RoutineMcpApprovalPanel({ routineId, routineName }: { routineId:
             <label className="min-w-0 text-[12px] font-medium text-ink-soft">Maximum calls per run<input className={`${inputClass} mt-1.5`} type="number" min={1} max={ROUTINE_MCP_MAX_CALLS} step={1} value={calls} onChange={(event) => setCalls(event.target.value)} disabled={held} /></label>
             <label className="min-w-0 text-[12px] font-medium text-ink-soft">Approval expires<input className={`${inputClass} mt-1.5`} type="datetime-local" value={expiry} onChange={(event) => setExpiry(event.target.value)} disabled={held} /></label>
           </div>}
-          {review.tools.length > 0 && <button type="button" disabled={held || selected.length === 0} onClick={beginReview} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px] ${buttonDisabled} mt-4 inline-flex items-center gap-1.5`}>Review approval <ChevronRight size={14} /></button>}
         </>}
 
         {reviewing && <div className="mt-4 rounded-lg border border-accent/30 bg-panel p-3" aria-label="Approval review">
@@ -177,11 +179,14 @@ export function RoutineMcpApprovalPanel({ routineId, routineName }: { routineId:
           <ul className="mt-1 list-disc space-y-1 pl-5 text-[11px] leading-relaxed text-ink-soft">{reviewing.disclosures.map((item, index) => <li key={`${index}:${item}`} className="break-words">{item}</li>)}</ul>
           <p className="mt-3 text-[11px] leading-relaxed text-ink-soft">Third-party MCP providers may apply their own fees and usage limits. The call limit above only bounds calls per routine run; it is not a monetary cap.</p>
           <p className="mt-2 text-[11px] text-ink-faint">Up to {reviewing.maxCallsPerRun} calls per run · expires {fmtDate(reviewing.expiresAt)}</p>
-          <div className="mt-3 flex flex-wrap gap-2"><button type="button" disabled={held || sending} onClick={approve} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px] ${buttonDisabled} inline-flex items-center gap-1.5`}>{sending ? 'Saving…' : 'Approve these tools'} <Check size={13} /></button><button type="button" disabled={held || sending} onClick={() => setReviewing(null)} className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px] ${buttonDisabled} inline-flex items-center gap-1.5`}><X size={13} /> Back to choices</button></div>
+          <div data-routine-mcp-actions className={`${FORM_ACTION_GROUP_CLASS} mt-3`}><button type="button" disabled={held || sending} onClick={approve} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px] ${buttonDisabled} inline-flex items-center gap-1.5`}>{sending ? 'Saving…' : 'Approve these tools'} <Check size={13} /></button><button type="button" disabled={held || sending} onClick={() => setReviewing(null)} className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px] ${buttonDisabled} inline-flex items-center gap-1.5`}><X size={13} /> Back to choices</button></div>
         </div>}
 
-        {review.policy.approval && !held && <button type="button" onClick={revoke} className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px] mt-4`}>Revoke approval</button>}
-        {review.runs.length > 0 && <div className="mt-5 border-t border-line pt-4"><h3 className="text-[13px] font-semibold text-ink">Private run receipts</h3><p className="mt-1 text-[11px] leading-relaxed text-ink-soft">These details are visible only to you. Uncertain calls are never replayed automatically.</p>
+        {((!reviewing && !approvalCurrent && review.tools.length > 0) || ((review.policy.approval || otherApproval) && !held)) && <div data-routine-mcp-actions className={`${FORM_ACTION_GROUP_CLASS} mt-4`}>
+          {!reviewing && !approvalCurrent && review.tools.length > 0 && <button type="button" disabled={held || selected.length === 0} onClick={beginReview} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px] ${buttonDisabled} inline-flex items-center gap-1.5`}>Review approval <ChevronRight size={14} /></button>}
+          {(review.policy.approval || otherApproval) && !held && <button type="button" onClick={revoke} className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}>Revoke approval</button>}
+        </div>}
+        {review.runs.length > 0 && <div className="mt-5 border-t border-line pt-4"><h3 className="text-[13px] font-semibold text-ink">Private run receipts</h3><p className="mt-1 text-[11px] leading-relaxed text-ink-soft">Personal OAuth receipts are visible only to their approver; workspace-connection receipts stay with this workspace. Uncertain calls are never replayed automatically.</p>
         <div className="mt-3 space-y-3">{review.runs.map((run) => <article key={run.runId} className="min-w-0 rounded-lg border border-line p-3"><p className="break-all text-[11px] font-medium text-ink">{routineMcpRunLabel(run.status)} · {run.runId}</p>{run.phase === 'interrupted' && <p className="mt-1 text-[11px] leading-relaxed text-ink-soft">This run was interrupted. Review the receipts below before starting another run; uncertain external calls are never replayed automatically.</p>}{run.calls.length === 0 ? <p className="mt-1 text-[11px] text-ink-faint">No calls were reserved.</p> : <ul className="mt-2 space-y-2">{run.calls.map((receipt) => <li key={receipt.id} className="min-w-0 border-l-2 border-line pl-2"><p className="break-words text-[11px] font-medium text-ink">{receipt.call.toolName} · {receipt.status === 'pending' ? 'In progress' : receipt.status === 'done' ? 'Completed' : receipt.status === 'failed' ? 'Failed' : 'Outcome uncertain'}</p><pre {...namedReadRegionProps(`Arguments for ${receipt.call.toolName}`, 'routine-mcp')} className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-all text-[10px] text-ink-soft">{text(receipt.call.arguments)}</pre>{receipt.status === 'uncertain' && <p className="mt-1 text-[11px] text-removed">The provider outcome could not be confirmed. The routine is paused; review the external service, re-enable the routine, and renew approval before running it again.</p>}{receipt.status === 'failed' && <><p className="mt-1 text-[11px] text-ink-soft">The call failed. This reserved call still counts toward the run limit.</p>{receipt.result && <pre {...namedReadRegionProps(`Result for ${receipt.call.toolName}`, 'routine-mcp')} className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-all rounded bg-panel p-2 text-[10px] text-ink-soft">{text(receipt.result)}</pre>}</>}{receipt.status === 'done' && <pre {...namedReadRegionProps(`Result for ${receipt.call.toolName}`, 'routine-mcp')} className="mt-1 max-h-36 overflow-auto whitespace-pre-wrap break-all rounded bg-panel p-2 text-[10px] text-ink-soft">{text(receipt.result)}</pre>}</li>)}</ul>}</article>)}</div>
         </div>}
       </>}

@@ -19,8 +19,9 @@ import {
 
 export interface StoredRoutineMcpRun {
   permission: StoredRoutineMcpPolicy
-  /** Creation-time join commitment, including an empty ledger. Not a MAC or a
-   * defense against someone authorized to rewrite the backing store. */
+  /** Creation-time join commitment, including private OAuth authority when
+   * present and an empty ledger. Not a MAC or a defense against someone
+   * authorized to rewrite the backing store. */
   permissionHash: string
   runId: string
   phase: 'active' | 'interrupted'

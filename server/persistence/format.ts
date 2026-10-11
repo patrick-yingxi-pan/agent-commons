@@ -77,6 +77,7 @@ import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnecti
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
 import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
+import { validateRoutineMcpAuthorities } from '../routineMcpAuthority.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
 import { parseScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
@@ -1074,6 +1075,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     try {
       const routineMcp = parseRoutineMcpRegistryState(state.routineMcp)
       if (!Array.isArray(state.schedules) || !validateRoutineMcpRegistryJoins(routineMcp, state.schedules)) return false
+      if (!validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))) return false
     } catch { return false }
   }
   if (state?.modelPreferences !== undefined) {

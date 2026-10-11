@@ -7,8 +7,12 @@ now has a real bounded HTTP adapter. Interactive calls require fresh owner
 approval; tool names and annotations never waive it. Unattended Routine calls
 instead require the separate bounded MODEL-40 permission, never inherited from
 an attached context or Commission.
-OAuth, local transports, multi-round input handling, standing trust and real
-third-party acceptance remain required. Other release connector adapters remain
+Public issuer/system-browser OAuth acceptance, local transports, multi-round
+input handling, standing trust and real third-party acceptance remain required.
+Routine OAuth now has a separately attributed bounded approval path with local
+browser and unsigned arm64 packaged acceptance; the production plan records the
+exact fixture boundary and remaining release gates.
+Other release connector adapters remain
 `unconfigured`; this MCP path cannot borrow development fixture capabilities.
 
 ## Approved desktop OAuth direction and preparation
@@ -20,7 +24,8 @@ unchanged tool-call consent. Local fixtures are authorized; real services are no
 The native preparation modules implement bounded metadata admission,
 standards-ordered well-known URL candidates, S256 code/state preparation, exact
 issuer validation, a one-use ephemeral IPv4 callback and bounded token/refresh
-form validation. They are not wired to the host yet. HTTPS syntax checks are not
+form validation. These preparation modules are now connected through the native
+composition described below. HTTPS syntax checks are not
 DNS/SSRF admission; the native HTTP layer below separately enforces the shared
 pinned-address policy. Callback loopback does not authorize connecting to a loopback MCP server.
 Browser responses contain only fixed text, never a code, token or remote error.
@@ -57,7 +62,8 @@ canceling a waiter does not cancel another waiter's shared refresh. Host cancell
 and shutdown abort the transaction. Authority is checked after waits, immediately
 before dispatch, and immediately before credential-file rename. Local disk tests
 prove the lifecycle with fixture encryption/exchange, not real Keychain OAuth or
-provider acceptance. These modules are not connected to Electron's runtime yet.
+provider acceptance. The separate packaged composition below supplies local
+OS-storage and runtime evidence, not public-provider acceptance.
 
 Native HTTP preparation now shares `server/outboundAddressCore.mjs` and
 `server/mcpProtocolCore.mjs` with the backend's typed facades. Every operation
@@ -149,7 +155,14 @@ Current ledger/acknowledgement projections expose only Run availability, never
 private owner IDs. Shared readers keep arguments and results. Exact owner replay
 after disconnect is receipt-only; JSON/SQLite join historical proposals and
 attempts to retained connection ownership without guessed migration. Routine
-OAuth remains unavailable pending separately attributed bounded approval.
+OAuth now follows the same person boundary: one current grant records its owner
+and selected OAuth connection IDs privately, and each Routine needs its own
+bounded reviewed approval. Sign-in or attachment grants no unattended authority.
+Same-workspace peers see only whether another person's grant is active; they may
+revoke or replace it using their own connections, but cannot inspect its catalog
+or receipts. Queued runs retain the original person and require current
+membership and live approval/connection state before credential resolution and
+publication; known results after revocation remain private and are not retried.
 
 Internal native orchestration now composes an asynchronous authenticated source
 adapter with discovery, issuer/scope review, sign-in and exact inspection receipt
@@ -525,8 +538,8 @@ integration and its remaining acceptance gates.
   but is not a complete MCP client. Execution-specific expiry recovery and
   multi-round input handling remain. The bounded single-call workflow does not
   replace those requirements or imply general server trust.
-- OAuth and local transports remain separate work; the bounded Routine permission
-  does not authorize arbitrary tools or destinations.
+- Local transports remain separate work; neither OAuth setup nor the bounded
+  Routine permission authorizes arbitrary tools or destinations.
 - Third-party and combined packaged acceptance of the whole journey, including
   tenant walls, restart, secret exclusion, cancellation and failure recovery.
 

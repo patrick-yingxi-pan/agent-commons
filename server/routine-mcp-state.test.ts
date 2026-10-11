@@ -5,7 +5,7 @@ import type { McpBoundToolCall, McpToolResult } from '../contract/mcpExecution.t
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import {
   createRoutineMcpRun, interruptRoutineMcpRun, parseRoutineMcpRun,
-  reserveRoutineMcpCall, routineMcpRunMayRetry, settleRoutineMcpCall,
+  reserveRoutineMcpCall, routineMcpRunMayRetry, settleRoutineMcpCall, publicRoutineMcpReceipt,
   type StoredRoutineMcpRun,
 } from './routineMcpState.ts'
 import { approveRoutineMcpPolicy, revokeRoutineMcpPolicy, type StoredRoutineMcpPolicy } from './routineMcpPolicy.ts'
@@ -238,4 +238,42 @@ test('parse, reserve, and settlement errors do not invoke accessors or leak call
   const settled = settleRoutineMcpCall(pending.run, pending.receipt.id, outcome, now + 2)
   assert.doesNotMatch(JSON.stringify(settled), /credential-crumb/)
   assert.throws(() => settleRoutineMcpCall(pending.run, pending.receipt.id, outcome, now), /invalid/)
+})
+
+test('legacy permission and call hashes remain byte-for-byte unchanged', () => {
+  const run = createRoutineMcpRun(policy(), 'run-a')
+  const reserved = reserve(run, 'host-key')
+  assert.equal(run.permissionHash, 'cbfc36bcd8f5a9455ec3732e6e6167436b9f59087600e6b40bd618cdb2107b5b')
+  assert.equal(reserved.receipt.callHash, 'cba8ea3582b62a4e2722752ae20255815a1535e4770f3ff42be8dec67a2b1b56')
+})
+
+test('OAuth authority is hashed into empty and occupied frozen ledgers and retained through terminal recovery', () => {
+  const permission = { ...policy(), oauthAuthority: { ownerUserId: 'person-owner', connectionIds: [connectionId] } }
+  const run = createRoutineMcpRun(permission, 'run-a')
+  const legacy = createRoutineMcpRun(policy(), 'run-a')
+  assert.notEqual(run.permissionHash, legacy.permissionHash)
+  assert.deepEqual(run.permission.oauthAuthority, permission.oauthAuthority)
+  let available = true
+  const oauthReader = (id: string, tenant: string, actor?: string) => available && actor === 'person-owner'
+    ? { ...connectionReader()(id, tenant)!, authentication: 'device-oauth' as const } : undefined
+  const pending = reserve(run, 'host-key', call(), { connection: oauthReader })
+  assert.notEqual(pending.receipt.callHash, reserve(legacy, 'host-key').receipt.callHash)
+  assert.throws(() => reserve(run, 'wrong-legacy-binding'), /denied/)
+  available = false
+  assert.throws(() => reserve(run, 'membership-lost', call(), { connection: oauthReader }), /denied/)
+  assert.equal(reserve(pending.run, 'host-key', call(), { connection: oauthReader }).created, false, 'represented host work is not re-dispatched')
+  for (const source of [run, pending.run]) {
+    const changed = structuredClone(source)
+    changed.permission.oauthAuthority!.ownerUserId = 'person-peer'
+    assert.throws(() => parseRoutineMcpRun(changed), /invalid/)
+    delete changed.permission.oauthAuthority
+    assert.throws(() => parseRoutineMcpRun(changed), /invalid/)
+  }
+  const terminal = settleRoutineMcpCall(pending.run, pending.receipt.id, { status: 'done', summary: '', result }, now + 2)
+  const interrupted = interruptRoutineMcpRun(pending.run, now + 3)
+  for (const state of [terminal, interrupted]) {
+    assert.deepEqual(parseRoutineMcpRun(state).permission.oauthAuthority, permission.oauthAuthority)
+    assert.equal(routineMcpRunMayRetry(state), false)
+    assert.doesNotMatch(JSON.stringify(publicRoutineMcpReceipt(state.calls[0]!)), /oauthAuthority|ownerUserId|person-owner|callHash/)
+  }
 })

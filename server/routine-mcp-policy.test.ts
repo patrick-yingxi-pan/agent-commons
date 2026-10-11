@@ -7,7 +7,7 @@ import {
 import type { McpBoundToolCall } from '../contract/mcpExecution.ts'
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import {
-  approveRoutineMcpPolicy, parseRoutineMcpPolicy, revokeRoutineMcpPolicy,
+  approveRoutineMcpPolicy, parseRoutineMcpOAuthAuthority, parseRoutineMcpPolicy, revokeRoutineMcpPolicy,
   routineMcpCallPermitted, RoutineMcpPolicyError, type StoredRoutineMcpPolicy,
 } from './routineMcpPolicy.ts'
 import { mcpToolSchemaHash } from './mcpToolAdmission.ts'
@@ -204,4 +204,93 @@ test('revisioned revocation and reapproval cannot rescue a frozen approval', () 
   assert.equal(reapproved.policy.revision, 3)
   assert.ok(reapproved.policy.approval)
   assert.equal(routineMcpCallPermitted(frozen, reapproved, 4, call(), now, reader(), reviewHash), false)
+})
+
+test('OAuth approval stamps only selected OAuth connections using the authenticated actor reader', () => {
+  const ownerUserId = 'person-owner'
+  const secondId = 'mcp-connection-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const legacyId = 'mcp-connection-cccccccccccccccccccccccccccccccc'
+  const reads: unknown[] = []
+  const lookup = (id: string, tenant: string, actor?: string) => {
+    reads.push([id, tenant, actor])
+    if (tenant !== tenantId || actor !== ownerUserId) return undefined
+    return connection({ id, authentication: id === legacyId ? 'device-bearer' : 'device-oauth' })
+  }
+  const approved = approveRoutineMcpPolicy(scope, undefined, 4, intent({ tools: [
+    { ...permission(), connectionId: secondId }, { ...permission(), connectionId: legacyId }, permission(),
+  ] }), now, lookup, ownerUserId)
+  assert.deepEqual(approved.oauthAuthority, { ownerUserId, connectionIds: [connectionId, secondId] })
+  assert.equal(reads.length, 3)
+  assert.ok(reads.every((read) => (read as string[])[2] === ownerUserId))
+  assert.equal(Object.hasOwn(approved.policy, 'oauthAuthority'), false)
+  const revoked = revokeRoutineMcpPolicy(approved, 1)
+  assert.equal(revoked.policy.approval, null)
+  assert.deepEqual(revoked.oauthAuthority, approved.oauthAuthority, 'revocation retains private provenance')
+  assert.deepEqual(revokeRoutineMcpPolicy(revoked, 2), revoked)
+  assert.equal(Object.hasOwn(approveRoutineMcpPolicy(scope, revoked, 4, intent({ expectedRevision: 2 }), now, reader(), ownerUserId), 'oauthAuthority'), false,
+    'a legacy replacement does not inherit the old person grant')
+
+  const permissiveOAuthReader = reader(connection({ authentication: 'device-oauth' }))
+  for (const actor of [undefined, '', ' ', '\nowner', 'é', 'x'.repeat(201)]) {
+    assert.throws(() => approveRoutineMcpPolicy(scope, undefined, 4, intent(), now, permissiveOAuthReader, actor), RoutineMcpPolicyError)
+  }
+  assert.throws(() => approveRoutineMcpPolicy(scope, undefined, 4, intent(), now, lookup, 'person-peer'), /unavailable/)
+  assert.equal(Object.hasOwn(approveRoutineMcpPolicy(scope, undefined, 4, intent(), now, reader(), ownerUserId), 'oauthAuthority'), false)
+})
+
+test('private OAuth policy authority is closed, bounded, canonical, detached, and tied to selected IDs', () => {
+  const base = approve()
+  const authority = { ownerUserId: 'person-owner', connectionIds: [connectionId] }
+  const stamped = parseRoutineMcpPolicy({ ...base, oauthAuthority: authority })
+  authority.connectionIds.push('mcp-connection-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
+  assert.deepEqual(stamped.oauthAuthority?.connectionIds, [connectionId])
+  const valid = { ownerUserId: 'person-owner', connectionIds: [connectionId] }
+  for (const oauthAuthority of [
+    undefined, null, {}, { ...valid, extra: true },
+    ...['', ' ', '\u007f', 'é', 'x'.repeat(201), null].map(ownerUserId => ({ ...valid, ownerUserId })),
+    { ...valid, connectionIds: [] }, { ...valid, connectionIds: [connectionId, connectionId] },
+    { ...valid, connectionIds: ['mcp-connection-nope'] }, { ...valid, connectionIds: ['mcp-connection-' + 'A'.repeat(32)] },
+    { ...valid, connectionIds: ['mcp-connection-' + 'b'.repeat(32), connectionId] },
+    { ...valid, connectionIds: ['mcp-connection-' + 'b'.repeat(32)] },
+    { ...valid, connectionIds: Array.from({ length: 17 }, (_, i) => 'mcp-connection-' + i.toString(16).padStart(32, '0')) },
+  ]) assert.throws(() => parseRoutineMcpPolicy({ ...base, oauthAuthority }), RoutineMcpPolicyError)
+  assert.equal(parseRoutineMcpPolicy({ ...base, oauthAuthority: { ...valid, ownerUserId: 'x'.repeat(200) } }).oauthAuthority?.ownerUserId.length, 200)
+  assert.deepEqual(parseRoutineMcpPolicy({ ...stamped, policy: { ...stamped.policy, approval: null } }).oauthAuthority, stamped.oauthAuthority)
+})
+
+test('OAuth call checks require exact frozen owner and authentication binding without borrowing a legacy grant', () => {
+  const ownerUserId = 'person-owner'
+  const oauth = connection({ authentication: 'device-oauth' })
+  const reads: unknown[] = []
+  let available = true
+  const lookup = (id: string, tenant: string, actor?: string) => {
+    reads.push([id, tenant, actor])
+    return available && actor === ownerUserId && tenant === tenantId && id === connectionId ? oauth : undefined
+  }
+  const permission = approveRoutineMcpPolicy(scope, undefined, 4, intent(), now, lookup, ownerUserId)
+  reads.length = 0
+  assert.equal(routineMcpCallPermitted(permission, permission, 4, call(), now, lookup, reviewHash), true)
+  assert.deepEqual(reads, [[connectionId, tenantId, ownerUserId]])
+  available = false
+  assert.equal(routineMcpCallPermitted(permission, permission, 4, call(), now, lookup, reviewHash), false, 'membership or connection loss fails closed')
+  assert.equal(routineMcpCallPermitted(permission, permission, 4, call(), now, reader(), reviewHash), false, 'an OAuth stamp cannot bind a legacy connection')
+  const legacy = approve()
+  assert.equal(routineMcpCallPermitted(legacy, legacy, 4, call(), now, reader(oauth), reviewHash), false, 'a permissive reader cannot turn legacy permission into OAuth consent')
+  const otherOwner = { ...permission, oauthAuthority: { ...permission.oauthAuthority!, ownerUserId: 'person-peer' } }
+  available = true
+  assert.equal(routineMcpCallPermitted(permission, otherOwner, 4, call(), now, lookup, reviewHash), false)
+  assert.equal(routineMcpCallPermitted(otherOwner, otherOwner, 4, call(), now, lookup, reviewHash), false)
+})
+
+test('OAuth authority standalone admission allows sixteen exact IDs but rejects noncanonical order without normalizing it', () => {
+  const connectionIds = Array.from({ length: 16 }, (_, i) => 'mcp-connection-' + i.toString(16).padStart(32, '0'))
+  const value = { ownerUserId: ' person-owner ', connectionIds }
+  assert.deepEqual(parseRoutineMcpOAuthAuthority(value), value, 'person identity follows exact connection owner semantics, not trimming')
+  assert.throws(() => parseRoutineMcpOAuthAuthority({ ...value, connectionIds: [...connectionIds].reverse() }), RoutineMcpPolicyError)
+  assert.throws(() => parseRoutineMcpOAuthAuthority({ ...value, connectionIds: [connectionIds[0], connectionIds[0]] }), RoutineMcpPolicyError)
+  assert.throws(() => parseRoutineMcpOAuthAuthority({ ...value, connectionIds: [...connectionIds, 'mcp-connection-' + 'f'.repeat(32)] }), RoutineMcpPolicyError)
+  let getterCalls = 0
+  Object.defineProperty(value, 'ownerUserId', { enumerable: true, get() { getterCalls += 1; return 'person-owner' } })
+  assert.throws(() => parseRoutineMcpOAuthAuthority(value), RoutineMcpPolicyError)
+  assert.equal(getterCalls, 0)
 })

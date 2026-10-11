@@ -14,14 +14,17 @@ import type { ScheduledTask } from '../contract/cowork.ts'
 import {
   RoutineMcpPolicyError,
   approveRoutineMcpPolicy,
+  parseRoutineMcpOAuthAuthority,
   parseRoutineMcpPolicy,
   revokeRoutineMcpPolicy,
   routineMcpInteger,
+  routineMcpOwnerUserId,
   routineMcpJsonText,
   sameRoutineMcpJson,
   type RoutineMcpConnectionReader,
   type RoutineMcpScope,
   type StoredRoutineMcpPolicy,
+  type StoredRoutineMcpOAuthAuthority,
 } from './routineMcpPolicy.ts'
 import {
   createRoutineMcpRun,
@@ -40,6 +43,10 @@ export interface StoredRoutineMcpDecision {
   requestHash: string
   policyRevision: number
   action: 'approve' | 'revoke'
+  /** Both fields are private and present together for OAuth decisions. The
+   * deciding manager may revoke another person's grant, never reuse it. */
+  oauthAuthority?: StoredRoutineMcpOAuthAuthority
+  actorUserId?: string
 }
 
 export interface RoutineMcpRegistryState {
@@ -53,6 +60,7 @@ export interface RoutineMcpDecisionContext {
   reviewHash: string
   now: number
   connection: RoutineMcpConnectionReader
+  actorUserId?: string
 }
 
 const EMPTY: RoutineMcpRegistryState = { policies: [], runs: [], decisions: [] }
@@ -62,6 +70,7 @@ const isRecord = (value: unknown): value is Record<string, McpJsonValue> =>
 const identity = (value: unknown): value is string => typeof value === 'string' && value.trim() === value &&
   value.length > 0 && value.length <= 200 && !/[\u0000-\u001f\u007f-\u009f]/.test(value)
 const scopeKey = (scope: RoutineMcpScope): string => JSON.stringify([scope.tenantId, scope.routineId])
+const revisionKey = (scope: RoutineMcpScope, revision: number): string => JSON.stringify([scope.tenantId, scope.routineId, revision])
 const runKey = (tenantId: string, routineId: string, runId: string): string => JSON.stringify([tenantId, routineId, runId])
 
 function hash(value: unknown): string {
@@ -104,13 +113,19 @@ function cloneState(value: unknown): RoutineMcpRegistryState {
 }
 
 function parseDecision(value: unknown): StoredRoutineMcpDecision {
-  const copy = snapshotMcpJson(value, { maxBytes: 1024, maxDepth: 4, maxNodes: 16 })
-  if (!isRecord(copy) || Object.keys(copy).length !== 6 ||
+  const copy = snapshotMcpJson(value, { maxBytes: 4096, maxDepth: 4, maxNodes: 48 })
+  if (!isRecord(copy)) return fail()
+  const hasAuthority = Object.hasOwn(copy, 'oauthAuthority')
+  const keys = ['decisionId', 'tenantId', 'routineId', 'requestHash', 'policyRevision', 'action', ...(hasAuthority ? ['oauthAuthority', 'actorUserId'] : [])]
+  if (Object.keys(copy).length !== keys.length || !keys.every(key => Object.hasOwn(copy, key)) ||
       !identity(copy.tenantId) || !identity(copy.routineId) ||
       typeof copy.decisionId !== 'string' || !/^routine-mcp-decision-[a-f0-9]{64}$/.test(copy.decisionId) ||
       typeof copy.requestHash !== 'string' || !/^[a-f0-9]{64}$/.test(copy.requestHash) ||
       !routineMcpInteger(copy.policyRevision) || copy.policyRevision < 1 ||
       (copy.action !== 'approve' && copy.action !== 'revoke')) return fail()
+  const oauthAuthority = hasAuthority ? parseRoutineMcpOAuthAuthority(copy.oauthAuthority) : undefined
+  if (oauthAuthority && (!routineMcpOwnerUserId(copy.actorUserId) ||
+      (copy.action === 'approve' && copy.actorUserId !== oauthAuthority.ownerUserId))) return fail()
   return {
     decisionId: copy.decisionId,
     tenantId: copy.tenantId,
@@ -118,6 +133,7 @@ function parseDecision(value: unknown): StoredRoutineMcpDecision {
     requestHash: copy.requestHash,
     policyRevision: copy.policyRevision,
     action: copy.action,
+    ...(oauthAuthority ? { oauthAuthority, actorUserId: copy.actorUserId as string } : {}),
   }
 }
 
@@ -136,11 +152,16 @@ export function parseRoutineMcpRegistryState(value: unknown): RoutineMcpRegistry
     const runKeys = runs.map((row) => runKey(row.permission.tenantId, row.permission.routineId, row.runId))
     const decisionIds = decisions.map((row) => row.decisionId)
     const decisionsPerRoutine = new Map<string, number>()
+    const decisionsByRevision = new Map<string, StoredRoutineMcpDecision[]>()
     for (const decision of decisions) {
       const key = scopeKey(decision)
       const count = (decisionsPerRoutine.get(key) ?? 0) + 1
       if (count > ROUTINE_MCP_MAX_DECISIONS_PER_ROUTINE) return fail('limit')
       decisionsPerRoutine.set(key, count)
+      const revision = revisionKey(decision, decision.policyRevision)
+      const atRevision = decisionsByRevision.get(revision) ?? []
+      atRevision.push(decision)
+      decisionsByRevision.set(revision, atRevision)
     }
     const policyByKey = new Map(policies.map((row) => [scopeKey(row), row]))
     if (new Set(policyKeys).size !== policyKeys.length || new Set(runKeys).size !== runKeys.length ||
@@ -150,10 +171,15 @@ export function parseRoutineMcpRegistryState(value: unknown): RoutineMcpRegistry
         }) || [...decisionsPerRoutine].some(([key, count]) =>
           count === ROUTINE_MCP_MAX_DECISIONS_PER_ROUTINE && policyByKey.get(key)?.policy.approval !== null)) return fail()
     for (const policy of policies) {
-      if (policy.policy.approval === null) continue
-      const currentRevision = decisions.filter((decision) =>
-        scopeKey(decision) === scopeKey(policy) && decision.policyRevision === policy.policy.revision)
-      if (currentRevision.length !== 1 || currentRevision[0]!.action !== 'approve') return fail()
+      const currentRevision = decisionsByRevision.get(revisionKey(policy, policy.policy.revision)) ?? []
+      if (currentRevision.some(decision => !sameRoutineMcpJson(decision.oauthAuthority, policy.oauthAuthority)) ||
+          (policy.policy.approval !== null && (currentRevision.length !== 1 || currentRevision[0]!.action !== 'approve'))) return fail()
+    }
+    for (const run of runs) {
+      const approvals = (decisionsByRevision.get(revisionKey(run.permission, run.permission.policy.revision)) ?? [])
+        .filter(decision => decision.action === 'approve')
+      if ((run.permission.oauthAuthority || approvals.some(decision => decision.oauthAuthority)) &&
+          (approvals.length !== 1 || !sameRoutineMcpJson(approvals[0]!.oauthAuthority, run.permission.oauthAuthority))) return fail()
     }
     return { policies, runs, decisions }
   } catch (error) {
@@ -290,6 +316,7 @@ export class RoutineMcpRegistry {
     const previous = this.state.decisions.find((row) => row.decisionId === id)
     if (previous) {
       if (previous.requestHash !== exact.requestHash) return fail('stale')
+      if (previous.oauthAuthority && previous.actorUserId !== current.actorUserId) return fail('denied')
       const truth = this.policy(scope.tenantId, scope.routineId)
       if (!truth) return fail('unavailable')
       return { decisionId: id, policy: truth.policy, replayed: true }
@@ -303,12 +330,14 @@ export class RoutineMcpRegistry {
     const prior = this.policy(scope.tenantId, scope.routineId)
     if (exact.action === 'approve' && exact.approval!.reviewHash !== current.reviewHash) return fail('stale')
     const next = exact.action === 'approve'
-      ? approveRoutineMcpPolicy(scope, prior, current.definitionRevision, exact.approval!, current.now, current.connection)
+      ? approveRoutineMcpPolicy(scope, prior, current.definitionRevision, exact.approval!, current.now, current.connection, current.actorUserId)
       : prior ? revokeRoutineMcpPolicy(prior, exact.expectedRevision!) : fail('stale')
+    if (next.oauthAuthority && !routineMcpOwnerUserId(current.actorUserId)) return fail('denied')
     const action = exact.action
     this.storePolicy(next)
     this.state.decisions.push({ decisionId: id, tenantId: scope.tenantId, routineId: scope.routineId,
-      requestHash: exact.requestHash, policyRevision: next.policy.revision, action })
+      requestHash: exact.requestHash, policyRevision: next.policy.revision, action,
+      ...(next.oauthAuthority ? { oauthAuthority: structuredClone(next.oauthAuthority), actorUserId: current.actorUserId! } : {}) })
     return { decisionId: id, policy: parseRoutineMcpPolicy(next).policy, replayed: false }
   }
 

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { ROOT } from '../tests/helpers/source.ts'
-import { assertOAuthContributionReceipt, oauthSmokePatches } from './mcpOAuthSmoke.mjs'
+import { assertOAuthContributionReceipt, assertOAuthRoutineReceipt, oauthSmokePatches } from './mcpOAuthSmoke.mjs'
+import { MCP_OAUTH_ROUTINE_ARGUMENTS, MCP_OAUTH_ROUTINE_RESULT, MCP_OAUTH_ROUTINE_FINAL_TEXT } from './mcpOAuthRoutineMessagesSmokeFixture.mjs'
 import { ignoreFromPackage } from './packager.config.mjs'
 
 test('OAuth fixture transforms only known networking/browser seams in an excluded disposable package helper', () => {
@@ -15,7 +16,7 @@ test('OAuth fixture transforms only known networking/browser seams in an exclude
   }
   assert.deepEqual([...new Set(patches.map(row => row.path))], ['desktop/mcpOAuthHttp.mjs', 'server/mcpHttpTransport.ts', 'desktop/main.mjs'])
   assert.ok(patches.every(row => !row.before.includes('allowLoopback')))
-  for (const path of ['/desktop/mcpOAuthSmoke.mjs', '/desktop/mcpOAuthSmokeFixture.mjs', '/desktop/mcpOAuthMessagesSmokeFixture.mjs', '/desktop/mcpLoopbackSmokePackage.mjs']) {
+  for (const path of ['/desktop/mcpOAuthSmoke.mjs', '/desktop/mcpOAuthSmokeFixture.mjs', '/desktop/mcpOAuthMessagesSmokeFixture.mjs', '/desktop/mcpOAuthRoutineMessagesSmokeFixture.mjs', '/desktop/mcpLoopbackSmokePackage.mjs']) {
     assert.equal(ignoreFromPackage(path), true)
   }
   assert.throws(() => oauthSmokePatches('https://public.example'), assert.AssertionError)
@@ -76,4 +77,49 @@ test('native Contribution evidence requires the exact private OAuth owner, one r
     corrupt(invalid)
     assert.throws(() => assertOAuthContributionReceipt(invalid.stored, invalid.current, invalid.identity), assert.AssertionError)
   }
+})
+
+function routineEvidence() {
+  const identity = { tenantId: 'tenant-private', ownerUserId: 'person-private', routineId: 'routine-1', connectionId: `mcp-connection-${'a'.repeat(32)}` }
+  const oauthAuthority = { ownerUserId: identity.ownerUserId, connectionIds: [identity.connectionId] }
+  const call = { connectionId: identity.connectionId, connectionRevision: 4, toolName: 'records.search', schemaHash: 'b'.repeat(64), arguments: MCP_OAUTH_ROUTINE_ARGUMENTS }
+  const { arguments: fixedArguments, ...tool } = call
+  const policy = { version: 1, revision: 1, approval: { definitionRevision: 2, reviewHash: 'c'.repeat(64),
+    approvedAt: 1_000, expiresAt: 10_000, maxCallsPerRun: 2, tools: [{ ...tool, fixedArguments }] } }
+  const permission = { tenantId: identity.tenantId, routineId: identity.routineId, policy, oauthAuthority }
+  const receipt = { id: `routine-mcp-${'d'.repeat(64)}`, call, callHash: 'e'.repeat(64), startedAt: 1_001, finishedAt: 1_002, status: 'done', result: MCP_OAUTH_ROUTINE_RESULT }
+  const { callHash: _private, ...publicReceipt } = receipt
+  const stored = { policies: [permission], runs: [{ permission, permissionHash: 'f'.repeat(64), runId: 'run-1', phase: 'active', calls: [receipt] }],
+    decisions: [{ tenantId: identity.tenantId, routineId: identity.routineId, decisionId: `routine-mcp-decision-${'a'.repeat(64)}`, requestHash: 'b'.repeat(64),
+      action: 'approve', policyRevision: 1, oauthAuthority, actorUserId: identity.ownerUserId }] }
+  const current = { routineId: identity.routineId, active: true, policy, runs: [{ runId: 'run-1', phase: 'active', status: 'ok', calls: [publicReceipt] }] }
+  const output = { id: 'run-1', status: 'ok', detail: MCP_OAUTH_ROUTINE_FINAL_TEXT }
+  return structuredClone({ stored, current, output, identity })
+}
+
+test('native Routine evidence requires exact private owner, frozen receipt and ordinary delivered output', () => {
+  const valid = routineEvidence()
+  assertOAuthRoutineReceipt(valid.stored, valid.current, valid.output, valid.identity)
+  for (const corrupt of [
+    value => { delete value.stored.policies[0].oauthAuthority },
+    value => { value.stored.runs[0].permission.oauthAuthority.ownerUserId = 'peer' },
+    value => { value.stored.decisions[0].actorUserId = 'peer' },
+    value => { value.stored.decisions[0].oauthAuthority.connectionIds = [] },
+    value => { value.stored.runs[0].calls[0].status = 'uncertain' },
+    value => { value.stored.runs[0].calls[0].call.arguments = { query: 'wrong' } },
+    value => { value.stored.runs[0].calls.push(structuredClone(value.stored.runs[0].calls[0])) },
+    value => { value.current.runs[0].calls[0].ownerUserId = value.identity.ownerUserId },
+    value => { value.output.detail = 'not the delivered result' },
+    value => { value.stored.runs[0].permission.policy.approval.maxCallsPerRun = 1 },
+  ]) {
+    const invalid = routineEvidence()
+    corrupt(invalid)
+    assert.throws(() => assertOAuthRoutineReceipt(invalid.stored, invalid.current, invalid.output, invalid.identity), assert.AssertionError)
+  }
+  const revoked = routineEvidence()
+  revoked.stored.policies[0] = { ...revoked.stored.policies[0], policy: { version: 1, revision: 2, approval: null } }
+  revoked.stored.decisions.push({ ...revoked.stored.decisions[0], action: 'revoke', policyRevision: 2 })
+  revoked.current.policy = revoked.stored.policies[0].policy
+  revoked.current.active = false
+  assertOAuthRoutineReceipt(revoked.stored, revoked.current, revoked.output, { ...revoked.identity, revoked: true })
 })

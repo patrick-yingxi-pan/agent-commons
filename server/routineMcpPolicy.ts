@@ -14,8 +14,16 @@ import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
 import { mcpToolSchemaHash } from './mcpToolAdmission.ts'
 
 export interface RoutineMcpScope { tenantId: string; routineId: string }
-export interface StoredRoutineMcpPolicy extends RoutineMcpScope { policy: RoutineMcpPolicy }
-export type RoutineMcpConnectionReader = (id: string, tenantId: string) => McpConnectionView | undefined
+/** Private provenance, never part of the public Routine permission. Revocation
+ * retains it; replacing the approval derives a new stamp from actual selections. */
+export interface StoredRoutineMcpOAuthAuthority { ownerUserId: string; connectionIds: string[] }
+export interface StoredRoutineMcpPolicy extends RoutineMcpScope {
+  policy: RoutineMcpPolicy
+  oauthAuthority?: StoredRoutineMcpOAuthAuthority
+}
+/** Trusted callback must filter OAuth connections by this person's live
+ * membership and exact ownership. A public view alone cannot prove ownership. */
+export type RoutineMcpConnectionReader = (id: string, tenantId: string, actorUserId?: string) => McpConnectionView | undefined
 
 export class RoutineMcpPolicyError extends Error {
   readonly code: 'invalid' | 'stale' | 'unavailable' | 'denied' | 'limit'
@@ -30,6 +38,8 @@ const record = (value: unknown): value is Record<string, McpJsonValue> => value 
 export const routineMcpInteger = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
 const identity = (value: unknown): value is string => typeof value === 'string' && value.trim() === value &&
   value.length > 0 && value.length <= 200 && !/[\u0000-\u001f\u007f-\u009f]/.test(value)
+export const routineMcpOwnerUserId = (value: unknown): value is string => typeof value === 'string' &&
+  value.length > 0 && value.length <= 200 && value.trim().length > 0 && /^[\x20-\x7e]+$/.test(value)
 const fields = (value: Record<string, McpJsonValue>, names: string[]): boolean =>
   Object.keys(value).length === names.length && names.every(key => Object.hasOwn(value, key))
 
@@ -76,18 +86,30 @@ function approvalFrom(value: McpJsonValue): RoutineMcpApproval {
     maxCallsPerRun: value.maxCallsPerRun, tools: toolsFrom(value.tools) }
 }
 
+export function parseRoutineMcpOAuthAuthority(value: unknown): StoredRoutineMcpOAuthAuthority {
+  const copy = detached(value)
+  if (!fields(copy, ['ownerUserId', 'connectionIds']) || !routineMcpOwnerUserId(copy.ownerUserId) ||
+      !Array.isArray(copy.connectionIds) || !copy.connectionIds.length || copy.connectionIds.length > ROUTINE_MCP_MAX_TOOLS ||
+      copy.connectionIds.some((id, index, ids) => typeof id !== 'string' || !/^mcp-connection-[a-f0-9]{32}$/.test(id) ||
+        (index > 0 && (ids[index - 1] as string) >= id))) return fail()
+  return { ownerUserId: copy.ownerUserId, connectionIds: copy.connectionIds as string[] }
+}
+
 /** Strict present-state admission; legacy absence is the outer store's concern. */
 export function parseRoutineMcpPolicy(value: unknown): StoredRoutineMcpPolicy {
   const copy = detached(value)
-  if (!fields(copy, ['tenantId', 'routineId', 'policy']) || !identity(copy.tenantId) || !identity(copy.routineId) ||
+  const hasAuthority = Object.hasOwn(copy, 'oauthAuthority')
+  if (!fields(copy, ['tenantId', 'routineId', 'policy', ...(hasAuthority ? ['oauthAuthority'] : [])]) || !identity(copy.tenantId) || !identity(copy.routineId) ||
       !record(copy.policy) || !fields(copy.policy, ['version', 'revision', 'approval']) || copy.policy.version !== 1 ||
       !routineMcpInteger(copy.policy.revision) || copy.policy.revision < 1) return fail()
+  const approval = copy.policy.approval === null ? null : approvalFrom(copy.policy.approval)
+  const oauthAuthority = hasAuthority ? parseRoutineMcpOAuthAuthority(copy.oauthAuthority) : undefined
+  if (oauthAuthority && approval && oauthAuthority.connectionIds.some(id => !approval.tools.some(tool => tool.connectionId === id))) return fail()
   return { tenantId: copy.tenantId, routineId: copy.routineId, policy: { version: 1, revision: copy.policy.revision,
-    approval: copy.policy.approval === null ? null : approvalFrom(copy.policy.approval) } }
+    approval }, ...(oauthAuthority ? { oauthAuthority } : {}) }
 }
 
-function matchesConnection(permission: RoutineMcpToolPermission, scope: RoutineMcpScope, connection: RoutineMcpConnectionReader): boolean {
-  const view = connection(permission.connectionId, scope.tenantId)
+function matchesConnection(permission: RoutineMcpToolPermission, view: McpConnectionView | undefined): boolean {
   if (!view || view.id !== permission.connectionId || view.revision !== permission.connectionRevision ||
       view.status !== 'connected' || view.execution !== 'approval-required' || !view.executableTools?.includes(permission.toolName)) return false
   const matches = view.tools.filter(tool => tool.name === permission.toolName)
@@ -104,21 +126,31 @@ export function approveRoutineMcpPolicy(
   intent: RoutineMcpApprovalIntent,
   now: number,
   connection: RoutineMcpConnectionReader,
+  actorUserId?: string,
 ): StoredRoutineMcpPolicy {
   const review = detached(intent)
-  if (!fields(review, ['expectedRevision', 'expectedDefinitionRevision', 'reviewHash', 'expiresAt', 'maxCallsPerRun', 'tools']) ||
+  if (!identity(scope.tenantId) || !identity(scope.routineId) ||
+      !fields(review, ['expectedRevision', 'expectedDefinitionRevision', 'reviewHash', 'expiresAt', 'maxCallsPerRun', 'tools']) ||
       !routineMcpInteger(review.expectedRevision) || !routineMcpInteger(review.expectedDefinitionRevision) ||
       !routineMcpInteger(definitionRevision) || !routineMcpInteger(now) || typeof review.reviewHash !== 'string' ||
-      !/^[a-f0-9]{64}$/.test(review.reviewHash)) return fail()
+      !/^[a-f0-9]{64}$/.test(review.reviewHash) || (actorUserId !== undefined && !routineMcpOwnerUserId(actorUserId))) return fail()
   const old = current === undefined ? undefined : parseRoutineMcpPolicy(current)
   if ((old && (old.tenantId !== scope.tenantId || old.routineId !== scope.routineId)) ||
       review.expectedRevision !== (old?.policy.revision ?? 0) || review.expectedDefinitionRevision !== definitionRevision) return fail('stale')
   const approval = approvalFrom({ definitionRevision, reviewHash: review.reviewHash, approvedAt: now, expiresAt: review.expiresAt,
     maxCallsPerRun: review.maxCallsPerRun, tools: review.tools })
-  const candidate = parseRoutineMcpPolicy({ tenantId: scope.tenantId, routineId: scope.routineId,
-    policy: { version: 1, revision: (old?.policy.revision ?? 0) + 1, approval } })
-  if (!approval.tools.every(tool => matchesConnection(tool, candidate, connection))) return fail('unavailable')
-  return candidate
+  const oauthConnectionIds = new Set<string>()
+  for (const tool of approval.tools) {
+    const view = connection(tool.connectionId, scope.tenantId, actorUserId)
+    if (!view || !matchesConnection(tool, view)) return fail('unavailable')
+    if (view.authentication === 'device-oauth') {
+      if (!routineMcpOwnerUserId(actorUserId)) return fail('denied')
+      oauthConnectionIds.add(tool.connectionId)
+    } else if (view.authentication !== 'none' && view.authentication !== 'device-bearer') return fail('unavailable')
+  }
+  return parseRoutineMcpPolicy({ tenantId: scope.tenantId, routineId: scope.routineId,
+    policy: { version: 1, revision: (old?.policy.revision ?? 0) + 1, approval },
+    ...(oauthConnectionIds.size ? { oauthAuthority: { ownerUserId: actorUserId!, connectionIds: [...oauthConnectionIds].sort() } } : {}) })
 }
 
 export function revokeRoutineMcpPolicy(value: StoredRoutineMcpPolicy, expectedRevision: number): StoredRoutineMcpPolicy {
@@ -149,7 +181,11 @@ export function routineMcpCallPermitted(
         now < approval.approvedAt || now >= approval.expiresAt || definitionRevision !== approval.definitionRevision) return false
     const tool = approval.tools.find(tool => tool.connectionId === exact.connectionId && tool.connectionRevision === exact.connectionRevision &&
       tool.toolName === exact.toolName && tool.schemaHash === exact.schemaHash)
-    return !!tool && Object.keys(tool.fixedArguments).every(key => Object.hasOwn(exact.arguments, key) &&
-      sameRoutineMcpJson(tool.fixedArguments[key], exact.arguments[key])) && matchesConnection(tool, queued, connection)
+    if (!tool || !Object.keys(tool.fixedArguments).every(key => Object.hasOwn(exact.arguments, key) &&
+      sameRoutineMcpJson(tool.fixedArguments[key], exact.arguments[key]))) return false
+    const view = connection(tool.connectionId, queued.tenantId, queued.oauthAuthority?.ownerUserId)
+    const stampedOAuth = queued.oauthAuthority?.connectionIds.includes(tool.connectionId) ?? false
+    return !!view && (stampedOAuth ? view.authentication === 'device-oauth' :
+      view.authentication === 'none' || view.authentication === 'device-bearer') && matchesConnection(tool, view)
   } catch { return false }
 }
