@@ -35,6 +35,10 @@ export interface ConversationTurnInput {
   reusePersistedUser?: boolean
   idempotencyKey?: string
   apiRuntime: ApiToolRuntime
+  /** One explicit Project-work draft: frozen prompt only, with no ambient
+   * registry/context lookup, tools, or model-driven effects. Later ordinary
+   * conversation turns are separate owner-controlled acts. Endpoint only. */
+  projectWorkDraft?: boolean
   openView?: () => SseChannel
   /** A durable initiator commits its job outcome and assistant message in one
    * synchronous transaction. Ordinary turns use appendMessage instead. Called
@@ -44,6 +48,7 @@ export interface ConversationTurnInput {
 
 export function startConversationTurn(input: ConversationTurnInput) {
   const { session, known, agent, provider, providerId, modelId, tenantId, text, persist, actorUserId } = input
+  if (input.projectWorkDraft && provider.kind === 'session') throw new Error('Project drafts require an endpoint provider')
   const ac = new AbortController()
   const active = turns.start(session.id, () => ac.abort(), input.idempotencyKey)
   if (!active) return undefined
@@ -94,10 +99,14 @@ export function startConversationTurn(input: ConversationTurnInput) {
 
   const finished = (async () => {
     try {
-      const { commons, contexts, externalMcpConnections } = conversationContext(session.id, tenantId, actorUserId)
+      const { commons, contexts, externalMcpConnections } = input.projectWorkDraft
+        ? { commons: undefined, contexts: [], externalMcpConnections: [] }
+        : conversationContext(session.id, tenantId, actorUserId)
       const result = provider.kind === 'session'
         ? await relayReply(session, agent, text, handlers, ac.signal, store.relay, providerId, commons, contexts, input.history, input.apiRuntime, externalMcpConnections)
-        : await generateReply(session, agent, text, handlers, ac.signal, provider, commons, contexts, input.apiRuntime, { externalMcpConnections }, input.history)
+        : await generateReply(session, agent, text, handlers, ac.signal, provider, commons, contexts,
+          input.projectWorkDraft ? undefined : input.apiRuntime,
+          { externalMcpConnections, ...(input.projectWorkDraft ? { toolPolicy: 'none' as const } : {}) }, input.history)
       outcome = result.outcome
       const message = stamp(result.message)
       if (message.relationActions?.length) emit({ type: 'message.relations', sessionId: session.id, messageId: message.id, relationActions: message.relationActions })

@@ -41,6 +41,19 @@ test('Dispatch status labels distinguish legacy simulations from every real term
   assert.equal(dispatchStatusLabel(run('cancelled')), 'Stopped')
 })
 
+test('Project work run metadata keeps a wrapping basis before its action controls', () => {
+  const presentation = stripComments(read(join(ROOT, 'src', 'lib', 'dispatchPresentation.ts')))
+  const panel = stripComments(read(join(ROOT, 'src', 'components', 'ProjectWorkDraftPanel.tsx')))
+  assert.match(presentation, /export const DISPATCH_RUN_META_CLASS = 'min-w-0 grow basis-64 text-\[12px\] text-ink-soft'/,
+    'the shared run metadata layout has a readable minimum basis and may yield before actions')
+  assert.match(panel, /data-dispatch-run-meta[^\n]*className=\{DISPATCH_RUN_META_CLASS\}/,
+    'the private-draft row exposes its exact shared metadata funnel to responsive geometry checks')
+  assert.doesNotMatch(panel, /data-dispatch-run-meta[^\n]*flex-1/,
+    'an equal-share flex item cannot starve its status text beside actions')
+  assert.match(panel, /<button type="button" data-project-work-share[\s\S]*className=\{`\$\{SOFT_BUTTON_CLASS\} inline-flex items-center justify-center gap-1\.5/,
+    'the comment action keeps its send icon and label on one centered line')
+})
+
 test('Dispatch UI and rail consume one presentation model without simulation gating', () => {
   const components = join(ROOT, 'src', 'components')
   const paths = (readdirSync(components, { recursive: true }) as string[])
@@ -53,12 +66,14 @@ test('Dispatch UI and rail consume one presentation model without simulation gat
 
   assert.deepEqual(
     consumers.map(({ path }) => relative(components, path)).sort(),
-    ['CompositeRailControls.tsx', 'SectionView.tsx'],
-    'main page and rail are the only Dispatch posture consumers',
+    ['CompositeRailControls.tsx', 'NewDispatchDialog.tsx', 'ProjectWorkDraftPanel.tsx', 'SectionView.tsx'],
+    'the rail, ordinary form, Project work draft, and feed consume Dispatch posture',
   )
 
   const section = consumers.find(({ path }) => path.endsWith('/SectionView.tsx'))!.source
   const rail = consumers.find(({ path }) => path.endsWith('/CompositeRailControls.tsx'))!.source
+  const dialog = consumers.find(({ path }) => path.endsWith('/NewDispatchDialog.tsx'))!.source
+  const projectDraft = consumers.find(({ path }) => path.endsWith('/ProjectWorkDraftPanel.tsx'))!.source
   assert.match(rail, /dispatchAvailable\(capabilities\.status === 'error' \? undefined : capabilities\.data\?\.features\.dispatchExecution\)/)
   assert.match(rail, /section === 'dispatch' && !canDispatch/)
   assert.match(rail, /disabled: primaryUnavailable/)
@@ -68,31 +83,33 @@ test('Dispatch UI and rail consume one presentation model without simulation gat
   assert.match(section, /dispatchPresentation\(capabilities\.status === 'error' \? undefined : capabilities\.data\?\.features\.dispatchExecution\)/)
   assert.match(section, /onRailInvoke=\{dispatch\.available \? openDispatch : undefined\}/,
     'the rail mirror cannot bypass the real capability gate')
-  assert.equal((section.match(/<DispatchNotice\s*\/>/g) ?? []).length, 2,
-    'both the form and the feed disclose real Dispatch posture')
+  assert.equal((section.match(/<DispatchNotice\s*\/>/g) ?? []).length, 1,
+    'the feed discloses Dispatch posture; its deferred form owns its separate disclosure')
   assert.match(section, /function DispatchNotice\(\)/)
   assert.match(section, /data-dispatch-posture=\{posture\.state\}/)
   assert.match(section, /className=\{AUTOMATION_NOTICE_CLASS\}/)
   assert.match(section, /<AutomationNotice\s+kind="standing"\s*\/>/)
   assert.match(section, /<AutomationNotice\s+kind="work"\s*\/>/)
 
-  const dialogStart = section.indexOf('function NewDispatchDialog(')
-  const dialogEnd = section.indexOf('function ScheduledSection(', dialogStart)
-  assert.ok(dialogStart >= 0 && dialogEnd > dialogStart, 'the source contains the complete Dispatch dialog')
-  const dialog = section.slice(dialogStart, dialogEnd)
   assert.match(dialog, /const canCreate = dispatch\.available && Boolean\(bindingReady\) && title\.trim\(\)\.length > 0 && Boolean\(tenantId\)/)
   assert.match(dialog, /if \(!canCreate \|\| held \|\| !tenantId\) return/)
   assert.match(dialog, /canSubmit=\{canCreate && !held\}/)
+  assert.match(dialog, /data-dispatch-posture=\{dispatch\.state\}[\s\S]*className=\{AUTOMATION_NOTICE_CLASS\}[\s\S]*\{dispatch\.note\}/,
+    'the deferred ordinary form presents the same capability-backed posture')
+  assert.match(projectDraft, /const dispatch = dispatchPresentation\(capabilities\.status === 'error' \? undefined : capabilities\.data\?\.features\.dispatchExecution\)/)
+  assert.match(projectDraft, /!dispatch\.available && <InlineOperationStatus tone="status" message=\{dispatch\.note\} \/>/,
+    'Project work drafting fails closed and displays the same Dispatch posture')
 })
 
 test('Dispatch page preserves private continuation and distinguishes reply-ready from action completion', () => {
   const source = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const dialog = stripComments(read(join(ROOT, 'src', 'components', 'NewDispatchDialog.tsx')))
   assert.match(source, /function DispatchView\(\{ onOpenSession \}: \{ onOpenSession: \(id: string\) => void \}\)/)
   assert.match(source, /onOpen=\{r\.execution \? \(\) => onOpenSession\(r\.execution!\.sessionId\) : undefined\}/,
     'only real runs open their private continuation conversation')
   assert.match(source, /Reply ready means a reply was saved, not that proposed actions were performed/)
   assert.match(source, /Interrupted runs are never restarted automatically/)
-  assert.match(source, /selected Agent’s instructions and permitted workspace tools/)
+  assert.match(dialog, /selected Agent’s instructions and permitted workspace tools/)
   assert.doesNotMatch(source, /first turn uses only your instructions/,
     'no attached context does not remove normal Agent instructions or permitted workspace tools')
 })

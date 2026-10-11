@@ -13,7 +13,49 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: explicit recursive folder snapshots
+## Current checkpoint: private Project-work response drafts
+
+Autonomous direction (2026-10-11): complete an explicit **Draft a response →
+review → post comment** workflow before expanding unattended Project execution.
+The Commission owner selects an existing read-capable Contributor and endpoint
+model. A server-authored frozen prompt contains the viewer-readable Project
+description/instructions, complete item facts and Commission role. The first
+turn has no tools, ambient registries or linked contexts. A shared Project never
+exposes its owner's private instructions to the visiting contributor's model.
+
+Reuse real Dispatch's private durable conversation, capacity, Stop, exact keyed
+replay and interrupted-restart behavior. Recheck open work, Commission revision,
+ownership, sharing and Commission/Agent/both-provider/account token budgets
+before committing the first prompt. The account owning the Agent pays; these
+checks do not reserve a monetary ceiling. Drafting neither reserves nor resolves
+the item and never awards Agent completion credit. Ordinary explicit conversation
+continuation keeps its existing owner-controlled context and tool semantics.
+
+Sharing is a separate, editable, bounded work-item comment. Only the reviewed
+prose crosses into the Project; private conversation identity stays private.
+Overlong replies are never silently shortened. Both model admission and comment
+posting retain exact intent across navigation and lost acknowledgements. A
+closed item cannot start a new draft. This is not a replacement for effect
+approval, an unattended Commission runtime, or completion of MOCK-9.
+
+Acceptance covers owner/shared/foreign reads, budget/refusal before I/O,
+tool-free model wire and unexpected-tool refusal, full-source size limits,
+JSON/SQLite restart, five-viewport rendered review/recovery and an ordinary
+unsigned arm64 package's draft/review/comment/relaunch journey. Local model
+fixtures are not paid-provider, signed/notarized or Intel evidence. Preserve the
+owner's live store and outstanding recovery choice; use generated profiles only.
+The full local verifier and post-test diff review remain mandatory before push.
+
+The initial package gate caught new lazy controls importing the entire navigation
+chunk through bundled shared policy. Keep pure role/Dispatch policy independently
+chunked and extract the existing Dispatch form as a lazy leaf; retain all physical,
+cold-start and async-graph budgets. The rendered review also exercises current-read
+admission, exact reply hydration and account-fenced comment acknowledgement after
+navigation, so previously posted prose cannot remain as an enabled duplicate draft.
+Narrow-screen review also caught result actions starving timestamp text; shared
+run metadata now keeps a readable wrapping basis, with five-viewport geometry locks.
+
+## Previous checkpoint: explicit recursive folder snapshots
 
 Autonomous direction (2026-10-11): make nested project context useful through
 an unchecked **Include subfolders** choice on macOS folder Attach, not live

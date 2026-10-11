@@ -110,6 +110,17 @@ test('real Dispatch preserves its frozen execution binding across later Session 
     'the owner/session identity wall remains strict')
 })
 
+test('Project-work provenance is strict private history, not a live configuration join', () => {
+  const valid = realRun()
+  const source = { projectId: 'removed-project', itemId: 'old-item', commissionId: 'removed-commission', expectedRevision: 7 }
+  const withSource = (projectWork: unknown) => ({ ...valid, execution: { ...valid.execution, projectWork } })
+  assert.equal(validDispatchState([withSource(source)], [ownerSession()]), true)
+  for (const sourceValue of [undefined, null, {}, { ...source, expectedRevision: -1 }, { ...source, title: 'caller prose' }]) {
+    assert.equal(validDispatchState([withSource(sourceValue)], [ownerSession()]), false)
+  }
+  assert.equal(validDispatchState([withSource(source)], [ownerSession({ tenantId: 'foreign' })]), false)
+})
+
 test('replied Dispatch message reference survives legitimate transcript compaction', () => {
   const replied = realRun('replied')
   assert.equal(validDispatchState([replied], [ownerSession({ messages: [] })]), true,

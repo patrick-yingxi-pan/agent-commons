@@ -5,6 +5,7 @@
 import type { ArtifactKind } from './entities.ts'
 import type { ProjectRole } from './roles.ts'
 import type { ScheduledArtifactSpec } from './scheduledArtifact.ts'
+import type { ProjectWorkDraftSource } from './projectWorkDraft.ts'
 
 /** A scheduled run that belongs to a project (shown in the project's right-hand
  *  panel). Mirrors the shape of the global ScheduledTask but scoped to one
@@ -353,5 +354,9 @@ export interface DispatchRun {
     sessionId: string
     state: 'running' | 'replied' | 'failed' | 'interrupted' | 'cancelled'
     messageId?: string
+    /** Frozen private provenance for an explicitly scoped Project-work draft.
+     * It records the reviewed source revision only; it is not completion,
+     * reservation, or external execution authority. */
+    projectWork?: ProjectWorkDraftSource
   }
 }

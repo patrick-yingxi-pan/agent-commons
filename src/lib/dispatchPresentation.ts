@@ -1,6 +1,8 @@
 import type { DispatchRun } from '../../contract/index.ts'
 import { dispatchAvailable } from './automationAvailability.ts'
 
+export const DISPATCH_RUN_META_CLASS = 'min-w-0 grow basis-64 text-[12px] text-ink-soft'
+
 export function dispatchPresentation(capability: boolean | undefined) {
   return {
     available: dispatchAvailable(capability),

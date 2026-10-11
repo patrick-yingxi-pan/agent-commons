@@ -3,13 +3,6 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
-function dispatchDialog(source: string): string {
-  const start = source.indexOf('function NewDispatchDialog(')
-  const end = source.indexOf('function ScheduledSection(', start)
-  assert.ok(start >= 0 && end > start, 'the source contains the complete Dispatch dialog')
-  return source.slice(start, end)
-}
-
 function assertExactDispatchBinding(source: string): void {
   assert.match(source, /const input = \{[\s\S]*title: title\.trim\(\),[\s\S]*detail: detail\.trim\(\) \|\| undefined,[\s\S]*execution: \{ agentId, providerId, modelId \},[\s\S]*enqueueDispatch\(input\)/,
     'the task and exact reviewed Agent/provider/model enter one held logical action')
@@ -33,14 +26,15 @@ function assertNoRawSnapshotMerge(command: string): void {
     'a delayed mutation snapshot must not resurrect a deleted run or rewind terminal state')
 }
 
-function assertDispatchUiContract(view: string, command: string): void {
-  const dialog = dispatchDialog(view)
+function assertDispatchUiContract(view: string, dialog: string, command: string): void {
   assert.doesNotMatch(view, /createDispatch\(/, 'the dialog cannot bypass acknowledgement')
   assert.match(view, /dispatchPresentation\(capabilities\.status === 'error' \? undefined : capabilities\.data\?\.features\.dispatchExecution\)/,
     'the page reads the independent real-execution capability')
   assert.match(view, /const openDispatch = \(\) => \{ if \(dispatch\.available\) setCreating\(true\) \}/)
   assert.match(view, /disabled=\{!dispatch\.available\}/)
   assert.match(view, /onRailInvoke=\{dispatch\.available \? openDispatch : undefined\}/)
+  assert.match(view, /creating && <DeferredNewDispatchDialog onClose=\{\(\) => setCreating\(false\)\} onManageModelConnections=\{\(\) => rel\.navigate\('models'\)\} \/>/,
+    'the canonical Dispatch page opens only the deferred bounded form')
   assertExactDispatchBinding(dialog)
   assert.match(dialog, /outcome === 'applied'/, 'only an acknowledged creation closes the dialog')
   assert.match(dialog, /busy=\{held\}/, 'the shared form freezes exact choices while uncertain')
@@ -51,13 +45,20 @@ function assertDispatchUiContract(view: string, command: string): void {
 
 test('Dispatch creation holds the exact task and execution binding through acknowledgement/recovery', () => {
   const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const dialog = stripComments(read(join(ROOT, 'src', 'components', 'NewDispatchDialog.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredNewDispatchDialog.tsx')))
   const command = stripComments(read(join(ROOT, 'src', 'api', 'dispatchCommands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'dispatchMutations.ts')))
   const runtime = stripComments(read(join(ROOT, 'src', 'controller', 'dispatchMutationRuntime.ts')))
   const notice = stripComments(read(join(ROOT, 'src', 'components', 'DispatchMutationNotice.tsx')))
   const shell = stripComments(read(join(ROOT, 'src', 'components', 'ShellMutationNotices.tsx')))
 
-  assertDispatchUiContract(view, command)
+  assertDispatchUiContract(view, dialog, command)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/NewDispatchDialog\.tsx'\)/, 'the editable form remains outside the eager SectionView graph')
+  assert.match(deferred, /<DeferredLoadBoundary fallback=\{<LoadState failed onClose=\{props\.onClose\} \/>\}[\s\S]*<Suspense fallback=\{<LoadState onClose=\{props\.onClose\} \/>\}/,
+    'loading and module errors are contained by an actionable boundary')
+  assert.match(deferred, /submitLabel=\{failed \? 'Reload app' : 'Loading…'\}/)
+  assert.match(deferred, /onClose=\{onClose\}/, 'the loading/error state can close without accepting a late form')
   assert.match(controller, /import\('\.\/dispatchMutationRuntime'\)/, 'low-frequency transport remains lazy')
   assert.match(controller, /issuedGeneration !== accountGeneration/, 'an old account cannot release the new account hold')
   assert.match(runtime, /createAcknowledgedActionMutationController/, 'Dispatch reuses the acknowledged-action FIFO')
@@ -68,12 +69,13 @@ test('Dispatch creation holds the exact task and execution binding through ackno
 
 test('Dispatch locks reject losing the exact execution choice or projecting stale response snapshots', () => {
   const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const dialog = stripComments(read(join(ROOT, 'src', 'components', 'NewDispatchDialog.tsx')))
   const command = stripComments(read(join(ROOT, 'src', 'api', 'dispatchCommands.ts')))
-  assertDispatchUiContract(view, command)
+  assertDispatchUiContract(view, dialog, command)
 
-  const noModelBinding = view.replace('execution: { agentId, providerId, modelId },', 'execution: { agentId, providerId },')
-  assert.notEqual(noModelBinding, view, 'the mutation fixture changes the binding')
-  assert.throws(() => assertExactDispatchBinding(dispatchDialog(noModelBinding)), /exact reviewed Agent\/provider\/model/)
+  const noModelBinding = dialog.replace('execution: { agentId, providerId, modelId },', 'execution: { agentId, providerId },')
+  assert.notEqual(noModelBinding, dialog, 'the mutation fixture changes the binding')
+  assert.throws(() => assertExactDispatchBinding(noModelBinding), /exact reviewed Agent\/provider\/model/)
 
   const staleProjection = command.replace(
     'invalidate(keys.dispatch)\n  invalidate(keys.sessions)',

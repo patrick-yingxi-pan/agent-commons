@@ -234,7 +234,50 @@ export async function smokePackagedDispatch({ executable, launch, close }) {
     assert.equal(replay.execution.sessionId, sessionId, 'the exact original private Session identity remains bound')
     assert.equal(fixture.requests.length, 3, 'startup recovery and exact Retry never redispatch the model call')
     assert.equal(fixture.heldCount, 0)
+    stage = 'project-work-draft-review'
+    const { project } = await request(page, '/projects', { name: 'Packaged draft Project', description: 'Frozen packaged Project description.' }, { key: 'packaged-draft-project' })
+    const item = await request(page, `/projects/${project.id}/open-subgoals`, {
+      subGoal: 'Prepare the next release response', type: 'charge', target: 'release-budget', note: 'Do not perform the requested effect.',
+    }, { key: 'packaged-draft-item' })
+    const commission = await request(page, '/commissions', { agentId: binding.agentId, projectId: project.id, role: 'reader', standing: false }, { key: 'packaged-draft-commission' })
+    await page.goto(`${origin}/projects/${project.id}/work/${item.id}`)
+    await page.getByRole('button', { name: 'Draft a response', exact: true }).click()
+    const draftPanel = page.locator('[data-project-work-draft]')
+    await draftPanel.locator('[data-project-work-commission]').selectOption(commission.id)
+    await draftPanel.locator('[data-project-work-provider]').selectOption(binding.providerId)
+    await draftPanel.locator('[data-project-work-model]').selectOption(binding.modelId)
+    await draftPanel.locator('[data-project-work-start]').click()
+    await expect.poll(async () => (await readDispatch(page)).find(candidate => candidate.execution?.projectWork?.itemId === item.id)?.execution?.state).toBe('replied', { timeout: TIMEOUT_MS })
+    const projectDraft = (await readDispatch(page)).find(candidate => candidate.execution?.projectWork?.itemId === item.id)
+    assert.equal(fixture.requests.length, 4)
+    assert.equal(fixture.requests[3].tools, undefined, 'Project drafting exposes no tools, including workspace API tools')
+    assert.match(JSON.stringify(fixture.requests[3].messages), /Frozen packaged Project description/)
+    assert.deepEqual(projectDraft.execution.projectWork, { projectId: project.id, itemId: item.id, commissionId: commission.id, expectedRevision: commission.configurationRevision ?? 0 })
+    assert.equal(storedEntity(profile, 'dispatch', projectDraft.id).execution.projectWork.itemId, item.id)
+    await draftPanel.getByRole('button', { name: 'Review for sharing', exact: true }).click()
+    await expect(draftPanel.locator('[data-project-work-reply]')).toHaveValue(/Local Dispatch fixture reply/)
+    const sharedText = 'Reviewed by the owner: here is the proposed release plan.'
+    await draftPanel.locator('[data-project-work-reply]').fill(sharedText)
+    await draftPanel.locator('[data-project-work-share]').click()
+    await expect.poll(async () => (await request(page, `/projects/${project.id}/open-subgoals`)).find(row => row.id === item.id)?.comments?.some(comment => comment.body === sharedText)).toBe(true)
+    const workAfterShare = (await request(page, `/projects/${project.id}/open-subgoals`)).find(row => row.id === item.id)
+    assert.equal(workAfterShare.status, 'open', 'posting a response is not performing or completing Project work')
+    assert.ok(!JSON.stringify(workAfterShare).includes(projectDraft.execution.sessionId), 'shared work never exposes the private conversation identity')
+    await page.screenshot({ path: join(evidenceDirectory, 'project-draft-reviewed-and-shared.png') })
+
+    stage = 'project-work-draft-relaunch'
+    await close(run)
+    run = undefined
+    run = await launch(executable, profile)
+    ;({ page, origin } = run)
+    const retainedDraft = (await readDispatch(page)).find(candidate => candidate.id === projectDraft.id)
+    assert.deepEqual(retainedDraft, projectDraft)
+    const retainedWork = (await request(page, `/projects/${project.id}/open-subgoals`)).find(row => row.id === item.id)
+    assert.equal(retainedWork.status, 'open')
+    assert.equal(retainedWork.comments.filter(comment => comment.body === sharedText).length, 1)
+    assert.equal(fixture.requests.length, 4, 'relaunch retains the private draft and reviewed comment without another model call')
     console.log('[desktop-dispatch-smoke] ordinary packaged process · rendered explicit binding · private continuable Session · SQLite pending before quit · restart fails closed · same-key replay without redispatch')
+    console.log('[desktop-project-draft-smoke] reader Commission · frozen source · tool-free private reply · reviewed comment only · open work and SQLite retained across relaunch')
   } catch (error) {
     throw new Error(`Packaged Dispatch smoke failed during ${stage}: ${error instanceof Error ? error.message : String(error)}`, { cause: error })
   } finally {

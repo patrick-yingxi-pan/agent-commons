@@ -1,5 +1,5 @@
 /** Lazy transport for acknowledgement-gated one-off Dispatch creation. */
-import type { CreateDispatchRequest, DispatchBinding, DispatchRun } from '../../contract/index.ts'
+import type { CreateDispatchRequest, DispatchBinding, DispatchRun, ProjectWorkDraftInput, ProjectWorkDraftSource } from '../../contract/index.ts'
 import { apiGet, apiPost } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { invalidate, peek } from './cache.ts'
@@ -11,6 +11,11 @@ export interface DispatchIntent {
   title: string
   detail?: string
   execution: DispatchBinding
+  /** A Project-work draft uses this source instead of title/detail on the wire.
+   * `title` remains only the local status label for the held action. */
+  projectWork?: ProjectWorkDraftSource
+  /** Display-only snapshot retained while an acknowledged request is held. */
+  projectWorkLabels?: { commission: string; provider: string; model: string }
 }
 
 export interface DispatchBaseline {
@@ -26,9 +31,12 @@ export function dispatchBaseline(intent: DispatchIntent): DispatchBaseline {
 }
 
 export async function createDispatch(intent: DispatchIntent, idempotencyKey: string): Promise<void> {
+  const body = intent.projectWork
+    ? { execution: intent.execution, projectWork: intent.projectWork } satisfies ProjectWorkDraftInput
+    : { title: intent.title, detail: intent.detail, execution: intent.execution } satisfies CreateDispatchRequest
   await apiPost<DispatchRun>(
     paths.dispatch,
-    { title: intent.title, detail: intent.detail, execution: intent.execution } satisfies CreateDispatchRequest,
+    body,
     { idempotencyKey },
   )
   // A result conversation can be deleted on another device before the POST

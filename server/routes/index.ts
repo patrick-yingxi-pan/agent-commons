@@ -4,6 +4,7 @@
 import { workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { startConversationTurn } from '../conversationExecution.ts'
 import { dispatchPrompt, parseRealDispatchInput } from '../../contract/dispatchExecution.ts'
+import { parseProjectWorkDraftInput } from '../../contract/projectWorkDraft.ts'
 import { contributionRuntimeMode, CONTRIBUTION_RUNTIME_UNAVAILABLE } from '../contributionRuntime.ts'
 import { automationRuntimeMode, AUTOMATION_RUNTIME_UNAVAILABLE, type AutomationFixtureKind } from '../automationRuntime.ts'
 import { validReviewerBinding } from '../contributionReviewState.ts'
@@ -5251,10 +5252,12 @@ export function buildRouter(): Router {
     const represented = store.getRealDispatch(manualDispatchRunId(tenantId, key), tenantId)
     if (represented === 'retired') return sendError(res, 'not_found', 'This Dispatch conversation was already removed.')
     if (represented) return sendJson(res, represented)
-    const input = parseRealDispatchInput(value)
+    const input = parseProjectWorkDraftInput(value) ?? parseRealDispatchInput(value)
     if (!input) return sendError(res, 'bad_request', 'Provide a bounded task and explicit Agent, endpoint provider, and model.')
     try {
-      const run = store.startRealDispatch(input, tenantId, manualDispatchRunId(tenantId, key))
+      const run = 'projectWork' in input
+        ? store.startProjectWorkDraft(input, tenantId, manualDispatchRunId(tenantId, key))
+        : store.startRealDispatch(input, tenantId, manualDispatchRunId(tenantId, key))
       const execution = run.execution!
       const known = store.getSession(execution.sessionId)!
       const work = startConversationTurn({
@@ -5263,6 +5266,7 @@ export function buildRouter(): Router {
         provider: { ...store.providerConfig(execution.providerId), model: execution.modelId },
         providerId: execution.providerId, modelId: execution.modelId, tenantId,
         text: dispatchPrompt(run.title, run.detail), history: [], persist: true,
+        projectWorkDraft: execution.projectWork !== undefined,
         reusePersistedUser: true, idempotencyKey: key,
         apiRuntime: {
           catalog: apiCatalog(),

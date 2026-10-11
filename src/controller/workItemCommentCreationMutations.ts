@@ -1,6 +1,6 @@
 /** Eager facade for acknowledgement-owned work-item commenting. */
 import { WORK_ITEM_COMMENT_MAX } from '../../contract/index.ts'
-import { onAccountSwitch } from '../api'
+import { onAccountSwitch } from '../api/account.ts'
 import type { WorkItemCommentCreationIntent } from '../api/workItemCommentCreationCommands.ts'
 import { workItemCommentCreationId } from '../api/workItemCommentCreationIdentity.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
@@ -19,8 +19,18 @@ interface HeldComment {
   result: Promise<WorkItemCommentCreationResult>
 }
 
+export interface WorkItemCommentCreationApplied {
+  tenantId: string
+  projectId: string
+  itemId: string
+  intentId: string
+  body: string
+  commentId: string
+}
+
 const statusStore = createMutationStatusStore()
 const heldItems = new Map<string, HeldComment>()
+const appliedListeners = new Set<(event: WorkItemCommentCreationApplied) => void>()
 let accountGeneration = 0
 export const publishWorkItemCommentCreationStatus = statusStore.publish
 
@@ -49,6 +59,15 @@ export const heldWorkItemCommentIntent = (
   itemId: string,
 ): WorkItemCommentCreationIntent | null => heldItems.get(itemKey(projectId, itemId))?.intent ?? null
 
+/** Observe exact comments that have reached authoritative applied truth. Dismissal
+ * never emits, so callers can clear submitted text only after success. */
+export function subscribeWorkItemCommentCreationApplied(
+  listener: (event: WorkItemCommentCreationApplied) => void,
+): () => void {
+  appliedListeners.add(listener)
+  return () => appliedListeners.delete(listener)
+}
+
 export function enqueueWorkItemCommentCreation(input: {
   tenantId: string
   projectId: string
@@ -73,7 +92,22 @@ export function enqueueWorkItemCommentCreation(input: {
   const result = Promise.all([
     outcome,
     workItemCommentCreationId(input.tenantId, input.projectId, input.itemId, intent.intentId),
-  ]).then(([settled, commentId]) => ({ outcome: settled, commentId }))
+  ]).then(([settled, commentId]) => {
+    if (settled === 'applied' && issuedGeneration === accountGeneration) {
+      const event: WorkItemCommentCreationApplied = {
+        tenantId: intent.tenantId,
+        projectId: intent.projectId,
+        itemId: intent.itemId,
+        intentId: intent.intentId,
+        body: intent.body,
+        commentId,
+      }
+      for (const listener of appliedListeners) {
+        try { listener(event) } catch { /* Observers cannot alter the mutation outcome. */ }
+      }
+    }
+    return { outcome: settled, commentId }
+  })
   heldItems.set(key, { intent, result })
   statusStore.refresh()
   const release = (): void => {

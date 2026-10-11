@@ -17,6 +17,8 @@ import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
 import { automationRuntimeMode, requireAutomationFixture } from '../automationRuntime.ts'
 import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput } from '../../contract/dispatchExecution.ts'
+import { parseProjectWorkDraftInput, type ProjectWorkDraftInput, type ProjectWorkDraftSource } from '../../contract/projectWorkDraft.ts'
+import { projectWorkDraftPrompt } from '../projectWorkDraft.ts'
 import { dispatchSessionId } from '../dispatchIdentity.ts'
 import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, prepareContributionMcpLines, currentContributionMcpLine, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
 import { createContributionEffectAttempt, settleContributionEffectAttempt, interruptContributionEffectAttempt, publicContributionEffectRun, contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX } from '../contributionEffectState.ts'
@@ -7341,7 +7343,45 @@ export const store = {
     if (retiredSessionCreationIds.has(dispatchSessionId(runId))) return 'retired'
     return undefined
   },
-  startRealDispatch(input: RealDispatchInput, tenantId: string, runId: string): DispatchRun {
+  /** A draft is computation for the Commission owner, not a Project effect.
+   * Source projection, grant checks and durable admission are synchronous: no
+   * body/network wait can change authority between this check and the commit. */
+  startProjectWorkDraft(value: ProjectWorkDraftInput, tenantId: string, runId: string): DispatchRun {
+    const represented = this.getRealDispatch(runId, tenantId)
+    if (represented === 'retired') throw new NotFoundError('This Dispatch conversation was already removed.')
+    if (represented) return represented
+    const input = parseProjectWorkDraftInput(value)
+    if (!input) throw new ValidationError('Provide an exact Project work source, Commission revision, and Agent/model binding.')
+    const source = input.projectWork
+    const project = this.listProjects(tenantId).find(row => row.id === source.projectId)
+    const commission = COMMISSIONS.get(source.commissionId)
+    const item = openSubGoals.find(row => row.id === source.itemId && row.projectId === source.projectId)
+    // A private/granted Project is not a public cooperation grant. Match the
+    // same live cross-tenant shared gate used by commissioned Project effects.
+    const projectOwner = findProject(source.projectId)?.tenantId ?? defaultTenantId()
+    if (!project || !item || !commission || commission.projectId !== source.projectId ||
+      this.commissionOwnerTenant(commission.id) !== tenantId ||
+      (projectOwner !== tenantId && project.shared !== true)) {
+      throw new NotFoundError('The Project work item or owned Contributor is unavailable.')
+    }
+    if (item.status !== 'open') throw new ConflictError('This work item is no longer open.')
+    if ((commission.configurationRevision ?? 0) !== source.expectedRevision) {
+      throw new ConflictError('The Contributor changed. Review its current configuration before drafting.')
+    }
+    if (commission.agentId !== input.execution.agentId || !this.commissionRolePermits(commission.id, 'read')) {
+      throw new ValidationError('The selected Agent must be this Contributor’s read-capable Agent.')
+    }
+    const agent = WORKER_AGENTS.get(commission.agentId)
+    if (!agent) throw new NotFoundError('The selected Agent is unavailable.')
+    const selectedProvider = this.listProviders(tenantId).find(row => row.id === input.execution.providerId)
+    if (!selectedProvider) throw new NotFoundError('The selected model provider is unavailable.')
+    for (const budget of [commission.grant, agent.budget, resolveProvider(agent.providerId).plan, selectedProvider.plan]) {
+      const over = this.overSpendLimit(budget, tenantId)
+      if (over) throw new LimitError(`Contributor budget limit reached for '${over.label}'.`)
+    }
+    return this.startRealDispatch({ ...projectWorkDraftPrompt(project, item, commission), execution: input.execution }, tenantId, runId, source)
+  },
+  startRealDispatch(input: RealDispatchInput, tenantId: string, runId: string, projectWork?: ProjectWorkDraftSource): DispatchRun {
     const represented = this.getRealDispatch(runId, tenantId)
     if (represented === 'retired') throw new NotFoundError('This Dispatch conversation was already removed.')
     if (represented) return represented
@@ -7369,7 +7409,8 @@ export const store = {
     const run: DispatchRun = {
       id: runId, tenantId, title: parsed.title.trim(), detail: parsed.detail?.trim() ?? '',
       status: 'running', startedAt: Date.now(),
-      execution: { ...parsed.execution, kind: 'conversation', sessionId, state: 'running' },
+      execution: { ...parsed.execution, kind: 'conversation', sessionId, state: 'running',
+        ...(projectWork ? { projectWork: { ...projectWork } } : {}) },
     }
     return commitMutationBatch(() => {
       mintSession({

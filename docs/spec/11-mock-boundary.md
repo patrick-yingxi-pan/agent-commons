@@ -195,6 +195,12 @@ redispatch, and Disconnect/removal. The original package remains unchanged.
 These tests do not prove real third-party servers, actual native dialog
 interaction, signed/notarized releases or Intel behavior.
 
+COMMONS-40 adds explicit private Project-work response drafts using real
+Dispatch admission and the tool-free model seam. The owner reviews and posts
+chosen prose as a comment; the item remains open. This does not close MOCK-9:
+unattended commissioned effects, completion and Agent proxies remain separate.
+Its local model and unsigned packaged fixtures do not prove paid-provider use.
+
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |
 |----|--------------------------------------------------|--------|--------|
 | MOCK-9 | **Legacy collaboration automation is fixture-only.** Dispatch timer completion, commissioned Project effects and Agent proxies cannot execute in any release profile, even with a real model or MCP connection. Refusal precedes cached fixture replay, guardian use, audit and credit. Posting native/A2A work and configuring standing Commissions leave new work open/submitted. Legacy Dispatch rows are labeled Simulation. Real explicitly bound Dispatch uses the separate conversation execution capability (ADAPT-8); no standing configuration inherits its authority. Unattended Routine MCP uses the separate explicit bounded permission in MODEL-40, verified through local protocol/browser and unsigned native fixtures; public-service acceptance remains separate. | `server/automationRuntime.ts`, `server/store/index.ts`, `server/routes/index.ts`, `contract/api.ts`, `src/lib/automationPresentation.ts`, `src/lib/dispatchPresentation.ts`, `src/components/SectionView.tsx` | 🟡 `server/store/automation-runtime.test.ts`, `server/routes/automation-runtime.test.ts`, `server/routes/real-dispatch.test.ts`, `src/lib/automation-presentation.test.ts`, `src/lib/dispatch-presentation.test.ts`, `e2e/automation-runtime.spec.ts`, `desktop/contributionMcpSmoke.test.ts`; original packaged executable refusal gate |

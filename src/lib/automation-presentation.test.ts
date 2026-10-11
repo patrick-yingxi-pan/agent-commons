@@ -37,13 +37,20 @@ test('legacy automation disclosure stays on standing/work and cannot gate real D
     .map((path) => join(components, path))
   const sources = paths.map((path) => ({ path, source: stripComments(read(path)) }))
   const consumers = sources.filter(({ source }) =>
-    /automationPresentation\(|AUTOMATION_NOTICE_CLASS|function AutomationNotice\b/.test(source),
+    /automationPresentation\(|function AutomationNotice\b/.test(source),
   )
 
   assert.deepEqual(
     consumers.map(({ path }) => relative(components, path)).sort(),
     ['SectionView.tsx'],
     'only the page-level legacy standing/work notice owns this presentation',
+  )
+
+  const noticeStyleConsumers = sources.filter(({ source }) => /AUTOMATION_NOTICE_CLASS/.test(source))
+  assert.deepEqual(
+    noticeStyleConsumers.map(({ path }) => relative(components, path)).sort(),
+    ['NewDispatchDialog.tsx', 'SectionView.tsx'],
+    'the deferred real Dispatch form may share the notice styling without consuming legacy simulation copy',
   )
 
   const source = consumers[0]!.source

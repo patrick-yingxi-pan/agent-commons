@@ -287,6 +287,9 @@ export interface ReplyResult {
 }
 
 export interface ReplyExecutionOptions {
+  /** Explicit server-owned read-only drafting policy. Unlike provider capability
+   * metadata this is authority: no tools and no continuation on a tool request. */
+  toolPolicy?: 'none'
   /** Caller-owned connection snapshots; routines deliberately omit this. */
   externalMcpConnections?: readonly McpConnectionView[]
   /** Separate owner-reviewed unattended MCP authority. Interactive callers omit it. */
@@ -555,7 +558,7 @@ export async function generateReply(
   // `tools` param at all (a strict endpoint would reject it), so the tool-use loop —
   // and with it the consent-gated proposals — degrades away for turns on it. An
   // unprobed config (the default provider) is the ambient trusted endpoint: full tools.
-  const supportsTools = provider.capabilities?.toolUse !== false
+  const supportsTools = execution.toolPolicy !== 'none' && provider.capabilities?.toolUse !== false
   // The generated API tools (access-parity INV-11, the in-app leg): one tool per
   // HTTP operation, derived from the same catalog as the MCP door. Declared for
   // every turn the route supplies a runtime for — authority is the USER's (reads
@@ -629,6 +632,12 @@ export async function generateReply(
       const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
       if (toolUses.length === 0) {
         return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'ok' }
+      }
+      if (execution.toolPolicy === 'none') {
+        const note = `${fullText ? '\n\n' : ''}_(The model requested tools that this draft cannot use. No tools were run.)_`
+        handlers.onDelta(note)
+        fullText += note
+        return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'fallback' }
       }
 
       // Observe the over-budget response but execute none of its calls. The

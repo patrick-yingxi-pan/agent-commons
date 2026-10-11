@@ -36,6 +36,10 @@ export default defineConfig({
         manualChunks(id) {
           const path = id.split('\\').join('/')
           if (path.endsWith('/src/components/FormDialog.tsx')) return 'resource-form'
+          // Shared pure policy must not make a lazy work draft import the
+          // entire SectionPane through Rollup's parent-owned helper exports.
+          // Graph budgets still count these bytes at every cold entry.
+          if (path.endsWith('/contract/roles.ts') || path.endsWith('/src/lib/dispatchPresentation.ts') || path.endsWith('/src/lib/automationPresentation.ts')) return 'collaboration-policy'
           if (/\/node_modules\/(?:react|react-dom|scheduler)\//.test(path)) return 'vendor-react'
           if (/\/node_modules\/(?:framer-motion|motion-dom|motion-utils)\//.test(path)) return 'vendor-motion'
         },

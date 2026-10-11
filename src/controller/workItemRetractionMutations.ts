@@ -1,5 +1,5 @@
 /** Eager held-state facade for acknowledgement-owned work-item retraction. */
-import { onAccountSwitch } from '../api'
+import { onAccountSwitch } from '../api/account.ts'
 import type { WorkItemRetractionIntent } from '../api/workItemRetractionCommands.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
 import { IDLE_REVISIONED_MUTATION, type RevisionedMutationOutcome } from './revisionedMutationCore.ts'

@@ -8,6 +8,18 @@ import { join } from 'node:path'
 import { optimizeDeps, resolveConfig } from 'vite'
 import { ROOT } from './helpers/source.ts'
 
+test('shared collaboration policy cannot fold a lazy draft back into the full navigation chunk', async () => {
+  const config = await resolveConfig({ root: ROOT, configFile: join(ROOT, 'vite.config.ts'), logLevel: 'silent' }, 'build')
+  const output = config.build.rollupOptions.output
+  assert.ok(output && !Array.isArray(output))
+  assert.equal(typeof output.manualChunks, 'function')
+  const chunk = output.manualChunks as (id: string) => string | undefined
+  assert.equal(chunk(join(ROOT, 'contract/roles.ts')), 'collaboration-policy')
+  assert.equal(chunk(join(ROOT, 'src/lib/dispatchPresentation.ts')), 'collaboration-policy')
+  assert.equal(chunk(join(ROOT, 'src/lib/automationPresentation.ts')), 'collaboration-policy')
+  assert.equal(chunk(join(ROOT, 'src/components/SectionView.tsx')), undefined)
+})
+
 test('the cold dependency scan includes lazy document worker dependencies', async () => {
   const cache = mkdtempSync(join(tmpdir(), 'agent-commons-vite-scan-'))
   try {

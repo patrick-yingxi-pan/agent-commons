@@ -50,7 +50,7 @@ test('packaged Dispatch acceptance drives the rendered binding, observes durable
     "getByRole('button', { name: 'Dispatch', exact: true })",
   ]) assert.ok(source.includes(selector), `the native smoke must drive ${selector}`)
   let previous = -1
-  for (const stage of ['rendered-first-dispatch', 'ordinary-continuation', 'durable-pending-before-quit', 'relaunch-and-exact-replay']) {
+  for (const stage of ['rendered-first-dispatch', 'ordinary-continuation', 'durable-pending-before-quit', 'relaunch-and-exact-replay', 'project-work-draft-review', 'project-work-draft-relaunch']) {
     const at = source.indexOf(`stage = '${stage}'`)
     assert.ok(at > previous, `the packaged smoke preserves ${stage} ordering`)
     previous = at
@@ -59,6 +59,12 @@ test('packaged Dispatch acceptance drives the rendered binding, observes durable
   assert.match(source, /assert\.equal\(dispatchBeforeQuit\?\.status, 'running'/)
   assert.match(source, /assert\.equal\(recovered\?\.execution\?\.state, 'interrupted'/)
   assert.match(source, /assert\.equal\(fixture\.requests\.length, 3, 'startup recovery and exact Retry never redispatch the model call'/)
+  for (const selector of ['data-project-work-commission', 'data-project-work-provider', 'data-project-work-model', 'data-project-work-start', 'data-project-work-reply', 'data-project-work-share']) {
+    assert.ok(source.includes(selector), `packaged Project drafting drives ${selector}`)
+  }
+  assert.match(source, /assert\.equal\(fixture\.requests\[3\]\.tools, undefined/)
+  assert.match(source, /assert\.equal\(retainedWork\.status, 'open'\)/)
+  assert.match(source, /assert\.deepEqual\(retainedDraft, projectDraft\)/)
   assert.doesNotMatch(source, /_electron|use-mock-keychain|store\.\w+\(/,
     'the smoke uses the ordinary executable and public HTTP surface, not injected app or product-store authority')
 })

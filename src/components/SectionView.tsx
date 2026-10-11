@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
+import { DeferredProjectWorkDraftPanel } from './DeferredProjectWorkDraftPanel.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { automationPresentation, AUTOMATION_NOTICE_CLASS } from '../lib/automationPresentation.ts'
 import { namedIconProps } from '../lib/namedIcon.ts'
 import { dispatchPresentation, dispatchStatusLabel } from '../lib/dispatchPresentation.ts'
-import { DISPATCH_TITLE_MAX, DISPATCH_DETAIL_MAX } from '../../contract/dispatchExecution.ts'
 import {
   AlertCircle,
   Award,
@@ -264,15 +264,10 @@ import {
   type WorkflowStep,
 } from '../data/cowork'
 import {
-  desktopCredentialsAvailable,
-  a2aAgentCardUrl,
-  recordView,
   useAgentProposals,
   useMe,
   useWatchState,
-  probePrompt,
   useApiTokens,
-  API_BASE,
   useAgents,
   useAgentDirectory,
   useAgentForks,
@@ -292,8 +287,6 @@ import {
   useCanComment,
   useSocialCapability,
   useGrants,
-  reactToDiscussionPost,
-  reportDiscussionPost,
   useAttention,
   useMyWork,
   useOwnerProfile,
@@ -311,11 +304,6 @@ import {
   useAdminTokens,
   useAdminAudit,
   useAdminOps,
-  invalidate,
-  keys,
-  type ResourceUnavailableState,
-  resolveResourceUnavailable,
-  retryResourceQueries,
   useSavedContexts,
   useProjects,
   useArtifacts,
@@ -326,7 +314,13 @@ import {
   useSystemPrompts,
   useAgentToolCatalog,
   useNotifications,
-} from '../api'
+} from '../api/hooks.ts'
+import { API_BASE } from '../api/client.ts'
+import { a2aAgentCardUrl, probePrompt, reactToDiscussionPost, recordView, reportDiscussionPost } from '../api/commands.ts'
+import { desktopCredentialsAvailable } from '../api/desktopCredentials.ts'
+import { type ResourceUnavailableState, resolveResourceUnavailable, retryResourceQueries } from '../api/resourceRead.ts'
+import { invalidate } from '../api/cache.ts'
+import { keys } from '../api/keys.ts'
 import {
   createProviderConnectionAttempt,
   enqueueProviderConnection,
@@ -367,8 +361,7 @@ import {
 import type { RevisionedMutationOutcome } from '../controller/revisionedMutationCore'
 import { SHARING_MUTATION_WAIT } from '../controller/grantMutations.ts'
 import {
-  enqueueDispatch,
-  isDispatchHeld,
+  heldProjectWorkDraftSelection,
   useDispatchMutationStatus,
 } from '../controller/dispatchMutations'
 import {
@@ -533,6 +526,7 @@ import {
   heldWorkItemCommentIntent,
   useWorkItemCommentCreationStatus,
 } from '../controller/workItemCommentCreationMutations.ts'
+import { useAppliedWorkItemComment } from '../controller/useAppliedWorkItemComment.ts'
 import {
   WORK_ITEM_RETRACTION_SCOPE,
   enqueueWorkItemRetraction,
@@ -695,6 +689,7 @@ import { heldArtifactPermanentDeletionRow, useArtifactPermanentDeletionRows } fr
 import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
+import { DeferredNewDispatchDialog } from './DeferredNewDispatchDialog.tsx'
 import { DeferredContributionReviewPanel } from './DeferredContributionReviewPanel.tsx'
 import { DeferredContributionEnvelopeCard } from './DeferredContributionEnvelopeCard.tsx'
 import { DeferredDelegatedJudgmentPanel } from './DeferredDelegatedJudgmentPanel.tsx'
@@ -1129,7 +1124,7 @@ function ProjectsSection({
 
   const open = projectId ? (projects.find((p) => p.id === projectId) ?? null) : null
   if (open && workItemId)
-    return <WorkItemPage project={open} workItemId={workItemId} onBack={onBack} backTo={backTo} />
+    return <WorkItemPage project={open} workItemId={workItemId} onBack={onBack} backTo={backTo} onOpenSession={onOpenSession} />
   if (open && contributionId)
     return (
       <ContributionPage
@@ -3564,6 +3559,10 @@ function WorkItemRow({
       if (e.key === 'Enter') void send()
     },
   })
+  useAppliedWorkItemComment(tenantId, projectId, o.id, draft, () => {
+    setDraft('')
+    mention.close()
+  })
   const send = async () => {
     if (commentHeld || retractionHeld || !tenantId || !draft.trim()) return
     setError(null)
@@ -3741,25 +3740,33 @@ function WorkItemPage({
   workItemId,
   onBack,
   backTo,
+  onOpenSession,
 }: {
   project: Project
   workItemId: string
   onBack: () => void
   backTo: NavLocation | null
+  onOpenSession: (id: string) => void
 }) {
   const items = useOpenSubGoals(project.id).data ?? []
   const o = items.find((i) => i.id === workItemId) ?? null
   const me = useMe().data
+  const tenantId = me?.tenant.id
   const myName = me?.tenant.name
   const rel = useRelations()
   const [draft, setDraft] = useState('')
+  const [showProjectWorkDraft, setShowProjectWorkDraft] = useState(false)
   const [confirmingRetract, setConfirmingRetract] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useWorkItemCommentCreationStatus()
   useWorkItemRetractionStatus()
+  useDispatchMutationStatus()
   const heldComment = heldWorkItemCommentIntent(project.id, workItemId)
   const commentHeld = heldComment !== null
   const retractionHeld = isWorkItemRetractionHeld(project.id, workItemId)
+  const heldDraftSelection = heldProjectWorkDraftSelection(project.id, workItemId)
+  const projectWorkDraftHeld = !!heldDraftSelection || commentHeld || retractionHeld
+  const projectWorkDraftOpen = showProjectWorkDraft || projectWorkDraftHeld
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -3812,6 +3819,10 @@ function WorkItemPage({
     onKeyDown: (e) => {
       if (e.key === 'Enter') void send()
     },
+  })
+  useAppliedWorkItemComment(tenantId, project.id, workItemId, draft, () => {
+    setDraft('')
+    mention.close()
   })
 
   if (!o) {
@@ -3973,6 +3984,22 @@ function WorkItemPage({
           ),
         )}
       </div>
+
+      <FoldSection
+        title="Draft response"
+        summary="Choose your Commission and an endpoint model to prepare a private first reply."
+        heldOpen={projectWorkDraftOpen}
+        actions={<SectionAction
+          label="Draft a response"
+          icon={<Sparkles size={14} />}
+          onClick={() => setShowProjectWorkDraft((open) => !open)}
+          expanded={projectWorkDraftOpen}
+          disabled={projectWorkDraftHeld}
+          disabledReason={heldDraftSelection ? 'A private draft is being resolved.' : 'A comment or retraction is being resolved.'}
+        />}
+      >
+        {projectWorkDraftOpen && <DeferredProjectWorkDraftPanel project={project} item={o} onOpenSession={onOpenSession} onCommentPosted={() => { setDraft(''); mention.close() }} />}
+      </FoldSection>
 
       {/* The conversation continues below the timeline — same funnel as the
           backlog row's composer (anyone who can see the project may comment),
@@ -13081,6 +13108,7 @@ function AdminOpsPanel() {
 function GenericSection({ section, onOpenSession }: { section: SectionId; onOpenSession: (id: string) => void }) {
   const meta = SECTION_META[section]
   const [creating, setCreating] = useState(false)
+  const rel = useRelations()
   const capabilities = useCapabilities()
   const dispatch = dispatchPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.dispatchExecution)
   const openDispatch = () => { if (dispatch.available) setCreating(true) }
@@ -13112,108 +13140,8 @@ function GenericSection({ section, onOpenSession }: { section: SectionId; onOpen
       </PageHeader>
       {section === 'dispatch' && <DispatchView onOpenSession={onOpenSession} />}
       {section === 'customize' && <CustomizeView />}
-      {creating && <NewDispatchDialog onClose={() => setCreating(false)} />}
+      {creating && <DeferredNewDispatchDialog onClose={() => setCreating(false)} onManageModelConnections={() => rel.navigate('models')} />}
     </CompositeResourcePage>
-  )
-}
-
-/** One explicit execution binding, held with the task until acknowledgement. */
-function NewDispatchDialog({ onClose }: { onClose: () => void }) {
-  const [title, setTitle] = useState('')
-  const [detail, setDetail] = useState('')
-  const [agentId, setAgentId] = useState('')
-  const [providerId, setProviderId] = useState('')
-  const [modelId, setModelId] = useState('')
-  const agents = useAgents()
-  const providers = useProviders()
-  const rel = useRelations()
-  useDispatchMutationStatus()
-  const tenantId = useMe().data?.tenant.id
-  const held = isDispatchHeld()
-  const capabilities = useCapabilities()
-  const dispatch = dispatchPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.dispatchExecution)
-  const provider = providers.data?.find((candidate) => candidate.id === providerId && candidate.kind !== 'session')
-  const bindingReady = agents.status !== 'error' && providers.status !== 'error' &&
-    agents.data?.some((candidate) => candidate.id === agentId) && provider && modelProviderAvailable(provider) &&
-    provider.models?.some((model) => model.id === modelId)
-
-  const canCreate = dispatch.available && Boolean(bindingReady) && title.trim().length > 0 && Boolean(tenantId)
-  const submit = () => {
-    if (!canCreate || held || !tenantId) return
-    const input = {
-      tenantId,
-      title: title.trim(),
-      detail: detail.trim() || undefined,
-      execution: { agentId, providerId, modelId },
-    }
-    void enqueueDispatch(input).then((outcome) => {
-      if (outcome === 'applied') onClose()
-    })
-  }
-
-  return (
-    <FormDialog
-      title="New dispatch"
-      icon={<SendHorizontal size={18} className="text-cap-workspace" />}
-      submitLabel="Dispatch"
-      submitIcon={<SendHorizontal size={15} />}
-      canSubmit={canCreate && !held}
-      busy={held}
-      onSubmit={submit}
-      onClose={onClose}
-    >
-      <DispatchNotice />
-      <FormField label="Task">
-        <input
-          value={title}
-          maxLength={DISPATCH_TITLE_MAX}
-          onChange={(e) => setTitle(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submit()
-          }}
-          placeholder="e.g. Draft a launch checklist"
-          className={FORM_INPUT_CLASS}
-        />
-      </FormField>
-      <FormField label="Detail" optional>
-        <textarea
-          value={detail}
-          maxLength={DISPATCH_DETAIL_MAX}
-          onChange={(e) => setDetail(e.target.value)}
-          rows={3}
-          placeholder="Instructions and information the Agent needs."
-          className={`${FORM_INPUT_CLASS} resize-none leading-relaxed`}
-        />
-      </FormField>
-      <FormField label="Agent">
-        <select value={agentId} onChange={(event) => setAgentId(event.currentTarget.value)} className={FORM_INPUT_CLASS}>
-          <option value="">Choose an Agent</option>
-          {(agents.data ?? []).map((agent) => <option key={agent.id} value={agent.id}>{agent.label}</option>)}
-        </select>
-      </FormField>
-      <FormField label="Model connection">
-        <select value={providerId} onChange={(event) => { setProviderId(event.currentTarget.value); setModelId('') }} className={FORM_INPUT_CLASS}>
-          <option value="">Choose a connection</option>
-          {(providers.data ?? []).filter((candidate) => candidate.kind !== 'session').map((candidate) =>
-            <option key={candidate.id} value={candidate.id}>{candidate.label}{modelProviderAvailable(candidate) ? '' : ' — needs setup'}</option>)}
-        </select>
-      </FormField>
-      <FormField label="Model">
-        <select value={modelId} disabled={!provider} onChange={(event) => setModelId(event.currentTarget.value)} className={FORM_INPUT_CLASS}>
-          <option value="">Choose a model</option>
-          {(provider?.models ?? []).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-        </select>
-      </FormField>
-      <p role="status" className="text-[12px] leading-relaxed text-ink-soft">
-        {agents.status === 'error' || providers.status === 'error'
-          ? 'Agent or model choices could not be loaded. Your draft is kept.'
-          : provider?.execution === 'mock' ? 'Development model: this runs through the conversation engine using a deterministic local fixture.'
-            : provider && !modelProviderAvailable(provider) ? 'This connection needs setup before it can run.'
-              : 'Uses the selected Agent’s instructions and permitted workspace tools. No context is attached initially; open the conversation to add it or review actions.'}
-      </p>
-      {(agents.status === 'error' || providers.status === 'error') && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => retryResourceQueries([keys.workerAgents, keys.providers])}>Retry choices</button>}
-      <button type="button" className={INLINE_ACTION_CLASS} onClick={() => { onClose(); rel.navigate('models') }}>Manage model connections</button>
-    </FormDialog>
   )
 }
 

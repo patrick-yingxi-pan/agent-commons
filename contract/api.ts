@@ -252,13 +252,13 @@ export interface PushRecentRequest {
 }
 
 /** Body of `POST /v1/dispatch` — kick off a one-off agent run (the Dispatch tab). */
-export interface CreateDispatchRequest {
+export type CreateDispatchRequest = {
   title: string
   detail?: string
   /** Explicit real execution. Absence retains the development-only fixture;
    * release profiles never infer an Agent/model from legacy requests. */
   execution?: import('./dispatchExecution.ts').DispatchBinding
-}
+} | (import('./projectWorkDraft.ts').ProjectWorkDraftInput & { title?: never; detail?: never })
 
 /** Body of `POST /v1/schedules` — materialize one template seed. Identity is
  * deliberately absent: a keyed first-party caller gets a server-derived opaque

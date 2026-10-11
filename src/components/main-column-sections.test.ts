@@ -458,6 +458,10 @@ test('no section holds a standing form — the composer hangs off the header ver
   for (const body of code.split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)) {
     if (!body.includes('<FoldSection')) continue
     const name = body.match(/^(?:export )?(?:function|const) ([A-Za-z]+)/)?.[1] ?? '(anonymous)'
+    // WorkItemPage is an AtomicResourcePage, not a section page: its comment
+    // composer belongs to the timeline after the one independently disclosed
+    // Draft response section, and is checked explicitly below.
+    if (name === 'WorkItemPage') continue
     // Per FIELD, not per component: gating one form and leaving a second
     // standing open beside it is exactly the state this looks for, and a
     // body-wide test would pass straight over it.
@@ -474,11 +478,18 @@ test('no section holds a standing form — the composer hangs off the header ver
     }
   }
   assert.deepEqual(offenders, [], `these render form fields with no disclosure gate: ${offenders.join(', ')}`)
+  const workItemPage = fn('WorkItemPage')
+  assert.equal([...workItemPage.matchAll(/<(input|select|textarea)\b/g)].length, 1,
+    'the exception is only the one timeline comment field, not permission for standing section forms')
+  assert.match(workItemPage, /data-work-item-comment-form[\s\S]*<input[\s\S]*aria-label=\{`Comment on \$\{o\.subGoal\}`\}[\s\S]*<button[\s\S]*\{commentHeld \? 'Posting…' : 'Post'\}/,
+    'the AtomicResourcePage keeps its timeline comment action outside the Draft response section')
+  assert.match(workItemPage, /title="Draft response"[\s\S]*label="Draft a response"[\s\S]*projectWorkDraftOpen && <DeferredProjectWorkDraftPanel/,
+    'draft controls remain behind their own named, actionable FoldSection disclosure')
   // Vacuity guard: the scan means nothing if no section component renders a
   // field at all — which was very nearly true, and is the point.
   const withFields = code
     .split(/\n(?=(?:export )?(?:function|const) [A-Za-z])/)
-    .filter((b) => b.includes('<FoldSection') && /<(input|select|textarea)\b/.test(b))
+    .filter((b) => !/^function WorkItemPage\b/.test(b) && b.includes('<FoldSection') && /<(input|select|textarea)\b/.test(b))
   assert.ok(withFields.length >= 1, 'at least one section hosts a form (the scan has a subject)')
   // ── The form that lives in ANOTHER module ─────────────────────────────────
   //  The field scan above cannot see into `GrantsPanel`, and its first cut could
@@ -540,6 +551,9 @@ test('a section indents its content ONCE — nothing inside re-indents', () => {
   const offenders: string[] = []
   for (const b of sectionComponents) {
     const name = b.match(/^(?:export )?(?:function|const) ([A-Za-z]+)/)?.[1] ?? '(anonymous)'
+    // The page-level timeline is not a FoldSection body; its line gutter is
+    // intentionally inset and separately locked below.
+    if (name === 'WorkItemPage') continue
     // `px-3.5` / `px-4` / `pl-4` on a ROW is the doubled indent. Deliberately
     // narrow: a chip, a badge and a button legitimately pad themselves, and
     // those are `px-1.5`/`px-2`/`px-2.5` — an order of magnitude below the
@@ -549,6 +563,10 @@ test('a section indents its content ONCE — nothing inside re-indents', () => {
     }
   }
   assert.deepEqual(offenders, [], `these re-indent inside a section that already indented: ${offenders.join(', ')}`)
+  assert.match(fn('WorkItemPage'), /<div className="space-y-3 border-l-2 border-line pl-4">/,
+    'the inset belongs to the AtomicResourcePage timeline gutter, not a nested section row')
+  assert.equal([...fn('WorkItemPage').matchAll(/className="[^"]*\b(px-4|px-3\.5|pl-4|pl-3\.5)\b[^"]*"/g)].length, 1,
+    'the exception covers only the timeline gutter, never additional section indentation')
   // …and the inset itself comes from the one home, applied by the one primitive.
   assert.match(fn('FoldSection'), /SECTION_BODY_CLASS/, 'FoldSection applies the shared inset')
   const lib = read(join(ROOT, 'src', 'lib', 'foldHeader.ts'))

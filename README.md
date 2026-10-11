@@ -137,6 +137,15 @@ automatically repeats interrupted work. External tool calls keep their normal
 per-call consent. Historical timer-based Dispatch rows remain labeled Simulation;
 unbound creation remains a development-only fixture.
 
+Project work items also offer **Draft a response**: select your read-capable
+Commission, endpoint and model for one private, tool-free first turn. Its frozen
+prompt contains only the Project description/instructions visible to you and
+the selected item; it does not load linked contexts or run effects. Review and
+edit the saved reply before explicitly posting a comment. The item stays open,
+and no Agent completion credit is awarded. Commission, Agent, provider and
+account budget gates apply; these token checks do not reserve a monetary ceiling.
+Unattended commissioned effects remain development-only fixtures.
+
 ## Run it
 
 Requires **Node 26+**.
