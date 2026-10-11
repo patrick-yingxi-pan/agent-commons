@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { chmod, mkdir, mkdtemp, readFile, rename, rm, rmdir, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { MCP_CREDENTIAL_FILE, openMcpCredentialVault } from './mcpCredentialVault.mjs'
+import { MCP_CREDENTIAL_FILE, MAX_MCP_VAULT_BYTES, openMcpCredentialVault } from './mcpCredentialVault.mjs'
 
 const encrypt = (value: string): Buffer => Buffer.from(value, 'utf8').map((byte) => byte ^ 0xa5)
 const decrypt = (value: Buffer): string => Buffer.from(value).map((byte) => byte ^ 0xa5).toString('utf8')
@@ -281,7 +281,7 @@ test('invalid and symlinked vault files fail closed, while concurrent provisioni
     await assert.rejects(openMcpCredentialVault({ filePath: invalidPath, encrypt, decrypt }), /invalid format/i)
     await writeFile(invalidPath, JSON.stringify({ version: 1, entries: { [`MCP_DESKTOP_${'A'.repeat(32)}`]: { ciphertext: 'AAAA', createdAt: 0, extra: true } } }), { mode: 0o600 })
     await assert.rejects(openMcpCredentialVault({ filePath: invalidPath, encrypt, decrypt }), /invalid entry/i)
-    await writeFile(invalidPath, 'x'.repeat(3_000_000), { mode: 0o600 })
+    await writeFile(invalidPath, 'x'.repeat(MAX_MCP_VAULT_BYTES + 1), { mode: 0o600 })
     await assert.rejects(openMcpCredentialVault({ filePath: invalidPath, encrypt, decrypt }), /size limit/i)
     await rm(invalidPath)
     const target = join(invalidDirectory, 'target.json')

@@ -7,6 +7,7 @@ export class McpOAuthTokenError extends Error {
 }
 const fail = () => { throw new McpOAuthTokenError() }
 const secret = value => typeof value === 'string' && value.length > 0 && value.length <= 8_192 && /^[\x21-\x7e]+$/.test(value)
+const refreshSecret = value => typeof value === 'string' && value.length > 0 && value.length <= 8_192 && /^[\x20-\x7e]+$/.test(value)
 
 /** A missing expiry remains unknown, never an invented lifetime. A missing
  * refreshed token retains the current one; a rotated token replaces it only
@@ -20,8 +21,8 @@ export function parseMcpOAuthTokenResponse(raw, { reviewedScopes, previousRefres
         !Number.isSafeInteger(now) || now < 0) fail()
     const scopes = document.scope === undefined ? reviewed : oauthScopes(typeof document.scope === 'string' ? document.scope.split(' ') : null)
     if (scopes.some(scope => !reviewed.includes(scope))) fail()
-    if (previousRefreshToken !== undefined && !secret(previousRefreshToken)) fail()
-    if (document.refresh_token !== undefined && !secret(document.refresh_token)) fail()
+    if (previousRefreshToken !== undefined && !refreshSecret(previousRefreshToken)) fail()
+    if (document.refresh_token !== undefined && !refreshSecret(document.refresh_token)) fail()
     const refreshToken = document.refresh_token ?? previousRefreshToken
     let expiresAt = null
     if (document.expires_in !== undefined) {
@@ -46,8 +47,8 @@ export function createMcpOAuthRefreshRequest(raw) {
     const endpoint = oauthHttpsUrl(grant.tokenEndpoint)
     const resource = oauthResourceUrl(grant.resource)
     const scopes = oauthScopes(grant.scopes)
-    if (!secret(grant.refreshToken) || typeof grant.clientId !== 'string' || grant.clientId.length === 0 ||
-        grant.clientId.length > 2_048 || !/^[\x21-\x7e]+$/.test(grant.clientId)) fail()
+    if (!refreshSecret(grant.refreshToken) || typeof grant.clientId !== 'string' || grant.clientId.length === 0 ||
+        grant.clientId.length > 2_048 || !/^[\x20-\x7e]+$/.test(grant.clientId)) fail()
     const body = new URLSearchParams({
       grant_type: 'refresh_token', refresh_token: grant.refreshToken, client_id: grant.clientId, resource,
     })

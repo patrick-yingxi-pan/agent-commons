@@ -19,15 +19,21 @@ parsing and discovery URL ordering, S256 PKCE, independent state, exact decoded
 issuer checks, one-use code exchange forms, and a short-lived native loopback
 callback. Token parsing retains only bounded opaque credentials and scopes within
 the reviewed grant; refresh forms retain the original client/resource. Missing
-expiry remains unknown, not an invented lifetime. These helpers are not yet wired
-to product HTTP, Electron IPC, browser launch, token exchange or vault persistence.
-They grant no network destination or tool authority. Local callback tests use real
-test-owned sockets; there is no claim of completed OAuth sign-in.
+expiry remains unknown, not an invented lifetime. The second layer adds typed
+encrypted grant custody and a bounded refresh manager. Shared bearer cleanup
+understands OAuth without exposing it through generic credential reads. Refresh
+removes the old token pair durably before dispatch; interrupted reservations
+cannot replay after restart. Exact owner/audience, narrowed scopes, coalesced
+callers, cancellation and publication-time authority fences remain explicit.
+These modules are not yet wired to product HTTP, Electron IPC, browser launch or
+real token exchange. Local callback tests use test-owned sockets; custody tests
+use real temporary files with fixture encryption/exchange. There is no claim of
+completed OAuth sign-in, Keychain OAuth acceptance or network/tool authority.
 
 Next layers remain required: bounded/pinned metadata and token requests; client
 registration with pre-registration, configurable HTTPS client metadata and legacy
-fallback; native transaction/account/revision fencing; encrypted token storage and
-serialized, interruption-safe refresh; owner review/status/cancel/recovery UI; and
+fallback; native transaction/account/revision wiring and OS-backed custody/refresh
+composition; owner review/status/cancel/recovery UI; and
 complete browser plus packaged-native fixture acceptance. No production client
 metadata URL is invented: its hosted identity is an operator release input.
 Focused metadata, authorization, real loopback-callback and token tests pass.
@@ -40,6 +46,21 @@ failed first; request canonicalization and exact response comparison now remain
 separate. Only a complete run on the corrected frozen tree counts as acceptance.
 The full local verifier and post-test review remain mandatory before each push;
 the checkpoint handoff records their final result.
+
+Custody locks cover mixed bearer/OAuth reconciliation, exact owner and audience,
+atomic reservation, rotated/retained refresh tokens, restart without replay,
+scope narrowing, late cancellation and actual disk-publication fences. Intentional
+removal of ticket-presence, publication and independent-waiter checks made their
+tests fail. Review identified a stale queued reservation erasing an otherwise
+valid grant; its regression requires the same last-moment publication fence as
+completion. Another fail-first regression binds the grant's resource to the
+canonical MCP endpoint, preventing an otherwise valid different HTTPS audience
+from entering custody. No extra sign-in or tool-consent decision is needed.
+During native regression acceptance, a read-only probe found cancel/rejoin could
+retain unbounded promise handlers despite the live-waiter cap. The test runner
+was stopped before edits; a failing regression now keeps each canceled
+subscription counted until the shared promise settles. Only the subsequent
+complete frozen-tree acceptance counts for this checkpoint.
 
 ## Completed checkpoint: bounded unattended Routine MCP
 

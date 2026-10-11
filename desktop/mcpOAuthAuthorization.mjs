@@ -16,6 +16,7 @@ export class McpOAuthAuthorizationError extends Error {
 }
 const fail = code => { throw new McpOAuthAuthorizationError(code) }
 const text = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && /^[\x21-\x7e]+$/.test(value)
+const opaque = (value, max) => typeof value === 'string' && value.length > 0 && value.length <= max && /^[\x20-\x7e]+$/.test(value)
 const RESERVED = new Set(['response_type', 'client_id', 'redirect_uri', 'scope', 'state', 'resource', 'code_challenge', 'code_challenge_method', 'response_mode'])
 
 function redirect(value) {
@@ -48,7 +49,7 @@ export function createMcpOAuthAuthorization(parameters, {
     scopes = oauthScopes(parameters.scopes)
     redirectUri = redirect(parameters.redirectUri)
     clientId = parameters.clientId
-    if (!text(clientId, 2_048)) fail('request')
+    if (!opaque(clientId, 2_048)) fail('request')
     if (scopes.includes('offline_access') && !server.scopesSupported?.includes('offline_access')) fail('request')
     authorization = new URL(server.authorizationEndpoint)
     for (const key of authorization.searchParams.keys()) if (RESERVED.has(key)) fail('request')
@@ -104,7 +105,7 @@ export function createMcpOAuthAuthorization(parameters, {
         fail('denied')
       }
       const code = fields.get('code')
-      if (!text(code, 8_192)) fail('response')
+      if (!opaque(code, 8_192)) fail('response')
       const body = new URLSearchParams({
         grant_type: 'authorization_code', code, client_id: clientId,
         redirect_uri: redirectUri, code_verifier: codeVerifier, resource,

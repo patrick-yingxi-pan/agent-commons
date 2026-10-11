@@ -25,10 +25,46 @@ DNS/SSRF admission; all actual fetches still require the existing pinned-address
 policy. Callback loopback does not authorize connecting to a loopback MCP server.
 Browser responses contain only fixed text, never a code, token or remote error.
 
+Native custody now extends the existing encrypted vault with typed OAuth entries.
+The owner, endpoint binding, issuer, token endpoint, client, resource and granted
+scopes remain inside ciphertext. Resource identity must equal the canonical
+audience of the bound MCP endpoint, not merely another valid HTTPS URL.
+The old bearer read refuses OAuth; startup
+reconciliation and removal validate both types without exposing credentials.
+The shared 64-entry cap remains; each ciphertext is bounded to 128 KiB of base64
+text to accommodate two 8 KiB tokens, escaped metadata and OS-encryption overhead.
+The outer vault format stays v1; OAuth's encrypted payload uses a closed v2 shape.
+
+The internal refresh manager uses the current token when its expiry is unknown,
+without inventing a lifetime or refreshing on an unconfirmed expiration. Known
+expiry permits one refresh of the existing grant, never a tool replay. A durable
+reservation removes both old tokens from the saved entry before exchange. Only
+the live native ticket can publish the complete replacement; an uncompleted
+reservation after restart, host cancellation or uncertain exchange requires
+sign-in. A known replacement already atomically published remains durable even
+if its caller subsequently becomes stale, but that caller receives no token.
+Token response scopes may narrow but
+never expand the stored ceiling. A response that omits a replacement refresh
+token retains the previous token only after validated atomic publication.
+
+Refresh is coalesced by exact credential/owner/binding with eight default active
+operations (internal ceiling 64), at most 64 retained waiter subscriptions, and a 30-second default
+deadline (internal ceiling 60 seconds). Timed-out/cancelled underlying work keeps
+its slot until settlement. A canceled waiter also retains its subscription slot
+until the shared promise settles, bounding repeated cancel/rejoin loops.
+Each waiter checks its own account/revision fence;
+canceling a waiter does not cancel another waiter's shared refresh. Host cancellation
+and shutdown abort the transaction. Authority is checked after waits, immediately
+before dispatch, and immediately before credential-file rename. Local disk tests
+prove the lifecycle with fixture encryption/exchange, not real Keychain OAuth or
+provider acceptance. These modules are not connected to Electron's runtime yet.
+
 The design follows the [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 its [discovery ordering](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/authorization-server-discovery)
 and [registration choices](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization/client-registration),
-with [native-app PKCE and external-browser guidance](https://www.rfc-editor.org/rfc/rfc8252.html).
+with [native-app PKCE and external-browser guidance](https://www.rfc-editor.org/rfc/rfc8252.html),
+[refresh response rules](https://www.rfc-editor.org/rfc/rfc6749.html#section-6)
+and [refresh-token rotation security](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14).
 OAuth metadata, native transaction custody, encrypted refresh/relaunch handling,
 connection review UI and real packaged acceptance must compose before OAuth is
 advertised as available. A public client metadata URL remains release configuration,

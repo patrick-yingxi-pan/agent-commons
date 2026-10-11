@@ -19,6 +19,14 @@ const callback = (attempt, extra = {}) => `${attempt.redirectUri}?${new URLSearc
 })}`
 const codeIs = code => error => error instanceof McpOAuthAuthorizationError && error.code === code && !error.message.includes('one-code')
 
+test('opaque authorization codes and client IDs retain OAuth VSCHAR spaces through form encoding', () => {
+  const attempt = createMcpOAuthAuthorization({ ...parameters(), clientId: ' native client ' })
+  assert.equal(new URL(attempt.authorizationUrl).searchParams.get('client_id'), ' native client ')
+  const form = new URLSearchParams(attempt.receiveCallback(callback(attempt, { code: ' opaque code ' })).body)
+  assert.equal(form.get('client_id'), ' native client ')
+  assert.equal(form.get('code'), ' opaque code ')
+})
+
 test('native OAuth creates independent S256 state/PKCE and audience-bound one-use token form', () => {
   const input = parameters()
   const attempt = createMcpOAuthAuthorization(input)

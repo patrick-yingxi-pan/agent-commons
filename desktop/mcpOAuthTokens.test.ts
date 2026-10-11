@@ -59,3 +59,14 @@ test('refresh form remains bound to its issuer/client/resource and exact granted
     { ...grant, refreshToken: '' }, { ...grant, clientId: '' }, { ...grant, scopes: ['bad scope'] },
   ]) assert.throws(() => createMcpOAuthRefreshRequest(bad), McpOAuthTokenError)
 })
+
+test('OAuth opaque refresh tokens and client IDs preserve VSCHAR spaces without admitting unsafe access headers', () => {
+  const token = ' refresh token '
+  assert.equal(parseMcpOAuthTokenResponse({ ...response(), refresh_token: token }, options()).refreshToken, token)
+  assert.equal(parseMcpOAuthTokenResponse({ access_token: 'access', token_type: 'Bearer' }, { ...options(), previousRefreshToken: token }).refreshToken, token)
+  const request = createMcpOAuthRefreshRequest({ issuer: 'https://auth.example', tokenEndpoint: 'https://auth.example/token',
+    resource: 'https://mcp.example', clientId: ' native client ', scopes: [], refreshToken: token })
+  assert.equal(new URLSearchParams(request.body).get('refresh_token'), token)
+  assert.equal(new URLSearchParams(request.body).get('client_id'), ' native client ')
+  assert.throws(() => parseMcpOAuthTokenResponse({ ...response(), access_token: ' access token ' }, options()), McpOAuthTokenError)
+})
