@@ -6,10 +6,10 @@ export const MCP_CLIENT_INFO = Object.freeze({ name: 'agent-commons', version: '
 export const isMcpProtocolVersion = value =>
   value === MCP_MODERN_VERSION || MCP_LEGACY_VERSIONS.some(version => version === value)
 
-export function mcpRequestMetadata(protocolVersion) {
+export function mcpRequestMetadata(protocolVersion, { formElicitation = false } = {}) {
   return protocolVersion === MCP_MODERN_VERSION ? { _meta: {
     'io.modelcontextprotocol/protocolVersion': protocolVersion,
     'io.modelcontextprotocol/clientInfo': { ...MCP_CLIENT_INFO },
-    'io.modelcontextprotocol/clientCapabilities': {},
+    'io.modelcontextprotocol/clientCapabilities': formElicitation === true ? { elicitation: { form: {} } } : {},
   } } : {}
 }

@@ -17,6 +17,25 @@ import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
 // ── The built UI survives a canonical deep link ─────────────────────────────
+test('form-elicitation protocol data stays unwired until a private consent workflow owns it', () => {
+  const allowed = new Set(['server/mcpToolCall.ts', 'server/mcpSession.ts', 'server/mcpFormToolSession.ts']
+    .map(path => join(ROOT, path)))
+  const symbols = /\b(?:createMcpFormToolCaller|createMcpFormSession|createMcpFormToolSession|callToolWithForms)\b/
+  const check = (source: string, path: string) => assert.doesNotMatch(source, symbols,
+    `${path}: product code must not opt into form exchange before durable person-bound consent exists`)
+  for (const directory of ['server', 'src', 'desktop']) {
+    for (const path of filesUnder(directory, ['.ts', '.tsx', '.mjs', '.cjs'])) {
+      if (path.endsWith('.test.mjs') || path.endsWith('.d.mts') || allowed.has(path)) continue
+      check(stripComments(read(path)), path)
+    }
+  }
+  for (const path of allowed) assert.match(stripComments(read(path)), symbols, `${path}: expected protocol owner`)
+  for (const path of ['server/mcpElicitation.ts', 'server/mcpToolCall.ts']) {
+    assert.match(stripComments(read(join(ROOT, path))), /from '\.\.\/contract\/mcpElicitation\.ts'/)
+  }
+  assert.throws(() => check('createMcpFormToolSession()', 'unexpected product caller'), /private consent|person-bound consent/)
+})
+
 test('Routine MCP policy and receipt preparation share portable types without owning execution or persistence', () => {
   const check = (source: string) => {
     assert.match(source, /from '\.\.\/contract\/routineMcp\.ts'/,

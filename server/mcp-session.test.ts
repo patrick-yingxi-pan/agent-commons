@@ -50,10 +50,11 @@ test('an escaped internal session facade loses all request authority when its sc
     return session.listTools()
   })
   assert.deepEqual(result, { protocolVersion: MCP_MODERN_VERSION, value: { tools: [] }, cleanup: 'not-needed' })
-  assert.deepEqual(Object.keys(retained).sort(), ['callTool', 'listTools', 'protocolVersion', 'restartExpiredSession', 'serverInfo'])
+  assert.deepEqual(Object.keys(retained).sort(), ['callTool', 'callToolWithForms', 'listTools', 'protocolVersion', 'restartExpiredSession', 'serverInfo'])
   await assert.rejects(retained.listTools(), McpSessionError)
   await assert.rejects(retained.restartExpiredSession(), McpSessionError)
   await assert.rejects(retained.callTool(invocation), (error) => error instanceof McpToolCallError && error.code === 'request' && error.mayHaveExecuted === false)
+  await assert.rejects(retained.callToolWithForms(invocation), (error) => error instanceof McpToolCallError && error.code === 'request' && error.mayHaveExecuted === false)
   assert.deepEqual(methods, ['server/discover', 'tools/list'])
 })
 

@@ -20,6 +20,7 @@ export function createMcpToolSession(dependencies: Parameters<typeof createMcpSe
   return async (endpoint: string, invocation: McpToolInvocation, options: McpToolSessionOptions) => {
     const input = { ...options }
     if (input.signal?.aborted) throw new McpToolCallError('cancelled', false)
+    if (invocation && Object.hasOwn(invocation, 'continuation')) throw new McpToolCallError('request', false)
     const intent = snapshotMcpToolInvocation(invocation)
     try {
       const { value: result, ...session } = await withSession(endpoint, input, async (context) => {

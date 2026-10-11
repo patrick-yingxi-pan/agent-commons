@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { postMcpHttp, McpHttpError, type McpHttpOptions } from './mcpHttpTransport.ts'
 import { isModernMcpErrorCode } from './mcpHttpResponse.ts'
 import { MCP_MODERN_VERSION, MCP_LEGACY_VERSIONS, MCP_CLIENT_INFO, mcpRequestMetadata, type McpProtocolVersion } from './mcpProtocol.ts'
-import { createMcpToolCaller, McpToolCallError, type McpToolInvocation } from './mcpToolCall.ts'
+import { createMcpToolCaller, createMcpFormToolCaller, snapshotMcpFormToolInvocation, McpToolCallError, type McpToolInvocation, type McpFormToolResult, type McpFormToolInvocation } from './mcpToolCall.ts'
 import type { McpToolResult } from './mcpToolResult.ts'
 
 export type McpSessionOptions = Pick<McpHttpOptions, 'scope' | 'bearerToken' | 'signal' | 'timeoutMs'>
@@ -22,6 +22,7 @@ interface McpSession extends McpSessionDetails {
   listTools(params?: { cursor?: string }): Promise<Record<string, unknown>>
   restartExpiredSession(): Promise<void>
   callTool(invocation: McpToolInvocation, options?: Pick<McpHttpOptions, 'beforeDispatch'>): Promise<McpToolResult>
+  callToolWithForms(invocation: McpFormToolInvocation, options?: Pick<McpHttpOptions, 'beforeDispatch'>): Promise<McpFormToolResult>
 }
 export class McpSessionError extends Error {
   readonly code: 'protocol' | 'unsupported_version' | 'tools_unavailable' | 'input_required' | 'session_expired'
@@ -51,7 +52,7 @@ const completeResult = (message: Record<string, unknown> | undefined) => {
 
 /** Internal callback scope, not a persisted or renderer-visible session handle.
  * Injected transports must honor AbortSignal like the real HTTP transport. */
-export function createMcpSession({ post = postMcpHttp, now = () => performance.now() } = {}) {
+function createSession(formElicitation: boolean, { post = postMcpHttp, now = () => performance.now() } = {}) {
   return async <T>(endpoint: string, options: McpSessionOptions, run: (session: McpSession) => Promise<T>): Promise<McpSessionDetails & { value: T; cleanup: McpSessionCleanup }> => {
     const input = { ...options }
     const timeoutMs = input.timeoutMs ?? 30_000
@@ -122,7 +123,7 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
       const left = available(submitted)
       const message = method === null ? null : {
         jsonrpc: '2.0', ...(method.startsWith('notifications/') ? {} : { id: `${requestPrefix}-${++serial}` }),
-        method, params: { ...params, ...mcpRequestMetadata(protocolVersion) },
+        method, params: { ...params, ...mcpRequestMetadata(protocolVersion, { formElicitation }) },
       }
       submitted = true
       return exchange(message, {
@@ -176,6 +177,7 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
         else throw new McpSessionError('protocol')
       }
       if (useLegacy) {
+        if (formElicitation) throw new McpSessionError('unsupported_version')
         if (!legacy(protocolVersion)) protocolVersion = MCP_LEGACY_VERSIONS[0]
         announced = await initializeLegacy()
       } else {
@@ -184,12 +186,24 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
       }
       details = describe(announced)
       listPhase = 'ready'
-      const caller = createMcpToolCaller({ post: (_endpoint, message, callOptions) => {
+      const scopedPost: typeof post = (_endpoint, message, callOptions) => {
         if (!active) return Promise.reject(new McpHttpError('cancelled', false))
         const left = available(false)
         return exchange(message, { ...callOptions, scope: input.scope, bearerToken: input.bearerToken,
           signal: controller.signal, timeoutMs: left })
-      } })
+      }
+      const caller = createMcpToolCaller({ post: scopedPost })
+      const formCaller = createMcpFormToolCaller({ post: scopedPost })
+      const attempt = async <R>(runCall: () => Promise<R>): Promise<R> => {
+        if (!active || toolAttempted || listPhase !== 'ready') throw new McpToolCallError('request', false)
+        toolAttempted = true
+        try { return await runCall() }
+        catch (error) {
+          if (error instanceof McpToolCallError) throw error
+          if (error instanceof McpHttpError) throw new McpToolCallError(error.code, error.mayHaveExecuted)
+          throw new McpToolCallError('network', true)
+        }
+      }
       value = await run({
         get protocolVersion() { return details.protocolVersion },
         get serverInfo() { return details.serverInfo },
@@ -235,18 +249,23 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
           }
         },
         callTool: async (invocation, callOptions = {}) => {
-          if (!active || toolAttempted || listPhase !== 'ready') throw new McpToolCallError('request', false)
-          toolAttempted = true
-          try {
-            return await caller(endpoint, { ...invocation, protocolVersion, ...(sessionId ? { sessionId } : {}) }, {
+          return attempt(() => {
+            if (formElicitation || (invocation && Object.hasOwn(invocation, 'continuation'))) throw new McpToolCallError('request', false)
+            return caller(endpoint, { ...invocation, protocolVersion, ...(sessionId ? { sessionId } : {}) }, {
               scope: input.scope, bearerToken: input.bearerToken, signal: controller.signal, timeoutMs: available(false),
               ...callOptions,
             })
-          } catch (error) {
-            if (error instanceof McpToolCallError) throw error
-            if (error instanceof McpHttpError) throw new McpToolCallError(error.code, error.mayHaveExecuted)
-            throw new McpToolCallError('network', true)
-          }
+          })
+        },
+        callToolWithForms: async (invocation, callOptions = {}) => {
+          return attempt(() => {
+            if (!formElicitation || protocolVersion !== MCP_MODERN_VERSION) throw new McpToolCallError('request', false)
+            const intent = snapshotMcpFormToolInvocation(invocation)
+            return formCaller(endpoint, { ...intent, protocolVersion }, {
+              scope: input.scope, bearerToken: input.bearerToken, signal: controller.signal, timeoutMs: available(false),
+              ...callOptions,
+            })
+          })
         },
       })
     } finally {
@@ -263,4 +282,15 @@ export function createMcpSession({ post = postMcpHttp, now = () => performance.n
     }
     return { ...details, value, cleanup }
   }
+}
+
+export function createMcpSession(dependencies: Parameters<typeof createSession>[1] = {}) {
+  return createSession(false, dependencies)
+}
+
+/** Modern-only protocol substrate, not installed in product execution. An
+ * explicit form transaction owns one call and advertises only form support on
+ * every request. It closes normally while the host obtains human input. */
+export function createMcpFormSession(dependencies: Parameters<typeof createSession>[1] = {}) {
+  return createSession(true, dependencies)
 }

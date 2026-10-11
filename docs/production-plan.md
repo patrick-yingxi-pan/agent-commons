@@ -13,7 +13,44 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: desktop MCP OAuth
+## Current checkpoint: private MCP follow-up forms
+
+Autonomous direction (2026-10-11): implement modern, person-reviewed form
+elicitation as the next core MCP workflow. It will not grant standing authority,
+auto-answer with a model, or broaden Routine/Contribution execution. URL mode,
+sampling, roots and local process transports remain separate work.
+
+This first checkpoint implements the bounded protocol boundary only: strict
+inert form/response admission, modern capability opt-in, exact opaque-state echo,
+one request per transaction, and fixed uncertainty semantics. Default callers
+remain complete-only and a cross-layer lock prevents accidental product wiring.
+Local HTTP fixture tests cover actual request bodies/metadata, fresh identities,
+original argument preservation, explicit rounds, legacy refusal and no replay.
+No UI, persistence slice, native IPC or production form consent is enabled here.
+The next checkpoint must complete durable person-bound rounds and the review
+screen together; do not count protocol parsing alone as the user-facing feature.
+
+Independent review found and fixed raw session-facade descriptor bypasses, a
+vacuous invalid-response fixture, standard result-metadata refusal and malformed
+format coercion. Fail-first mutations proved the direct-facade guard, exact
+opaque-state wire comparison, strict schema/response validation and fixed-error
+locks; the correct implementations were restored. Adjacent ordinary transport,
+discovery, OAuth authority and cancellation regressions passed before the full
+local verifier. No UI rendering changed in this checkpoint.
+
+Before activation, bind every round to the original person, connection revision,
+tool/schema/arguments and activity decision. Save awaiting-input privately; save
+continuation intent before dispatch; make response-loss/restart receipt-only.
+Require explicit review/edit/Continue and a clear local Stop, recheck current
+membership and attachment authority, bound expiry/total rounds, and never put raw
+form answers or opaque state in shared events/transcripts or model prompts.
+Known results may themselves echo submitted data; existing final-result review
+and sharing policy still apply. A stop cannot promise rollback of remote effects.
+
+The owner-data recovery issue remains separate and untouched. All tests use
+isolated peers/stores; live preview handoff is still deferred as recorded below.
+
+## Completed checkpoint: desktop MCP OAuth
 
 The local startup budget caught eager consent and filesystem query code crossing
 their existing optional feature boundaries. Their API-owned hooks now load with

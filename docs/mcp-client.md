@@ -336,7 +336,7 @@ image, audio, resource links and embedded resources as inert data, never fetchin
 links or decoding media into host actions. Structured output may be any JSON
 value, including arrays and null. A tool's `isError` remains explicit; malformed
 or oversized results never become truncated successes. Modern complete results
-require their discriminator. `input_required` is refused with a fixed error,
+require their discriminator. Ordinary product callers refuse `input_required` with a fixed error,
 without exposing opaque continuation state or adopting a remote request.
 
 The transport's one deadline covers DNS, sockets and streaming. Cancellation
@@ -531,6 +531,45 @@ while in-session mutations remain consent proposals. MODEL-40 tracks the current
 integration and its remaining acceptance gates.
 
 ## Required next work
+
+The separate form-only protocol foundation (`server/mcpFormToolSession.ts`) is
+implemented but **not enabled in any product executor**. Its modern-only session
+advertises `elicitation: { form: {} }` on each request, returns a bounded
+`input_required` form to the trusted host, and closes without continuing. A
+separately invoked continuation snapshots the original tool/arguments, the prior
+form, and exact current-round response IDs before negotiation. It sends only the
+keyed responses and the unchanged opaque `requestState` (including empty string;
+absent stays absent), with a fresh RPC ID. The shared one-attempt latch,
+transport deadline, dispatch fence and uncertainty rules still apply. Legacy
+fallback is refused before initialization. Discovery/listing cannot return forms.
+
+Admission is intentionally narrow: 1–4 forms, 1–32 flat fields per form and 64
+total, at most 64 choices, 64 KiB per request/response snapshot, depth 16 and
+8,192 nodes. Opaque state is limited to 8,192 UTF-8 bytes. Only supported primitive
+fields and string-enum arrays are admitted; defaults are checked but never
+automatically answered. Text is inert, URI validation performs no fetch, unknown
+schema keywords/nesting fail closed, and decline/cancel responses carry no content.
+Standard result metadata is bounded then discarded, never echoed as state or
+interpreted as authority. Optional schema `$schema` and deprecated `enumNames`
+remain outside this strict subset; titled `oneOf`/`anyOf` choices are supported.
+Format validation uses a conservative ASCII unquoted-email subset and bounded
+RFC3339 dates/timestamps without leap seconds; this is not full JSON Schema or
+general MCP conformance. URL elicitation, sampling, roots and state-only rounds
+remain unsupported. A schema validator cannot detect every request for secrets;
+the protocol prohibits form requests for passwords, access/API tokens and payment
+credentials. It does not prohibit ordinary contact/profile data categorically.
+
+Before enabling this boundary, the product must persist private person-bound
+original-call/round authority, require explicit review/edit/continue or stop,
+keep answers/state out of shared history and model input, recheck membership and
+exact connection revisions at dispatch, cap rounds/expiry, and recover interrupted
+continuations without automatic replay. A parsed form is not proof that it came
+from this endpoint, tool or person. Sending decline/cancel is itself a new tool
+request; abandoning locally must not claim that the server was informed or that
+earlier effects rolled back. See the official
+[multi-round request](https://modelcontextprotocol.io/specification/2026-07-28/basic/patterns/mrtr)
+and [elicitation](https://modelcontextprotocol.io/specification/2026-07-28/client/elicitation)
+contracts. Local fixture tests prove the substrate, not the missing user workflow.
 
 - Complete protocol execution: discovery supports the
   [current metadata flow](https://modelcontextprotocol.io/specification/2026-07-28/server/discover)
