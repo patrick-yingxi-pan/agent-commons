@@ -183,8 +183,8 @@ PORT-33 integrates the PORT-30/31 protocol and PORT-32 custody boundaries into
 person-owned desktop local MCP setup and interactive execution. Local process is
 explicit, launch settings stay device-private, and saved grants never auto-launch
 on startup. Native consent permits ordinary executable OS access, not sandboxed
-execution; every actual tool call still needs separate review. Routine and
-Contribution local-process permissions remain unavailable. Focused tests use
+execution; every actual conversation or Contribution tool call still needs
+separate review. Routine local-process permission remains unavailable. Focused tests use
 repository-authored child programs, generated profiles and storage stand-ins.
 Seven rendered browser scenarios and a 135/135-cell responsive sweep passed.
 Fresh unsigned arm64 acceptance uses real encrypted native custody, the built UI,

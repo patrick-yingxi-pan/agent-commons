@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
+import vm from 'node:vm'
 import { ignoreFromPackage } from './packager.config.mjs'
 import { mcpStdioSmokePatches, parseMcpStdioSmokeOptions } from './mcpStdioSmoke.mjs'
 
@@ -19,18 +20,62 @@ test('packaged local stdio acceptance and repository-owned peer are excluded fro
 
 test('fixture-only native approval patch is exact, unique, and confined to a disposable ASAR copy', () => {
   const patches = mcpStdioSmokePatches()
-  assert.equal(patches.length, 1)
-  assert.deepEqual(patches.map(row => row.path), ['desktop/main.mjs'])
+  assert.equal(patches.length, 2)
+  assert.deepEqual(patches.map(row => row.path), ['desktop/main.mjs', 'desktop/main.mjs'])
   const source = readFileSync(new URL('./main.mjs', import.meta.url), 'utf8')
-  assert.equal(source.split(patches[0].before).length - 1, 1, 'native review call is one exact fixture patch target')
-  assert.match(patches[0].after, /launch\.executable === process\.env\.AC_MCP_STDIO_FIXTURE_EXECUTABLE/)
-  assert.match(patches[0].after, /launch\.cwd === process\.env\.AC_MCP_STDIO_FIXTURE_CWD/)
-  assert.match(patches[0].after, /JSON\.stringify\(launch\.args\) === process\.env\.AC_MCP_STDIO_FIXTURE_ARGS/)
-  assert.match(patches[0].after, /JSON\.stringify\(launch\.env\) === process\.env\.AC_MCP_STDIO_FIXTURE_ENV/)
-  assert.equal(patches[0].after.includes('showMessageBox'), false, 'the fixture explicitly is not an actual native-dialog acceptance')
-  const transformed = source.replace(patches[0].before, patches[0].after)
+  for (const patch of patches) assert.equal(source.split(patch.before).length - 1, 1, 'each native review patch target is unique')
+  const consent = patches[1]
+  assert.match(consent.after, /launch\.executable === process\.env\.AC_MCP_STDIO_FIXTURE_EXECUTABLE/)
+  assert.match(consent.after, /launch\.cwd === process\.env\.AC_MCP_STDIO_FIXTURE_CWD/)
+  assert.match(consent.after, /JSON\.stringify\(launch\.args\) === process\.env\.AC_MCP_STDIO_FIXTURE_ARGS/)
+  assert.match(consent.after, /JSON\.stringify\(launch\.env\) === process\.env\.AC_MCP_STDIO_FIXTURE_ENV/)
+  assert.equal(consent.after.includes('showMessageBox'), false, 'the fixture explicitly is not an actual native-dialog acceptance')
+  const transformed = patches.reduce((text, patch) => text.replace(patch.before, patch.after), source)
   const syntax = spawnSync(process.execPath, ['--input-type=module', '--check'], { input: transformed, encoding: 'utf8' })
   assert.equal(syntax.status, 0, syntax.stderr || syntax.stdout || 'the disposable packaged main remains valid JavaScript')
+})
+
+test('disposable consent cancels first and approves only the second exact fixture review', async () => {
+  const launch = { executable: '/fixture/node', cwd: '/fixture', args: ['peer.mjs'], env: { TRACE: '/fixture/trace' } }
+  const process = { env: { AC_MCP_STDIO_FIXTURE_ALLOW: '1', AC_MCP_STDIO_FIXTURE_EXECUTABLE: launch.executable,
+    AC_MCP_STDIO_FIXTURE_CWD: launch.cwd, AC_MCP_STDIO_FIXTURE_ARGS: JSON.stringify(launch.args),
+    AC_MCP_STDIO_FIXTURE_ENV: JSON.stringify(launch.env) } }
+  const patch = mcpStdioSmokePatches()[1].after
+  async function responses(source: string) {
+    const review = vm.runInNewContext(`let mcpStdioSmokeReviewCount = 0;
+      async function review(launch) { ${source}}); return result.response }; review`, { process, mainWindow: null })
+    const output = []
+    for (const field of ['executable', 'cwd', 'args', 'env']) output.push(await review({ ...launch, [field]: 'wrong' }))
+    output.push(await review(launch), await review(launch), await review(launch))
+    return output
+  }
+  assert.deepEqual(await responses(patch), [0, 0, 0, 0, 0, 1, 0])
+  const mutant = patch.replace('++mcpStdioSmokeReviewCount === 2', 'true')
+  assert.notEqual(mutant, patch)
+  await assert.rejects(async () => assert.deepEqual(await responses(mutant), [0, 0, 0, 0, 0, 1, 0]), assert.AssertionError)
+})
+
+test('both packaged modes prove cancellation before a fresh configuration and approval', () => {
+  const source = readFileSync(new URL('./mcpStdioSmoke.mjs', import.meta.url), 'utf8')
+  const assertCancellation = (text: string) => {
+    const cancelled = text.indexOf('data-mcp-stdio-phase="cancelled"')
+    const reopened = text.indexOf('setup = await configure()', cancelled)
+    assert.ok(cancelled > 0 && reopened > cancelled, 'fresh configuration follows the rendered cancellation')
+    const refusal = text.slice(cancelled, reopened)
+    for (const requirement of [
+      'assert.deepEqual(await api(page, `/mcp-connections/${connectionId}`), connection',
+      'assert.deepEqual(storedStdioConnection(profile, connectionId), savedBeforeCancel',
+      'await assertNoLaunch()', "name: 'Close', exact: true",
+    ]) assert.ok(refusal.includes(requirement), `cancelled setup must prove: ${requirement}`)
+    for (const path of ['tracePath', 'grantPath']) {
+      assert.ok(text.includes(`assert.rejects(readFile(${path}), { code: 'ENOENT' }`), `${path} must be absent, not merely unreadable`)
+    }
+    assert.equal(text.split('await assertNoLaunch()').length - 1, 2, 'no-process/custody precondition is checked before and after Cancel')
+  }
+  assertCancellation(source)
+  const mutant = source.replaceAll('await assertNoLaunch()', 'void 0')
+  assert.notEqual(mutant, source)
+  assert.throws(() => assertCancellation(mutant), assert.AssertionError)
 })
 
 test('native review is explicit, runs the original package without fixture consent, and checks its ASAR digest', () => {

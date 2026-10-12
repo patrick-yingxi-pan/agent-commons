@@ -33,6 +33,7 @@ import { createDesktopMcpOAuthRuntime, mcpOAuthChannels, mcpOAuthReply } from '.
 import { MCP_STDIO_GRANT_FILE, openMcpStdioGrantVault } from './mcpStdioGrantVault.mjs'
 import { createMcpStdioSupervisor } from './mcpStdioSupervisor.mjs'
 import { mcpStdioReviewLiteral } from './mcpStdioLaunch.mjs'
+import { MCP_STDIO_TOOL_APPROVAL_COPY } from '../contract/mcpStdioSetupCopy.mjs'
 import { createMcpStdioLaunchAuthority } from './mcpStdioLaunchAuthority.mjs'
 import { createMcpStdioLifecycle } from './mcpStdioLifecycle.mjs'
 import { createMcpStdioHost } from './mcpStdioProtocol.mjs'
@@ -715,7 +716,7 @@ async function confirmMcpStdioLaunch({ binding, launch }, { signal }) {
     type: 'warning', buttons: ['Cancel', 'Allow local server'], defaultId: 0, cancelId: 0, noLink: true,
     message: 'Allow this local MCP server to run?',
     detail: 'This is executable code, not a sandbox. It can access files, credentials and the network with your macOS account’s permissions, including during inspection. Only allow software you trust.\n\n' +
-      'Agent Commons uses no shell and passes only the environment listed below. The saved configuration belongs to this person and connection. Each tool call still needs separate review; Routines and Contributions cannot use it.\n\n' +
+      'Agent Commons uses no shell and passes only the environment listed below. The saved configuration belongs to this person and connection. ' + MCP_STDIO_TOOL_APPROVAL_COPY + '\n\n' +
       `Person: ${literal(binding.ownerUserId)}\nConnection: ${literal(binding.connectionId)}\n\n${literal(launch)}`,
   })
   return !signal.aborted && !quitting && result.response === 1

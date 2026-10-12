@@ -33,6 +33,8 @@ function assertWiring(source: string) {
     'event.senderFrame !== event.sender.mainFrame || !mcpStdioLifecycle',
     'const literal = mcpStdioReviewLiteral',
     "buttons: ['Cancel', 'Allow local server'], defaultId: 0, cancelId: 0",
+    "from '../contract/mcpStdioSetupCopy.mjs'",
+    "MCP_STDIO_TOOL_APPROVAL_COPY + '\\n\\n'",
     'mcpStdioReply(() => mcpStdioSetup[method](event, request))',
     "...(mcpStdioSetup ? ['--agent-commons-mcp-stdio=true'] : [])",
   ]) assert.ok(text.includes(expected), `Local MCP must retain: ${expected}`)

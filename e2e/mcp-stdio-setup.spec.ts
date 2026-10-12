@@ -261,10 +261,17 @@ test('local setup is explicit native-only, recovers lost acknowledgement by read
     expect(path.endsWith(createdId)).toBe(true)
     expect(createPosts).toBe(1)
     expect(exactCreationReads).toBeGreaterThan(0)
+    const approvalCopy = 'Conversation and Contribution tool calls each require their own explicit approval. Local servers are not available to Routines.'
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      await expect(page.getByText(approvalCopy, { exact: false })).toBeVisible()
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    }
     const dialog = await openSettings(page, LABEL)
     expect(bridge.calls).toEqual([]); expect(methods).toEqual([])
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize(viewport); await geometry(page)
+      await expect(dialog).toContainText(approvalCopy)
       await assertWcag22Aa(page, `Local MCP settings ${viewport.width}x${viewport.height}`)
       await page.screenshot({ path: testInfo.outputPath(`settings-${viewport.width}x${viewport.height}.png`) })
     }

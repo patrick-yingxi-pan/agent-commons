@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type { McpConnectionView } from '../../contract/mcpConnections.ts'
+import { MCP_STDIO_TOOL_APPROVAL_COPY } from '../../contract/mcpStdioSetupCopy.mjs'
 import { useMe, resolveResourceUnavailable, retryResourceQueries, keys } from '../api'
 import { accountGeneration } from '../api/account.ts'
 import { useMcpConnection, useMcpConnections } from '../api/mcpConnectionHooks.ts'
@@ -250,7 +251,7 @@ export function McpConnectionDetail({ id, onBack, backTo }: { id: string; onBack
         </div>
       </header>
       {held && <p role="status" className="mb-3 text-[12px] text-ink-soft">{localHeld ? 'Local setup is held. Use Check status or Stop setup above; neither starts another inspection.' : mutation.error ? 'Waiting for recovery. Use Retry or Dismiss above.' : 'Updating this server…'}</p>}
-      {isLocal && <p className="mb-4 text-[12px] leading-relaxed text-ink-soft">This computer runs the configured program without a sandbox. Inspection itself can have effects; only use trusted software. Reconfiguration requires new native approval. Local servers are available only in conversations with per-call approval, not Routines or Contribution effects.</p>}
+      {isLocal && <p className="mb-4 text-[12px] leading-relaxed text-ink-soft">This computer runs the configured program without a sandbox. Inspection itself can have effects; only use trusted software. Reconfiguration requires new native approval. {MCP_STDIO_TOOL_APPROVAL_COPY}</p>}
       {list.data?.capabilities.credentialCleanupPending && <div className="mb-4 space-y-2 text-[12px] text-warn-text">
         <p>Device credential cleanup is pending. Disconnected credentials cannot be used, but encrypted copies may remain on this Mac.</p>
         <button disabled={isMcpConnectionHeld(id) || !me} className={secondaryClass} onClick={() => { if (me) void enqueueMcpConnectionMutation({ kind: 'cleanup', tenantId: me.tenant.id, sourceUserId: me.via === 'session' ? me.user.id : null, id, reviewed: connection }) }}>Retry credential cleanup</button>

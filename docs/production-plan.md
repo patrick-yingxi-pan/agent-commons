@@ -13,7 +13,35 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: item-first reviewed MCP proposals
+## Current checkpoint: truthful local MCP consent and cancellation acceptance
+
+Autonomous direction (2026-10-11): complete the existing local MCP acceptance
+boundary before adding new execution authority. Review found that all three setup
+disclosures still excluded Contributions after COMMONS-42 made separately
+approved, person-owned Contribution calls available. A shared contract disclosure now names conversation
+and Contribution per-call approval while keeping Routine local execution
+unavailable in the connection page, setup form and native consent dialog. Source locks and the existing five-viewport setup walk cover this
+correction; no permission or execution behavior changes.
+
+The packaged stdio walk now requires Cancel before a fresh configuration and
+approval. Cancellation must leave the exact public and private connection
+unchanged, create neither a child trace nor an encrypted launch grant, and allow
+a new setup from the rendered Configure action. The disposable fixture refuses
+the first exact launch, approves only the second, and refuses mismatched input.
+`--native-review` instead requires both actual dialog choices on the unchanged
+original app. Subsequent exact catalog, separately approved call, Contribution,
+relaunch and Disconnect evidence remain mandatory.
+
+The Mac was locked during the readiness audit, so actual native-dialog review
+remains unverified; fixture approval cannot close that gate. Signing identity,
+notary Keychain profile and update-host configuration were absent from this
+process environment, not proven absent from the device. Signed two-architecture,
+Intel-native, real update installation and public-service acceptance remain open.
+The owner's live preview/store is untouched. The previous checkpoint landed as
+`72bebbc5` after the final complete verifier (5,659 Node and 651 browser tests),
+135-cell UI sweep and rebuilt ordinary unsigned-arm64 smoke passed.
+
+## Previous checkpoint: item-first reviewed MCP proposals
 
 Autonomous direction (2026-10-11): make **Work this item now** a direct path from
 an exact open MCP item to a reviewed Contribution. Select an inspected matching

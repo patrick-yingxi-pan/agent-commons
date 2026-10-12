@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { McpStdioSetupDialogProps } from './DeferredMcpStdioSetupDialog.tsx'
+import { MCP_STDIO_TOOL_APPROVAL_COPY } from '../../contract/mcpStdioSetupCopy.mjs'
 import { mcpStdioSetup, useMcpStdioSetups } from '../controller/mcpStdioSetup.ts'
 import { mcpStdioTerminal, mcpStdioBusy } from '../controller/mcpStdioSetupCore.ts'
 import { EMPTY_MCP_STDIO_DRAFT, parseMcpStdioLaunchDraft } from '../lib/mcpStdioLaunch.ts'
@@ -39,7 +40,7 @@ export function McpStdioSetupDialog({ connection, source, onClose }: McpStdioSet
       <header className="shrink-0 p-4 pb-0"><h2 id={`${id}-title`} className="break-words text-[15px] font-semibold text-ink [overflow-wrap:anywhere]">Configure {connection.label}</h2></header>
       <div {...dialogReadRegionProps('Local MCP setup review')} className={`space-y-4 p-4 ${BOUNDED_DIALOG_BODY_CLASS}`}>
         <p className="text-[13px] leading-relaxed text-ink-soft">This runs a local program with your macOS account’s access. It is not sandboxed: even catalog inspection can read files, use the network, or change data. Only use a server you trust. The next native review defaults to Cancel.</p>
-        <p className="text-[12px] leading-relaxed text-ink-soft">Settings go only to this desktop’s encrypted storage after approval, never to the application server or a model. Saved settings cannot be read back here. Every conversation tool call still needs its own approval. Local servers are not available to Routines or Contribution effects.</p>
+        <p className="text-[12px] leading-relaxed text-ink-soft">Settings go only to this desktop’s encrypted storage after approval, never to the application server or a model. Saved settings cannot be read back here. {MCP_STDIO_TOOL_APPROVAL_COPY}</p>
         {state && <McpStdioSetupStatus state={state} />}
         {!state && submitted && <p role="status" className="text-[13px] text-ink-soft">This review has ended. Close it to see the saved connection’s current status or configure new settings.</p>}
         {!state && !submitted && <form id={`${id}-form`} className="space-y-4" onSubmit={event => { event.preventDefault(); submit() }}>

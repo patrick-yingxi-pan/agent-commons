@@ -595,6 +595,22 @@ test('the client routers handle no event the ServerEvent contract does not decla
 })
 
 // ── The HTTP boundary: every declared request DTO is actually wired ──────────
+test('renderer and native local MCP review import and render one framework-free approval disclosure', () => {
+  const consumers = ['src/components/McpConnectionPanel.tsx', 'src/components/McpStdioSetupDialog.tsx', 'desktop/main.mjs']
+  const check = (path: string, source: string) => {
+    assert.match(source, /import \{ MCP_STDIO_TOOL_APPROVAL_COPY \} from ['"].*contract\/mcpStdioSetupCopy\.mjs['"]/, path)
+    assert.match(source, path.endsWith('.tsx') ? /\{MCP_STDIO_TOOL_APPROVAL_COPY\}/ : /\+ MCP_STDIO_TOOL_APPROVAL_COPY \+/, path)
+    assert.doesNotMatch(source, /Routines and Contributions cannot use|not Routines or Contribution effects|not available to Routines or Contribution effects/, path)
+  }
+  for (const path of consumers) {
+    const source = read(join(ROOT, path))
+    check(path, source)
+    const mutant = source.replaceAll('MCP_STDIO_TOOL_APPROVAL_COPY', 'obsoleteCopy')
+    assert.notEqual(mutant, source)
+    assert.throws(() => check(path, mutant), assert.AssertionError)
+  }
+})
+
 test('every *Request DTO in the contract is referenced by a route or command (no dead wire types)', () => {
   const contractSrc = concatSource('contract')
   const names = [...new Set([...contractSrc.matchAll(/export interface (\w+Request)\b/g)].map((m) => m[1]))]

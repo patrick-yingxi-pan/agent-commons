@@ -1,7 +1,7 @@
 /** Offline packaged stdio MCP acceptance. By default an owned ASAR copy's
- * native confirmation accepts only this exact fixture executable/arguments/
- * cwd/environment. Optional --native-review instead uses the original app and
- * requires actual dialog approval. Neither mode proves public-server,
+ * native confirmation cancels once, then accepts only this exact fixture executable/
+ * arguments/cwd/environment once. Optional --native-review uses the original app
+ * and requires actual Cancel followed by fresh approval. Neither mode proves public-server,
  * signed-release or Intel acceptance. The repository-authored peer runs without a
  * shell or network and writes only its explicit temporary trace file. */
 import assert from 'node:assert/strict'
@@ -56,12 +56,16 @@ async function api(page, path, body, key = randomUUID(), method = body === undef
 
 export function mcpStdioSmokePatches() {
   return [{ path: 'desktop/main.mjs',
+    before: 'async function confirmMcpStdioLaunch({ binding, launch }, { signal }) {',
+    after: 'let mcpStdioSmokeReviewCount = 0\nasync function confirmMcpStdioLaunch({ binding, launch }, { signal }) {',
+  }, { path: 'desktop/main.mjs',
     before: 'const result = await dialog.showMessageBox(mainWindow, {',
     after: `const result = await (async (_owner, _options) => ({ response: process.env.${GATE} === '1' &&
       launch.executable === process.env.AC_MCP_STDIO_FIXTURE_EXECUTABLE &&
       launch.cwd === process.env.AC_MCP_STDIO_FIXTURE_CWD &&
       JSON.stringify(launch.args) === process.env.AC_MCP_STDIO_FIXTURE_ARGS &&
-      JSON.stringify(launch.env) === process.env.AC_MCP_STDIO_FIXTURE_ENV ? 1 : 0 }))(mainWindow, {` }]
+      JSON.stringify(launch.env) === process.env.AC_MCP_STDIO_FIXTURE_ENV &&
+      ++mcpStdioSmokeReviewCount === 2 ? 1 : 0 }))(mainWindow, {` }]
 }
 
 function traceRows(text) { return text.split('\n').filter(Boolean).map(line => JSON.parse(line)) }
@@ -187,12 +191,34 @@ export async function smokePackagedMcpStdio({ executable = packagedExecutable(),
     const detailPath = new URL(page.url()).pathname
     const connection = await api(page, `/mcp-connections/${connectionId}`)
     assert.equal(connection.transport, 'stdio')
-    await page.getByRole('button', { name: 'Configure local server', exact: true }).click()
-    const setup = page.getByRole('dialog', { name: `Configure ${label}`, exact: true })
-    await setup.getByLabel('Executable path', { exact: true }).fill(launch.executable)
-    await setup.getByLabel('Working directory', { exact: true }).fill(launch.cwd)
-    await setup.getByRole('textbox', { name: 'Arguments (JSON array)', exact: true }).fill(JSON.stringify(launch.args))
-    await setup.getByRole('textbox', { name: 'Environment (JSON object)', exact: true }).fill(JSON.stringify(launch.env))
+    const savedBeforeCancel = storedStdioConnection(profile, connectionId)
+    const grantPath = join(profile, MCP_STDIO_GRANT_FILE)
+    const assertNoLaunch = async () => {
+      await assert.rejects(readFile(tracePath), { code: 'ENOENT' }, 'Cancel never starts the authored child')
+      await assert.rejects(readFile(grantPath), { code: 'ENOENT' }, 'Cancel never publishes encrypted launch custody')
+    }
+    await assertNoLaunch()
+    const configure = async () => {
+      await page.getByRole('button', { name: 'Configure local server', exact: true }).click()
+      const setup = page.getByRole('dialog', { name: `Configure ${label}`, exact: true })
+      await setup.getByLabel('Executable path', { exact: true }).fill(launch.executable)
+      await setup.getByLabel('Working directory', { exact: true }).fill(launch.cwd)
+      await setup.getByRole('textbox', { name: 'Arguments (JSON array)', exact: true }).fill(JSON.stringify(launch.args))
+      await setup.getByRole('textbox', { name: 'Environment (JSON object)', exact: true }).fill(JSON.stringify(launch.env))
+      return setup
+    }
+    let setup = await configure()
+    if (nativeReview) {
+      console.log(`[desktop-stdio-smoke] native-review-ready connection=${connectionId} label=${JSON.stringify(label)}; choose Cancel in the first native review dialog`)
+    }
+    await setup.getByRole('button', { name: 'Review & inspect', exact: true }).click({ timeout: 30_000 })
+    await expect(setup.locator('[data-mcp-stdio-phase="cancelled"]')).toHaveText('Setup was cancelled before inspection was submitted.', { timeout: 30_000 })
+    assert.deepEqual(await api(page, `/mcp-connections/${connectionId}`), connection, 'Cancel leaves the exact portable connection unchanged')
+    assert.deepEqual(storedStdioConnection(profile, connectionId), savedBeforeCancel, 'Cancel leaves private durable connection state unchanged')
+    await assertNoLaunch()
+    await page.screenshot({ path: join(evidence, 'native-review-cancelled.png'), fullPage: true })
+    await setup.getByRole('button', { name: 'Close', exact: true }).click()
+    setup = await configure()
     if (nativeReview) {
       console.log(`[desktop-stdio-smoke] native-review-ready connection=${connectionId} label=${JSON.stringify(label)}; inspect and approve the exact local fixture in the native review dialog`)
     }
@@ -263,7 +289,6 @@ export async function smokePackagedMcpStdio({ executable = packagedExecutable(),
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
     await expect.poll(async () => (await api(page, `/mcp-connections/${connectionId}`)).status).toBe('disconnected')
     await expect(page.getByRole('button', { name: 'Remove', exact: true })).toBeEnabled()
-    const grantPath = join(profile, MCP_STDIO_GRANT_FILE)
     const disconnectedGrant = await readFile(grantPath)
     assert.equal(disconnectedGrant.equals(grantBeforeDisconnect), false,
       'disconnect immediately retires the native grant before the connection can be removed')
@@ -279,7 +304,7 @@ export async function smokePackagedMcpStdio({ executable = packagedExecutable(),
       'disconnect/removal do not start the configured program')
     await assertRevokedContributionStdioSmoke({ page, origin, profile, connectionId, identity, tracePath, evidence }, contribution)
     await assertNoRawFixtureData(profile, tracePath, launch)
-    console.log(`[desktop-stdio-smoke] packaged local process · ${nativeReview ? 'actual native review' : 'exact disposable fixture-only native approval'} · modern discovery/catalog inspection · separate per-call approval · interactive result and Contribution work resolution · pending recovery/replay without dispatch · durable owner relaunch without auto-launch · disconnect/removal`)
+    console.log(`[desktop-stdio-smoke] packaged local process · ${nativeReview ? 'actual native Cancel then fresh approval' : 'exact disposable fixture-only cancellation then approval'} · cancellation retains unchanged connection without process or custody · modern discovery/catalog inspection · separate per-call approval · interactive result and Contribution work resolution · pending recovery/replay without dispatch · durable owner relaunch without auto-launch · disconnect/removal`)
     console.log(`[desktop-stdio-smoke] evidence ${evidence}`)
     if (nativeReview && await asarSha256(sourceAsar) !== sourceAsarSha256) {
       throw new Error('The original packaged ASAR changed during native review acceptance')

@@ -1,0 +1,1 @@
+export const MCP_STDIO_TOOL_APPROVAL_COPY: string
