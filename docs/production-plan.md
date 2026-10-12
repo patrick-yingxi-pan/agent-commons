@@ -13,7 +13,40 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: interrupted verification owns its cleanup
+## Current release-readiness review
+
+The 2026-10-12 audit at `863628b1` found no new demonstrated defect in the
+clean-install workflow. The browser first-run test exercises the model-setup
+handoff, durable preference acknowledgement, reconstruction without browser
+storage and a completed first conversation. The ordinary packaged smoke also
+covers clean onboarding, encrypted provider-key custody and signed-in relaunch.
+These are implemented-boundary checks against a local model peer, not evidence
+of a successful paid-provider call.
+
+The previous corrected frozen-tree verifier completed successfully: all five
+lanes and 671 browser tests passed in 725.0 seconds before `863628b1` landed.
+The earlier interrupted attempt remains failure evidence only. Actual native
+local-MCP Cancel/Allow and the complete authored-peer workflow are separately
+accepted on the artifact named in the [native review](acceptance/native-mcp-stdio-2026-10-12.md).
+Neither result closes the following gates:
+
+| Next evidence | Required input or work |
+| --- | --- |
+| Signed/notarized Apple Silicon and Intel downloads | Complete the owner's individual Apple Developer enrollment, obtain explicit authorization for the signing identity and notary Keychain profile, and run the candidate lane on each native architecture. Intel hardware availability is not yet confirmed. No completed release receipts were present in this checkout during the audit. |
+| Real update installation and relaunch | Select an approved HTTPS download base, verify both signed candidates and the pair manifest, then test an actual two-version installation. Publication needs separate authorization; an example URL is not configured hosting. |
+| Live model workflows | Obtain an approved provider/model, dedicated test credentials and a spend limit before running real conversation, Dispatch, Routine and review/judgment acceptance. Local counters do not guarantee a provider billing ceiling. |
+| Real external MCP workflows | Agree on exact third-party peers, disposable test resources and permitted calls before testing service discovery, authorization, execution and restart history. Authored peers and native-dialog acceptance do not establish third-party compatibility or safety. |
+| Remaining product scope | Preserve the declared [forward-looking requirements](spec/10-forward-looking.md) and [mock boundaries](spec/11-mock-boundary.md), including unattended Commission/proxy work, broader source/document capabilities and the later hosted-service phase. They are not implicitly completed by desktop preview acceptance. |
+
+The next priority is actual release and live-service evidence, not another
+speculative recovery refactor or expansion of the formula language. The owner
+has chosen individual/sole-proprietor enrollment; residence and the intended
+Apple Account region are still needed to choose the China or US enrollment
+route. No secrets, membership purchase, external test call or public publication
+is authorized by this review. This reconciliation changes no product behavior;
+the complete local verifier remains mandatory before its own landing.
+
+## Completed checkpoint: interrupted verification owns its cleanup
 
 The native local-MCP acceptance checkpoint landed as `06e80fcc`. During that
 checkpoint an interrupted verifier left four isolated test backends holding
@@ -44,13 +77,14 @@ records; no retry or timing budget was widened. Controlled SIGINT of that
 already-failed full verifier exercised all four real browser stacks: it exited
 130 and all twelve shard UI/API/model ports were immediately bindable, without
 manual orphan recovery. That interrupted attempt is not a passing gate; the
-corrected frozen tree still requires an uninterrupted complete local pass.
+corrected frozen tree then passed the uninterrupted complete local verifier as
+recorded above, followed by diff review and direct main delivery.
 
 The owner requested help enrolling for Developer ID as an individual/sole
 proprietor. Mainland China versus US enrollment details are still being
 clarified; no membership purchase, credential use or release publication is
 authorized by this checkpoint. Signing, native Intel and live update acceptance
-remain open while this local verification repair proceeds.
+remain open after this local verification repair.
 
 ## Previous checkpoint: actual native local-MCP consent acceptance
 
@@ -4321,7 +4355,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. Bounded macOS local-image OCR (PORT-26) is implemented and accepted for the stated macOS path. Discussion-as-Context (CTX-DISC-1) adds confirmed saved copies under its bounded checkpoint; PORT-28 separately adds explicit macOS scanned-PDF-to-Document review; non-macOS and automatic PDF-attachment OCR, broader PDF recognition accuracy/language acceptance, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain future work. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. Actual native launch-dialog review and third-party-server acceptance remain open; fixture-only confirmation is not that evidence. COMMONS-42 now adds person-owned local Contribution execution with separate Project approval and explicit Run, durable receipts and owner-reviewed linked-work resolution. COMMONS-43 adds budgeted tool-free argument drafting with explicit review/copy; a draft confers no execution authority. Routine local execution remains unsupported. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
+| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. The [2026-10-12 native review](acceptance/native-mcp-stdio-2026-10-12.md) additionally proves actual Cancel/Allow and the complete authored-peer workflow; third-party-server acceptance remains open. COMMONS-42 now adds person-owned local Contribution execution with separate Project approval and explicit Run, durable receipts and owner-reviewed linked-work resolution. COMMONS-43 adds budgeted tool-free argument drafting with explicit review/copy; a draft confers no execution authority. Routine local execution remains unsupported. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 
