@@ -87,6 +87,7 @@ const ANCHORED = [
   'src/components/AudioInputControl.tsx',
   'src/components/ModelEffortControl.tsx',
   'src/components/UsageControl.tsx',
+  'src/components/UsageDetails.tsx',
   'src/components/GaugePopover.tsx',
   'src/components/Composer.tsx',
   'src/components/artifactPreview.tsx',

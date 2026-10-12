@@ -1,31 +1,37 @@
-import { useId, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { lazy, Suspense, useId, useState } from 'react'
 import { useUsage } from '../api'
 import { useDismissable } from '../lib/useDismissable'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
-import { withLiveMessages, type ContextSegment, type ContextTone, type UsageModelRef, type UsageSnapshot } from '../../contract/index.ts'
+import { withLiveMessages, type UsageModelRef, type UsageSnapshot } from '../../contract/usage.ts'
+import { DeferredLoadBoundary } from './DeferredLoadBoundary.tsx'
 
+const UsageDetails = lazy(() => import('./UsageDetails').then((module) => ({ default: module.UsageDetails })))
+
+function UsageDetailsFallback({ failed, onClose }: { failed: boolean; onClose: () => void }) {
+  const popRef = usePopoverShift(true)
+  return (
+    <div ref={popRef} role="dialog" aria-label="Usage details" data-usage-details-load={failed ? 'error' : 'loading'} className={`absolute bottom-full right-0 z-20 mb-2 w-[340px] p-3 ${POPOVER_SURFACE}`}>
+      <div role={failed ? 'alert' : 'status'} className="text-[11px] text-ink-soft">
+      {failed ? (
+        <>
+          <p>Couldn’t display usage details. Copy unsent text before reloading.</p>
+          <div className="mt-2 flex justify-end gap-2">
+            <button type="button" className="rounded-md px-2 py-1 text-ink hover:bg-panel-2" onClick={onClose}>Close</button>
+            <button type="button" className="rounded-md px-2 py-1 text-ink hover:bg-panel-2" onClick={() => window.location.reload()}>Reload usage details</button>
+          </div>
+        </>
+      ) : <span>Loading usage details…</span>}
+      </div>
+    </div>
+  )
+}
 /* Shown until the server's usage snapshot loads — a zeroed gauge rather than a
    flash of a missing icon. The real figures arrive from `GET /v1/usage`, after
    which the UI just caches them. */
 const EMPTY_USAGE: UsageSnapshot = {
   context: { used: '—', total: '—', pct: 0, segments: [] },
   limits: [],
-}
-
-/* The context-breakdown swatch palette — Messages darkest, the config categories
-   in descending blues, the deferred/free in greys. Matches the desktop app's
-   stacked context bar. */
-const TONE: Record<ContextTone, string> = {
-  messages: '#2f6fed',
-  skills: '#4f86cf',
-  memory: '#5e97da',
-  systemTools: '#79a8e6',
-  systemPrompt: '#9cc1f0',
-  agents: '#bcd7f7',
-  mcp: '#cfd0d6',
-  free: '#ececed',
 }
 
 /* Status fill colors, shared by the gauge arcs and the water-level disc.
@@ -67,7 +73,6 @@ export function UsageControl({
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(true)
   const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
-  const popRef = usePopoverShift<HTMLDivElement>(open)
   // Server-owned: the UI just caches the snapshot. EMPTY_USAGE covers the first
   // paint before the fetch resolves. The live breakdown overrides the snapshot's.
   const snapshot = useUsage(sessionId).data ?? EMPTY_USAGE
@@ -86,7 +91,6 @@ export function UsageControl({
           ...(model ? { model } : {}),
         }
   const windowKnown = usage.context.windowTokens !== undefined
-  const modelRef = usage.model
 
   const title = windowKnown
     ? `Usage — estimated context ${usage.context.pct}%, ` +
@@ -110,84 +114,11 @@ export function UsageControl({
       </button>
 
       {open && (
-        <div ref={popRef} role="dialog" aria-label="Usage details" className={`absolute bottom-full right-0 z-20 mb-2 w-[340px] p-3 ${POPOVER_SURFACE}`}>
-          {/* Partial estimate; the disclosure stays visible when rows collapse. */}
-          <button
-            onClick={() => setExpanded((e) => !e)}
-            aria-expanded={expanded}
-            className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-left"
-          >
-            <span className="text-[13px] font-medium text-ink">Context estimate</span>
-            <span className="flex items-center gap-1 text-[12px] text-ink-soft">
-              {windowKnown ? (
-                <>
-                  {usage.context.used} / {usage.context.total} ({usage.context.pct}%)
-                </>
-              ) : (
-                <>{usage.context.used} used · window unknown</>
-              )}
-              <ChevronRight size={13} className={`text-ink-faint transition-transform ${expanded ? 'rotate-90' : ''}`} />
-            </span>
-          </button>
-          {/* The cognition the figures are measured against — the session's resolved
-              provider + model, straight from the registry/snapshot (never a client
-              constant). A provider that can't name its model shows only itself. */}
-          {modelRef && (
-            <div className="mt-0.5 text-[11px] text-ink-faint">
-              {modelRef.modelLabel ?? modelRef.modelId ?? 'Model chosen by the provider'} · {modelRef.providerLabel}
-            </div>
-          )}
-          {windowKnown ? (
-            <StackedBar segments={usage.context.segments} className="mt-1.5" />
-          ) : (
-            <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">
-              This provider doesn’t expose its context window. Fill percentages are unavailable.
-            </p>
-          )}
-          <p className="mt-1.5 text-[11px] leading-snug text-ink-soft">
-            About 4 characters per token for conversation text, base tools and prompt.
-            Excludes attachments, runtime tools, per-turn prompt additions and provider-managed context;
-            actual use may be higher.
-          </p>
-
-          {expanded && usage.context.segments.length > 0 && (
-            <div className="mt-2.5 space-y-1.5">
-              {usage.context.segments.map((s) => (
-                <SegmentRow key={s.id} seg={s} />
-              ))}
-            </div>
-          )}
-
-          <div className="my-2.5 border-t border-line" />
-
-          <div className="text-[12px] text-ink-faint">Local usage limits</div>
-          <p className="mt-0.5 text-[11px] leading-snug text-ink-soft">
-            App counters, not your provider’s quota or bill.
-          </p>
-
-          <div className="mt-2.5 space-y-2.5">
-            {usage.limits.map((l, i) => (
-              <div key={i}>
-                <div className="flex items-center justify-between text-[12px]">
-                  <span className="text-ink">{l.label}</span>
-                  <span className="flex items-center gap-2">
-                    {l.reset && <span className="text-ink-faint">{l.reset}</span>}
-                    <span className="text-ink">{l.pct}%</span>
-                  </span>
-                </div>
-                <Bar pct={l.pct} className="mt-1" />
-              </div>
-            ))}
-          </div>
-
-          {/* Key: connect the cryptic gauge back to the windows it stacks. */}
-          <div className="mt-3 flex items-center gap-2 border-t border-line pt-2.5">
-            <UsageGauge usage={usage} />
-            <span className="text-[11px] leading-tight text-ink-faint">
-              inner = context · middle = 5-hour · outer = weekly
-            </span>
-          </div>
-        </div>
+        <DeferredLoadBoundary fallback={<UsageDetailsFallback failed onClose={() => setOpen(false)} />}>
+          <Suspense fallback={<UsageDetailsFallback failed={false} onClose={() => setOpen(false)} />}>
+            <UsageDetails usage={usage} expanded={expanded} gauge={<UsageGauge usage={usage} />} onToggleExpanded={() => setExpanded((current) => !current)} />
+          </Suspense>
+        </DeferredLoadBoundary>
       )}
     </div>
   )
@@ -273,54 +204,5 @@ function UsageGauge({ usage }: { usage: UsageSnapshot }) {
         )}
       </g>
     </svg>
-  )
-}
-
-function Bar({ pct, className = '' }: { pct: number; className?: string }) {
-  return (
-    <div className={`h-1.5 w-full overflow-hidden rounded-full bg-line ${className}`}>
-      <div
-        className="h-full rounded-full"
-        style={{ width: `${pct}%`, background: waterColor(pct) }}
-      />
-    </div>
-  )
-}
-
-/** The context window's stacked composition bar — one abutting block per loaded
- *  category (Messages + config), trailing into Free space. Deferred categories
- *  aren't counted against the window, so they're left out of the bar. */
-function StackedBar({ segments, className = '' }: { segments: ContextSegment[]; className?: string }) {
-  const bars = segments.filter((s) => !s.deferred)
-  return (
-    <div className={`flex h-2 w-full overflow-hidden rounded-full bg-line ${className}`}>
-      {bars.map((s) => (
-        <div key={s.id} style={{ width: `${s.pct ?? 0}%`, background: TONE[s.tone] }} title={`${s.label} · ${s.tokens}`} />
-      ))}
-    </div>
-  )
-}
-
-/** One breakdown row: a swatch, the category (with its item count, if a
- *  collection), the token size, and the percent — or '—' for a deferred row
- *  (which lists its item count there instead) and for every row in
- *  unknown-capacity mode, where percentages are uncomputable. */
-function SegmentRow({ seg }: { seg: ContextSegment }) {
-  const muted = seg.deferred || seg.tone === 'free'
-  return (
-    <div className="flex items-center gap-2 text-[12px]">
-      <span
-        className="h-2.5 w-2.5 shrink-0 rounded-[3px]"
-        style={{ background: TONE[seg.tone], opacity: seg.deferred ? 0.5 : 1 }}
-      />
-      <span className={`min-w-0 flex-1 truncate ${muted ? 'text-ink-faint' : 'text-ink'}`}>
-        {seg.label}
-        {seg.count !== undefined && !seg.deferred && <span className="text-ink-faint"> · {seg.count}</span>}
-      </span>
-      <span className="shrink-0 tabular-nums text-ink-faint">{seg.tokens}</span>
-      <span className="w-12 shrink-0 text-right tabular-nums text-ink-soft">
-        {seg.pct !== undefined ? `${seg.pct}%` : seg.deferred && seg.count !== undefined ? seg.count : '—'}
-      </span>
-    </div>
   )
 }

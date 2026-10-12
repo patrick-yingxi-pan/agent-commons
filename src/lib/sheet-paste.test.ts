@@ -83,6 +83,19 @@ test('sheet paste preserves current grid data, labels and note while growing onl
   assert.deepEqual(body, before)
 })
 
+test('range paste always imports literal strings and discloses formula cells it replaces', () => {
+  const body: SpreadsheetBody = {
+    type: 'sheet', columns: ['Value', 'Calculation'],
+    rows: [['old', { formula: '=1+1' }], ['keep', { formula: '=SUM(A1:A1)' }]],
+  }
+  const result = ready(pasteSheetCells(body, 'sheet-1', 0, 0, '=literal\t=3+4\nnext\t=SUM(A1:A1)'))
+  assert.equal(result.replacedFormulas, 2)
+  assert.deepEqual(result.body, {
+    type: 'sheet', columns: ['Value', 'Calculation'],
+    rows: [['=literal', '=3+4'], ['next', '=SUM(A1:A1)']],
+  })
+})
+
 test('malformed quoted values and ragged TSV refuse the whole paste', () => {
   for (const source of ['a\tb\nshort', '"unterminated\tvalue', 'before"quote\tvalue', '"closed"tail\tvalue']) {
     refused(pasteSheetCells(sheet(), 'sheet-1', 0, 0, source), /rectangular table.*valid quoted values/i)
@@ -159,6 +172,11 @@ test('source UTF-8 size is bounded before parsing, with exact byte limit reachin
   const unicodeOverLimit = `${'界'.repeat(Math.floor(MAX_SHEET_PASTE_BYTES / 3) + 1)}\t`
   assert.ok(new TextEncoder().encode(unicodeOverLimit).byteLength > MAX_SHEET_PASTE_BYTES)
   refused(pasteSheetCells(sheet(['A'], [['']]), 'sheet-1', 0, 0, unicodeOverLimit), /up to 256 KiB/i)
+})
+
+test('range expansion counts only actual replaced formula cells, never absent destinations', () => {
+  assert.equal(ready(pasteSheetCells(sheet(['A'], [['before']]), 'sheet-1', 0, 0, 'a\tb\nc\td')).replacedFormulas, 0)
+  assert.equal(ready(pasteSheetCells({ type: 'sheet', columns: ['A'], rows: [[{ formula: '=1' }]] }, 'sheet-1', 0, 0, 'a\tb\nc\td')).replacedFormulas, 1)
 })
 
 test('whole-workbook validation includes untouched tabs and never partially applies a rejected range', () => {

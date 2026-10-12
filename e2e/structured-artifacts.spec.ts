@@ -148,7 +148,7 @@ test('extreme structured bodies preserve whitespace, wrap tokens, and keep sheet
     await expect(region.locator('td').first()).toHaveCSS('white-space', 'pre-wrap')
     await expect(region.locator('td').first()).toContainText('first value with')
     await region.focus()
-    const lastHeader = region.locator('th').last()
+    const lastHeader = region.locator('thead th').last()
     await expect.poll(() => lastHeader.evaluate((node) => ({
       cell: node.getBoundingClientRect().width,
       region: node.closest('[role="region"]')!.clientWidth,

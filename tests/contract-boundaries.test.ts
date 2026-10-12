@@ -595,6 +595,24 @@ test('the client routers handle no event the ServerEvent contract does not decla
 })
 
 // ── The HTTP boundary: every declared request DTO is actually wired ──────────
+test('authored formula consumers share one inert evaluator and preserve source-only search', () => {
+  const consumers = ['src/components/StructuredArtifactEditor.tsx', 'src/components/StructuredArtifactView.tsx', 'contract/artifactSnapshot.ts', 'server/artifactXlsx.ts']
+  const check = (source: string) => {
+    assert.match(source, /import \{[^}]*calculateSheet[^}]*\} from '[^']*workbookCalculation\.ts'/)
+    assert.match(source, /calculateSheet\(/)
+  }
+  for (const path of consumers) {
+    const source = stripComments(read(join(ROOT, path)))
+    check(source)
+    assert.throws(() => check(source.replaceAll('calculateSheet', 'parallelCalculator')), assert.AssertionError)
+  }
+  const evaluator = stripComments(read(join(ROOT, 'contract/workbookCalculation.ts')))
+  assert.doesNotMatch(evaluator, /\b(?:eval|Function|fetch|XMLHttpRequest|WebSocket|Date|process|document|window)\b/)
+  const search = stripComments(read(join(ROOT, 'contract/artifactSearch.ts')))
+  assert.match(search, /sheetCellSource\(/)
+  assert.doesNotMatch(search, /calculateSheet/)
+})
+
 test('renderer and native local MCP review import and render one framework-free approval disclosure', () => {
   const consumers = ['src/components/McpConnectionPanel.tsx', 'src/components/McpStdioSetupDialog.tsx', 'desktop/main.mjs']
   const check = (path: string, source: string) => {

@@ -1,6 +1,9 @@
 import type { ArtifactKind } from './entities.ts'
 import type { ArtifactContent } from './content.ts'
 import { parseArtifactHistoryBody } from './artifactHistory.ts'
+import { isFormulaCell } from './sheetCell.ts'
+import { calculateSheet } from './workbookCalculation.ts'
+import { spreadsheetSheets } from './workbook.ts'
 import { isServedCaptureTime, isSnapshotId } from './servedSnapshotIdentity.ts'
 
 export const ARTIFACT_SNAPSHOT_MAX_BYTES = 65_536
@@ -184,7 +187,18 @@ function parseBody(value: unknown, artifactKind: ArtifactKind): ArtifactSnapshot
 }
 
 function textFor(snapshot: Pick<ArtifactSnapshot, 'title' | 'artifactKind' | 'revision' | 'body'>): string {
-  return JSON.stringify({ title: snapshot.title, artifactKind: snapshot.artifactKind, revision: snapshot.revision, body: snapshot.body })
+  const value = { title: snapshot.title, artifactKind: snapshot.artifactKind, revision: snapshot.revision, body: snapshot.body }
+  if (snapshot.body.type !== 'sheet' && snapshot.body.type !== 'workbook') return JSON.stringify(value)
+  const sheets = spreadsheetSheets(snapshot.body)
+  if (!sheets.some((sheet) => sheet.rows.some((row) => row.some(isFormulaCell)))) return JSON.stringify(value)
+  const calculation = {
+    version: 1 as const,
+    sheets: sheets.map((sheet) => ({
+      id: sheet.id,
+      rows: calculateSheet(sheet).map((row) => row.map((cell) => cell.text)),
+    })),
+  }
+  return JSON.stringify({ ...value, calculation })
 }
 
 /** Deterministic complete model-input representation derived from the saved body. */

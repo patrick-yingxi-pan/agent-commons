@@ -1,4 +1,5 @@
 import type { ArtifactContent } from './content.ts'
+import { sheetCellSource, type SheetCell } from './sheetCell.ts'
 
 export interface ArtifactSearchTarget {
   revision: number
@@ -50,7 +51,11 @@ function* field(field: string, text: unknown): Generator<{ field: string; text: 
   if (typeof text === 'string') yield { field, text }
 }
 
-/** Visit authored string fields in the same order used by Artifact search. */
+function* cellField(path: string, cell: SheetCell): Generator<{ field: string; text: string }> {
+  yield* field(path, sheetCellSource(cell))
+}
+
+/** Visit authored text fields and formula source in the same order used by Artifact search. */
 export function* artifactSearchFields(body: ArtifactContent): Generator<{ field: string; text: string }> {
   switch (body.type) {
     case 'doc':
@@ -71,7 +76,7 @@ export function* artifactSearchFields(body: ArtifactContent): Generator<{ field:
     case 'sheet':
       for (const [columnIndex, text] of body.columns.entries()) yield* field(`sheet.column.${columnIndex}`, text)
       for (const [rowIndex, row] of body.rows.entries()) {
-        for (const [columnIndex, text] of row.entries()) yield* field(`sheet.cell.${rowIndex}.${columnIndex}`, text)
+        for (const [columnIndex, cell] of row.entries()) yield* cellField(`sheet.cell.${rowIndex}.${columnIndex}`, cell)
       }
       if (body.note !== undefined) yield* field('sheet.note', body.note)
       return
@@ -80,7 +85,7 @@ export function* artifactSearchFields(body: ArtifactContent): Generator<{ field:
         yield* field(`workbook.${sheetIndex}.name`, sheet.name)
         for (const [columnIndex, text] of sheet.columns.entries()) yield* field(`workbook.${sheetIndex}.column.${columnIndex}`, text)
         for (const [rowIndex, row] of sheet.rows.entries()) {
-          for (const [columnIndex, text] of row.entries()) yield* field(`workbook.${sheetIndex}.cell.${rowIndex}.${columnIndex}`, text)
+          for (const [columnIndex, cell] of row.entries()) yield* cellField(`workbook.${sheetIndex}.cell.${rowIndex}.${columnIndex}`, cell)
         }
         if (sheet.note !== undefined) yield* field(`workbook.${sheetIndex}.note`, sheet.note)
       }

@@ -109,8 +109,10 @@ bodies. Saved literal sheets and slides export through the authenticated boundar
 as real XLSX and PPTX packages, and packaged-executable smoke verifies their exact
 downloaded bytes. Standing routine approval and the guarded model loop likewise
 deliver bounded Document, Sheet, or Slides bodies under a frozen explicit format
-and name (REL-13 / MODEL-29). None of this implies spreadsheet calculation,
-formula execution, arbitrary slide layout or media authoring, imported Office
+and name (REL-13 / MODEL-29). REL-33 adds explicitly authored, bounded same-sheet
+arithmetic and SUM formulas with one shared calculated projection; imported
+formula caches stay literal. This does not imply Excel compatibility,
+external or cross-sheet formulas, arbitrary slide layout or media authoring, imported Office
 fidelity, paid-provider acceptance, or a signed/notarized two-architecture release;
 those remain required work. ADAPT-35 imports actual text/PDF/DOCX text into a
 reviewed Document draft; ADAPT-36 additionally maps actual visible PPTX slide
@@ -121,7 +123,7 @@ first-row header choice; it does not infer spreadsheet types, calculate formulas
 or determine XLSX workbook identity. ADAPT-38 adds explicit visible-worksheet
 selection from actual bounded XLSX cells, importing only saved literal values
 after review. Missing formula caches refuse adoption; rich formatting, merges,
-media and calculation remain unbuilt. Saved bodies and XLSX exports use the same
+media and imported-formula calculation remain unbuilt. Saved bodies and XLSX exports use the same
 canonical authored-artifact boundary, never fixture content. ADAPT-39 adds real
 ordered workbook tabs under one artifact identity and access boundary, with
 whole-workbook edits, all-visible-sheet adoption and multi-tab XLSX export.
@@ -129,7 +131,7 @@ REL-25 adds owner-only retained body history and explicit restoration as a new
 revision. The current body becomes the baseline on its first history-aware
 replacement; earlier unrecorded edits cannot be reconstructed. Shared readers
 and ordinary model input still receive only current content. This does not
-execute formulas or retain rich Office fidelity. REL-24 separately adds reviewed
+grant formula execution authority or retain rich Office fidelity. REL-24 separately adds reviewed
 permanent deletion from Trash: current content, retained versions, shares and
 artifact-only social material are removed together. Conversations and content-free
 audit/retirement records remain. Old save/create retries and routine output cannot

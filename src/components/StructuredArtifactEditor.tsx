@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Minus, Plus, Save, X } from 'lucide-react'
 import {
   MAX_AUTHORED_CELL_CHARS,
@@ -15,6 +15,8 @@ import {
   type SheetGrid,
   type StructuredArtifactBody,
 } from '../../contract/index.ts'
+import { calculateSheet, removeSheetColumn, removeSheetRow } from '../../contract/workbookCalculation.ts'
+import { isFormulaCell, sheetCellAddress, sheetCellSource, sheetColumnLabel, type SheetCell } from '../../contract/sheetCell.ts'
 import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 import { DocumentArtifactEditor, DocumentBodyLiteral } from './DocumentArtifactEditor'
 import { ArtifactDraftHistory, type ArtifactDraftHistoryActions } from './ArtifactDraftHistory'
@@ -60,7 +62,7 @@ export function StructuredArtifactEditor({ body, onChange, history, latestBody, 
             </button>
           </div>
           {error && <p className="text-[11px] text-danger-text" role="status">{error}</p>}
-          {!valid && <p className="text-[11px] text-danger-text" role="alert">Review blank labels, duplicate or invalid worksheet names, or the saved size limits before saving.</p>}
+          {!valid && <p className="text-[11px] text-danger-text" role="alert">Review blank labels and worksheet names. Each cell or formula source must be at most 2,000 characters, and the whole sheet or workbook must be at most 20,000 characters. Structural edits can expand formula references past these limits; shorten the affected source before saving.</p>}
           {showLatest && latestBody && (
             <div className="space-y-1.5 rounded-lg border border-line bg-panel-2/40 p-2.5" role="status">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Latest saved version</div>
@@ -111,7 +113,7 @@ function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
     if (result.kind === 'native') return false
     if (result.kind === 'error') setPaste({ ...currentPaste, message: result.message, error: true, after: JSON.stringify(body) })
     else {
-      setPaste({ message: `Pasted ${result.rows} × ${result.columns} cells into this draft.`, error: false,
+      setPaste({ message: `Pasted ${result.rows} × ${result.columns} cells into this draft.${result.replacedFormulas ? ` Replaced ${result.replacedFormulas} formula${result.replacedFormulas === 1 ? '' : 's'} with literal text.` : ''}`, error: false,
         ...(undoManaged ? {} : { before: body }), after: JSON.stringify(result.body) })
       onChange(result.body)
     }
@@ -148,7 +150,7 @@ function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
             select(sheets[index === 0 ? 1 : index - 1]!.id)
           }}><Minus size={12} /> Remove worksheet</button>
         </div>
-        <SheetEditor body={active} disabled={disabled} onPasteCells={pasteCells} onChange={({ columns, rows, note }) => {
+        <SheetEditor key={active.id} body={active} disabled={disabled} onPasteCells={pasteCells} onChange={({ columns, rows, note }) => {
           const grid = { columns, rows, ...(note === undefined ? {} : { note }) }
           if (body.type === 'sheet') change({ type: 'sheet', ...grid })
           else setSheets(sheets.map(sheet => sheet.id === active.id ? { id: sheet.id, name: sheet.name, ...grid } : sheet))
@@ -170,7 +172,7 @@ function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
         setRemoved(null)
       }}>Undo removal</button>
     </div>}
-    <p className="text-[11px] leading-relaxed text-ink-faint">All worksheets share this artifact’s access and one Save. Up to 20 tabs, 6,400 cells and 20,000 characters total. Names must be unique, 1–31 characters, with no []:*?/\\ or outer spaces/apostrophes. Values are literal; formulas are not calculated.</p>
+    <p className="text-[11px] leading-relaxed text-ink-faint">All worksheets share this artifact’s access and one Save. Up to 20 tabs, 6,400 cells and 20,000 characters total. Names must be unique, 1–31 characters, with no []:*?/\\ or outer spaces/apostrophes. Cells are Text unless you explicitly choose Formula; imported and pasted values stay literal.</p>
   </div>
 }
 
@@ -185,25 +187,90 @@ function SheetEditor({
   onPasteCells: (row: number, column: number, text: string) => boolean
   disabled: boolean
 }) {
+  const [selected, setSelected] = useState({ row: 0, column: 0 })
+  const [modeError, setModeError] = useState<string | null>(null)
+  const row = Math.min(selected.row, body.rows.length - 1)
+  const column = Math.min(selected.column, body.columns.length - 1)
+  const cell = body.rows[row]?.[column] ?? ''
+  const formulaMode = isFormulaCell(cell)
+  const source = sheetCellSource(cell)
+  const calculations = useMemo(() => body.rows.some(values => values.some(isFormulaCell)) ? calculateSheet(body) : undefined, [body])
+  const result = calculations?.[row]?.[column]
+  const displayResult = result?.text ?? (formulaMode ? '#FORMULA!' : source)
+  const updateSelectedCell = (value: SheetCell) => onChange({
+    ...body,
+    rows: body.rows.map((values, r) => r === row ? values.map((current, c) => c === column ? value : current) : values),
+  })
+  const updateSelectedSource = (nextSource: string) => {
+    setModeError(null)
+    setCell(row, column, formulaMode ? { formula: nextSource } : nextSource)
+  }
+  const setMode = (nextMode: string) => {
+    if (nextMode === 'Formula' && !formulaMode) {
+      if (!source.startsWith('=') && source.length >= MAX_AUTHORED_CELL_CHARS) {
+        setModeError('Formula mode adds “=” to this text, which would exceed the 2,000-character cell limit. Shorten it first, then choose Formula.')
+        return
+      }
+      setModeError(null)
+      updateSelectedCell({ formula: source.startsWith('=') ? source : `=${source}` })
+    } else if (nextMode === 'Text' && formulaMode) {
+      setModeError(null)
+      updateSelectedCell(source)
+    }
+  }
   const setColumn = (index: number, value: string) => onChange({ ...body, columns: body.columns.map((column, i) => i === index ? value : column) })
-  const setCell = (row: number, column: number, value: string) => onChange({
+  const setCell = (row: number, column: number, value: SheetCell) => onChange({
     ...body,
     rows: body.rows.map((values, rowIndex) => rowIndex === row ? values.map((cell, columnIndex) => columnIndex === column ? value : cell) : values),
   })
   const addColumn = () => onChange({ ...body, columns: [...body.columns, 'New column'], rows: body.rows.map((row) => [...row, '']) })
-  const removeColumn = (index: number) => body.columns.length > 1 && onChange({ ...body, columns: body.columns.filter((_, i) => i !== index), rows: body.rows.map((row) => row.filter((_, i) => i !== index)) })
+  const removeColumn = (index: number) => {
+    if (body.columns.length <= 1) return
+    const next = removeSheetColumn(body, index)
+    onChange(next)
+    setSelected(current => ({ ...current, column: current.column > index ? current.column - 1 : Math.min(current.column, next.columns.length - 1) }))
+  }
   const addRow = () => onChange({ ...body, rows: [...body.rows, body.columns.map(() => '')] })
-  const removeRow = (index: number) => body.rows.length > 1 && onChange({ ...body, rows: body.rows.filter((_, i) => i !== index) })
+  const removeRow = (index: number) => {
+    if (body.rows.length <= 1) return
+    const next = removeSheetRow(body, index)
+    onChange(next)
+    setSelected(current => ({ ...current, row: current.row > index ? current.row - 1 : Math.min(current.row, next.rows.length - 1) }))
+  }
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
         <button type="button" data-inline-action className={buttonClass} disabled={disabled || body.columns.length >= MAX_AUTHORED_SHEET_COLUMNS} onClick={addColumn}><Plus size={12} /> Add column</button>
         <button type="button" data-inline-action className={buttonClass} disabled={disabled || body.rows.length >= MAX_AUTHORED_SHEET_ROWS} onClick={addRow}><Plus size={12} /> Add row</button>
       </div>
-      <p className="text-[11px] leading-relaxed text-ink-faint">Paste a table into its first cell: tabs separate columns, line breaks start rows. The range replaces existing cells and expands this worksheet as needed. Review before saving; values stay literal.</p>
+      <div className="grid gap-1.5 rounded-lg border border-line bg-panel-2/40 p-2 sm:grid-cols-[auto_auto_minmax(0,1fr)] sm:items-start" data-sheet-cell-toolbar>
+        <span className="pt-1 text-[11px] font-semibold tabular-nums text-ink-soft" data-sheet-cell-coordinate>{sheetCellAddress(row, column)}</span>
+        <label className="text-[11px] text-ink-soft">Mode
+          <select aria-label="Cell mode" className={`${FORM_INPUT_CLASS} mt-0.5`} disabled={disabled} value={formulaMode ? 'Formula' : 'Text'} onChange={event => setMode(event.target.value)}>
+            <option>Text</option><option>Formula</option>
+          </select>
+        </label>
+        <div className="min-w-0">
+          <label className="block text-[11px] text-ink-soft">{formulaMode ? 'Formula source' : 'Text value'}
+            <textarea aria-label={`${formulaMode ? 'Formula source' : 'Text value'} ${sheetCellAddress(row, column)}`} maxLength={MAX_AUTHORED_CELL_CHARS} className={`${FORM_INPUT_CLASS} mt-0.5 w-full resize-y font-mono`} rows={2} disabled={disabled} value={source} onChange={event => updateSelectedSource(event.target.value)}
+              onPaste={event => { if (onPasteCells(row, column, event.clipboardData.getData('text/plain'))) event.preventDefault() }} />
+          </label>
+          {formulaMode && <p className={`mt-1 text-[11px] ${result?.kind === 'error' ? 'text-danger-text' : 'text-ink-soft'}`} data-sheet-cell-result role="status">
+            {result?.kind === 'error' ? `Error ${result.code}: ${result.message}` : `Result: ${displayResult}`}
+          </p>}
+        </div>
+      </div>
+      <p className="text-[11px] leading-relaxed text-ink-faint">A1 means the first data cell under the column headings; headings are not addressed. Formula mode supports numeric literals, same-worksheet A1 references, + - * /, parentheses, and SUM ranges such as SUM(A1:B3). XLSX downloads contain calculated values and errors, not formulas. Paste a table here with tabs between columns and line breaks between rows. Pasted cells always stay literal, including text starting with =; replaced formulas are counted and can be undone.</p>
+      {modeError && <p className="text-[11px] text-danger-text" role="alert" data-sheet-mode-error>{modeError}</p>}
       <div className="@container max-w-full overflow-x-auto rounded-lg border border-line" tabIndex={0} role="region" aria-label="Edit sheet">
         <table className="min-w-full border-collapse text-[12px]">
+          <caption className="sr-only">Column letters and row numbers address data cells only. A1 is the first data cell beneath the column headings.</caption>
           <thead><tr className="bg-panel-2">
+            <th className="w-9" aria-label="Column coordinate" />
+            {body.columns.map((_, index) => <th key={`coordinate-${index}`} scope="col" aria-label={`Data column ${sheetColumnLabel(index)}`} className="min-w-24 px-1.5 pt-1 text-left font-mono text-[10px] font-normal text-ink-faint">{sheetColumnLabel(index)}</th>)}
+            <th className="w-8" />
+          </tr><tr className="bg-panel-2">
+            <th className="w-9" aria-label="Row coordinate" />
             {body.columns.map((column, index) => <th key={index} className="min-w-24 border-l border-line p-1.5 align-top first:border-l-0">
               <textarea aria-label={`Sheet column ${index + 1}`} maxLength={MAX_AUTHORED_LABEL_CHARS} className={`${FORM_INPUT_CLASS} min-w-24 resize-y`} rows={2} disabled={disabled} value={column} onChange={(event) => setColumn(index, event.target.value)} />
               <button type="button" data-inline-action aria-label={`Remove sheet column ${index + 1}`} className={`${buttonClass} mt-1`} disabled={disabled || body.columns.length <= 1} onClick={() => removeColumn(index)}><Minus size={11} /> Remove column</button>
@@ -211,9 +278,11 @@ function SheetEditor({
             <th className="w-8" />
           </tr></thead>
           <tbody>{body.rows.map((row, rowIndex) => <tr key={rowIndex} className="border-t border-line">
+            <th scope="row" className="px-1.5 text-right align-top font-mono text-[10px] font-normal text-ink-faint">{rowIndex + 1}</th>
             {body.columns.map((_, columnIndex) => <td key={columnIndex} className="min-w-24 border-l border-line p-1.5 align-top first:border-l-0">
-              <textarea aria-label={`Sheet row ${rowIndex + 1} value ${columnIndex + 1}`} maxLength={MAX_AUTHORED_CELL_CHARS} className={`${FORM_INPUT_CLASS} min-w-24 resize-y`} rows={2} disabled={disabled} value={row[columnIndex] ?? ''} onChange={(event) => setCell(rowIndex, columnIndex, event.target.value)}
+              <textarea aria-label={`Sheet row ${rowIndex + 1} value ${columnIndex + 1}`} maxLength={MAX_AUTHORED_CELL_CHARS} className={`${FORM_INPUT_CLASS} min-w-24 resize-y`} rows={2} disabled={disabled} value={sheetCellSource(row[columnIndex] ?? '')} onFocus={() => { setSelected({ row: rowIndex, column: columnIndex }); setModeError(null) }} onChange={(event) => { setModeError(null); setCell(rowIndex, columnIndex, isFormulaCell(row[columnIndex]) ? { formula: event.target.value } : event.target.value) }}
                 onPaste={event => { if (onPasteCells(rowIndex, columnIndex, event.clipboardData.getData('text/plain'))) event.preventDefault() }} />
+              {isFormulaCell(row[columnIndex]) && <div className={`mt-1 text-[10px] ${calculations?.[rowIndex]?.[columnIndex]?.kind === 'error' ? 'text-danger-text' : 'text-ink-faint'}`} data-sheet-cell-preview title={sheetCellSource(row[columnIndex]!)}>{calculations?.[rowIndex]?.[columnIndex]?.text ?? '#FORMULA!'}</div>}
             </td>)}
             <td className="p-1 align-top"><button type="button" aria-label={`Remove sheet row ${rowIndex + 1}`} className="text-ink-faint hover:text-ink" disabled={disabled || body.rows.length <= 1} onClick={() => removeRow(rowIndex)}><Minus size={13} /></button></td>
           </tr>)}</tbody>

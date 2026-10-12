@@ -91,7 +91,7 @@ test('elevation means floating — resting chrome casts no shadow, tree-wide', (
   // The overlay tier: the ONLY files allowed a shadow, each a thing that FLOATS
   // above the page. Alive-checked below — an allowlist nobody re-checks is a
   // hole with a comment (the tests/CLAUDE.md vacuity lesson).
-  const OVERLAYS = ['src/lib/popover.ts', 'src/lib/dialog.ts', 'src/components/Tooltip.tsx', 'src/components/AccountMenu.tsx']
+  const OVERLAYS = ['src/lib/popover.ts', 'src/lib/dialog.ts', 'src/components/Tooltip.tsx', 'src/components/AccountChip.tsx']
   const floating = new Set<string>()
   for (const file of filesUnder('src')) {
     const rel = file.slice(ROOT.length + 1).split('\\').join('/')

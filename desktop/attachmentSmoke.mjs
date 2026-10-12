@@ -71,7 +71,22 @@ async function closePreview(page, preview = page.locator('[data-attachment-previ
 }
 
 async function expectSheetGrid(sheetPreview, sheet) {
-  await expect(sheetPreview.locator('table thead th')).toHaveText(sheet.columns)
+  const dataHeadings = sheetPreview.locator('table thead tr:has(> th[aria-label="Row coordinate"]) > th[scope="col"]')
+  const coordinates = sheetPreview.locator('table thead tr:has(> th[aria-label="Column coordinate"]) > th[aria-label^="Data column "]')
+  const expectedCoordinates = sheet.columns.map((_, index) => {
+    let value = index + 1
+    let label = ''
+    while (value > 0) {
+      value -= 1
+      label = String.fromCharCode(65 + value % 26) + label
+      value = Math.floor(value / 26)
+    }
+    return label
+  })
+  await expect(dataHeadings).toHaveCount(sheet.columns.length)
+  await expect(dataHeadings).toHaveText(sheet.columns)
+  await expect(coordinates).toHaveCount(sheet.columns.length)
+  await expect(coordinates).toHaveText(expectedCoordinates)
   await expect(sheetPreview.locator('table tbody td')).toHaveText(sheet.rows.flat())
 }
 

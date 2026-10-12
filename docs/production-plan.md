@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-11. The standing goal remains production readiness for Agent
+Reviewed 2026-10-12. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -13,7 +13,61 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: recursive saved folders across served sources
+## Current checkpoint: explicit bounded authored Sheet formulas
+
+Autonomous direction (2026-10-12): add a deliberately small calculation language
+to first-party Sheets. Text stays literal, even when it starts with `=`; Formula
+is an explicit cell mode stored as a closed source record. A1 names the first
+data cell, not its heading. Support finite decimal/scientific numbers, same-sheet
+references, arithmetic, parentheses and SUM with rectangular ranges. Unsupported
+syntax, missing references, nonnumeric text, division by zero, nonfinite results,
+cycles and excessive work produce visible errors, never guessed values.
+
+One framework-free evaluator supplies read views, editor previews, complete
+saved-copy model text and values-only XLSX downloads. Formula source remains
+visible and searchable; saved history distinguishes it from identical literal
+text. Imports and range paste remain literal. Row/column deletion adjusts valid
+references, shrinks ranges and marks deleted targets explicitly. No cross-sheet
+or external references, executable code, Excel compatibility, imported-formula
+execution or live-source access is claimed.
+
+Formula source shares existing 2,000-character cell and 20,000-character workbook
+limits. Calculation bounds are 256 tokens, 32 expression levels, 64 formula
+dependencies, 6,400 cells per range and 100,000 work steps per sheet. Whole-sheet
+work exhaustion replaces every formula result with a limit error; literal cells
+remain intact. Model copies retain their whole 64-KiB budget including derived
+values. The 800,000-byte cold-JavaScript budget is unchanged; optional account
+menu and usage-detail content load separately from their always-visible controls.
+
+Acceptance covers real create/edit/CAS/replay/history/restore, JSON and SQLite
+restart, model copies, values-only exports, literal clipboard behavior, and the
+owner/shared/foreign account faces at five viewports. Complete local verification,
+the shared UI sweep and rebuilt unsigned-arm64 ordinary smoke precede delivery.
+The owner's live preview/store remains untouched; signed/notarized, Intel,
+actual native-dialog, update-installation and live-service release gates remain.
+
+The feature acceptance walk and all 135 shared UI cells passed with zero
+violations or skips. Review caught accessor-bearing cell input, phantom formula
+replacement counts in newly pasted space, and a deferred Usage fallback missing
+the shared containment hook. Each regression was watched fail before repair.
+The Usage fallback now owns its own viewport containment and explicit warned
+reload; its blocked-module five-viewport walk supplements normal loaded states.
+These are implementation checks, not production native or live-service evidence.
+
+The first complete gate exposed an import-focus regression from the new cell
+toolbar and shared test-budget exhaustion after the expanded tool schema. Import
+adoption must focus the first column heading after the new grid is committed;
+model-turn acceptance must own its usage partition and assert successful
+generation before checking downstream output. Production spend limits and
+verification timeouts/retries are unchanged. A second-tab formula journey adds
+explicit workbook identity, same-tab calculation, export and restart evidence.
+
+The recursive served-folder checkpoint landed as `9bb62c10`: all five complete
+local verifier lanes (657 browser tests), 135/135 shared UI cells with zero
+violations/skips, and rebuilt unsigned-arm64 ordinary smoke passed. Its final
+grant-narrowing regression was watched fail before the final verifier pass.
+
+## Previous checkpoint: recursive saved folders across served sources
 
 Autonomous direction (2026-10-11): extend the established saved-copy workflow to
 nested cloud and mapped-runner folders. Include subfolders starts unchecked;

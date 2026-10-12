@@ -5,6 +5,49 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
 
+test('usage gauge remains eager while the details body loads only on first open', () => {
+  const control = stripComments(read(join(ROOT, 'src/components/UsageControl.tsx')))
+  const details = stripComments(read(join(ROOT, 'src/components/UsageDetails.tsx')))
+  assert.match(control, /import \{ withLiveMessages, type UsageModelRef, type UsageSnapshot \} from '\.\.\/\.\.\/contract\/usage\.ts'/,
+    'the server snapshot and live message overlay remain owned by the gauge controller')
+  assert.match(control, /const UsageDetails = lazy\(\(\) => import\('\.\/UsageDetails'\)/,
+    'the explanatory rows do not enter the composer cold graph')
+  assert.match(control, /<UsageGauge usage=\{usage\} \/>/,
+    'the always-visible gauge stays in the eager module')
+  assert.match(control, /open && \([\s\S]*<DeferredLoadBoundary fallback=\{<UsageDetailsFallback failed[\s\S]*<Suspense[\s\S]*<UsageDetails/,
+    'detail loading begins only when the popup opens')
+  assert.match(control, /data-usage-details-load=\{failed \? 'error' : 'loading'\}/)
+  assert.match(control, /function UsageDetailsFallback[\s\S]*const popRef = usePopoverShift\(true\)[\s\S]*<div ref=\{popRef\} role="dialog"/,
+    'the loading and failed faces own shared containment, not just the deferred body')
+  assert.match(control, /role=\{failed \? 'alert' : 'status'\}[\s\S]*Couldn’t display usage details[\s\S]*>Close</,
+    'a failed detail chunk is announced and has a local Close fallback')
+  assert.match(control, /Copy unsent text before reloading[\s\S]*window\.location\.reload\(\)[\s\S]*Reload usage details/,
+    'cached module failure has explicit warned full-reload recovery')
+  assert.match(details, /Context estimate[\s\S]*About 4 characters per token[\s\S]*Local usage limits/,
+    'the lazy content retains the existing estimate and limits explanation')
+})
+
+test('account menu content loads only after opening the always-visible chip', () => {
+  const sidebar = stripComments(read(join(ROOT, 'src/components/Sidebar.tsx')))
+  const chip = stripComments(read(join(ROOT, 'src/components/AccountChip.tsx')))
+  const menu = stripComments(read(join(ROOT, 'src/components/AccountMenu.tsx')))
+  assert.match(sidebar, /import \{ AccountChip \} from '\.\/AccountChip'/)
+  assert.doesNotMatch(sidebar, /from '\.\/AccountMenu'/)
+  assert.match(chip, /const MenuContent = lazy\(\(\) => import\('\.\/AccountMenu'\)/)
+  assert.match(chip, /open &&[\s\S]*<DeferredLoadBoundary fallback=\{<AccountMenuLoadState failed[\s\S]*<Suspense/,
+    'the first click opens an announced shell before the menu chunk is ready')
+  assert.match(chip, /data-account-menu-load=\{failed \? 'error' : 'loading'\}/)
+  assert.match(chip, /<DeferredLoadBoundary fallback=\{<AccountMenuLoadState failed[\s\S]*<Suspense/,
+    'chunk failure remains inside the shared account-controls boundary')
+  assert.match(chip, /Couldn’t display account options\.[\s\S]*Reload account options/,
+    'the failed state offers a deliberate recovery path')
+  assert.match(chip, /Unsaved organization text may be lost/,
+    'the reload warning covers only the unsaved text it can discard')
+  assert.match(menu, /export function AccountMenuContent/)
+  assert.match(menu, /fieldset disabled=\{held !== null\}/,
+    'menu actions retain the existing account-transition hold')
+})
+
 test('expanded Contexts rail rows load registry and native metadata behind local recovery', () => {
   const tree = stripComments(read(join(ROOT, 'src/components/SectionTreeChildren.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredContextChildren.tsx')))

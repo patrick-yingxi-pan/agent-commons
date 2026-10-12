@@ -1,6 +1,6 @@
-/** The account chip + menu (multi-account §6.6; §12: the switcher). The chip
- *  label is always `/v1/me` — the server's word for who it heard, so a switch,
- *  a signup, or a sign-in becomes VISIBLE TRUTH, never an optimistic label.
+/** Deferred account menu content (multi-account §6.6; §12: the switcher).
+ *  The always-visible identity chip lives in AccountChip.tsx; only this
+ *  low-frequency menu body waits for its first open.
  *
  *  The menu's sections, top to bottom:
  *    • Invitations — the caller's PENDING org invites (FWD-6 O-D3, the v1
@@ -24,12 +24,11 @@
  *  workspace" form) is gone — FWD-5 Phase 2, the workspace collapse: an account
  *  IS its one namespace, so the only thing to switch is the ACCOUNT
  *  (docs/design/principals-and-namespaces.md). All dismissal via useDismissable
- *  (the shared hook — design invariant). */
+ *  (the shared hook — design invariant) in the chip shell. */
 import { lazy, Suspense, useState, type FormEvent, type ReactNode } from 'react'
 import { LogOut } from 'lucide-react'
 import {
   useAuthAccounts,
-  useCapabilities,
   useMe,
   useMyOrgs,
 } from '../api'
@@ -37,86 +36,40 @@ import { openAuthScreen } from '../controller/useAuthScreen'
 import {
   enqueueAccountTransition,
   heldAccountTransition,
-  isAccountTransitionHeld,
   useAccountTransitionStatus,
 } from '../controller/accountTransitionMutations'
 import {
   enqueueOrgCreation,
   heldOrgCreationIntent,
-  isOrgCreationHeld,
   useOrgCreationStatus,
 } from '../controller/orgCreationMutations'
 import { accountSubtitle } from '../lib/accountFace'
 import { AUTH_ERROR_CLASS, AUTH_INPUT_CLASS, AUTH_PRIMARY_CLASS } from '../lib/authFlow'
 import { HOVER_REVEAL } from '../lib/hoverReveal'
-import { useDismissable } from '../lib/useDismissable'
 import { SIDEBAR_HOVER } from '../lib/sidebar'
 
 const OrgInvitationMenuSection = lazy(() =>
   import('./OrgInvitationMenuSection').then((module) => ({ default: module.OrgInvitationMenuSection })),
 )
 
-export function AccountChip({ onOpenOwner }: { onOpenOwner?: (name: string) => void }) {
-  const me = useMe().data
-  const switchable = useCapabilities().data?.features.identitySwitch === true
-  const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState<'menu' | 'neworg'>('menu')
-  const close = () => {
-    if (isOrgCreationHeld() || isAccountTransitionHeld()) return
-    setOpen(false)
-    setMode('menu')
-  }
-  const menuRef = useDismissable<HTMLDivElement>(open, close)
-  const name = me?.user.name ?? 'You'
-  // The second line is the account FUNNEL's answer (src/lib/accountFace.ts) —
-  // empty when the namespace is simply this person, so the chip never says one
-  // name twice.
-  const subtitle = me ? accountSubtitle(me.user, me.tenant) : 'Personal'
-  const initial = name.trim().charAt(0).toUpperCase() || 'Y'
-  const identityRow = (
-    <div className="flex items-center gap-2" title={me?.user.email}>
-      <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-solid text-[13px] font-semibold text-on-solid">
-        {initial}
-      </div>
-      <div className="min-w-0 leading-tight">
-        <div className="truncate text-[12px] font-medium text-ink">{name}</div>
-        {subtitle && <div className="truncate text-[11px] text-ink-faint">{subtitle}</div>}
-      </div>
-    </div>
-  )
-  if (!switchable) {
-    return <div className="border-t border-line px-3 py-2.5">{identityRow}</div>
-  }
-  return (
-    <div className="relative border-t border-line px-3 py-2.5" ref={menuRef}>
-      {open && (
-        <div className="absolute bottom-full left-2 right-2 z-20 mb-1 rounded-lg border border-line bg-panel p-1 shadow-lg">
-          {mode === 'menu' && <MenuBody me={me} onClose={close} onNewOrg={() => setMode('neworg')} onOpenOwner={onOpenOwner} />}
-          {mode === 'neworg' && <NewOrgForm onBack={() => setMode('menu')} onDone={close} onOpenOwner={onOpenOwner} />}
-        </div>
-      )}
-      <button
-        data-testid="account-chip"
-        onClick={() => {
-          if (isAccountTransitionHeld()) {
-            setOpen(true)
-            setMode('menu')
-            return
-          }
-          if (isOrgCreationHeld()) {
-            setOpen(true)
-            setMode('neworg')
-            return
-          }
-          setOpen((current) => !current)
-        }}
-        className={`-mx-1 w-[calc(100%+0.5rem)] rounded-lg px-1 py-0.5 text-left transition ${SIDEBAR_HOVER}`}
-        aria-label="Switch account"
-      >
-        {identityRow}
-      </button>
-    </div>
-  )
+export function AccountMenuContent({
+  me,
+  mode,
+  onClose,
+  onNewOrg,
+  onBack,
+  onOpenOwner,
+}: {
+  me: ReturnType<typeof useMe>['data']
+  mode: 'menu' | 'neworg'
+  onClose: () => void
+  onNewOrg: () => void
+  onBack: () => void
+  onOpenOwner?: (name: string) => void
+}) {
+  return mode === 'menu'
+    ? <MenuBody me={me} onClose={onClose} onNewOrg={onNewOrg} onOpenOwner={onOpenOwner} />
+    : <NewOrgForm onBack={onBack} onDone={onClose} onOpenOwner={onOpenOwner} />
 }
 
 function MenuBody({

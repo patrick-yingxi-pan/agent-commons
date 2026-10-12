@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { StructuredArtifactBody, SheetGrid } from '../../contract/index.ts'
+import { calculateSheet } from '../../contract/workbookCalculation.ts'
+import { isFormulaCell, sheetCellSource, sheetColumnLabel } from '../../contract/sheetCell.ts'
 import { WorkbookTabs } from './WorkbookTabs'
 import { useArtifactSearchFields } from './ArtifactSearchReveal.tsx'
 
@@ -54,6 +56,7 @@ function StructuredSheetView({
   const search = useArtifactSearchFields()
   const t = SHEET[size]
   const rows = size === 'thumb' ? body.rows.slice(0, 3) : body.rows
+  const calculations = useMemo(() => body.rows.some(values => values.some(isFormulaCell)) ? calculateSheet(body) : undefined, [body])
   return (
     <div
       className={`@container max-w-full overflow-x-auto overflow-y-hidden rounded-lg border border-line ${t.text}`}
@@ -63,8 +66,14 @@ function StructuredSheetView({
       data-structured-artifact-body="sheet"
     >
       <table className="min-w-full border-collapse">
+        <caption className="sr-only">Column letters and row numbers address data cells only. A1 is the first data cell beneath the column headings.</caption>
         <thead>
           <tr className="bg-panel-2">
+            <th className="w-8 px-2 py-1" aria-label="Column coordinate" />
+            {body.columns.map((_, index) => <th key={`coordinate-${index}`} scope="col" aria-label={`Data column ${sheetColumnLabel(index)}`} className={`${t.cell} text-left font-mono text-[10px] font-normal text-ink-faint`}>{sheetColumnLabel(index)}</th>)}
+          </tr>
+          <tr className="bg-panel-2">
+            <th className="w-8 px-2 py-1" aria-label="Row coordinate" />
             {body.columns.map((column, index) => (
               <th
                 {...search.props(`${fieldPrefix}.column.${index}`)}
@@ -80,20 +89,25 @@ function StructuredSheetView({
         <tbody>
           {rows.map((row, rowIndex) => (
             <tr key={rowIndex} className="border-t border-line">
+              <th scope="row" className="w-8 px-2 py-1 text-right font-mono text-[10px] font-normal text-ink-faint">{rowIndex + 1}</th>
               {body.columns.map((_, columnIndex) => {
-                const value = row[columnIndex] ?? ''
+                const cell = row[columnIndex] ?? ''
+                const formula = isFormulaCell(cell)
+                const source = sheetCellSource(cell)
+                const result = calculations?.[rowIndex]?.[columnIndex]
+                const value = formula ? (result?.text ?? '#FORMULA!') : source
                 return (
                   <td
-                    {...search.props(`${fieldPrefix}.cell.${rowIndex}.${columnIndex}`)}
                     key={columnIndex}
                     className={`${t.cell} whitespace-pre-wrap break-words [overflow-wrap:anywhere] align-top ${columnIndex > 0 ? 'border-l border-line text-right tabular-nums text-ink-soft' : 'text-ink'}`}
                   >
                     {HEX.test(value) ? (
-                      <span className="inline-flex max-w-full flex-wrap items-center gap-1.5">
+                      <span {...(!formula ? search.props(`${fieldPrefix}.cell.${rowIndex}.${columnIndex}`) : {})} className="inline-flex max-w-full flex-wrap items-center gap-1.5">
                         <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm ring-1 ring-line-strong" style={{ background: value }} />
                         <span className="font-mono break-all">{value}</span>
                       </span>
-                    ) : value}
+                    ) : <span {...(!formula ? search.props(`${fieldPrefix}.cell.${rowIndex}.${columnIndex}`) : {})} className={result?.kind === 'error' ? 'text-danger-text' : undefined} title={result?.kind === 'error' ? result.message : undefined}>{value}</span>}
+                    {formula && <div {...search.props(`${fieldPrefix}.cell.${rowIndex}.${columnIndex}`)} className="mt-0.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[10px] font-mono text-ink-faint" aria-label={`Formula source ${sheetColumnLabel(columnIndex)}${rowIndex + 1}`}>{source}</div>}
                   </td>
                 )
               })}

@@ -240,9 +240,15 @@ test('a non-ephemeral connector turn persists its toolActivities (survives reloa
 })
 
 test('a persisted assistant turn is stamped with its driving Agent (D16 per-turn provenance)', async () => {
-  const s = store.createSession('start')
-  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello' }) // not ephemeral → persisted
-  const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
+  // This turn owns its usage partition: schema growth must not make unrelated
+  // earlier fixture turns consume the budget for the provenance assertion.
+  const tenant = 'tenant-message-agent-provenance'
+  const headers = { 'x-tenant-id': tenant }
+  const s = store.createSession('start', tenant)
+  const { status, body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'hello' }, headers)
+  assert.equal(status, 200, body)
+  assert.match(body, /"type":"message\.end"/)
+  const thread = (await call('GET', `/sessions/${s.id}`, undefined, headers)).json.messages ?? []
   const assistant = thread.find((m: { role: string; agentId?: string }) => m.role === 'assistant')
   assert.ok(assistant, 'the assistant turn was persisted')
   assert.equal(assistant.agentId, 'agent-default') // the default driver

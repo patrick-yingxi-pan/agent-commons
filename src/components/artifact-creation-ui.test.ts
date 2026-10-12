@@ -73,6 +73,8 @@ test('New artifact authors every supported format through the shared bounded fie
   assert.match(section, /<StructuredArtifactFields body=\{kind === 'sheet' \? sheet : slides\}/,
     'creation uses the same structured field component as correction')
   const creation = stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
+  assert.match(creation, /A1 is the first data cell under the column headings/, 'creation guidance distinguishes data coordinates from labels')
+  assert.match(creation, /XLSX downloads contain calculated values and errors, not formulas/, 'creation discloses values-only exports')
   assert.match(creation, /projects\.filter\(\(project\) => project\.own === true\)\.map\(/,
     'optional filing offers only projects whose server projection grants owner acts')
   assert.match(fields, /<StructuredArtifactFields body=\{body\} onChange=\{onChange\} disabled=\{saving\}/,
@@ -108,6 +110,19 @@ test('sheet intake requires explicit valid header mapping and adoption before cr
   assert.ok(surface.includes("disabled={disabled || mapping?.status === 'error'}"))
   assert.ok(hook.includes('allVisibleCandidate === intake.state'), 'all-visible import scope belongs only to the reviewed workbook candidate')
   assert.ok(hook.includes('setAllVisibleCandidate(enabled ? intake.state : null)'), 'only explicit all-scope choice binds the current candidate')
+})
+
+test('sheet import adoption focuses the first column label after the adopted editor commits', () => {
+  const creation = stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
+  const sheetImport = creation.slice(creation.indexOf('<ArtifactSheetImport'), creation.indexOf('<ArtifactPresentationImport'))
+  assert.match(creation, /useLayoutEffect\([\s\S]*structuredFieldsRef\.current\?\.querySelector(?:<HTMLTextAreaElement>)?\('textarea\[aria-label="Sheet column 1"\]'\)\?\.focus\(\)/,
+    'focus waits for the adopted sheet/workbook DOM, including a remounted first source worksheet')
+  assert.doesNotMatch(sheetImport, /structuredFieldsRef\.current\?\.querySelector\('textarea'\)\?\.focus\(\)/,
+    'the first generic textarea is the formula source toolbar, not the established sheet import start')
+  assert.match(creation, /structuredFieldsRef\.current\?\.querySelector\('textarea'\)\?\.focus\(\)/,
+    'Slides retain their existing first-field focus behavior')
+  assert.match(creation, /documentBodyRef\.current\?\.focus\(\)/,
+    'Document import retains its explicit content-field focus behavior')
 })
 
 test('one global held creation owns recovery and only a still-mounted dialog follows its exact id', () => {

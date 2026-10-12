@@ -1,5 +1,6 @@
 import type { ArtifactHistoryBody } from '../../contract/artifactHistory.ts'
 import type { DocBlock, SheetGrid, WorkbookSheet } from '../../contract/content.ts'
+import { isFormulaCell, sheetCellSource, type SheetCell } from '../../contract/sheetCell.ts'
 
 export const ARTIFACT_HISTORY_COMPARE_PAGE_SIZE = 20
 
@@ -81,7 +82,18 @@ export function compareArtifactHistoryBodies(
       const cellCount = Math.max(oldCells.length, newCells.length)
       for (let columnIndex = 0; columnIndex < cellCount; columnIndex += 1) {
         const address = `${columnName(columnIndex)}${rowIndex + 1}`
-        add([...path, 'cell', rowIndex, columnIndex], `${label} · Cell ${address}`, oldCells[columnIndex], newCells[columnIndex])
+        const oldCell = oldCells[columnIndex]
+        const newCell = newCells[columnIndex]
+        const oldFormula = oldCell !== undefined && isFormulaCell(oldCell)
+        const newFormula = newCell !== undefined && isFormulaCell(newCell)
+        if (oldFormula || newFormula) {
+          add([...path, 'cell', rowIndex, columnIndex, 'kind'], `${label} · Cell ${address} · Kind`,
+            oldCell === undefined ? undefined : oldFormula ? 'Formula' : 'Literal',
+            newCell === undefined ? undefined : newFormula ? 'Formula' : 'Literal')
+        }
+        const source = (cell: SheetCell | undefined) => cell === undefined
+          ? undefined : sheetCellSource(cell)
+        add([...path, 'cell', rowIndex, columnIndex], `${label} · Cell ${address}`, source(oldCell), source(newCell))
       }
     }
     add([...path, 'note'], `${label} · Note`, oldGrid?.note, newGrid?.note)

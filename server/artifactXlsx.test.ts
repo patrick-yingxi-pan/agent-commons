@@ -124,6 +124,23 @@ test('XLSX workbook tab names preserve literal escape sequences after one ST_Xst
   assert.deepEqual(tabNames(files), names)
 })
 
+test('XLSX exports authored formulas as calculated value strings without formula elements', async () => {
+  const body = {
+    type: 'workbook' as const,
+    revision: 4,
+    sheets: [{
+      id: 'totals', name: 'Totals', columns: ['A', 'B', 'Total', 'Literal'],
+      rows: [['2', '3', { formula: '=A1+B1' }, '=A1+B1']],
+    }],
+  }
+  const files = await parts((await sheetXlsx('Totals', body)).content)
+  const decoded = cells(files)
+  assert.equal(decoded.C2, '5')
+  assert.equal(decoded.D2, '=A1+B1', 'leading equals in a literal remains literal')
+  assert.doesNotMatch(Object.values(files).join(''), /<f[\s>]/u)
+  assert.deepEqual(body.sheets[0]!.rows[0], ['2', '3', { formula: '=A1+B1' }, '=A1+B1'])
+})
+
 test('XLSX is one self-contained valid XML package with readable saved-value formatting', async () => {
   const body = { type: 'sheet' as const, columns: ['Person', 'Status'], rows: [['Ada', 'Ready'], ['Grace', 'Review\nNext week']] }
   const first = await sheetXlsx('Team.sheet', body)

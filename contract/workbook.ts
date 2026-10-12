@@ -1,4 +1,5 @@
 import type { ArtifactContent, SheetGrid, WorkbookSheet } from './content.ts'
+import { cloneSheetCell, type SheetCell } from './sheetCell.ts'
 
 export type { SheetGrid, WorkbookSheet } from './content.ts'
 
@@ -18,7 +19,19 @@ type WorkbookContent = Extract<ArtifactContent, { type: 'workbook' }>
 function record(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
   const prototype = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
+  return (prototype === Object.prototype || prototype === null) && Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key)!
+    return Object.hasOwn(descriptor, 'value') && descriptor.enumerable
+  })
+}
+
+/** Closed dense arrays, with data indices only: admission must not run getters,
+ * skip sparse slots, or lose extra fields when crossing JSON. */
+function dataArray(value: unknown[]): boolean {
+  return Reflect.ownKeys(value).length === value.length + 1 && Array.from({ length: value.length }, (_, index) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index))
+    return !!descriptor && Object.hasOwn(descriptor, 'value') && descriptor.enumerable
+  }).every(Boolean)
 }
 
 function fields(value: Record<string, unknown>, required: string[], optional: string[] = []): boolean {
@@ -40,18 +53,26 @@ function textBudget() {
 function parseGrid(raw: Record<string, unknown>, addText: ReturnType<typeof textBudget>): SheetGrid | undefined {
   if (!Array.isArray(raw.columns) || raw.columns.length < 1 || raw.columns.length > MAX_AUTHORED_SHEET_COLUMNS ||
     !Array.isArray(raw.rows) || raw.rows.length < 1 || raw.rows.length > MAX_AUTHORED_SHEET_ROWS) return undefined
+  if (!dataArray(raw.columns) || !dataArray(raw.rows)) return undefined
   const columns: string[] = []
   for (const column of raw.columns) {
     if (!addText(column, MAX_AUTHORED_LABEL_CHARS, true)) return undefined
     columns.push(column)
   }
-  const rows: string[][] = []
+  const rows: SheetCell[][] = []
   for (const row of raw.rows) {
-    if (!Array.isArray(row) || row.length !== columns.length) return undefined
-    const copied: string[] = []
+    if (!Array.isArray(row) || row.length !== columns.length || !dataArray(row)) return undefined
+    const copied: SheetCell[] = []
     for (const cell of row) {
-      if (!addText(cell, MAX_AUTHORED_CELL_CHARS)) return undefined
-      copied.push(cell)
+      if (typeof cell === 'string') {
+        if (!addText(cell, MAX_AUTHORED_CELL_CHARS)) return undefined
+        copied.push(cell)
+      } else {
+        if (!record(cell) || !fields(cell, ['formula'])) return undefined
+        const descriptor = Object.getOwnPropertyDescriptor(cell, 'formula')
+        if (!descriptor || !Object.hasOwn(descriptor, 'value') || !addText(descriptor.value, MAX_AUTHORED_CELL_CHARS)) return undefined
+        copied.push({ formula: descriptor.value })
+      }
     }
     rows.push(copied)
   }
@@ -80,11 +101,12 @@ function validWorksheetNameXmlText(value: string): boolean {
   return true
 }
 
-/** Strict detached authoring parser. Values stay literal; no revision or other
+/** Strict detached authoring parser. Formula mode stays explicit; no revision or other
  * authority-bearing field is accepted, and no caller-owned nested value leaks. */
 export function parseAuthoredWorkbook(value: unknown): Omit<WorkbookContent, 'revision'> | undefined {
   if (!record(value) || !fields(value, ['type', 'sheets']) || value.type !== 'workbook' ||
     !Array.isArray(value.sheets) || value.sheets.length < 1 || value.sheets.length > MAX_AUTHORED_WORKBOOK_SHEETS) return undefined
+  if (!dataArray(value.sheets)) return undefined
 
   const sheets: WorkbookSheet[] = []
   const ids = new Set<string>()
@@ -125,14 +147,14 @@ export function spreadsheetSheets(body: SheetContent | WorkbookContent): Workboo
     id: sheet.id,
     name: sheet.name,
     columns: [...sheet.columns],
-    rows: sheet.rows.map((row) => [...row]),
+    rows: sheet.rows.map((row) => row.map(cloneSheetCell)),
     ...(sheet.note === undefined ? {} : { note: sheet.note }),
   }))
   return [{
     id: 'sheet-1',
     name: 'Sheet',
     columns: [...body.columns],
-    rows: body.rows.map((row) => [...row]),
+    rows: body.rows.map((row) => row.map(cloneSheetCell)),
     ...(body.note === undefined ? {} : { note: body.note }),
   }]
 }

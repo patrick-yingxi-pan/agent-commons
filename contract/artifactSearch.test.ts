@@ -96,3 +96,11 @@ test('structured Artifact paths use array positions without exposing internal ta
   ])
   assert.deepEqual([...artifactSearchFields({ type: 'figure', shape: 'bars', caption: 'Not searchable', labels: ['No'], series: [1] })], [])
 })
+
+test('formula cells search their exact authored expression at the canonical cell path', () => {
+  const formula = { type: 'sheet' as const, columns: ['Total'], rows: [[{ formula: '=SUM(A1:A2)' }]] }
+  assert.deepEqual([...artifactSearchFields(formula)], [
+    { field: 'sheet.column.0', text: 'Total' },
+    { field: 'sheet.cell.0.0', text: '=SUM(A1:A2)' },
+  ])
+})

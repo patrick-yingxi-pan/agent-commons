@@ -51,6 +51,34 @@ test('a sheet-format routine can capture one complete named workbook candidate',
   assert.deepEqual(capture.result, body)
 })
 
+test('routine tool schema admits only explicitly tagged formula cells and captures them detached', async () => {
+  const capture = createRoutineArtifactCapture({ name: 'metrics.xlsx', kind: 'sheet' })
+  const definition = routineArtifactToolDefinition(capture)
+  const workbookSchema = definition.input_schema.properties.body.oneOf?.find((schema) => schema.properties?.type.enum?.[0] === 'workbook')
+  const sheetSchema = definition.input_schema.properties.body.oneOf?.find((schema) => schema.properties?.type.enum?.[0] === 'sheet')
+  assert.deepEqual(workbookSchema?.properties?.sheets?.items?.properties?.rows?.items?.items?.oneOf?.map((item) => item.type), ['string', 'object'])
+  assert.deepEqual(sheetSchema?.properties?.rows?.items?.items?.oneOf?.map((item) => item.type), ['string', 'object'])
+  const workbookCell = workbookSchema?.properties?.sheets?.items?.properties?.rows?.items?.items
+  const sheetCell = sheetSchema?.properties?.rows?.items?.items
+  assert.deepEqual(workbookCell, sheetCell, 'legacy sheet and workbook use the same strict cell contract')
+  const formula = sheetCell?.oneOf?.[1]
+  assert.equal(formula?.properties?.formula.type, 'string')
+  assert.equal(formula?.properties?.formula.minLength, undefined, 'empty source remains admissible and is evaluated as #FORMULA!')
+  assert.match(formula?.description ?? '', /same-sheet data-row A1 references/)
+  assert.match(formula?.description ?? '', /#FORMULA!/)
+
+  const body = { type: 'sheet' as const, columns: ['Formula', 'Literal'], rows: [[{ formula: '=1+1' }, '=1+1']] }
+  const input = structuredClone(body)
+  const output = await executeToolBatch(
+    [{ id: 'formula-sheet', name: ROUTINE_ARTIFACT_TOOL_NAME, input: { body: input } }],
+    options(capture),
+  )
+  assert.equal(output.results[0]?.isError, undefined)
+  assert.deepEqual(capture.result, body)
+  input.rows[0]![0]!.formula = '=9'
+  assert.deepEqual(capture.result, body, 'the accepted formula source is detached from model input')
+})
+
 test('one settled valid submission publishes one detached structured candidate and no product effects', async () => {
   const capture = createRoutineArtifactCapture({ name: 'metrics.sheet', kind: 'sheet' })
   const raw = { body: structuredClone(sheetBody) }

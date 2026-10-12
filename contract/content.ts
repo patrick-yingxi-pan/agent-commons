@@ -4,6 +4,9 @@
  *  real values; seeded demo and unsupported imported-file previews remain
  *  explicit fixtures. Shared so persistence, consent, and rendering agree. */
 
+import type { SheetCell } from './sheetCell.ts'
+export type { SheetCell } from './sheetCell.ts'
+
 export type DocBlock = (
   | { h: string } // section heading
   | { p: string } // paragraph
@@ -27,11 +30,11 @@ export function isDocBlockId(value: unknown): value is string {
 
 export type FigureShape = 'hero' | 'bars' | 'line' | 'funnel'
 
-/** One literal worksheet grid. Sheet IDs identify tabs inside a workbook only;
+/** One authored worksheet grid. Sheet IDs identify tabs inside a workbook only;
  * they carry no artifact identity or permission authority. */
 export interface SheetGrid {
   columns: string[]
-  rows: string[][]
+  rows: SheetCell[][]
   note?: string
 }
 
@@ -42,7 +45,7 @@ export interface WorkbookSheet extends SheetGrid {
 
 export type ArtifactContent = (
   | { type: 'doc'; title: string; blocks: DocBlock[] }
-  | { type: 'sheet'; columns: string[]; rows: string[][]; note?: string }
+  | ({ type: 'sheet' } & SheetGrid)
   | { type: 'workbook'; sheets: WorkbookSheet[] }
   | { type: 'slides'; slides: { title: string; bullets: string[] }[] }
   | {

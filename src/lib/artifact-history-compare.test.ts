@@ -56,6 +56,19 @@ test('legacy sheet comparison preserves literal cells and distinguishes missing 
   ])
 })
 
+test('sheet history distinguishes a formula tag from an identical literal source string', () => {
+  const before: ArtifactHistoryBody = { type: 'sheet', columns: ['Value'], rows: [['=1+1']] }
+  const after: ArtifactHistoryBody = { type: 'sheet', columns: ['Value'], rows: [[{ formula: '=1+1' }]] }
+  assert.deepEqual(compareArtifactHistoryBodies(before, after).map(({ label, before, after }) => [label, before, after]), [
+    ['Sheet · Cell A1 · Kind', 'Literal', 'Formula'],
+  ])
+
+  const changed: ArtifactHistoryBody = { type: 'sheet', columns: ['Value'], rows: [[{ formula: '=2+2' }]] }
+  assert.deepEqual(compareArtifactHistoryBodies(after, changed).map(({ label, before, after }) => [label, before, after]), [
+    ['Sheet · Cell A1', '=1+1', '=2+2'],
+  ])
+})
+
 test('workbook tabs follow exact IDs through rename and reorder, comparing every grid field', () => {
   const before: ArtifactHistoryBody = {
     type: 'workbook', sheets: [

@@ -7,7 +7,8 @@ export interface ArtifactBodySearchMatch {
   field: string
 }
 
-/** Find the first literal match in the body's declared text fields without
+/** Find the first textual match in the body's declared authored fields (including
+ * exact formula source) without
  * constructing a snippet. `normalizedQuery` is the trimmed lowercase query
  * shared by the caller. */
 export function findArtifactBodySearchMatch(

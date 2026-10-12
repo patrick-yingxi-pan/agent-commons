@@ -76,3 +76,42 @@ test('read-only Artifact snapshots preserve an existing wholly legacy Document w
     type: 'doc', title: 'Legacy', blocks: [{ p: 'Still readable' }, { email: { to: 'a@example.test', subject: 'Hello' } }],
   })
 })
+
+test('formula context keeps the saved source and adds a calculated projection from that frozen body', () => {
+  const snapshot = buildArtifactSnapshot({
+    artifactId: 'formula-sheet', title: 'Totals', artifactKind: 'sheet',
+    body: { type: 'sheet', columns: ['Left', 'Right', 'Total'], rows: [['2', '3', { formula: '=A1+B1' }]] },
+  }, receipt, at)
+  assert.ok(snapshot)
+  assert.deepEqual(snapshot.body, {
+    type: 'sheet', columns: ['Left', 'Right', 'Total'], rows: [['2', '3', { formula: '=A1+B1' }]],
+  })
+  assert.equal(artifactSnapshotText(snapshot), JSON.stringify({
+    title: 'Totals', artifactKind: 'sheet', revision: 0, body: snapshot.body,
+    calculation: { version: 1, sheets: [{ id: 'sheet-1', rows: [['2', '3', '5']] }] },
+  }))
+
+  const changedSource = buildArtifactSnapshot({
+    artifactId: 'formula-sheet', title: 'Totals', artifactKind: 'sheet',
+    body: { type: 'sheet', columns: ['Left', 'Right', 'Total'], rows: [['8', '3', { formula: '=A1+B1' }]] },
+  }, '12345678-1234-4123-8123-123456789013', at)
+  assert.ok(changedSource)
+  assert.match(artifactSnapshotText(changedSource), /"rows":\[\["8","3","11"\]\]/)
+  assert.equal(artifactSnapshotText(snapshot).includes('"11"'), false)
+})
+
+test('formula snapshot budget includes the complete derived grid and all workbook tabs', () => {
+  const body = {
+    type: 'workbook' as const,
+    sheets: [{ id: 'formulas', name: 'Formulas', columns: ['A'], rows: [[{ formula: '=1+2' }]] },
+      { id: 'text', name: 'Text', columns: ['A'], rows: Array.from({ length: 18 }, () => ['界'.repeat(1000)]) }],
+  }
+  const source = { artifactId: 'big-formulas', title: 'Big', artifactKind: 'sheet' as const, body }
+  assert.ok(new TextEncoder().encode(JSON.stringify(source)).byteLength < 64 * 1024, 'authored source alone fits')
+  assert.equal(buildArtifactSnapshot(source, receipt, at), null, 'no truncated calculated copy may fit instead')
+  const small = buildArtifactSnapshot({ ...source, body: { ...body, sheets: [body.sheets[0], { ...body.sheets[1], rows: [['saved']] }] } }, receipt, at)
+  assert.ok(small)
+  assert.deepEqual(JSON.parse(artifactSnapshotText(small)).calculation, { version: 1, sheets: [
+    { id: 'formulas', rows: [['3']] }, { id: 'text', rows: [['saved']] },
+  ] })
+})

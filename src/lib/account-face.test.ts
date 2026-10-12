@@ -35,8 +35,9 @@ test('accountSubtitle — the email, then the namespace only when it is not simp
   assert.equal(accountSubtitle(LOCAL, undefined), '')
 })
 
-test('the three account surfaces route through the funnel — none re-reaches for the namespace name', () => {
+test('account identity surfaces route through the funnel — none re-reaches for the namespace name', () => {
   for (const rel of [
+    ['src', 'components', 'AccountChip.tsx'],
     ['src', 'components', 'AccountMenu.tsx'],
     ['src', 'components', 'auth', 'AuthScreen.tsx'],
   ]) {

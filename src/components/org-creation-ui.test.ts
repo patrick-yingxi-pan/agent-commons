@@ -5,6 +5,7 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('New organization holds one exact founding intent until authoritative acknowledgement', () => {
   const menu = stripComments(read(join(ROOT, 'src', 'components', 'AccountMenu.tsx')))
+  const chip = stripComments(read(join(ROOT, 'src', 'components', 'AccountChip.tsx')))
   const legacy = stripComments(read(join(ROOT, 'src', 'api', 'hooks.ts')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'orgCreationCommands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'orgCreationMutations.ts')))
@@ -19,7 +20,7 @@ test('New organization holds one exact founding intent until authoritative ackno
   assert.match(menu, /value=\{visibleName\}/, 'the held exact name reconstructs from controller state')
   assert.match(menu, /disabled=\{frozen\}/, 'held form controls cannot race or rewrite the request')
   assert.match(
-    menu,
+    `${menu}\n${chip}`,
     /if \(isOrgCreationHeld\(\) \|\| isAccountTransitionHeld\(\)\) return/,
     'outside and Escape dismissal cannot erase either account-menu uncertainty',
   )

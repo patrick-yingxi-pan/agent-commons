@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { FileText, Plus } from 'lucide-react'
 import type { Project } from '../data/cowork'
 import {
@@ -58,6 +58,12 @@ export function NewArtifactDialog({
   const documentBodyId = useId()
   const documentBodyRef = useRef<HTMLTextAreaElement>(null)
   const structuredFieldsRef = useRef<HTMLFieldSetElement>(null)
+  const importedSheetFocusPending = useRef(false)
+  useLayoutEffect(() => {
+    if (!importedSheetFocusPending.current) return
+    importedSheetFocusPending.current = false
+    structuredFieldsRef.current?.querySelector<HTMLTextAreaElement>('textarea[aria-label="Sheet column 1"]')?.focus()
+  }, [sheet])
   const waitingForRecovery = busy && !!mutation.error
   const mounted = useRef(false)
   const followed = useRef<Promise<ArtifactCreationResult> | null>(null)
@@ -137,9 +143,9 @@ export function NewArtifactDialog({
       {kind === 'sheet' && <ArtifactSheetImport intake={sheetImport}
         hasContent={sheet.type === 'workbook' || (sheet.type === 'sheet' && (sheet.columns.length > 1 || sheet.rows.length > 1 || sheet.columns.some(Boolean) || sheet.rows.some((row) => row.some(Boolean)) || !!sheet.note))}
         disabled={busy} onUse={() => sheetImport.accept((candidate) => {
+          importedSheetFocusPending.current = true
           setSheet(candidate.body)
           setName((current) => current.trim() ? current : candidate.name)
-          structuredFieldsRef.current?.querySelector('textarea')?.focus()
         })} />}
       {kind === 'slide' && <ArtifactPresentationImport intake={presentationImport}
         hasContent={slides.type === 'slides' && (slides.slides.length > 1 || slides.slides.some((slide) => slide.title.length > 0 || slide.bullets.length > 0))}
@@ -174,11 +180,11 @@ export function NewArtifactDialog({
       </FormField></> : <fieldset ref={structuredFieldsRef} className="min-w-0 space-y-2" aria-describedby={helpId}>
         <legend className="mb-1.5 text-[12px] font-medium text-ink-soft">Content</legend>
         <p id={helpId} className="text-[11px] text-ink-faint">
-          {kind === 'sheet' ? 'Name each column and enter literal values. Formulas are not calculated.' : 'Give each slide a title, then add optional bullets.'}
+          {kind === 'sheet' ? 'A1 is the first data cell under the column headings. Cells are Text by default; Formula supports numbers, same-worksheet A1 references, + - * /, parentheses, and SUM ranges. Imports and pastes stay literal. XLSX downloads contain calculated values and errors, not formulas.' : 'Give each slide a title, then add optional bullets.'}
           {' '}Up to 20,000 characters across this content.
         </p>
         <StructuredArtifactFields body={kind === 'sheet' ? sheet : slides} onChange={kind === 'sheet' ? setSheet : setSlides} disabled={busy} />
-        {normalizedName && !authored && <p role="status" className="text-[11px] text-ink-faint">Complete the required labels and keep the content within its size limits to create.</p>}
+        {normalizedName && !authored && <p role="status" className="text-[11px] text-ink-faint">{kind === 'sheet' ? 'Review required labels and worksheet names. Each cell or formula source must be at most 2,000 characters and the whole sheet or workbook at most 20,000; structural edits can expand formula references past these limits.' : 'Complete the required labels and keep the content within its size limits to create.'}</p>}
       </fieldset>}
       <FormField label="Project" optional>
         <select

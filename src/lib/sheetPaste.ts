@@ -2,6 +2,7 @@ import {
   MAX_AUTHORED_CELL_CHARS, MAX_AUTHORED_SHEET_COLUMNS, MAX_AUTHORED_SHEET_ROWS,
   parseStructuredArtifactBody, type StructuredArtifactBody,
 } from '../../contract/artifactAuthoring.ts'
+import { isFormulaCell, type SheetCell } from '../../contract/sheetCell.ts'
 import { parseDelimitedText } from './delimitedText.ts'
 
 export type SpreadsheetBody = Exclude<StructuredArtifactBody, { type: 'slides' }>
@@ -9,7 +10,7 @@ export const MAX_SHEET_PASTE_BYTES = 256 * 1024
 export type SheetPasteResult =
   | { kind: 'native' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready'; body: SpreadsheetBody; rows: number; columns: number }
+  | { kind: 'ready'; body: SpreadsheetBody; rows: number; columns: number; replacedFormulas: number }
 
 export type SheetPasteFeedback = {
   message: string; error: boolean; before?: SpreadsheetBody; after: string
@@ -48,12 +49,20 @@ export function pasteSheetCells(body: SpreadsheetBody, sheetId: string, row: num
   if (cells.some(values => values.some(value => value.length > MAX_AUTHORED_CELL_CHARS))) {
     return error('Each pasted cell must contain at most 2,000 characters.')
   }
+  let replacedFormulas = 0
+  const nextRows: SheetCell[][] = Array.from({ length: rows }, (_, r) => Array.from({ length: columns }, (_, c) => {
+    if (r >= row && r < row + height && c >= column && c < column + width) {
+      if (isFormulaCell(grid.rows[r]?.[c])) replacedFormulas++
+      // Clipboard imports are always literal. Formula-looking text is never
+      // promoted implicitly, and overwriting an authored formula is disclosed.
+      return cells[r - row]![c - column]!
+    }
+    return grid.rows[r]?.[c] ?? ''
+  }))
   const nextGrid = {
     ...grid,
     columns: Array.from({ length: columns }, (_, index) => grid.columns[index] ?? `Column ${index + 1}`),
-    rows: Array.from({ length: rows }, (_, r) => Array.from({ length: columns }, (_, c) =>
-      r >= row && r < row + height && c >= column && c < column + width
-        ? cells[r - row]![c - column]! : grid.rows[r]?.[c] ?? '')),
+    rows: nextRows,
   }
   const candidate: SpreadsheetBody = body.type === 'sheet' ? { ...nextGrid, type: 'sheet' }
     : { ...body, sheets: body.sheets.map(sheet => sheet.id === sheetId ? { ...sheet, ...nextGrid } : sheet) }
@@ -61,5 +70,5 @@ export function pasteSheetCells(body: SpreadsheetBody, sheetId: string, row: num
   if (!parsed || parsed.type === 'slides') {
     return error('Review worksheet names, column labels and the workbook’s 6,400-cell / 20,000-character limits.')
   }
-  return { kind: 'ready', body: parsed, rows: height, columns: width }
+  return { kind: 'ready', body: parsed, rows: height, columns: width, replacedFormulas }
 }

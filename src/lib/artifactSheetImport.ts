@@ -8,6 +8,7 @@ import {
   type StructuredArtifactBody,
 } from '../../contract/artifactAuthoring.ts'
 import { parseAuthoredWorkbook } from '../../contract/workbook.ts'
+import type { WorkbookSheet } from '../../contract/content.ts'
 import { LOCAL_TEXT_PREVIEW_BYTES } from '../../contract/localTextFile.mjs'
 import { normalizeArtifactName } from '../../contract/artifactMetadata.ts'
 import { parseWorkbookImportResult, parseWorkbookSnapshot, type WorkbookSnapshot } from '../../contract/workbookImport.ts'
@@ -96,7 +97,7 @@ export function mapArtifactSheetImport(candidate: ArtifactSheetImportResult, fir
       ? workbook.worksheets[0]
       : workbook.worksheets.find((sheet) => sheet.sourceSheet === sourceSheet)].filter((sheet): sheet is NonNullable<typeof sheet> => !!sheet)
     if (!worksheets.length) return { status: 'error', message: 'Choose a visible worksheet from this workbook. No cells were imported.' }
-    const mappedSheets: Array<{ id: string; name: string; columns: string[]; rows: string[][] }> = []
+    const mappedSheets: WorkbookSheet[] = []
     const worksheetDisclosures: string[] = []
     for (const worksheet of worksheets) {
       if (worksheet.cells.some((cell) => cell.formula === 'missing')) {

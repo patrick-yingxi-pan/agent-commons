@@ -103,11 +103,32 @@ async function seedPickerOverflowConnections(page: Page, stack: McpRouterStack, 
   }
 }
 
-async function requestExternalCall(page: Page, query: string) {
+async function requestExternalCall(page: Page, stack: McpRouterStack, sessionId: string, query: string) {
+  expect(new URL(page.url()).pathname).toBe(`/s/${sessionId}`)
   const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await composer.fill(`Use the attached external MCP tool with query “${query}”.`)
+  const acceptedResponse = page.waitForResponse((response) => {
+    const request = response.request()
+    const path = new URL(request.url()).pathname
+    return request.method() === 'POST' && path.endsWith(`/sessions/${sessionId}/messages`) &&
+      request.postDataJSON()?.text === `Use the attached external MCP tool with query “${query}”.`
+  }, { timeout: ms(20_000) })
   await composer.press('Enter')
-  const row = page.locator('[data-mcp-tool-status="proposed"]').filter({ hasText: 'inspect_records' }).last()
+  const response = await acceptedResponse
+  expect(response.status(), 'the exact session message request is accepted').toBe(200)
+  // readReplyEvents cancels the transport after message.end. Neither a Chromium
+  // body lookup nor requestfinished is a valid completion signal. The server
+  // commits before that frame; read its exact durable proposal instead.
+  await expect.poll(async () => {
+    const savedResponse = await page.request.get(`${stack.url}/api/v1/sessions/${sessionId}`)
+    expect(savedResponse.ok(), 'the exact session remains readable after its turn').toBe(true)
+    const saved = await savedResponse.json() as Session
+    return saved.messages?.filter(message => message.role === 'assistant')
+      .flatMap(message => message.toolActivities ?? []).findLast(activity =>
+        activity.status === 'proposed' && activity.mcp?.toolName === 'inspect_records')?.input
+  }, { timeout: ms(20_000), message: 'the exact session persists its completed MCP proposal' }).toEqual({ query })
+  const transcript = page.getByRole('region', { name: 'Conversation transcript', exact: true })
+  const row = transcript.locator('[data-mcp-tool-status="proposed"]').filter({ hasText: 'inspect_records' }).last()
   await expect(row.getByRole('button', { name: 'Run tool', exact: true })).toBeVisible({ timeout: ms(20_000) })
   await expect(row).toContainText(`"query": "${query}"`)
   await expect(row).toContainText('Approval applies only to this call')
@@ -244,7 +265,7 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
     const contexts = await (await page.request.get(`${stack.url}/api/v1/sessions/${session.id}/contexts`)).json() as Array<{ id: string }>
     expect(contexts.map(context => context.id)).toContain(connectionId)
 
-    const proposed = await requestExternalCall(page, 'approval-e2e')
+    const proposed = await requestExternalCall(page, stack, session.id, 'approval-e2e')
     await closeMcpDetailPane(page)
     expect(fixture.calls).toEqual(['server/discover', 'tools/list'])
     await captureMcpState(page, proposed, 'owner-approval')
@@ -295,7 +316,7 @@ test('an attached HTTPS MCP tool requires owner approval and persists its inert 
     await page.reload()
     await expect(page.locator('[data-mcp-tool-status="done"]').filter({ hasText: 'Fixture result for approval-e2e.' })).toBeVisible()
 
-    const declined = await requestExternalCall(page, 'decline-e2e')
+    const declined = await requestExternalCall(page, stack, session.id, 'decline-e2e')
     await declined.getByRole('button', { name: 'Decline', exact: true }).click()
     await expect(page.locator('[data-mcp-tool-status="declined"]').filter({ hasText: 'inspect_records' }).last())
       .toContainText('the external tool was not run')
@@ -332,7 +353,7 @@ test('known MCP errors and post-submission uncertainty stay durable without repl
     const session = await created.json() as Session
     await attachExternalMcp(page, session.id, 'Outcome fixture')
 
-    const knownError = await requestExternalCall(page, 'known-error')
+    const knownError = await requestExternalCall(page, stack, session.id, 'known-error')
     await knownError.getByRole('button', { name: 'Run tool', exact: true }).click()
     const failed = page.locator('[data-mcp-tool-status="failed"]').filter({ hasText: 'inspect_records' }).last()
     await expect(failed).toContainText('Server-reported error', { timeout: ms(20_000) })
@@ -341,7 +362,7 @@ test('known MCP errors and post-submission uncertainty stay durable without repl
     expect(fixture.toolCalls).toHaveLength(1)
 
     fixture.setToolBehavior('uncertain')
-    const proposed = await requestExternalCall(page, 'uncertain')
+    const proposed = await requestExternalCall(page, stack, session.id, 'uncertain')
     await proposed.getByRole('button', { name: 'Run tool', exact: true }).click()
     const uncertain = page.locator('[data-mcp-tool-status="uncertain"]').filter({ hasText: 'inspect_records' }).last()
     await expect(uncertain).toContainText('may have run, but no result was confirmed', { timeout: ms(30_000) })
@@ -360,6 +381,14 @@ test('known MCP errors and post-submission uncertainty stay durable without repl
 test('long external labels and result descriptors stay contained at 320px', async ({ page }) => {
   test.setTimeout(ms(90_000))
   const stamp = Date.now().toString(36)
+  // The model-backed proposal gets a fresh, registry-backed account namespace:
+  // synthetic tenant headers can create sessions but cannot authorize their
+  // owner to decide an MCP activity.
+  const account = {
+    name: `MCP long-label ${stamp}`,
+    email: `mcp-long-label-${stamp}@example.test`,
+    password: `mcp-long-label-password-${stamp}`,
+  }
   const longLabel = `Long external connection ${'identity-'.repeat(20)}`
   const longResource = `Resource ${'descriptor-'.repeat(24)}`
   const longMime = `application/vnd.agent-commons.${'schema-'.repeat(20)}+json`
@@ -371,6 +400,29 @@ test('long external labels and result descriptors stay contained at 320px', asyn
   const stack = await startMcpRouterStack()
   const disposeProxy = await proxyMcpApi(page, stack)
   try {
+    const signup = await page.request.post(`${stack.url}/api/v1/auth/signup`, {
+      data: account,
+      headers: {
+        'x-account-transition-source': 'unsigned',
+        'idempotency-key': `mcp-long-label-${stamp}`,
+      },
+    })
+    const signupText = await signup.text()
+    expect(signup.status(), signupText).toBe(200)
+    const createdIdentity = JSON.parse(signupText) as {
+      via: string; tenant: { id: string }; user: { id: string; email: string }
+    }
+    expect(createdIdentity.via).toBe('session')
+    expect(createdIdentity.user.email).toBe(account.email)
+    const identity = await page.request.get(`${stack.url}/api/v1/me`)
+    expect(identity.ok()).toBe(true)
+    const currentIdentity = await identity.json() as {
+      via: string; tenant: { id: string }; user: { id: string; email: string }
+    }
+    expect(currentIdentity.via).toBe('session')
+    expect(currentIdentity.user).toEqual(createdIdentity.user)
+    expect(currentIdentity.tenant).toEqual(createdIdentity.tenant)
+    expect(currentIdentity.tenant.id).not.toBe('tenant-beta')
     // The inline picker is capped at nine rows; nine earlier connected rows
     // force this target into its "More available" flyout even in an otherwise
     // empty worker store. This exercises the real collapsed-list path rather
@@ -384,7 +436,7 @@ test('long external labels and result descriptors stay contained at 320px', asyn
     const created = await page.request.post(`${stack.url}/api/v1/sessions`, { data: {} })
     const session = await created.json() as Session
     await attachExternalMcp(page, session.id, longLabel, true)
-    const proposed = await requestExternalCall(page, 'long-content')
+    const proposed = await requestExternalCall(page, stack, session.id, 'long-content')
     await proposed.getByRole('button', { name: 'Run tool', exact: true }).click()
     const done = page.locator('[data-mcp-tool-status="done"]').filter({ hasText: 'inspect_records' }).last()
     await expect(done).toContainText(longResource, { timeout: ms(20_000) })

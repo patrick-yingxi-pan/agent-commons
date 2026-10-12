@@ -78,7 +78,7 @@ import {
   ROUTINE_DELETE_SCOPE,
   useScheduleDeletionStatus,
 } from '../controller/scheduleDeletionMutations'
-import { AccountChip } from './AccountMenu'
+import { AccountChip } from './AccountChip'
 import { useRelations } from '../controller/useRelations'
 import { runSessionId } from '../../contract/ids.ts'
 import { discussionTitle } from '../../contract/social.ts'
@@ -822,7 +822,7 @@ export function Sidebar({
   )
 }
 
-// The account/tenant chip + switcher/onboarding menu moved to ./AccountMenu.tsx
+// The always-visible account chip lives in ./AccountChip.tsx; menu content loads on demand.
 // (multi-account P7 — it grew the sign-in / create-account / workspace flows).
 
 /** One focus-aware organize/split/close cluster for both navigation and

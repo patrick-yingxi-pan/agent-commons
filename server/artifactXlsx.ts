@@ -1,8 +1,10 @@
-/** Values-only OOXML writer. No archive reads, formulas, external relationships,
+/** Values-only OOXML writer. Formula results come from the shared bounded
+ * calculator, but output contains no formula elements, archive reads, external relationships,
  * resource fetches, or arbitrary parts: the package is entirely generated here.
  * ST_Xstring escaping follows MS-OE376 §2.1.1127, including literal escape text:
  * https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oe376/bd0aa042-434a-4ca7-b25f-4e1fd25a954d */
 import { artifactExportFilename, spreadsheetSheets, XLSX_MEDIA_TYPE, type ArtifactContent, type ArtifactSpreadsheetExport, type WorkbookSheet } from '../contract/index.ts'
+import { calculateSheet } from '../contract/workbookCalculation.ts'
 import { writeOfficeZip } from './artifactOfficeZip.ts'
 
 type SpreadsheetBody = Extract<ArtifactContent, { type: 'sheet' | 'workbook' }>
@@ -54,11 +56,12 @@ export async function sheetXlsx(name: string, body: SpreadsheetBody): Promise<Om
     return strings.get(value)!
   }
   const worksheetParts: [string, string][] = sheets.map((sheet: WorkbookSheet, sheetIndex) => {
-    const widths = sheet.columns.map((column, index) => Math.min(60, Math.max(18, displayWidth(column) + 3, ...sheet.rows.map((row) => displayWidth(row[index]) + 3))))
+    const calculatedRows = calculateSheet(sheet).map((row) => row.map((cell) => cell.text))
+    const widths = sheet.columns.map((column, index) => Math.min(60, Math.max(18, displayWidth(column) + 3, ...calculatedRows.map((row) => displayWidth(row[index] ?? '') + 3))))
     const lastColumn = spreadsheetColumn(sheet.columns.length - 1)
     const dataEnd = sheet.rows.length + 1
     const hasNote = sheet.note !== undefined
-    const worksheet = `${XML}<worksheet xmlns="${MAIN}"><dimension ref="A1:${lastColumn}${dataEnd + (hasNote ? 3 : 0)}"/><sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="24"/><cols>${widths.map((width, i) => `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rowXml(sheet.columns, 1, widths, 1, stringId)}${sheet.rows.map((row, index) => rowXml(row, index + 2, widths, 0, stringId)).join('')}${hasNote ? rowXml(['Note'], dataEnd + 2, widths, 2, stringId) + rowXml([sheet.note!], dataEnd + 3, widths, 2, stringId) : ''}</sheetData><autoFilter ref="A1:${lastColumn}${dataEnd}"/></worksheet>`
+    const worksheet = `${XML}<worksheet xmlns="${MAIN}"><dimension ref="A1:${lastColumn}${dataEnd + (hasNote ? 3 : 0)}"/><sheetViews><sheetView showGridLines="0" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="24"/><cols>${widths.map((width, i) => `<col min="${i + 1}" max="${i + 1}" width="${width}" customWidth="1"/>`).join('')}</cols><sheetData>${rowXml(sheet.columns, 1, widths, 1, stringId)}${calculatedRows.map((row, index) => rowXml(row, index + 2, widths, 0, stringId)).join('')}${hasNote ? rowXml(['Note'], dataEnd + 2, widths, 2, stringId) + rowXml([sheet.note!], dataEnd + 3, widths, 2, stringId) : ''}</sheetData><autoFilter ref="A1:${lastColumn}${dataEnd}"/></worksheet>`
     return [`xl/worksheets/sheet${sheetIndex + 1}.xml`, worksheet]
   })
   const sheetRelationships = sheets.map((_sheet, index) => `<Relationship Id="rId${index + 1}" Type="${REL}/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')
