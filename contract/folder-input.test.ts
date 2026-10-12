@@ -119,3 +119,23 @@ test('recursive local-folder model input preserves full paths when basenames rep
     [`ui-host::${connectionId}/tests/notes.md`, 'Project/tests/notes.md', 'second'],
   ])
 })
+
+test('recursive served-folder model input keeps distinct exact paths and ordinary text snapshot provenance', () => {
+  const workspace: Workspace = {
+    id: 'ws', label: 'Workspace', artifacts: [],
+    folders: [{ id: 'cloud::Project', label: 'Project/', snapshot: {
+      version: 2, scope: 'recursive', snapshotId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      capturedAt: '2026-10-04T12:00:00.000Z', sourceId: 'cloud', path: 'Project',
+      files: [
+        { name: 'src/notes.md', sizeBytes: 5, snapshot: { text: 'first' } },
+        { name: 'tests/notes.md', sizeBytes: 6, snapshot: { text: 'second' } },
+      ],
+    } }],
+  }
+  const attachments = workspaceInputAttachments({ attachments: [], workspaces: [workspace] })
+  assert.deepEqual(attachments.map((item) => [item.id, item.label, item.textSnapshot?.path, item.textSnapshot?.text, item.textSnapshot?.version]), [
+    ['cloud::Project/src/notes.md', 'Project/src/notes.md', 'Project/src/notes.md', 'first', 1],
+    ['cloud::Project/tests/notes.md', 'Project/tests/notes.md', 'Project/tests/notes.md', 'second', 1],
+  ])
+  assert.deepEqual(planAttachmentInput(attachments).map((item) => item.status), ['ready', 'ready'])
+})

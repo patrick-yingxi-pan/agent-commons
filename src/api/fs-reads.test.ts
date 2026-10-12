@@ -114,6 +114,28 @@ test('folder snapshot reads are uncached and validate exact source, path, and bo
   }
 })
 
+test('recursive folder capture requests and validates the exact recursive scope', async (t) => {
+  const snapshot = {
+    version: 2,
+    scope: 'recursive',
+    snapshotId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    capturedAt: '2026-10-04T12:00:00.000Z',
+    sourceId: 'cloud',
+    path: 'docs',
+    files: [{ name: 'nested/notes.md', sizeBytes: 4, snapshot: { text: 'body' } }],
+  }
+  let response: unknown = snapshot
+  let requestedUrl = ''
+  t.mock.method(globalThis, 'fetch', async (url) => {
+    requestedUrl = String(url)
+    return new Response(JSON.stringify(response), { status: 200 })
+  })
+  assert.deepEqual(await readFsFolderSnapshot('cloud', 'docs', undefined, 'recursive'), snapshot)
+  assert.match(requestedUrl, /[?&]scope=recursive(?:&|$)/)
+  response = { ...snapshot, scope: 'flat' }
+  await assert.rejects(readFsFolderSnapshot('cloud', 'docs', undefined, 'recursive'), /invalid saved folder copy/)
+})
+
 test('folder snapshot reads fence cancellation and switched-account response bodies', async (t) => {
   for (const change of ['cancel', 'account']) {
     const intake = new AbortController()

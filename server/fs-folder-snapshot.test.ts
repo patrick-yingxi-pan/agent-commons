@@ -45,6 +45,94 @@ test('folderSnapshot captures sorted whole text and explicit omissions, without 
   assert.equal(JSON.stringify(result).includes(root), false)
 })
 
+test('recursive folderSnapshot is opt-in, captures sorted root-relative files, and skips hidden or linked trees', async (t) => {
+  const { root, folder, reader } = fixture(t)
+  fs.mkdirSync(join(folder, 'nested', 'deeper'), { recursive: true })
+  fs.writeFileSync(join(folder, 'top.md'), 'top')
+  fs.writeFileSync(join(folder, 'nested', 'inside.md'), 'inside')
+  fs.writeFileSync(join(folder, 'nested', 'deeper', 'deep.txt'), 'deep')
+  fs.mkdirSync(join(folder, '.hidden'))
+  fs.writeFileSync(join(folder, '.hidden', 'secret.md'), 'secret')
+  fs.symlinkSync(join(folder, 'nested'), join(folder, 'linked'), 'dir')
+
+  assert.deepEqual(await reader.folderSnapshot('folder'), [
+    { name: 'top.md', sizeBytes: 3, snapshot: { text: 'top' } },
+  ], 'the existing default remains flat')
+  const recursive = await reader.folderSnapshot('folder', undefined, 'recursive')
+  assert.deepEqual(recursive, [
+    { name: 'nested/deeper/deep.txt', sizeBytes: 4, snapshot: { text: 'deep' } },
+    { name: 'nested/inside.md', sizeBytes: 6, snapshot: { text: 'inside' } },
+    { name: 'top.md', sizeBytes: 3, snapshot: { text: 'top' } },
+  ])
+  assert.equal(JSON.stringify(recursive).includes(root), false)
+})
+
+test('recursive folderSnapshot needs explicit traversal authority when access predicates are supplied', async (t) => {
+  const { folder, reader } = fixture(t)
+  fs.mkdirSync(join(folder, 'nested'))
+  fs.writeFileSync(join(folder, 'top.md'), 'top')
+  fs.writeFileSync(join(folder, 'nested', 'inside.md'), 'inside')
+  const restricted = await reader.folderSnapshot('folder', {
+    canList: (path) => path === 'folder/top.md' || path === 'folder/nested/inside.md',
+    canRead: (path) => path === 'folder/top.md' || path === 'folder/nested/inside.md',
+  }, 'recursive')
+  assert.equal(restricted, undefined,
+    'without a traversal predicate, listing a file does not grant its parent directory')
+})
+
+test('recursive folderSnapshot refuses tree entry, directory, and depth cap overflow without a prefix', async (t) => {
+  const { folder, reader } = fixture(t)
+  fs.writeFileSync(join(folder, 'a.md'), 'read me')
+  for (let index = 0; index < 500; index += 1) fs.writeFileSync(join(folder, `entry-${index}.md`), 'x')
+  let openedBodies = 0
+  const originalOpen = fs.openSync
+  t.mock.method(fs, 'openSync', (...args: any[]) => {
+    if (String(args[0]).startsWith(folder)) openedBodies += 1
+    return originalOpen(...args)
+  })
+  syncBuiltinESMExports()
+  assert.equal(await reader.folderSnapshot('folder', undefined, 'recursive'), undefined)
+  assert.equal(openedBodies, 0)
+
+  t.mock.restoreAll()
+  syncBuiltinESMExports()
+  fs.rmSync(folder, { recursive: true, force: true })
+  fs.mkdirSync(folder)
+  for (let index = 0; index < 65; index += 1) fs.mkdirSync(join(folder, `dir-${index}`))
+  assert.equal(await reader.folderSnapshot('folder', undefined, 'recursive'), undefined,
+    'empty directories count against the recursive directory cap')
+
+  fs.rmSync(folder, { recursive: true, force: true })
+  fs.mkdirSync(folder)
+  let nested = folder
+  for (let depth = 0; depth < 17; depth += 1) {
+    nested = join(nested, `level-${depth}`)
+    fs.mkdirSync(nested)
+  }
+  fs.writeFileSync(join(nested, 'too-deep.md'), 'no')
+  assert.equal(await reader.folderSnapshot('folder', undefined, 'recursive'), undefined)
+})
+
+test('recursive folderSnapshot pins every enumerated directory through body reads', async (t) => {
+  const { folder, reader } = fixture(t)
+  const nested = join(folder, 'nested')
+  fs.mkdirSync(nested)
+  fs.writeFileSync(join(nested, 'a.md'), 'first')
+  fs.writeFileSync(join(nested, 'b.md'), 'second')
+  const originalOpen = fs.openSync
+  let changed = false
+  t.mock.method(fs, 'openSync', (...args: any[]) => {
+    if (!changed && args[0] === join(nested, 'a.md')) {
+      changed = true
+      fs.writeFileSync(join(nested, 'late.md'), 'membership changed')
+    }
+    return originalOpen(...args)
+  })
+  syncBuiltinESMExports()
+  assert.equal(await reader.folderSnapshot('folder', undefined, 'recursive'), undefined,
+    'a nested directory membership change cannot publish an incomplete capture')
+})
+
 test('folderSnapshot shares the whole-file byte budget and never opens known excluded bodies', async (t) => {
   const { folder, reader } = fixture(t)
   for (const [name, body] of [

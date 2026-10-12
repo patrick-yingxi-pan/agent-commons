@@ -26,6 +26,7 @@ export function runnerFs(runner: Runner) {
   const snapshotAccess: FolderSnapshotAccess = {
     canList: (entry) => permits('fs.list', entry),
     canRead: (entry) => permits('fs.read', entry),
+    canTraverse: (path) => browsable(path),
   }
   // Authority-only: a caller can re-resolve the current registry after an await
   // without rereading the source or trusting an obsolete Runner object.
@@ -56,11 +57,11 @@ export function runnerFs(runner: Runner) {
       const artifacts = folder.artifacts.filter((entry) => permits('fs.list', entry.id))
       return { ...folder, artifacts, meta: `${artifacts.length} file${artifacts.length === 1 ? '' : 's'}` }
     },
-    async folderSnapshot(path) {
+    async folderSnapshot(path, _callerAccess, scope = 'flat') {
       if (!browsable(path) || !supports('fs.read')) return undefined
       // Never forward caller-supplied access predicates: this facade owns the
       // runner wall, including filtering names before budget selection/reads.
-      const snapshot = await base.folderSnapshot(path, snapshotAccess)
+      const snapshot = await base.folderSnapshot(path, snapshotAccess, scope)
       // The base check predates this await continuation. Narrowing here must
       // not publish a captured name/body merely because some other grant remains.
       return snapshot && permitsFolderSnapshot(path, snapshot)

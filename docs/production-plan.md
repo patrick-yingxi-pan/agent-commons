@@ -13,7 +13,57 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: truthful local MCP consent and cancellation acceptance
+## Current checkpoint: recursive saved folders across served sources
+
+Autonomous direction (2026-10-11): extend the established saved-copy workflow to
+nested cloud and mapped-runner folders. Include subfolders starts unchecked;
+selecting it creates a strict v2 recursive capture. Omitted scope and all existing v1 copies
+stay flat. Every nested file keeps its complete root-relative name, including
+same-named files in different directories. Refresh retains the original scope;
+changing scope requires removing and reattaching the folder.
+
+Capture reuses the native tree path/text policy: 16 levels, 64 visible
+subdirectories (including empty ones), 500 enumerated entries, 24 readable files,
+64 KiB/file and 128 KiB total saved text. Hidden paths, links and special files
+are excluded. Traversal overflow or changed directory identity/version refuses
+the whole capture. Runner traversal follows current list grants without exposing
+sibling names; body reads need separate read authority. This remains a sequential
+bounded saved copy, not an atomic filesystem image or live browsing permission.
+
+Acceptance covers real authored filesystem fixtures, scope-pinned intake and
+Refresh, same-basename model input, failed/replayed Refresh, shared/foreign
+account walls, and source-absent JSON/SQLite restart. Full local verification,
+five-viewport feature review, the shared UI sweep, rebuilt unsigned-arm64 package
+and ordinary smoke precede direct main delivery. The owner's live preview/store
+remains untouched. Native-dialog review still requires an unlocked Mac; signing,
+Intel, update installation and real-service release gates remain open.
+
+The first complete local pass exposed a 202-byte cold-JavaScript budget overrun,
+despite all 5,679 Node tests and 657 browser tests passing. Consolidated served
+entry/Refresh URL builders and one selected file-list validator remove repeated
+code without changing read timing or raising the 800,000-byte cold-graph limit.
+Exact encoded route tests protect the refactor. The corrected product passed all
+five complete local verifier lanes (657 browser tests), all 135 shared UI cells
+with zero violations/skips, and rebuilt unsigned-arm64 ordinary packaged smoke.
+Post-test review found no code defect but added explicit post-body-read runner
+grant-narrowing coverage, including an empty-directory traversal-only case. The
+complete verifier must pass again with these final regression locks before landing.
+
+The reviewed next core direction is bounded calculation in first-party authored
+Sheets (MOCK-2 / FWD-9), not additional marginal recovery refinements. Use a
+deliberately limited shared formula grammar, authoritative derived values and
+explicit unsupported/cycle/arithmetic errors. Editing, dependency updates,
+model input and export must agree. Keep existing XLSX intake as a disclosed
+cached-value projection; do not imply Excel compatibility, execute formula code,
+or add external-data access. This direction is self-approved under the owner's
+standing delegation; implementation follows this checkpoint's landing.
+
+The previous checkpoint landed as `fd9bf7d3` after all five local verifier lanes
+(651 browser tests), 135/135 UI cells and both ordinary and cancel-first local
+MCP unsigned-arm64 packaged smokes passed. Actual native-dialog acceptance was
+not claimed.
+
+## Previous checkpoint: truthful local MCP consent and cancellation acceptance
 
 Autonomous direction (2026-10-11): complete the existing local MCP acceptance
 boundary before adding new execution authority. Review found that all three setup

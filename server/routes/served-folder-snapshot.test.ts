@@ -86,6 +86,45 @@ test('GET folder snapshot captures a populated served folder', async () => {
   assert.equal(response.json.files.some((file: any) => file.name === 'readme.md' && typeof file.snapshot.text === 'string'), true)
 })
 
+test('folder intake requires an exact explicit scope; unknown and duplicate scopes never read', async (t) => {
+  const calls: unknown[][] = []
+  t.mock.method(store, 'fsFolderSnapshot', (...args: unknown[]) => {
+    calls.push(args)
+    return snapshot()
+  })
+  for (const query of ['scope=tree', 'scope=', 'scope=recursive&scope=flat', 'scope=recursive&scope=recursive']) {
+    assert.equal((await call('GET', `/fs/folder-snapshot?source=cloud&path=research&${query}`)).status, 400)
+  }
+  assert.deepEqual(calls, [])
+  assert.equal((await call('GET', '/fs/folder-snapshot?source=cloud&path=research&scope=recursive')).status, 200)
+  assert.deepEqual(calls, [['cloud', 'research', undefined, 'recursive']])
+})
+
+test('recursive Refresh retains its saved scope and exact keyed replay, refusing a downgraded response', async (t) => {
+  const owner = await ownedSession()
+  const prior = snapshot({ version: 2, scope: 'recursive', files: [
+    { name: 'nested/notes.md', sizeBytes: 3, snapshot: { text: 'old' } },
+  ] })
+  assert.equal((await attachFolder(owner.id, owner.headers, [folder('cloud::research', prior)])).status, 200)
+  const reads: unknown[][] = []
+  let downgrade = true
+  t.mock.method(store, 'fsFolderSnapshot', (...args: unknown[]) => {
+    reads.push(args)
+    return downgrade ? snapshot({ snapshotId: REQUEST_ID }) : { ...prior, snapshotId: REQUEST_ID }
+  })
+  assert.equal((await refresh(owner.id, 'cloud::research', FIRST_ID, REQUEST_ID, owner.headers)).status, 400)
+  assert.deepEqual(store.sessionWorkspace(owner.id)?.workspaces[0].folders?.[0].snapshot, prior)
+  downgrade = false
+  const result = await refresh(owner.id, 'cloud::research', FIRST_ID, REQUEST_ID, owner.headers)
+  assert.equal(result.status, 200)
+  assert.deepEqual(result.json.workspace.workspaces[0].folders[0].snapshot, { ...prior, snapshotId: REQUEST_ID })
+  assert.deepEqual(reads, Array(2).fill(['cloud', 'research', REQUEST_ID, 'recursive']))
+  const replay = await refresh(owner.id, 'cloud::research', FIRST_ID, REQUEST_ID, owner.headers)
+  assert.equal(replay.status, 200)
+  assert.deepEqual(replay.json, result.json)
+  assert.equal(reads.length, 2)
+})
+
 test('GET folder snapshot returns a successful empty capture for an empty folder', async (t) => {
   t.mock.method(store, 'fsFolderSnapshot', () => snapshot({ path: 'empty', files: [] }))
   const response = await call('GET', '/fs/folder-snapshot?source=cloud&path=empty')

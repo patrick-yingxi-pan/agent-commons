@@ -9,6 +9,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import fs from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Runner } from '../contract/index.ts'
@@ -65,7 +67,7 @@ test('runnerFs caches its configured root, filters exact file grants, and keeps 
 
   // Folder capture exposes listed names only, and then applies an independent
   // exact fs.read check to each body. A read grant cannot reveal an unlisted name.
-  const capture = (fs: NonNullable<ReturnType<typeof runnerFs>>) => fs.reader.folderSnapshot('folder')
+  const capture = (fs: NonNullable<ReturnType<typeof runnerFs>>, scope: 'flat' | 'recursive' = 'flat') => fs.reader.folderSnapshot('folder', undefined, scope)
   assert.deepEqual(await capture(exactFs), [
     { name: 'inside.md', sizeBytes: 6, snapshot: { text: 'inside' } },
   ])
@@ -110,6 +112,101 @@ test('runnerFs caches its configured root, filters exact file grants, and keeps 
   assert.deepEqual(await exactFs.reader.folderSnapshot('folder', maliciousAccess), [
     { name: 'inside.md', sizeBytes: 6, snapshot: { text: 'inside' } },
   ], 'caller access callbacks cannot expose unlisted names')
+
+  mkdirSync(join(firstRoot, 'folder', 'branch', 'nested'), { recursive: true })
+  writeFileSync(join(firstRoot, 'folder', 'branch', 'nested', 'only.md'), 'only')
+  mkdirSync(join(firstRoot, 'folder', 'private-branch'))
+  writeFileSync(join(firstRoot, 'folder', 'private-branch', 'hidden.md'), 'hidden')
+  const narrowNested = runnerFs(runner([
+    { type: 'fs.list', scopes: [`${scope}/folder/branch/nested/only.md`] },
+    { type: 'fs.read', scopes: [`${scope}/folder/branch/nested/only.md`] },
+  ]))
+  assert.ok(narrowNested)
+  assert.deepEqual(await capture(narrowNested, 'recursive'), [
+    { name: 'branch/nested/only.md', sizeBytes: 4, snapshot: { text: 'only' } },
+  ], 'list grants on a nested file permit traversing only its ancestors')
+  assert.deepEqual(await narrowNested.reader.folderSnapshot('folder', maliciousAccess, 'recursive'), [
+    { name: 'branch/nested/only.md', sizeBytes: 4, snapshot: { text: 'only' } },
+  ], 'caller predicates cannot expose sibling names or bodies in recursive mode')
+
+  const asyncTree = join(firstRoot, 'async-tree')
+  const asyncNested = join(asyncTree, 'branch', 'nested')
+  const asyncTarget = join(asyncNested, 'only.md')
+  mkdirSync(asyncNested, { recursive: true })
+  mkdirSync(join(asyncTree, 'empty-branch'))
+  writeFileSync(asyncTarget, 'only')
+  const asyncPath = `${scope}/async-tree`
+  const nestedGrant = `${asyncPath}/branch/nested`
+  const exactTargetGrant = `${nestedGrant}/only.md`
+  const recursiveOnly = runnerFs(runner([
+    { type: 'fs.list', scopes: [nestedGrant] },
+    { type: 'fs.read', scopes: [exactTargetGrant] },
+  ]))
+  assert.ok(recursiveOnly)
+  assert.deepEqual(await recursiveOnly.reader.folderSnapshot('async-tree', undefined, 'recursive'), [
+    { name: 'branch/nested/only.md', sizeBytes: 4, snapshot: { text: 'only' } },
+  ], 'the async fixture starts with one exact recursive file')
+
+  // Recursive capture awaits its shared builder's dynamic import before body
+  // reads. Queue grant changes only after the nested body's actual read, then
+  // prove current authority is checked before any snapshot can be published.
+  const captureAfterNestedRead = async (
+    activeRunner: Runner,
+    changedCapability: 'fs.list' | 'fs.read',
+    changedScopes: string[],
+  ) => {
+    const mapped = runnerFs(activeRunner)
+    assert.ok(mapped)
+    const originalOpen = fs.openSync
+    const originalRead = fs.readSync
+    const targetDescriptors = new Set<number>()
+    let changed = false
+    t.mock.method(fs, 'openSync', (...args: any[]) => {
+      const descriptor = originalOpen(...args)
+      if (String(args[0]).endsWith('/async-tree/branch/nested/only.md')) targetDescriptors.add(descriptor)
+      return descriptor
+    })
+    t.mock.method(fs, 'readSync', (...args: any[]) => {
+      const count = originalRead(...args)
+      if (!changed && targetDescriptors.has(args[0]) && count > 0) {
+        changed = true
+        queueMicrotask(() => {
+          activeRunner.capabilities.find((capability) => capability.type === changedCapability)!.scopes = changedScopes
+        })
+      }
+      return count
+    })
+    syncBuiltinESMExports()
+    try {
+      const result = await mapped.reader.folderSnapshot('async-tree', undefined, 'recursive')
+      assert.equal(changed, true, 'authority mutation follows an actual nested file-body read')
+      return result
+    } finally {
+      t.mock.restoreAll()
+      syncBuiltinESMExports()
+    }
+  }
+
+  const asyncReadNarrowing = runner([
+    { type: 'fs.list', scopes: [nestedGrant] },
+    { type: 'fs.read', scopes: [exactTargetGrant] },
+  ])
+  assert.equal(await captureAfterNestedRead(asyncReadNarrowing, 'fs.read', [`${nestedGrant}/other.md`]), undefined,
+    'a recursive body read cannot publish after its exact read grant narrows')
+
+  const asyncListNarrowing = runner([
+    { type: 'fs.list', scopes: [nestedGrant] },
+    { type: 'fs.read', scopes: [exactTargetGrant] },
+  ])
+  assert.equal(await captureAfterNestedRead(asyncListNarrowing, 'fs.list', [`${nestedGrant}/other.md`]), undefined,
+    'a recursive file cannot publish after its exact list grant narrows')
+
+  const asyncTraversalNarrowing = runner([
+    { type: 'fs.list', scopes: [exactTargetGrant, `${asyncPath}/empty-branch`] },
+    { type: 'fs.read', scopes: [exactTargetGrant] },
+  ])
+  assert.equal(await captureAfterNestedRead(asyncTraversalNarrowing, 'fs.list', [exactTargetGrant]), undefined,
+    'losing traversal authority for an enumerated empty branch invalidates the otherwise-authorized file')
 
   // Snapshot reads yield between files. Revoking read authority while capture
   // is in flight must invalidate the complete result after it rechecks grants.

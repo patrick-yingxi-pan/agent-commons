@@ -14,6 +14,7 @@ import { localFolderTreeAvailable, localFoldersAvailable } from '../../api/local
 import { refreshLocalGitFolder } from '../../controller/localGitRefresh.ts'
 import { localGitAvailable } from '../../api/localGitCapability.ts'
 import { GitSnapshotPolicy } from '../GitSnapshotPolicy'
+import { isRecursiveFolder } from '../../lib/folderPresentation.ts'
 
 export function ArtifactPanel({
   artifacts,
@@ -51,6 +52,7 @@ export function ArtifactPanel({
   }, [artifacts, selectedId])
 
   const selected = artifacts.find((a) => workspaceArtifactKey(a) === selectedId) ?? artifacts[0]
+  const selectedFolder = folders.find((folder) => folder.id === selected?.source?.id)
   const inputPlan = planAttachmentInput(inputAttachments)
 
   const openPreview = (id: string) => {
@@ -90,7 +92,7 @@ export function ArtifactPanel({
     const Icon = KIND_ICON[a.kind]
     const key = workspaceArtifactKey(a)
     const active = previewOpen && !!selected && key === workspaceArtifactKey(selected)
-    const recursiveLocal = a.source ? folders.find((folder) => folder.id === a.source?.id)?.localSnapshot?.version === 2 : false
+    const recursive = isRecursiveFolder(folders.find((folder) => folder.id === a.source?.id))
     return (
       <button
         key={key}
@@ -101,7 +103,7 @@ export function ArtifactPanel({
       >
         <Icon size={16} className="shrink-0 text-cap-workspace" />
         <div className="min-w-0 flex-1">
-          <div title={a.name} className={`${recursiveLocal ? 'break-all whitespace-normal' : 'truncate'} text-[13px] font-medium text-ink`}>{a.name}</div>
+          <div data-folder-path-scope={recursive ? 'recursive' : 'flat'} title={a.name} className={`${recursive ? 'break-all whitespace-normal' : 'truncate'} text-[13px] font-medium text-ink`}>{a.name}</div>
           <div className="truncate text-[11px] text-ink-faint">{a.meta}</div>
         </div>
       </button>
@@ -132,6 +134,7 @@ export function ArtifactPanel({
               const local = address?.sourceId === 'ui-host' ? g.folder?.localSnapshot : undefined
               const git = address?.sourceId === 'ui-host' ? g.folder?.gitSnapshot : undefined
               const snapshot = local || git || g.folder?.snapshot
+              const recursive = isRecursiveFolder(g.folder)
               const confirming = confirmRemoveId === g.id
               return (
                 <div key={g.id} data-workspace-folder={g.id} className="mb-1.5">
@@ -173,7 +176,7 @@ export function ArtifactPanel({
                   {!isCollapsed && (served || local || git) && (
                     <div data-served-folder-state={snapshot ? 'saved' : 'missing'} className="px-2 pb-1 text-[11px] leading-snug text-ink-soft">
                       {git ? <>Saved Git snapshot <time dateTime={git.capturedAt}>{new Date(git.capturedAt).toLocaleString()}</time> · read-only. {git.files.filter(file => 'omitted' in file.snapshot).length} tracked file(s) have no saved text. {refreshSessionId ? localGitAvailable() ? 'Refresh to capture later tracked edits.' : 'Refresh requires the connection on its original device.' : 'Only the conversation owner can refresh this copy.'}<GitSnapshotPolicy /></>
-                        : snapshot ? <>Saved {local?.version === 2 ? 'including subfolders (relative paths shown)' : local ? 'from the top level only' : ''} <time dateTime={snapshot.capturedAt}>{new Date(snapshot.capturedAt).toLocaleString()}</time> · read-only. {!refreshSessionId ? 'Only the conversation owner can refresh this copy.' : local && !localFoldersAvailable() ? 'Refresh requires the connection on its original device.' : local?.version === 2 && !localFolderTreeAvailable() ? 'Recursive refresh is unavailable on this device; the saved copy is unchanged.' : 'Refresh to capture later edits.'}</> : 'No saved copy yet. Save a snapshot to preview and send readable text.'}
+                        : snapshot ? <>Saved {recursive ? 'including subfolders (root-relative paths shown)' : 'from the top level only'} <time dateTime={snapshot.capturedAt}>{new Date(snapshot.capturedAt).toLocaleString()}</time> · read-only. {!refreshSessionId ? 'Only the conversation owner can refresh this copy.' : local && !localFoldersAvailable() ? 'Refresh requires the connection on its original device.' : local?.version === 2 && !localFolderTreeAvailable() ? 'Recursive refresh is unavailable on this device; the saved copy is unchanged.' : 'Refresh to capture later edits.'}</> : 'No saved copy yet. Save a snapshot to preview and send readable text.'}
                     </div>
                   )}
                   {/* Folder-scoped confirm, inline in the list. Intentionally
@@ -207,7 +210,7 @@ export function ArtifactPanel({
                     </div>
                   )}
                   {!isCollapsed && g.items.map(renderRow)}
-                  {!isCollapsed && g.items.length === 0 && <p className="px-2 py-2 text-[12px] text-ink-soft">No visible {local?.version === 2 ? 'files in this saved folder tree' : 'top-level files in this saved folder'}.</p>}
+                  {!isCollapsed && g.items.length === 0 && <p className="px-2 py-2 text-[12px] text-ink-soft">No visible {recursive ? 'files in this saved folder tree' : 'top-level files in this saved folder'}.</p>}
                 </div>
               )
             })
@@ -216,14 +219,14 @@ export function ArtifactPanel({
 
       {previewOpen && selected && (
         <div className="flex-1 overflow-y-auto border-t border-line bg-surface p-3">
-          <ArtifactPreview artifact={selected} gitSnapshot={folders.find(folder => folder.id === selected.source?.id)?.gitSnapshot} localScope={folders.find(folder => folder.id === selected.source?.id)?.localSnapshot?.version === 2 ? 'recursive' : 'flat'} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id && (item.attachment.source?.kind === 'ui-host' || item.attachment.textSnapshot?.snapshotId === selected.savedFolderSnapshotId))?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
+          <ArtifactPreview artifact={selected} gitSnapshot={selectedFolder?.gitSnapshot} folderScope={isRecursiveFolder(selectedFolder) ? 'recursive' : 'flat'} inputStatus={inputPlan.find((item) => item.attachment.id === selected.id && (item.attachment.source?.kind === 'ui-host' || item.attachment.textSnapshot?.snapshotId === selected.savedFolderSnapshotId))?.status ?? 'unavailable'} onClose={() => setPreviewOpen(false)} />
         </div>
       )}
     </div>
   )
 }
 
-function ArtifactPreview({ artifact, gitSnapshot, localScope, inputStatus, onClose }: { artifact: WorkspaceArtifact; gitSnapshot?: NonNullable<WorkspaceFolder['gitSnapshot']>; localScope: 'flat' | 'recursive'; inputStatus: AttachmentInputStatus; onClose: () => void }) {
+function ArtifactPreview({ artifact, gitSnapshot, folderScope, inputStatus, onClose }: { artifact: WorkspaceArtifact; gitSnapshot?: NonNullable<WorkspaceFolder['gitSnapshot']>; folderScope: 'flat' | 'recursive'; inputStatus: AttachmentInputStatus; onClose: () => void }) {
   // Attached folders are saved copies, never live source or library aliases.
   const parsed = artifact.source ? parseFsRecentKey(artifact.source.id) : null
   const snapshot = artifact.savedFolderSnapshot ?? artifact.localSnapshot
@@ -242,12 +245,12 @@ function ArtifactPreview({ artifact, gitSnapshot, localScope, inputStatus, onClo
           <X size={14} />
         </button>
       </div>
-      <div title={artifact.name} className={`mb-3 text-[15px] font-semibold text-ink ${parsed?.sourceId === 'ui-host' && localScope === 'recursive' ? 'break-all whitespace-normal' : 'truncate'}`}>{artifact.name}</div>
+      <div data-folder-path-scope={folderScope} title={artifact.name} className={`mb-3 text-[15px] font-semibold text-ink ${folderScope === 'recursive' ? 'break-all whitespace-normal' : 'truncate'}`}>{artifact.name}</div>
       {parsed ? (
         <div data-folder-snapshot-preview>
           <p className="mb-2 text-[11px] leading-snug text-ink-soft">{gitSnapshot ? `Saved Git snapshot · ${new Date(gitSnapshot.capturedAt).toLocaleString()} · read-only. This preview uses saved text only; opening and sending do not read the repository.` : parsed.sourceId === 'ui-host' && !artifact.savedFolderSnapshot
             ? 'Imported snapshot · read-only. Reattach the folder to import later edits.'
-            : snapshot ? `Saved ${parsed.sourceId === 'ui-host' && localScope === 'recursive' ? 'including subfolders; this is the full root-relative path' : parsed.sourceId === 'ui-host' ? 'from the top level only' : 'folder snapshot'} · read-only. Original files are never changed or read automatically. Preview and sending use saved text only.` : 'No saved copy. Use Save snapshot on the folder to capture its readable text.'}</p>
+            : snapshot ? `Saved ${folderScope === 'recursive' ? 'including subfolders; this is the full root-relative path' : parsed.sourceId === 'ui-host' ? 'from the top level only' : 'folder snapshot'} · read-only. Original files are never changed or read automatically. Preview and sending use saved text only.` : 'No saved copy. Use Save snapshot on the folder to capture its readable text.'}</p>
           {snapshot && <p className="mb-3 text-[11px] leading-snug text-ink-soft">{attachmentInputCopy(inputStatus)}</p>}
           {typeof snapshot?.text === 'string' ? (
             <pre className="whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink [overflow-wrap:anywhere]">{snapshot.text || '(Empty file)'}</pre>

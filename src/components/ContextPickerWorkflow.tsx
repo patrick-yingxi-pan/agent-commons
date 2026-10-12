@@ -33,6 +33,9 @@ import { BrowseRow, MultiAddFooter, Section } from './ContextPickerParts.tsx'
 import { DeferredDiscussionContextPicker as DiscussionPicker } from './DeferredDiscussionContextPicker.tsx'
 import { DeferredArtifactContextPicker as ArtifactPicker } from './DeferredArtifactContextPicker.tsx'
 import type { TypeId } from './AddContextButton.tsx'
+import { CheckboxRow } from './Checkbox.tsx'
+import type { ServedFolderScope } from '../../contract/servedFolderSnapshot.ts'
+import { servedFolderFileCount } from '../lib/folderPresentation.ts'
 
 export function WorkflowBody({
   type,
@@ -469,7 +472,7 @@ function ServedFolders({
           <OptionRow
             icon={<FolderOpen size={16} />}
             label={f.name}
-            meta={`${f.fileCount} file${f.fileCount === 1 ? '' : 's'}`}
+            meta={servedFolderFileCount(f.fileCount)}
             added={addedIds.includes(fsRecentKey(source.id, f.path))}
             disabled={disabled}
             onClick={() => onAttach(f)}
@@ -489,28 +492,29 @@ function ServedFolderPicker({ source, maxRows, addedIds, onAdd }: {
   addedIds: readonly string[]
   onAdd: (ctx: AddedContext) => void
 }) {
-  const [read, setRead] = useState<{ entry: FsFolderEntry; status: 'loading' | 'error' } | null>(null)
+  const [read, setRead] = useState<{ entry: FsFolderEntry; status: 'loading' | 'error'; scope: ServedFolderScope } | null>(null)
+  const [scope, setScope] = useState<ServedFolderScope>('flat')
   const intake = useRef<AbortController | null>(null)
   useEffect(() => {
     const cancel = () => { intake.current?.abort(); intake.current = null }
-    const unsubscribe = onAccountSwitch(() => { cancel(); setRead(null) })
+    const unsubscribe = onAccountSwitch(() => { cancel(); setRead(null); setScope('flat') })
     return () => { unsubscribe(); cancel() }
   }, [])
 
-  const take = async (entry: FsFolderEntry) => {
+  const take = async (entry: FsFolderEntry, captureScope: ServedFolderScope = scope) => {
     if (intake.current) return
     const controller = new AbortController()
     const issuedAccount = accountGeneration()
     intake.current = controller
-    setRead({ entry, status: 'loading' })
+    setRead({ entry, status: 'loading', scope: captureScope })
     try {
-      const snapshot = await readFsFolderSnapshot(source.id, entry.path, controller.signal)
+      const snapshot = await readFsFolderSnapshot(source.id, entry.path, controller.signal, captureScope)
       if (controller.signal.aborted || issuedAccount !== accountGeneration()) return
       const src = { id: fsRecentKey(source.id, entry.path), label: `${entry.name}/` }
       setRead(null)
       onAdd({ kind: 'folder', label: entry.name, folder: { ...src, snapshot }, artifacts: [], source })
     } catch {
-      if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error' })
+      if (!controller.signal.aborted && issuedAccount === accountGeneration()) setRead({ entry, status: 'error', scope: captureScope })
     } finally {
       if (intake.current === controller) intake.current = null
     }
@@ -518,13 +522,19 @@ function ServedFolderPicker({ source, maxRows, addedIds, onAdd }: {
 
   return <>
     <fieldset disabled={read?.status === 'loading'}>
+      <CheckboxRow checked={scope === 'recursive'} disabled={read?.status === 'loading'} onToggle={() => {
+        setScope(scope === 'recursive' ? 'flat' : 'recursive')
+        if (read?.status === 'error') setRead(null)
+      }} className="mb-2 px-1 text-[12px] leading-snug text-ink-soft">
+        Include subfolders
+      </CheckboxRow>
       <ServedFolders source={source} maxRows={maxRows} addedIds={addedIds} disabled={read?.status === 'loading'} onAttach={(entry) => void take(entry)} />
     </fieldset>
-    <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">Save up to 24 readable top-level text files, 64 KB each and 128 KB total. Hidden files and subfolders are excluded. Saved copies feed the model; Refresh is explicit and never changes originals.</p>
+    <p className="px-1 pt-1.5 text-[11px] leading-snug text-ink-soft">{scope === 'recursive' ? 'Include files up to 16 levels deep, across 64 subfolders and 500 entries; save up to 24 readable text files, 64 KB each and 128 KB total.' : 'Save up to 24 readable top-level text files, 64 KB each and 128 KB total. Subfolders are excluded.'} Hidden files and symlinks are excluded. Saved copies feed the model; Refresh is explicit and never changes originals.</p>
     {read && <div data-fs-folder-read={read.status} role={read.status === 'error' ? 'alert' : 'status'} aria-busy={read.status === 'loading'} className="break-words px-1 py-2 text-[12px] text-ink-soft">
-      {read.status === 'loading' ? <p>Reading {read.entry.name}… Close this picker or choose another source to cancel.</p> : <>
+      {read.status === 'loading' ? <p>Reading {read.entry.name}{read.scope === 'recursive' ? ' including subfolders' : ''}… Close this picker or choose another source to cancel.</p> : <>
         <p className="break-words text-danger-text">Could not read {read.entry.name}. Nothing was attached.</p>
-        <button type="button" onClick={() => void take(read.entry)} className={`${SECONDARY_BUTTON_CLASS} mt-2 px-2 py-1 text-[12px]`}>Retry</button>
+        <button type="button" onClick={() => void take(read.entry, read.scope)} className={`${SECONDARY_BUTTON_CLASS} mt-2 px-2 py-1 text-[12px]`}>Retry</button>
       </>}
     </div>}
   </>

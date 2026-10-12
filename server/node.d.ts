@@ -97,6 +97,7 @@ declare module 'node:fs' {
   export interface Dirent {
     name: string
     isFile(): boolean
+    isDirectory(): boolean
   }
   export interface Dir {
     readSync(): Dirent | null

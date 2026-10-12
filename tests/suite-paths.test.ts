@@ -80,6 +80,7 @@ const NOT_A_READ = new Set([
   `src/api/local-git.test.ts → '${'../'}secret.md'`,
   // A recursive folder traversal payload rejected before any read callback.
   `contract/localFolderTree.test.ts → '${'../'}escape.ts'`,
+  `contract/servedFolderSnapshot.test.ts → '${'../'}escape.md'`,
   // A deliberately unsafe export filename, never a source file to read.
   `src/lib/conversation-export.test.ts → '${'../'}x.md'`,
 ])

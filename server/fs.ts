@@ -3,8 +3,8 @@
  *  filesystem source (the web backend's cloud storage and each runner's host —
  *  see contract/fs.ts). It is the one place the prototype actually touches disk to
  *  serve the Files / Photos / Folder context types: scan a root one level into its
- *  files / photos / folders, scan a sub-folder into artifacts, and read a file's
- *  text or raw bytes. Fulfilment is real; the roots are deterministic in-repo
+ *  files / photos / folders, scan a sub-folder into artifacts, capture bounded
+ *  flat or recursive text snapshots, and read a file's text or raw bytes. Fulfilment is real; the roots are deterministic in-repo
  *  sample trees by default (reviewable, identical in every clone), overridable to a
  *  real path via env.
  *
@@ -19,6 +19,12 @@ import { join, resolve } from 'node:path'
 import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
 import { MAX_FOLDER_SNAPSHOT_ENTRIES, MAX_FOLDER_SNAPSHOT_FILE_BYTES } from '../contract/localFolderSnapshot.mjs'
 import { snapshotFolderFiles } from '../contract/localFolderSnapshotBuilder.mjs'
+import {
+  MAX_FOLDER_TREE_DEPTH,
+  MAX_FOLDER_TREE_DIRECTORIES,
+  MAX_FOLDER_TREE_ENTRIES,
+  snapshotFolderTreeFiles,
+} from '../contract/localFolderTree.mjs'
 import type { FolderSnapshotFile } from '../contract/localFolderSnapshot.mjs'
 import type {
   Artifact,
@@ -96,6 +102,8 @@ function humanSize(bytes: number): string {
 export interface FolderSnapshotAccess {
   canList(path: string): boolean
   canRead(path: string): boolean
+  /** Permit directory traversal without granting visibility to its contents. */
+  canTraverse?(path: string): boolean
 }
 
 /** Recheck captured names and bodies at each async publication boundary. This
@@ -114,10 +122,11 @@ export interface FsReader {
   /** Scan a sub-folder (root-relative path) into the artifacts it holds, or
    *  `undefined` when the path is missing / not a directory / escapes the root. */
   folderContents(relPath: string): FsFolderContents | undefined
-  /** Internal capture foundation, not yet an attachment/Refresh route. Captures
-   * bounded, visible regular top-level files using the shared omission policy.
-   * Enumeration/change failure is unavailable, distinct from an empty batch. */
-  folderSnapshot(relPath: string, access?: FolderSnapshotAccess): Promise<FolderSnapshotFile[] | undefined>
+  /** Shared saved-folder intake and Refresh reader. Flat
+   * captures visible regular top-level files; recursive captures bounded visible
+   * files below the folder. Both use the shared omission policy. Enumeration or
+   * change failure is unavailable, distinct from an empty batch. */
+  folderSnapshot(relPath: string, access?: FolderSnapshotAccess, scope?: 'flat' | 'recursive'): Promise<FolderSnapshotFile[] | undefined>
   /** A file's textual content (the editable preview); image/binary files report
    *  their kind + content type instead of text. `undefined` when missing/escaping. */
   readText(relPath: string): FsFileContent | undefined
@@ -279,12 +288,81 @@ export function fsReader(root: string): FsReader {
       }
     },
 
-    async folderSnapshot(relPath, access) {
+    async folderSnapshot(relPath, access, scope = 'flat') {
       try {
+        if (scope !== 'flat' && scope !== 'recursive') return undefined
         const folder = inspect(relPath)
         if (!folder?.st.isDirectory()) return undefined
         const canList = (path: string) => access?.canList(path) ?? true
         const canRead = (path: string) => access?.canRead(path) ?? true
+        const canTraverse = (path: string) => access
+          ? access.canTraverse?.(path) ?? access.canList(path)
+          : true
+
+        if (scope === 'recursive') {
+          if (!canTraverse(relPath)) return undefined
+          const directories = new Map<string, Entry>([[relPath, folder]])
+          const admitted = new Map<string, Entry>()
+          const candidates: Array<{ name: string; sizeBytes: number }> = []
+          let enumeratedEntries = 0
+          let traversedDirectories = 0
+
+          const visit = (path: string, entry: Entry, depth: number): boolean => {
+            if (!entry.st.isDirectory() || !canTraverse(path)) return false
+            const openedDirectory = inspect(path)
+            if (!openedDirectory?.st.isDirectory() || !sameVersion(entry.st, openedDirectory.st)) return false
+            const directory = opendirSync(openedDirectory.abs)
+            try {
+              for (let item = directory.readSync(); item; item = directory.readSync()) {
+                if (++enumeratedEntries > MAX_FOLDER_TREE_ENTRIES) return false
+                if (item.name.startsWith('.')) continue
+                const childPath = `${path}/${item.name}`
+                if (item.isDirectory()) {
+                  if (!canTraverse(childPath)) continue
+                  const childDepth = depth + 1
+                  if (childDepth > MAX_FOLDER_TREE_DEPTH || ++traversedDirectories > MAX_FOLDER_TREE_DIRECTORIES) return false
+                  const child = inspect(childPath)
+                  if (!child?.st.isDirectory()) return false
+                  directories.set(childPath, child)
+                  if (!visit(childPath, child, childDepth)) return false
+                  continue
+                }
+                // Dirent predicates do not follow links. Symlinks and special
+                // entries are never opened or descended into.
+                if (!item.isFile() || !canList(childPath)) continue
+                const child = inspect(childPath)
+                // A known regular entry that became inaccessible or unsafe
+                // cannot silently disappear from a complete capture.
+                if (!child?.st.isFile()) return false
+                admitted.set(childPath, child)
+                candidates.push({ name: childPath.slice(relPath.length + 1), sizeBytes: child.st.size })
+              }
+            } finally { directory.closeSync() }
+            const after = inspect(path)
+            return !!after && sameVersion(entry.st, after.st)
+          }
+
+          if (!visit(relPath, folder, 0)) return undefined
+          const snapshots = await snapshotFolderTreeFiles(candidates, (file) => {
+            const path = `${relPath}/${file.name}`
+            if (!canList(path) || !canRead(path)) throw new Error('folder body unavailable')
+            const entry = admitted.get(path)
+            if (!entry) throw new Error('folder body unavailable')
+            const bytes = readBounded(path, entry, MAX_SNAPSHOT_BYTES)
+            if (!bytes) throw new Error('folder body unavailable')
+            return bytes
+          })
+          // Every directory used to derive the manifest stays the same tree
+          // through asynchronous reads and publication, including empty ones.
+          for (const [path, pinned] of directories) {
+            if (!canTraverse(path)) return undefined
+            const current = inspect(path)
+            if (!current?.st.isDirectory() || !sameVersion(pinned.st, current.st)) return undefined
+          }
+          if (access && !folderSnapshotPermitted(relPath, snapshots, access)) return undefined
+          return snapshots
+        }
+
         const candidates: Array<{ name: string; sizeBytes: number }> = []
         const admitted = new Map<string, Entry>()
         // Stream and cap before any filtering or body read. Hidden files,

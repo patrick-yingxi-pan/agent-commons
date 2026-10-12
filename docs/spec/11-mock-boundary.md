@@ -69,10 +69,14 @@ sharing, source deletion, signed-in SQLite relaunch and detach. The model peer
 is a deterministic loopback fixture; paid-provider and signed/Intel release
 acceptance remain separate gates.
 
-Served cloud and mapped-runner text files and top-level folders now use actual
+Served cloud and mapped-runner text files and folders now use actual
 bounded saved copies, not fixture bodies or automatic per-turn source reads.
 Explicit Refresh alone replaces a saved copy through current source authority;
-folders retain independent identity even when empty. CTX-FS-22 connects PORT-20's
+folders retain independent identity even when empty. CTX-FS-28 adds explicit
+bounded recursive served copies with root-relative paths; flat remains the
+default and Refresh cannot silently widen or narrow the saved scope. These are
+sequential saved copies, not live browsing or atomic filesystem images.
+CTX-FS-22 connects PORT-20's
 native local-folder reader and encrypted opt-in grant store to explicit
 Connect/Attach/Refresh/Disconnect controls. A local capture is portable saved
 content, not authority to read the original folder on another device or through

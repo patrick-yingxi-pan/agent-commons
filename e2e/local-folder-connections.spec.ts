@@ -202,7 +202,7 @@ test('recursive local Folder scope is explicit, preserves relative labels, and r
 
   const group = page.locator(`[data-workspace-folder="${FOLDER_ID}"]`).filter({ visible: true })
   const preview = page.locator('[data-folder-snapshot-preview]').filter({ visible: true })
-  await expect(group).toContainText('including subfolders (relative paths shown)')
+  await expect(group).toContainText('including subfolders (root-relative paths shown)')
   const fileRow = group.getByRole('button').filter({ hasText: RELATIVE_FILE }).last()
   await expect(page.getByText(RELATIVE_FILE, { exact: true }).filter({ visible: true }).last()).toBeVisible()
   await expect(preview).toContainText('First nested local text.')
@@ -278,7 +278,7 @@ test('a saved recursive copy stays readable when this desktop has no tree bridge
   const group = page.locator(`[data-workspace-folder="${FOLDER_ID}"]`).filter({ visible: true })
   const preview = page.locator('[data-folder-snapshot-preview]').filter({ visible: true })
   await expect(preview).toContainText('Portable recursive copy')
-  await expect(group).toContainText('including subfolders (relative paths shown)')
+  await expect(group).toContainText('including subfolders (root-relative paths shown)')
   await expect(page.getByText(RELATIVE_FILE, { exact: true }).filter({ visible: true }).last()).toBeVisible()
 
   let refreshRequests = 0
@@ -353,7 +353,7 @@ test('shared readers see saved local text without native authority; foreign acco
       const fileRow = reader.page.locator(`[data-workspace-folder="${FOLDER_ID}"]`).getByRole('button').filter({ hasText: RELATIVE_FILE }).last()
       if (viewport.width === 844) await revealRowWithinScrollport(fileRow)
       await expect(reader.page.locator('[data-folder-snapshot-preview]').filter({ visible: true })).toContainText('Shared local copy')
-      await expect(reader.page.locator(`[data-workspace-folder="${FOLDER_ID}"]`)).toContainText('including subfolders (relative paths shown)')
+      await expect(reader.page.locator(`[data-workspace-folder="${FOLDER_ID}"]`)).toContainText('including subfolders (root-relative paths shown)')
       await expect(reader.page.getByText(RELATIVE_FILE, { exact: true }).filter({ visible: true }).last()).toBeVisible()
       await expect(reader.page.getByRole('button', { name: 'Refresh Research/', exact: true })).toHaveCount(0)
       await expect(reader.page.locator('[data-served-folder-state="saved"]').filter({ visible: true })).toContainText('Only the conversation owner can refresh this copy.')

@@ -17,8 +17,9 @@ test('recursive local folder capture is an explicit desktop-only attach scope wi
 
 test('saved recursive folders disclose scope and preserve full relative names in the saved-copy preview', () => {
   const source = stripComments(read(join(ROOT, 'src/components/panels/ArtifactPanel.tsx')))
-  assert.match(source, /Saved \{local\?\.version === 2 \? 'including subfolders \(relative paths shown\)'/)
-  assert.match(source, /recursiveLocal \? 'break-all whitespace-normal' : 'truncate'/)
+  assert.match(source, /import \{ isRecursiveFolder \} from '..\/..\/lib\/folderPresentation.ts'/)
+  assert.match(source, /Saved \{recursive \? 'including subfolders \(root-relative paths shown\)'/)
+  assert.match(source, /recursive \? 'break-all whitespace-normal' : 'truncate'/)
   assert.match(source, /full root-relative path/)
-  assert.match(source, /No visible \{local\?\.version === 2 \? 'files in this saved folder tree'/)
+  assert.match(source, /No visible \{recursive \? 'files in this saved folder tree'/)
 })

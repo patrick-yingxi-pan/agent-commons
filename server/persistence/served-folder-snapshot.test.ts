@@ -16,14 +16,16 @@ const headers = { 'x-tenant-id': tenant }
 
 after(() => rmSync(directory, { recursive: true, force: true }))
 
-function boot(file: string, cloudRoot: string, backend: 'json' | 'sqlite', mode: 'create' | 'replay' | 'corrupt-snapshot' | 'corrupt-identity' | 'invalid-load') {
+function boot(file: string, cloudRoot: string, backend: 'json' | 'sqlite', mode: 'create' | 'replay' | 'corrupt-snapshot' | 'corrupt-identity' | 'invalid-load', scope: 'flat' | 'recursive' = 'flat') {
   const work = mode === 'create' ? `
     const { call } = await import(${JSON.stringify(testkitModule)});
     const session = store.createSession('served folder snapshot persistence', ${JSON.stringify(tenant)});
+    const initialSnapshot = ${scope === 'recursive' ? "await store.fsFolderSnapshot('cloud', 'research', undefined, 'recursive')" : 'undefined'};
+    if (${scope === 'recursive'} && initialSnapshot?.version !== 2) throw new Error('recursive intake unavailable');
     const workspace = {
       workspaces: [{ id: 'workspace-main', label: 'Workspace', artifacts: [
         { id: 'authored-doc', name: 'authored.md', kind: 'doc', meta: 'kept' }
-      ], folders: [{ id: 'cloud::research', label: 'research' }] }],
+      ], folders: [{ id: 'cloud::research', label: 'research', ...(initialSnapshot ? { snapshot: initialSnapshot } : {}) }] }],
       repos: [], connectors: [], attachments: []
     };
     const attached = await call('PATCH', '/sessions/' + session.id + '/context-state', {
@@ -32,7 +34,7 @@ function boot(file: string, cloudRoot: string, backend: 'json' | 'sqlite', mode:
     }, ${JSON.stringify(headers)});
     if (attached.status !== 200) throw new Error('folder attach failed: ' + JSON.stringify(attached));
     const refreshed = await call('POST', '/sessions/' + session.id + '/folders/cloud%3A%3Aresearch/refresh', {
-      expectedSnapshotId: null, requestId: ${JSON.stringify(REQUEST_ID)}
+      expectedSnapshotId: initialSnapshot?.snapshotId ?? null, requestId: ${JSON.stringify(REQUEST_ID)}
     }, ${JSON.stringify(headers)});
     if (refreshed.status !== 200) throw new Error('initial folder save failed: ' + JSON.stringify(refreshed));
     const saved = loadState().workspaces.find(([id]) => id === session.id)?.[1];
@@ -87,9 +89,9 @@ function boot(file: string, cloudRoot: string, backend: 'json' | 'sqlite', mode:
   })
 }
 
-for (const backend of ['json', 'sqlite'] as const) for (const corruption of ['snapshot', 'identity'] as const) {
-  test(`${backend}: saved folder snapshot and exact refresh replay survive restart; ${corruption} corruption refuses`, () => {
-    const fixture = join(directory, `${backend}-${corruption}`)
+for (const backend of ['json', 'sqlite'] as const) for (const scope of ['flat', 'recursive'] as const) for (const corruption of ['snapshot', 'identity'] as const) {
+  test(`${backend}: ${scope} saved folder snapshot and exact refresh replay survive restart; ${corruption} corruption refuses`, () => {
+    const fixture = join(directory, `${backend}-${scope}-${corruption}`)
     const cloudRoot = join(fixture, 'cloud')
     const research = join(cloudRoot, 'research')
     mkdirSync(research, { recursive: true })
@@ -100,7 +102,7 @@ for (const backend of ['json', 'sqlite'] as const) for (const corruption of ['sn
     writeFileSync(join(research, 'image.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
     const file = join(fixture, `store-${backend}`)
 
-    const create = boot(file, cloudRoot, backend, 'create')()
+    const create = boot(file, cloudRoot, backend, 'create', scope)()
     assert.equal(create.status, 0, create.stderr)
     const created = JSON.parse(create.stdout.trim())
     const sessionId = created.sessionId as string
@@ -108,8 +110,11 @@ for (const backend of ['json', 'sqlite'] as const) for (const corruption of ['sn
     assert.equal(savedFolder.snapshot.snapshotId, REQUEST_ID)
     assert.equal(savedFolder.snapshot.sourceId, 'cloud')
     assert.equal(savedFolder.snapshot.path, 'research')
+    assert.equal(savedFolder.snapshot.version, scope === 'recursive' ? 2 : 1)
+    assert.equal(savedFolder.snapshot.scope, scope === 'recursive' ? 'recursive' : undefined)
     assert.deepEqual(savedFolder.snapshot.files.map((entry: any) => [entry.name, entry.snapshot]), [
       ['image.png', { omitted: 'unsupported' }],
+      ...(scope === 'recursive' ? [['nested/child.md', { text: 'nested text' }]] : []),
       ['notes.md', { text: 'durable folder text' }],
     ])
     assert.deepEqual(savedFolder.snapshot, created.saved.workspaces[0].folders[0].snapshot)

@@ -146,7 +146,7 @@ import type { ArtifactDeletionPreview, ArtifactDeletionRequest, ArtifactDeletion
 import { parseArtifactRetirements, type ArtifactRetirement, type StoredArtifactDeletionReceipt } from '../artifactDeletion.ts'
 import { isServedTextSnapshot, type ServedTextSnapshot, type RefreshServedAttachmentRequest } from '../../contract/servedTextSnapshot.ts'
 import { isServedImageSnapshot, type ServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
-import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
+import { isServedFolderSnapshot, type ServedFolderSnapshot, type ServedFolderScope } from '../../contract/servedFolderSnapshot.ts'
 import { isLocalFolderRefreshRequest, type LocalFolderCapture, type LocalFolderRefreshRequest } from '../../contract/localFolderCapture.ts'
 import { isLocalGitRefreshRequest, type LocalGitCapture, type LocalGitRefreshRequest } from '../../contract/localGitCapture.ts'
 import { validWorkspaceFolders, workspaceFolders, replaceLocalFolderSnapshot, replaceLocalGitSnapshot, replaceServedFolderSnapshot } from '../../contract/workspaceFolders.ts'
@@ -4585,10 +4585,11 @@ export const store = {
     const mapped = runnerFs(runner)
     return !!mapped && mapped.supports('fs.read') && mapped.permitsRead(path)
   },
-  async fsFolderSnapshot(sourceId: string, path: string, snapshotId = randomUUID()): Promise<ServedFolderSnapshot | undefined> {
-    const files = await resolveFsReader(sourceId, 'fs.list')?.reader.folderSnapshot(path)
+  async fsFolderSnapshot(sourceId: string, path: string, snapshotId = randomUUID(), scope: ServedFolderScope = 'flat'): Promise<ServedFolderSnapshot | undefined> {
+    if (scope !== 'flat' && scope !== 'recursive') return undefined
+    const files = await resolveFsReader(sourceId, 'fs.list')?.reader.folderSnapshot(path, undefined, scope)
     if (!files) return undefined
-    const snapshot = { version: 1 as const, snapshotId, capturedAt: new Date().toISOString(), sourceId, path, files }
+    const snapshot = { ...(scope === 'recursive' ? { version: 2 as const, scope } : { version: 1 as const }), snapshotId, capturedAt: new Date().toISOString(), sourceId, path, files }
     return isServedFolderSnapshot(snapshot) && folderSnapshotStillPermitted(snapshot) ? snapshot : undefined
   },
   async refreshSessionFolder(sessionId: string, folderId: string, request: RefreshServedAttachmentRequest, tenantId: string): Promise<SessionContextState> {
@@ -4614,12 +4615,18 @@ export const store = {
     if ((folder.snapshot?.snapshotId ?? null) !== request.expectedSnapshotId) {
       throw new ConflictError('This saved folder changed. Reopen it before refreshing again.')
     }
-    const snapshot = await store.fsFolderSnapshot(address.sourceId, address.entryId, request.requestId)
+    // Refresh keeps the capture's original scope. A new intake is required to
+    // widen a flat copy; neither absent legacy scope nor caller JSON opts in.
+    const recursive = folder.snapshot?.version === 2
+    const snapshot = recursive
+      ? await store.fsFolderSnapshot(address.sourceId, address.entryId, request.requestId, 'recursive')
+      : await store.fsFolderSnapshot(address.sourceId, address.entryId, request.requestId)
     // Capture yields: ownership, exact binding, grants and target receipt must
     // still be current. Unrelated workspace changes are retained below.
     if (!owned() || !matchesBinding()) throw new ConflictError('The attached folder changed while reading. The saved copy is unchanged.')
     if (!snapshot || !isServedFolderSnapshot(snapshot) || snapshot.sourceId !== address.sourceId ||
-        snapshot.path !== address.entryId || snapshot.snapshotId !== request.requestId || !folderSnapshotStillPermitted(snapshot)) {
+        snapshot.path !== address.entryId || snapshot.snapshotId !== request.requestId ||
+        snapshot.version !== (recursive ? 2 : 1) || !folderSnapshotStillPermitted(snapshot)) {
       throw new ValidationError('Could not capture this folder with its current permissions and limits. The saved copy is unchanged.')
     }
     const latest = store.sessionWorkspace(sessionId)

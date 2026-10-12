@@ -3,7 +3,7 @@ import { apiGet } from './client.ts'
 import { invalidate } from './cache.ts'
 import { keys, paths } from './keys.ts'
 import { isServedPath, isServedSourceId, isServedTextSnapshot, type ServedTextSnapshot } from '../../contract/servedTextSnapshot.ts'
-import { isServedFolderSnapshot, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
+import { isServedFolderSnapshot, type ServedFolderScope, type ServedFolderSnapshot } from '../../contract/servedFolderSnapshot.ts'
 
 /** The file picker owns one bounded wait per network read, including its body.
  * Closing an intake adds cancellation without weakening the deadline. */
@@ -28,12 +28,18 @@ export async function readFsSnapshot(source: string, path: string, signal?: Abor
 }
 
 /** Explicit folder capture only: never cached, subscribed, or fetched during rendering. */
-export async function readFsFolderSnapshot(source: string, path: string, signal?: AbortSignal): Promise<ServedFolderSnapshot> {
+export async function readFsFolderSnapshot(
+  source: string,
+  path: string,
+  signal?: AbortSignal,
+  scope: ServedFolderScope = 'flat',
+): Promise<ServedFolderSnapshot> {
   if (!isServedSourceId(source) || !isServedPath(path)) {
     throw new Error('The requested folder is invalid. Nothing was saved.')
   }
-  const snapshot = await apiGet<unknown>(paths.fsFolderSnapshot(source, path), { signal: readSignal(signal) })
-  if (!isServedFolderSnapshot(snapshot) || snapshot.sourceId !== source || snapshot.path !== path) {
+  const snapshot = await apiGet<unknown>(paths.fsFolderSnapshot(source, path, scope), { signal: readSignal(signal) })
+  if (!isServedFolderSnapshot(snapshot) || snapshot.sourceId !== source || snapshot.path !== path ||
+      (snapshot.version === 2) !== (scope === 'recursive')) {
     throw new Error('The source returned an invalid saved folder copy. Nothing was saved.')
   }
   return snapshot

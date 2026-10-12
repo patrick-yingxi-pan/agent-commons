@@ -91,6 +91,21 @@ test('generated MCP search tool executes category paging through the same route'
   assert.equal(result.body.groups[0].hits.length, 3)
 })
 
+test('served-folder MCP advertises and executes explicit recursive scope through the route', async () => {
+  const listed = await rpc('tools/list')
+  const tool = listed.json.result.tools.find((entry: any) => entry.name === 'get_fs_folder_snapshot')
+  assert.deepEqual(tool.inputSchema.properties.query.properties.scope.enum, ['flat', 'recursive'])
+  const recursive = await toolCall('get_fs_folder_snapshot', { query: { source: 'cloud', path: 'insights-dashboard', scope: 'recursive' } })
+  assert.equal(recursive.status, 200)
+  assert.equal(recursive.body.version, 2)
+  assert.equal(recursive.body.scope, 'recursive')
+  assert.ok(recursive.body.files.some((file: any) => file.name === 'docs/readme.md'))
+  const flat = await toolCall('get_fs_folder_snapshot', { query: { source: 'cloud', path: 'insights-dashboard' } })
+  assert.equal(flat.status, 200)
+  assert.equal(flat.body.version, 1)
+  assert.equal(flat.body.files.some((file: any) => file.name.includes('/')), false)
+})
+
 test('tools/call: mutation retry identities are bounded and invalid values fail at the MCP protocol door', async () => {
   const listed = await rpc('tools/list')
   const edit = listed.json.result.tools.find((tool: any) => tool.name === 'patch_artifacts_by_id_content')

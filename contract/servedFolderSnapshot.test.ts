@@ -30,3 +30,21 @@ test('enforces readable count, per-file and total UTF-8 limits', () => {
   assert.equal(isServedFolderSnapshot({ ...base, files: [{ name: 'a.txt', sizeBytes: text.length + 1, snapshot: { text: `${text}x` } }] }), false)
   assert.equal(isServedFolderSnapshot({ ...base, files: Array.from({ length: 25 }, (_, i) => ({ name: `${String(i).padStart(2, '0')}.txt`, sizeBytes: 0, snapshot: { text: '' } })) }), false)
 })
+
+test('recursive served copies require an explicit v2 scope and bounded root-relative paths', () => {
+  const files = [
+    { name: 'a/notes.md', sizeBytes: 3, snapshot: { text: 'one' } },
+    { name: 'b/notes.md', sizeBytes: 3, snapshot: { text: 'two' } },
+  ]
+  const recursive = { ...base, version: 2, scope: 'recursive', files }
+  assert.equal(isServedFolderSnapshot(recursive), true)
+  assert.equal(isServedFolderSnapshot({ ...recursive, files: [] }), true)
+  for (const invalid of [
+    { ...recursive, scope: undefined }, { ...recursive, scope: 'flat' },
+    { ...recursive, version: 1 }, { ...base, files }, { ...recursive, extra: true },
+    ...['../escape.md', 'a/.secret.md', 'a//b.md', '/root.md', 'a\\b.md', `${'d/'.repeat(17)}notes.md`].map(name =>
+      ({ ...recursive, files: [{ name, sizeBytes: 0, snapshot: { text: '' } }] })),
+    { ...recursive, files: Array.from({ length: 65 }, (_, i) => ({ name: `d${String(i).padStart(2, '0')}/x.bin`, sizeBytes: 0, snapshot: { omitted: 'unsupported' } })) },
+    { ...recursive, path: `a/${'b/'.repeat(62)}last` },
+  ]) assert.equal(isServedFolderSnapshot(invalid), false, JSON.stringify(invalid))
+})

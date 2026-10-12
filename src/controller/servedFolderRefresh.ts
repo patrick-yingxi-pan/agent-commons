@@ -34,7 +34,8 @@ export function refreshServedFolder(sessionId: string, folder: WorkspaceFolder) 
       if (sessionId !== DRAFT_ID) {
         return refreshSessionFolder(sessionId, folderId, { expectedSnapshotId, requestId })
       }
-      const snapshot = await readFsFolderSnapshot(address.sourceId, address.entryId)
+      const snapshot = await readFsFolderSnapshot(address.sourceId, address.entryId, undefined,
+        current.snapshot?.version === 2 ? 'recursive' : 'flat')
       const refreshed = { ...snapshot, snapshotId: requestId }
       return {
         contexts: [],

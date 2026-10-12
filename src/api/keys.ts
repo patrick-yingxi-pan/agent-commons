@@ -2,9 +2,18 @@
  *  it can't drift. `keys.*` index the client cache; `paths.*` are the URLs under
  *  `API_BASE`. Both grow per resource as reads migrate. */
 import type { Connector, SearchPage } from '../../contract/index.ts'
+import type { ServedFolderScope } from '../../contract/servedFolderSnapshot.ts'
 
 /** One shared encoder keeps every declared path builder byte-equivalent. */
 const encodePathSegment = encodeURIComponent
+
+/** Every served file operation addresses the same source-relative entry. */
+const fsEntryPath = (operation: string) => (source: string, path: string) =>
+  `/fs/${operation}?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`
+const folderSnapshotPath = fsEntryPath('folder-snapshot')
+/** Saved context refreshes share one exact, encoded session/item address. */
+const contextRefreshPath = (kind: string) => (sessionId: string, itemId: string) =>
+  `/sessions/${encodePathSegment(sessionId)}/${kind}/${encodePathSegment(itemId)}/refresh`
 
 export const keys = {
   capabilities: 'capabilities',
@@ -376,24 +385,17 @@ export const paths = {
   // JSON-parses); resolve it to an absolute URL with `fsContentUrl` in client.ts.
   fsSources: '/fs/sources',
   fsCatalog: (source: string) => `/fs/catalog?source=${encodePathSegment(source)}`,
-  fsFolder: (source: string, path: string) =>
-    `/fs/folder?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
-  fsText: (source: string, path: string) =>
-    `/fs/text?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
-  fsSnapshot: (source: string, path: string) =>
-    `/fs/snapshot?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
-  fsFolderSnapshot: (source: string, path: string) =>
-    `/fs/folder-snapshot?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
-  refreshSessionAttachment: (sessionId: string, attachmentId: string) =>
-    `/sessions/${encodePathSegment(sessionId)}/attachments/${encodePathSegment(attachmentId)}/refresh`,
-  refreshSessionFolder: (sessionId: string, folderId: string) =>
-    `/sessions/${encodePathSegment(sessionId)}/folders/${encodePathSegment(folderId)}/refresh`,
-  refreshLocalSessionFolder: (sessionId: string, folderId: string) =>
-    `/sessions/${encodePathSegment(sessionId)}/local-folders/${encodePathSegment(folderId)}/refresh`,
+  fsFolder: fsEntryPath('folder'),
+  fsText: fsEntryPath('text'),
+  fsSnapshot: fsEntryPath('snapshot'),
+  fsFolderSnapshot: (source: string, path: string, scope: ServedFolderScope = 'flat') =>
+    `${folderSnapshotPath(source, path)}${scope === 'recursive' ? '&scope=recursive' : ''}`,
+  refreshSessionAttachment: contextRefreshPath('attachments'),
+  refreshSessionFolder: contextRefreshPath('folders'),
+  refreshLocalSessionFolder: contextRefreshPath('local-folders'),
   refreshLocalGitSessionFolder: (sessionId: string, folderId: string) =>
     `/sessions/${encodePathSegment(sessionId)}/workspace/folders/${encodePathSegment(folderId)}/local-git-refresh`,
-  fsContent: (source: string, path: string) =>
-    `/fs/content?source=${encodePathSegment(source)}&path=${encodePathSegment(path)}`,
+  fsContent: fsEntryPath('content'),
   projects: '/projects',
   artifacts: '/artifacts',
   artifact: (id: string) => `/artifacts/${encodePathSegment(id)}`,

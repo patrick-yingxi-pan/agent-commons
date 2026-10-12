@@ -26,11 +26,21 @@ export function registerServedFileSnapshotRoutes(
   router.get('/fs/folder-snapshot', async ({ res, url }) => {
     const source = url.searchParams.get('source')
     const path = url.searchParams.get('path')
+    const scopes = url.searchParams.getAll('scope')
     if (!source || !path) return sendError(res, 'bad_request', 'source and path are required')
-    const snapshot = await store.fsFolderSnapshot(source, path)
+    if (scopes.length > 1 || (scopes.length === 1 && scopes[0] !== 'flat' && scopes[0] !== 'recursive')) {
+      return sendError(res, 'bad_request', 'scope must be flat or recursive; omission means flat.')
+    }
+    const snapshot = scopes[0] === 'recursive'
+      ? await store.fsFolderSnapshot(source, path, undefined, 'recursive')
+      : await store.fsFolderSnapshot(source, path)
     if (!snapshot) return sendError(res, 'not_found', 'A readable folder within the capture limits is unavailable on this source.')
     sendJson(res, snapshot)
-  })
+  }, { kind: 'product', session: 'tool', query: {
+    source: { type: 'string', description: 'Existing cloud or mapped-runner source identifier.' },
+    path: { type: 'string', description: 'Exact visible source-relative folder path.' },
+    scope: { type: 'string', enum: ['flat', 'recursive'], description: 'Omission or flat captures top-level files only. Recursive explicitly includes visible subfolders within fixed limits; it grants no future reads.' },
+  } })
 
   router.post('/sessions/:id/folders/:folderId/refresh', async ({ req, res, params, body }) => {
     const tenantId = store.identity(req.headers).tenant.id
