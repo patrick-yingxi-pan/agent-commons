@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { ignoreFromPackage } from './packager.config.mjs'
+import { STORE_VERSION } from '../server/persistence/format.ts'
 
 const source = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf8')
 
@@ -13,6 +14,10 @@ test('Document native acceptance and the stopped-profile fixture never ship', ()
 
 test('packaged Document acceptance uses rendered whole-body Save and exact identity checks', () => {
   const helper = source('./artifactDocumentEditSmoke.mjs')
+  assert.ok(helper.includes("import { STORE_VERSION } from '../server/persistence/format.ts'"),
+    'the packaged migration proof follows the authoritative persistence version')
+  assert.ok(helper.includes('migratedVersion: STORE_VERSION'))
+  assert.ok(STORE_VERSION >= 7, 'the current packaged migration path includes v7 claim and usage data')
   for (const action of ['Edit document', 'Add heading', 'Add paragraph', 'Add bullet list', 'Add code block', 'Add email header',
     'Move block 2 up', 'Delete block 2', 'Save changes']) assert.ok(helper.includes(`name: '${action}'`), action)
   for (const proof of [

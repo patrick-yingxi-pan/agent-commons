@@ -1,4 +1,4 @@
-/** Test-only SQLite fixture for the v5 → v6 native Document migration smoke.
+/** Test-only SQLite fixture for the v5 → current native Document migration smoke.
  *  The caller owns the stopped-app and unreachable-service preconditions. This helper
  *  grants no production authority and only edits the selected Artifact/Discussion.
  */
@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { basename, join } from 'node:path'
 import { docBlockId } from '../server/documentIdentity.ts'
+import { STORE_VERSION } from '../server/persistence/format.ts'
 
 const PROFILE_PREFIX = 'agent-commons-artifact-history-smoke-'
 
@@ -66,8 +67,8 @@ export function stageLegacyDocumentMigration(profile, fixture) {
     assert.deepEqual(current, body, 'native Document current body still matches the captured snapshot')
     assert.deepEqual(retained, history, 'native Document history still matches the captured snapshot')
     assert.deepEqual(currentDiscussion, discussion, 'native Document Discussion still matches the captured snapshot')
-    assert.equal(readJsonRow(database, 'SELECT json FROM kv WHERE key = ?', 'version'), 6,
-      'native Document smoke starts from a current v6 store')
+    assert.equal(readJsonRow(database, 'SELECT json FROM kv WHERE key = ?', 'version'), STORE_VERSION,
+      `native Document smoke starts from a current v${STORE_VERSION} store`)
     assert.equal(current?.type, 'doc', 'native Document migration fixture targets a Document')
     assert.ok(Array.isArray(retained) && retained.length > 0, 'native Document has retained history')
     const latest = retained.at(-1)
@@ -111,7 +112,7 @@ export function stageLegacyDocumentMigration(profile, fixture) {
   }
 }
 
-/** Exact v6 rows expected after startup migrates the returned legacy snapshot. */
+/** Exact current rows expected after startup migrates the returned legacy snapshot. */
 export function expectedMigratedDocumentRows(legacyRows, artifactId) {
   const history = []
   for (const version of legacyRows.history) {

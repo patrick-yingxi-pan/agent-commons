@@ -162,8 +162,9 @@ that authorized it. Claims remain globally unique per Project/work item across
 grant replacement. JSON/SQLite startup recovery makes interrupted work uncertain
 without replay. Explicit restore revokes grants and blocks restored open MCP
 work IDs from automatic execution; a person must review those items manually. This local
-implementation has no packaged, signed or public-service acceptance yet and
-does not close the broader MOCK-9 boundary. Public work rows identify `Real MCP`
+implementation has separate unsigned-arm64 packaged acceptance against local
+peers, not signed, paid-provider or public-service acceptance, and does not close
+the broader MOCK-9 boundary. Public work rows identify `Real MCP`
 only when the server derives provenance from the exact successful durable claim;
 unmarked legacy Commission completions remain `Simulated`. Contributor track
 records on both Project rosters separate those counts without exposing private

@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
 import { docBlockId } from '../server/documentIdentity.ts'
+import { STORE_VERSION } from '../server/persistence/format.ts'
 import { readDocumentSmokeRows, expectedMigratedDocumentRows } from './artifactDocumentMigrationFixture.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -193,7 +194,7 @@ export async function verifyDocumentMigrationSmoke({ page, origin, request, prof
     'ordinary startup migrates exact current/history data with revision-local IDs and exact restore lineage')
   const database = new DatabaseSync(join(profile, 'store.db'), { readOnly: true })
   try {
-    assert.equal(JSON.parse(database.prepare('SELECT json FROM kv WHERE key = ?').get('version').json), 6,
+    assert.equal(JSON.parse(database.prepare('SELECT json FROM kv WHERE key = ?').get('version').json), STORE_VERSION,
       'ordinary startup durably commits the current data version')
   } finally { database.close() }
   assert.deepEqual(await currentBody(page, request, fixture.legacy.artifactId), expected.body)
@@ -220,6 +221,6 @@ export async function verifyDocumentMigrationSmoke({ page, origin, request, prof
   assert.deepEqual(after.history[3].body, content)
   assert.deepEqual(after.discussion, expected.discussion)
   await page.screenshot({ path: join(evidenceDirectory, 'after-relaunch-document-migrated-edit.png') })
-  return { migratedArtifactId: fixture.legacy.artifactId, migratedVersion: 6,
+  return { migratedArtifactId: fixture.legacy.artifactId, migratedVersion: STORE_VERSION,
     legacyDiscussionUnresolved: true, restoreIdentityPreserved: true, postMigrationRevision: 3 }
 }

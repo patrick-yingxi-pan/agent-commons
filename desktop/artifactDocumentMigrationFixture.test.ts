@@ -5,6 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { docBlockId } from '../server/documentIdentity.ts'
+import { STORE_VERSION } from '../server/persistence/format.ts'
 import {
   expectedMigratedDocumentRows,
   readDocumentSmokeRows,
@@ -53,8 +54,12 @@ async function withProfile(run) {
       CREATE TABLE map_entries (slice TEXT NOT NULL, key TEXT NOT NULL, ord INTEGER NOT NULL, json TEXT NOT NULL, PRIMARY KEY (slice, key));
     `)
     const rows = initialRows()
-    database.prepare('INSERT INTO kv (key, json) VALUES (?, ?)').run('version', '6')
+    database.prepare('INSERT INTO kv (key, json) VALUES (?, ?)').run('version', String(STORE_VERSION))
     database.prepare('INSERT INTO kv (key, json) VALUES (?, ?)').run('graph', JSON.stringify({ keep: 'graph' }))
+    // Deliberately opaque, fixture-only sentinels: staging must preserve these
+    // v7-owned slices byte-for-byte without claiming to construct a valid ledger.
+    database.prepare('INSERT INTO kv (key, json) VALUES (?, ?)')
+      .run('commissionMcp', JSON.stringify({ sentinel: 'v7-commissionMcp-preserve' }))
     const insertMap = database.prepare('INSERT INTO map_entries (slice, key, ord, json) VALUES (?, ?, ?, ?)')
     insertMap.run('artifactBodies', artifactId, 0, JSON.stringify(rows.body))
     insertMap.run('artifactBodies', 'unrelated-artifact', 1, JSON.stringify({ type: 'doc', blocks: [{ id: 'leave-me', p: 'unrelated' }] }))
@@ -64,6 +69,7 @@ async function withProfile(run) {
     const insertEntity = database.prepare('INSERT INTO entities (slice, idx, entity_id, json) VALUES (?, ?, ?, ?)')
     insertEntity.run('discussions', 0, discussionId, JSON.stringify(rows.discussion))
     insertEntity.run('discussions', 1, 'unrelated-discussion', JSON.stringify({ id: 'unrelated-discussion', anchor: { ref: { kind: 'project', id: 'p' } } }))
+    insertEntity.run('usageReservations', 0, 'v7-usage-preserve', JSON.stringify({ sentinel: 'v7-usageReservations-preserve' }))
     database.close()
     await run(profile, rows)
   } finally {
@@ -83,7 +89,7 @@ function readAll(profile) {
   } finally { database.close() }
 }
 
-test('stages only the captured Document and Discussion rows and expected migration preserves restore lineage', async () => {
+test('stages only the captured Document and Discussion rows at the current version and preserves restore lineage', async () => {
   await withProfile(async (profile, rows) => {
     const captured = readDocumentSmokeRows(profile, { artifactId, discussionId })
     assert.deepEqual(captured, rows)
@@ -106,7 +112,7 @@ test('stages only the captured Document and Discussion rows and expected migrati
     assert.equal(migratedIds[2], migratedIds[0], 'restore reuses its source version block identity')
     assert.equal(expected.body.blocks[0].id, migratedIds[0], 'current body uses the latest restored history IDs')
     assert.deepEqual(expected.discussion.anchor.locus, legacy.discussion.anchor.locus,
-      'numeric legacy discussion loci are not rewritten by the v6 migration')
+      'numeric legacy discussion loci are not rewritten by the current migration')
 
     const expectedOtherEntities = before.entities.filter(row => row.entity_id !== discussionId)
     const actualOtherEntities = after.entities.filter(row => row.entity_id !== discussionId)
@@ -115,8 +121,39 @@ test('stages only the captured Document and Discussion rows and expected migrati
       assert.deepEqual(after.mapEntries.filter(row => row.key === key), before.mapEntries.filter(row => row.key === key))
     }
     assert.deepEqual(after.kv.filter(row => row.key !== 'version'), before.kv.filter(row => row.key !== 'version'))
+    assert.deepEqual(after.kv.find(row => row.key === 'commissionMcp'),
+      before.kv.find(row => row.key === 'commissionMcp'), 'v7 Commission claims are untouched by Document staging')
+    assert.deepEqual(after.entities.find(row => row.slice === 'usageReservations'),
+      before.entities.find(row => row.slice === 'usageReservations'), 'v7 usage reservations are untouched by Document staging')
     assert.equal(after.entities.find(row => row.entity_id === discussionId).json, JSON.stringify(legacy.discussion))
     assert.ok(before.mapEntries.some(row => row.slice === 'artifactBodies' && row.key === artifactId))
+  })
+})
+
+test('refuses stale, future, and invalid store versions before any migration write', async () => {
+  await withProfile(async (profile, rows) => {
+    const captured = readDocumentSmokeRows(profile, { artifactId, discussionId })
+    const versions = [
+      { encoded: String(STORE_VERSION - 1), label: 'stale' },
+      { encoded: String(STORE_VERSION + 1), label: 'future' },
+      { encoded: JSON.stringify(String(STORE_VERSION)), label: 'string version' },
+      { encoded: 'null', label: 'null version' },
+      { encoded: 'not-json', label: 'invalid JSON version' },
+    ]
+    const database = new DatabaseSync(join(profile, 'store.db'))
+    try {
+      for (const version of versions) {
+        database.prepare('UPDATE kv SET json = ? WHERE key = ?').run(version.encoded, 'version')
+        const before = readAll(profile)
+        assert.throws(() => stageLegacyDocumentMigration(profile, {
+          artifactId, discussionId, ...captured,
+        }), undefined, `${version.label} store version is refused`)
+        assert.deepEqual(readAll(profile), before, `${version.label} refusal leaves every SQLite row untouched`)
+      }
+    } finally {
+      database.close()
+    }
+    assert.equal(rows.body.type, 'doc')
   })
 })
 

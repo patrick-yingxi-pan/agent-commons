@@ -86,14 +86,50 @@ host; present partial ledgers fail admission without replacing stored data.
 Focused unit/source coverage and all nine feature browser checks have passed,
 including five-size approval/receipt review, signed-in person isolation and
 same-request lost-acknowledgement recovery. The app-wide UI sweep passed all
-135 cells with no violations or skips. The complete local verifier remains
-mandatory before landing; this is local test evidence,
-not release acceptance.
-There is no packaged, signed, public-service or paid-provider acceptance
+135 cells with no violations or skips. The milestone landed as `6a64b113` after
+the frozen-tree complete verifier passed all five lanes and 673 browser tests
+in 723.3 seconds. This is local test evidence, not release acceptance.
+There is no signed, public-service or paid-provider acceptance
 evidence, and the broader MOCK-9 boundary remains open. Existing standing
 configuration remains unchanged. The feature-specific UI keeps the frozen
 review distinct from the current grant and exposes exact receipts through the
 existing recovery surface.
+
+### Packaged Commission acceptance
+
+The separate `desktop:smoke:commission-mcp` lane now exercises the actual
+unsigned-arm64 app with a generated profile and authored local peers. The
+original executable refuses loopback before contacting the peer. Only a
+disposable ASAR copy permits that destination; the shipped startup policy and
+source archive remain unchanged, and acceptance helpers are excluded from it.
+This lane is included in `desktop:verify`, never ordinary signed-candidate smoke.
+
+Rendered review alone and legacy Standing do not execute. Explicit approval
+produces one tool-free model preparation and one exact MCP effect. The OS vault
+keeps the canary token encrypted; SQLite retains exact private owner/claim/result
+and reported usage, while shared work exposes only derived Real MCP provenance.
+Foreign Project readers and outsiders cannot read the approval or receipts.
+Full signed-in relaunch preserves known history; rendered revoke leaves new
+work open. A submitted call is pending on disk before exit, then becomes
+uncertain at startup with its grant withdrawn and no credit. Renewed approval
+does not replay that item; only new work executes. Managed backup retains the
+exact private ledger without the raw credential.
+
+The first acceptance attempt exposed a read-only harness query that treated an
+array slice as a singleton; the corrected query passed. A separately mutated
+disposable package with startup recovery disabled failed the rendered
+`Outcome uncertain` assertion, proving this is non-vacuous recovery evidence.
+The first complete desktop gate then found the older Document migration fixture
+still required snapshot v6 after the Commission store advanced to v7. Its
+compare-before-write guard now requires the authoritative current version and
+still stages the same v5 Document case without changing unrelated ledgers.
+The [acceptance record](acceptance/commission-mcp-2026-10-12.md) identifies the
+artifact, evidence and limits. Same-workspace person isolation remains covered
+by the browser test's explicit identity fixture, not this native walk: the
+production account switch deliberately has no arbitrary tenant re-mint.
+Explicit restore, public TLS/services, paid providers, signing and native Intel
+are not accepted by this local-peer result. Final local and desktop verifiers
+remain mandatory before landing this acceptance checkpoint.
 
 ### Earlier account-change verifier checkpoint
 
