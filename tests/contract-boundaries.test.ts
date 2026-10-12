@@ -140,6 +140,28 @@ test('Routine MCP policy and receipt preparation share portable types without ow
   }
 })
 
+test('Commission preparation shares portable types and tool constraints without inheriting workflow authority', () => {
+  const check = (source: string) => {
+    assert.match(source, /from '\.\.\/contract\/commissionMcp\.ts'/,
+      'Commission preparation must use its distinct portable contract')
+    assert.match(source, /from '\.\/mcpPermission\.ts'/,
+      'tool constraints must have one shared implementation')
+    assert.doesNotMatch(source, /\b(?:fetch|executeBoundMcpCall|callMcpToolWithSession|commitMutationBatch|persist)\s*\(/,
+      'pure preparation grants neither I/O nor durable admission')
+    assert.doesNotMatch(source, /\bstanding\b|from ['"][^'"]*routineMcp[^'"]*['"]/,
+      'legacy standing flags and Routine policy must not supply Commission authority')
+  }
+  for (const path of ['server/commissionMcpPolicy.ts', 'server/commissionMcpState.ts']) {
+    const source = stripComments(read(join(ROOT, path)))
+    check(source)
+    assert.throws(() => check(source.replace("from '../contract/commissionMcp.ts'", "from '../contract/routineMcp.ts'")), /distinct portable contract/)
+    assert.throws(() => check(`${source}\nexecuteBoundMcpCall()`), /neither I\/O nor durable admission/)
+    assert.throws(() => check(`${source}\nconst grant = commission.standing`), /must not supply Commission authority/)
+  }
+  assert.match(stripComments(read(join(ROOT, 'server/routineMcpPolicy.ts'))), /from '\.\/mcpPermission\.ts'/)
+  assert.match(stripComments(read(join(ROOT, 'contract/routineMcp.ts'))), /RoutineMcpToolPermission\s*=\s*McpToolPermission/)
+})
+
 test('Contribution receipts and bound MCP execution share contract identity without session authority', () => {
   const check = (source: string) => assert.match(source, /from '\.\.\/contract\/mcpExecution\.ts'/,
     'the bound call must use the framework-free shared contract')

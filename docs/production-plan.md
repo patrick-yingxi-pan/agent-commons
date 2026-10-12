@@ -46,6 +46,51 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
+## Staged checkpoint: fresh Commission execution foundation
+
+While signing and live-service acceptance await the owner inputs above, the next
+core product milestone is real Commission work. The first slice deliberately
+defines and tests permission and receipt preparation before exposing a worker.
+It does not close MOCK-9 or change existing standing configuration.
+
+The selected initial path is one exact HTTP MCP call for each posted
+`mcp.mutate` work item. Every tool is treated as potentially effectful regardless
+of peer annotations. A fresh person-bound approval pins Project/Commission/Agent,
+provider/model, the live review hash, selected connection revisions/tool schemas,
+fixed argument values, expiry (at most 30 days) and work count (at most 100).
+These are scope limits, not provider or external-service monetary caps.
+Local stdio and legacy connectors/proxies are not part of this first path.
+
+Pure helpers now reject stale/replaced/revoked authority, preserve one
+Project/work-item receipt identity across renewed grants, refuse changed intent,
+retain terminal results without replay, and convert interrupted or malformed
+outcomes to uncertainty. Shared tool validation is extracted from Routine policy
+without changing Routine consent or stored hash semantics. Disposable mutations
+of expiry, exact work-target matching and fixed-argument equality each caused
+their focused regression tests to fail before restoration.
+
+Next, wire the private registry and strict persistence joins, atomic work/capacity
+and model-budget admission, then the single-call worker and fresh owner review
+UI. The host must recheck current ownership/membership, role/reach, Project fire
+and Guardian gates, tool schema and publication authority through asynchronous
+waits. A durable claim must precede paid model I/O and the effect receipt must
+precede tool I/O. Completion and credit require verified successful current work;
+uncertain work cannot be automatically reassigned or replayed. None of that host
+integration is claimed by this foundation checkpoint. Full local verification
+and post-test diff review remain mandatory before landing.
+
+The first full verifier passed its checks lane and three browser shards, but an
+OAuth account-change fixture lost its awaited evaluation context after the
+transition ran. The trace contains no document navigation at that point; the
+original test passed twelve isolated diagnostic repetitions, so the underlying
+protocol failure is not established. The three related fixture walks now retain
+the real transition function before opening review and invoke it synchronously,
+with an additional generation-change assertion. UI disappearance and exact
+native cancellation assertions remain unchanged; no error is swallowed, timeout
+is widened or retry added. The corrected frozen-tree run passed all five lanes
+and 671 browser tests in 712.7 seconds. The complete local verifier remains the
+gate for the final revision, including this evidence update.
+
 ## Completed checkpoint: interrupted verification owns its cleanup
 
 The native local-MCP acceptance checkpoint landed as `06e80fcc`. During that

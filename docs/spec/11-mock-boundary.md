@@ -227,6 +227,13 @@ may edit the arguments before sharing them. Existing approval, separate Run
 and owner acceptance still govern all effects and completion. This removes a
 manual setup handoff, not the remaining unattended Commission/proxy boundary.
 
+COMMONS-45 starts that separate Commission path with portable fresh-permission
+types and pure permission/receipt preparation. It shares bounded tool constraints
+with Routines, never their consent. No route, private registry, durable work claim,
+runner or review UI consumes this foundation yet. Existing standing settings do
+not migrate to execution authority, and all legacy release refusals remain.
+Receipt reconciliation cannot dispatch; interrupted work becomes uncertainty.
+
 COMMONS-41 adds a separate owner-reviewed resolution path for exact posted MCP
 mutation work. A linked Contribution still requires ordinary envelope approval
 and separate per-call consent. Its explicit owner landing resolves work only

@@ -11,7 +11,7 @@ import type { McpBoundToolCall, McpJsonValue } from '../contract/mcpExecution.ts
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
-import { mcpToolSchemaHash } from './mcpToolAdmission.ts'
+import { matchesHttpMcpPermission, mcpPermissionAllowsCall, mcpPermissionJsonText, sameMcpPermissionJson, snapshotMcpToolPermissions } from './mcpPermission.ts'
 
 export interface RoutineMcpScope { tenantId: string; routineId: string }
 /** Private provenance, never part of the public Routine permission. Revocation
@@ -43,15 +43,9 @@ export const routineMcpOwnerUserId = (value: unknown): value is string => typeof
 const fields = (value: Record<string, McpJsonValue>, names: string[]): boolean =>
   Object.keys(value).length === names.length && names.every(key => Object.hasOwn(value, key))
 
-function canonical(value: McpJsonValue): McpJsonValue {
-  if (Array.isArray(value)) return value.map(canonical)
-  if (record(value)) return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]))
-  return value
-}
 /** Arguments passed here must already be detached bounded JSON. */
-export const routineMcpJsonText = (value: unknown): string => JSON.stringify(canonical(value as McpJsonValue))
-export const sameRoutineMcpJson = (a: unknown, b: unknown): boolean =>
-  routineMcpJsonText(a) === routineMcpJsonText(b)
+export const routineMcpJsonText = mcpPermissionJsonText
+export const sameRoutineMcpJson = sameMcpPermissionJson
 
 function detached(value: unknown): Record<string, McpJsonValue> {
   try {
@@ -61,19 +55,7 @@ function detached(value: unknown): Record<string, McpJsonValue> {
 }
 
 function toolsFrom(value: McpJsonValue): RoutineMcpToolPermission[] {
-  if (!Array.isArray(value) || !value.length || value.length > ROUTINE_MCP_MAX_TOOLS) return fail()
-  const seen = new Set<string>()
-  return value.map((raw) => {
-    if (!record(raw) || !fields(raw, ['connectionId', 'connectionRevision', 'toolName', 'schemaHash', 'fixedArguments'])) return fail()
-    const binding = snapshotMcpBoundToolCall({ connectionId: raw.connectionId, connectionRevision: raw.connectionRevision,
-      toolName: raw.toolName, schemaHash: raw.schemaHash, arguments: raw.fixedArguments })
-    if (!binding) return fail()
-    const key = JSON.stringify([binding.connectionId, binding.toolName])
-    if (seen.has(key)) return fail()
-    seen.add(key)
-    const { arguments: fixedArguments, ...anchor } = binding
-    return { ...anchor, fixedArguments }
-  })
+  return snapshotMcpToolPermissions(value, ROUTINE_MCP_MAX_TOOLS) ?? fail()
 }
 
 function approvalFrom(value: McpJsonValue): RoutineMcpApproval {
@@ -109,13 +91,6 @@ export function parseRoutineMcpPolicy(value: unknown): StoredRoutineMcpPolicy {
     approval }, ...(oauthAuthority ? { oauthAuthority } : {}) }
 }
 
-function matchesConnection(permission: RoutineMcpToolPermission, view: McpConnectionView | undefined): boolean {
-  if (!view || view.transport === 'stdio' || view.id !== permission.connectionId || view.revision !== permission.connectionRevision ||
-      view.status !== 'connected' || view.execution !== 'approval-required' || !view.executableTools?.includes(permission.toolName)) return false
-  const matches = view.tools.filter(tool => tool.name === permission.toolName)
-  try { return matches.length === 1 && mcpToolSchemaHash(matches[0]) === permission.schemaHash } catch { return false }
-}
-
 /** Caller rechecks ownership and all review preconditions when committing.
  * Constraints only narrow a tool; exact full input validation still belongs to
  * the bounded schema worker immediately before the eventual transport call. */
@@ -142,7 +117,7 @@ export function approveRoutineMcpPolicy(
   const oauthConnectionIds = new Set<string>()
   for (const tool of approval.tools) {
     const view = connection(tool.connectionId, scope.tenantId, actorUserId)
-    if (!view || !matchesConnection(tool, view)) return fail('unavailable')
+    if (!view || !matchesHttpMcpPermission(tool, view)) return fail('unavailable')
     if (view.authentication === 'device-oauth') {
       if (!routineMcpOwnerUserId(actorUserId)) return fail('denied')
       oauthConnectionIds.add(tool.connectionId)
@@ -179,13 +154,11 @@ export function routineMcpCallPermitted(
     if (!approval || !exact || !sameRoutineMcpJson(queued, current) || !routineMcpInteger(now) ||
         liveReviewHash !== approval.reviewHash ||
         now < approval.approvedAt || now >= approval.expiresAt || definitionRevision !== approval.definitionRevision) return false
-    const tool = approval.tools.find(tool => tool.connectionId === exact.connectionId && tool.connectionRevision === exact.connectionRevision &&
-      tool.toolName === exact.toolName && tool.schemaHash === exact.schemaHash)
-    if (!tool || !Object.keys(tool.fixedArguments).every(key => Object.hasOwn(exact.arguments, key) &&
-      sameRoutineMcpJson(tool.fixedArguments[key], exact.arguments[key]))) return false
+    const tool = approval.tools.find(tool => mcpPermissionAllowsCall(tool, exact))
+    if (!tool) return false
     const view = connection(tool.connectionId, queued.tenantId, queued.oauthAuthority?.ownerUserId)
     const stampedOAuth = queued.oauthAuthority?.connectionIds.includes(tool.connectionId) ?? false
     return !!view && (stampedOAuth ? view.authentication === 'device-oauth' :
-      view.authentication === 'none' || view.authentication === 'device-bearer') && matchesConnection(tool, view)
+      view.authentication === 'none' || view.authentication === 'device-bearer') && matchesHttpMcpPermission(tool, view)
   } catch { return false }
 }

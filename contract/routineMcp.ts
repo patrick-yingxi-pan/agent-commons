@@ -1,4 +1,4 @@
-import type { McpBoundToolCall, McpJsonValue, McpToolResult } from './mcpExecution.ts'
+import type { McpBoundToolCall, McpToolPermission, McpToolResult } from './mcpExecution.ts'
 
 /** Bounds for explicit unattended permission, not monetary caps. These values
  * do not enable execution; the owner workflow and durable runner admit it. */
@@ -6,16 +6,7 @@ export const ROUTINE_MCP_MAX_TOOLS = 16
 export const ROUTINE_MCP_MAX_CALLS = 20
 export const ROUTINE_MCP_MAX_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 
-export interface RoutineMcpToolPermission {
-  connectionId: string
-  connectionRevision: number
-  toolName: string
-  schemaHash: string
-  /** Exact top-level argument values. Nested objects compare completely, not
-   * as partial matches; arrays retain order. Other arguments are model-chosen
-   * subject to the reviewed tool schema. Empty explicitly fixes no values. */
-  fixedArguments: Record<string, McpJsonValue>
-}
+export type RoutineMcpToolPermission = McpToolPermission
 
 export interface RoutineMcpApproval {
   definitionRevision: number

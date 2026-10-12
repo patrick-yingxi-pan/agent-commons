@@ -58,3 +58,12 @@ export interface McpBoundToolCall extends McpToolExecutionAnchor {
   connectionId: string
   arguments: Record<string, McpJsonValue>
 }
+
+/** A constraint on an exact inspected tool, not an execution grant. Workflow
+ * policies supply their own scope, consent, lifetime and durable admission. */
+export interface McpToolPermission extends McpToolExecutionAnchor {
+  connectionId: string
+  /** Exact top-level values; nested values compare completely, arrays in order.
+   * Empty explicitly fixes no values. The tool schema still validates all input. */
+  fixedArguments: Record<string, McpJsonValue>
+}

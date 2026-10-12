@@ -37,6 +37,24 @@ async function installSessionAccount(page: Page) {
   expect(identity.user?.id).toBe('user-ada')
 }
 
+async function prepareAccountChange(page: Page) {
+  // Resolve and retain the real transition primitive before the critical UI
+  // state. Do not await a dynamic import/promise across the reset it triggers:
+  // a protocol error there can reject evaluate after the transition applied.
+  const trigger = await page.evaluateHandle(async () => {
+    const account = await import('/src/api/account.ts')
+    return () => {
+      const before = account.accountGeneration()
+      account.refreshAccount({ userId: 'user-oauth-other', tenantId: 'tenant-oauth-other' })
+      return account.accountGeneration() === before + 1
+    }
+  })
+  return async () => {
+    try { expect(await trigger.evaluate(change => change())).toBe(true) }
+    finally { await trigger.dispose() }
+  }
+}
+
 async function installOAuthBridge(page: Page, options: { cancelPending?: boolean; holdStart?: boolean; longReview?: boolean } = {}) {
   const calls: Array<{ method: string; request: Record<string, unknown> }> = []
   let connectionId = ''
@@ -242,11 +260,9 @@ test('account changes dismiss review before authorization can be requested', asy
   try {
     await installSessionAccount(page)
     await createOAuthConnection(page, `${LABEL} request fence`)
+    const changeAccount = await prepareAccountChange(page)
     const dialog = await startReview(page)
-    await page.evaluate(async () => {
-      const account = await import('/src/api/account.ts')
-      account.refreshAccount({ userId: 'user-oauth-other', tenantId: 'tenant-oauth-other' })
-    })
+    await changeAccount()
     // Account reset unmounts the old workspace and its dialog. There must be
     // no old-account action left to click, and unmount cancels the native flow.
     await expect(dialog).toHaveCount(0)
@@ -262,13 +278,11 @@ test('account changes dismiss pending recovery before reconciliation can be requ
   try {
     await installSessionAccount(page)
     await createOAuthConnection(page, `${LABEL} reconcile fence`)
+    const changeAccount = await prepareAccountChange(page)
     const dialog = await startReview(page)
     await dialog.getByRole('button', { name: 'Continue to browser sign-in', exact: true }).click()
     await expect(dialog.getByText(/inspection may have reached the server/i)).toBeVisible()
-    await page.evaluate(async () => {
-      const account = await import('/src/api/account.ts')
-      account.refreshAccount({ userId: 'user-oauth-other', tenantId: 'tenant-oauth-other' })
-    })
+    await changeAccount()
     await expect(dialog).toHaveCount(0)
     await expect.poll(() => bridge.calls.map(call => call.method)).toEqual(['start', 'review', 'authorize', 'cancel'])
   } finally { await disposeProxy(); await stack.close() }
@@ -282,16 +296,14 @@ test('account-generation change fences a late OAuth discovery result and cancels
   try {
     await installSessionAccount(page)
     await createOAuthConnection(page, `${LABEL} account fence`)
+    const changeAccount = await prepareAccountChange(page)
     await page.getByRole('button', { name: 'Sign in with OAuth', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: /Sign in to / })
     await dialog.getByRole('button', { name: 'Find sign-in options', exact: true }).click()
     await bridge.entered
     // This is the same account-transition primitive used by the account
     // switch controller, made deterministic while the native start is held.
-    await page.evaluate(async () => {
-      const account = await import('/src/api/account.ts')
-      account.refreshAccount({ userId: 'user-oauth-other', tenantId: 'tenant-oauth-other' })
-    })
+    await changeAccount()
     bridge.release()
     await expect.poll(() => bridge.calls.map(call => call.method)).toContain('cancel')
     expect(bridge.calls.map(call => call.method)).toEqual(['start', 'cancel'])
