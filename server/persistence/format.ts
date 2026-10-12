@@ -677,11 +677,17 @@ function validNormalizedEnvelopeProposalLines(value: unknown): value is Normaliz
   for (const line of value) {
     if (!persistedRecord(line) || !exactFieldSet(line, ['type', 'target', 'cardinality', 'harness', 'note'], ['mcp'])) return false
     if (line.mcp !== undefined && (!persistedRecord(line.mcp) ||
-        !exactFieldSet(line.mcp, ['connectionId', 'connectionRevision', 'toolName', 'arguments']) ||
+        !exactFieldSet(line.mcp, ['connectionId', 'connectionRevision', 'toolName', 'arguments'], ['transport']) ||
+        (Object.hasOwn(line.mcp, 'transport') && line.mcp.transport !== 'stdio') ||
         !persistedRecord(line.mcp.arguments))) return false
   }
   try {
-    const normalized = normalizedEnvelopeProposalLines({ lines: value } as never)
+    const requestLines = value.map((line) => {
+      if (!persistedRecord(line) || !persistedRecord(line.mcp) || !Object.hasOwn(line.mcp, 'transport')) return line
+      const { transport: _transport, ...mcp } = line.mcp
+      return { ...line, mcp }
+    })
+    const normalized = normalizedEnvelopeProposalLines({ lines: requestLines } as never)
     return normalized !== undefined && envelopeProposalLinesMatch(normalized, value as NormalizedEnvelopeProposalLine[])
   } catch { return false }
 }
@@ -722,15 +728,20 @@ function validStoredContributionEnvelope(value: unknown): value is StoredContrib
     }
     if (!hasPreview || !hasAuthority || line.harness !== 'explicit-call' || line.type !== 'mcp.mutate' ||
         !persistedRecord(line.mcp) ||
-        !exactFieldSet(line.mcp, ['connectionLabel', 'toolName', 'arguments']) ||
+        !exactFieldSet(line.mcp, ['connectionLabel', 'toolName', 'arguments'], ['transport']) ||
+        (Object.hasOwn(line.mcp, 'transport') && line.mcp.transport !== 'stdio') ||
         typeof line.mcp.connectionLabel !== 'string' || !line.mcp.connectionLabel.trim() ||
         line.mcp.connectionLabel.length > CONTRIBUTION_FIELD_MAX || typeof line.mcp.toolName !== 'string' ||
         !persistedRecord(line.mcp.arguments) || !persistedRecord(line.mcpAuthority) ||
-        !exactFieldSet(line.mcpAuthority, ['tenantId', 'call'], ['ownerUserId']) || typeof line.mcpAuthority.tenantId !== 'string' ||
+        !exactFieldSet(line.mcpAuthority, ['tenantId', 'call'], ['ownerUserId', 'transport']) ||
+        (Object.hasOwn(line.mcpAuthority, 'transport') && line.mcpAuthority.transport !== 'stdio') ||
+        typeof line.mcpAuthority.tenantId !== 'string' ||
         !line.mcpAuthority.tenantId.trim()) return false
     if (Object.hasOwn(line.mcpAuthority, 'ownerUserId') &&
         (typeof line.mcpAuthority.ownerUserId !== 'string' || line.mcpAuthority.ownerUserId.length > 200 ||
           !line.mcpAuthority.ownerUserId.trim() || !/^[\x20-\x7e]+$/.test(line.mcpAuthority.ownerUserId))) return false
+    if (Object.hasOwn(line.mcpAuthority, 'transport') !== Object.hasOwn(line.mcp, 'transport') ||
+        (Object.hasOwn(line.mcpAuthority, 'transport') && !Object.hasOwn(line.mcpAuthority, 'ownerUserId'))) return false
     const boundCall = snapshotMcpBoundToolCall(line.mcpAuthority.call)
     if (!boundCall || line.target !== boundCall.toolName || line.mcp.toolName !== boundCall.toolName ||
         !sameMcpJson(line.mcp.arguments, boundCall.arguments)) return false
@@ -767,6 +778,7 @@ function proposalForEffectVersion(
   return proposal.envelopeProposalLines.find((line) => line.mcp !== undefined &&
     line.mcp.connectionId === attempt.call.connectionId && line.mcp.connectionRevision === attempt.call.connectionRevision &&
     line.mcp.toolName === attempt.call.toolName && sameMcpJson(line.mcp.arguments, attempt.call.arguments) &&
+    line.mcp.transport === attempt.transport &&
     line.type === 'mcp.mutate' && line.harness === 'explicit-call' && line.target === attempt.call.toolName)
 }
 
@@ -806,6 +818,7 @@ function currentMcpProposalMatches(contribution: StoredContribution): boolean {
       connectionRevision: call.connectionRevision,
       toolName: call.toolName,
       arguments: call.arguments,
+      ...(line.mcp?.transport === undefined ? {} : { transport: line.mcp.transport }),
     } })
   }
   return envelopeProposalLinesMatch(projected, proposal.envelopeProposalLines)
@@ -836,6 +849,7 @@ function validStoredContributionEffectAttempts(contribution: StoredContribution)
       const call = line?.mcpAuthority && snapshotMcpBoundToolCall(line.mcpAuthority.call)
       if (!line || !call || line.harness !== 'explicit-call' || line.type !== 'mcp.mutate' ||
           line.mcpAuthority?.tenantId !== attempt.tenantId || line.mcpAuthority.ownerUserId !== attempt.ownerUserId ||
+          line.mcpAuthority.transport !== attempt.transport || line.mcp?.transport !== attempt.transport ||
           call.connectionId !== attempt.call.connectionId || call.connectionRevision !== attempt.call.connectionRevision ||
           call.toolName !== attempt.call.toolName || call.schemaHash !== attempt.call.schemaHash ||
           !sameMcpJson(call.arguments, attempt.call.arguments)) return false

@@ -13,7 +13,49 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: reviewed Project-work resolution
+## Current checkpoint: person-owned local Contribution calls
+
+Autonomous direction (2026-10-11): complete the existing local MCP setup →
+reviewed Contribution → saved result → owner-reviewed work resolution path.
+A person-owned stdio connection may supply an exact inspected tool to a
+Contribution. The connection owner proposes its arguments; Project approval
+and a separate explicit Run remain required. Neither a native launch grant,
+Project membership nor an approved envelope permits unattended execution.
+
+The review identifies a local process with normal access to its owner's
+computer, including possible effects merely from starting it. Public envelopes
+and receipts retain an explicit local-process stamp and Project-visible
+arguments/results, never private launch settings, grant references or person
+authority. Legacy HTTP history retains its absent transport field. Admission
+joins the stamp and exact person to the live or retired connection identity;
+removal and historical envelope replacement cannot erase that provenance.
+
+Reuse the existing native custody, exact-call executor and durable reservation.
+Persist pending history and cardinality before starting a child; recheck owner,
+connection revision, current Project/work authority and catalog at dispatch.
+Interrupted attempts become uncertain without automatic replay. Local startup
+can have effects even when no tool request succeeds; failed receipt copy must
+not claim an effect-free program launch. Routine stdio, Commission execution,
+Agent proxies and Contribution follow-up forms remain unsupported.
+
+Acceptance covers authored-child execution, person/tenant/Project walls,
+revocation and current-source races, strict JSON/SQLite recovery, five-viewport
+owner/peer review and unsigned arm64 packaged success/interruption/relaunch.
+Use isolated generated profiles and repository-authored children only. This
+does not prove actual native-dialog, third-party service, signed/notarized or
+Intel acceptance. Full local verification, UI review and post-test diff review
+remain required before direct main delivery; the owner's live store is untouched.
+
+The three focused browser journeys pass, with 50 state captures across the five
+canonical viewport sizes. The shared-chrome sweep passes 135/135 cells with no
+violations or skips. Both ordinary Electron and local-MCP packaged smokes pass;
+the latter covers successful linked-work resolution, durable interruption,
+relaunch without replay and revocation. Shutdown may persist an uncertain
+receipt before exit or retain a pending one until restart; both must converge
+to the same non-replayable uncertain state. These are authored-child, unsigned
+arm64 results, not evidence for the separate release gates above.
+
+## Previous checkpoint: reviewed Project-work resolution
 
 Autonomous direction (2026-10-11): connect an exact open MCP work item to the
 existing Contribution workflow. **Start contribution** creates an immutable

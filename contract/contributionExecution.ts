@@ -11,6 +11,8 @@ interface ContributionEffectRunBase {
   lineId: string
   actor: string
   connectionLabel: string
+  /** Derived local-process provenance. Absent remains the historical HTTP shape. */
+  transport?: 'stdio'
   toolName: string
   /** Exact reviewed values; visible under the containing Project's read wall. */
   arguments: Record<string, McpJsonValue>

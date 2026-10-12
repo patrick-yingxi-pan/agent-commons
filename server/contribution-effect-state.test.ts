@@ -268,6 +268,32 @@ test('optional OAuth owner binds private receipt identity without changing legac
   assert.throws(() => parseStoredContributionEffectAttempt(stripped), Error)
 })
 
+test('stdio transport is hashed, public only as a sparse marker, and local refusal preserves launch uncertainty', () => {
+  const localInput = { ...input(), ownerUserId: 'person-private-owner', transport: 'stdio' as const }
+  const local = createContributionEffectAttempt(localInput)
+  assert.equal(local.transport, 'stdio')
+  assert.notEqual(local.callHash, createContributionEffectAttempt({ ...input(), ownerUserId: localInput.ownerUserId }).callHash)
+  assert.deepEqual(parseStoredContributionEffectAttempt(local), local)
+  assert.throws(() => createContributionEffectAttempt({ ...input(), transport: 'stdio' } as never), Error,
+    'local provenance cannot be recorded without its authenticated person owner')
+  assert.throws(() => parseStoredContributionEffectAttempt({ ...local, transport: undefined }), Error,
+    'stripping transport invalidates the private attempt hash')
+  const publicPending = publicContributionEffectRun(local)
+  assert.equal(publicPending.transport, 'stdio')
+  assert.equal(Object.hasOwn(publicPending, 'ownerUserId'), false)
+
+  const refused = settleContributionEffectAttempt(local, { status: 'failed', summary: 'Private refusal.' }, 10_001)
+  assert.equal(refused.status, 'failed')
+  assert.match(refused.summary, /refused before execution/i)
+  assert.match(refused.summary, /local program may already have had effects/i)
+  assert.deepEqual(parseStoredContributionEffectAttempt(refused), refused)
+  assert.equal(publicContributionEffectRun(refused).transport, 'stdio')
+
+  const legacy = createContributionEffectAttempt(input())
+  assert.equal(Object.hasOwn(legacy, 'transport'), false)
+  assert.equal(Object.hasOwn(publicContributionEffectRun(legacy), 'transport'), false)
+})
+
 test('present OAuth receipt owners are strictly bounded and cannot normalize to absence', () => {
   const legacy = createContributionEffectAttempt(input())
   for (const ownerUserId of [undefined, null, false, 12, {}, [], '', ' ', 'x'.repeat(201), 'owner\u0000private', 'person-é']) {

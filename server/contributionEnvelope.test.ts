@@ -87,6 +87,8 @@ test('legacy envelope defaults and trims remain stable while explicit-call requi
     'cardinality limits the number of individually confirmed calls')
   assert.equal(normalizedEnvelopeProposalLines({ lines: [line({ mcp: { ...line().mcp, schemaHash } })] }), undefined,
     'the selection is exact and the server, not the caller, derives schemaHash')
+  assert.equal(normalizedEnvelopeProposalLines({ lines: [line({ mcp: { ...line().mcp, transport: 'stdio' } })] }), undefined,
+    'transport is derived from the selected registry row and cannot be caller-chosen')
   assert.equal(normalizedEnvelopeProposalLines({ lines: [line({ target: ` ${tool.name} ` })] }), undefined,
     'MCP targets are exact tool names, not trimmed aliases')
   assert.equal(normalizedEnvelopeProposalLines({ lines: [line({ mcp: { ...line().mcp, arguments: { item: 'x'.repeat(49_200) } } })] }), undefined)
@@ -201,16 +203,31 @@ test('OAuth preparation requires an exact valid owner even when a store exposes 
   assert.equal(await prepareContributionMcpLines(store(ownerStampedLegacy), 'tenant-a', normalize(), ownerUserId), undefined)
 })
 
-test('stdio connections are refused before Contribution preparation and rechecks, despite an exact person-owned grant', async () => {
+test('stdio connections require the exact person owner and carry only a sparse public transport stamp', async () => {
   const local = store(stdioRow())
-  assert.equal(await prepareContributionMcpLines(local, 'tenant-a', normalize(), ownerUserId), undefined)
+  assert.equal(await prepareContributionMcpLines(local, 'tenant-a', normalize()), undefined)
+  assert.equal(await prepareContributionMcpLines(local, 'tenant-a', normalize(), 'another-person'), undefined)
+  const prepared = await prepareContributionMcpLines(local, 'tenant-a', normalize(), ownerUserId)
+  assert.ok(prepared)
+  assert.deepEqual(prepared[0].mcp, { connectionLabel: 'Local writer', toolName: tool.name,
+    arguments: { item: 'A' }, transport: 'stdio' })
+  assert.deepEqual(prepared[0].mcpAuthority, { tenantId: 'tenant-a', ownerUserId, transport: 'stdio', call: {
+    connectionId, connectionRevision: 8, toolName: tool.name, schemaHash, arguments: { item: 'A' },
+  } })
+  assert.equal(JSON.stringify(prepared[0].mcp).includes(ownerUserId), false)
+  const stored = { ...prepared[0], id: 'line-1', used: 0 } as StoredContributionEnvelopeLine
+  assert.equal(currentContributionMcpLine(local, 'tenant-a', stored, ownerUserId), true)
+  assert.equal(currentContributionMcpLine(local, 'tenant-a', stored, 'another-person'), false)
+  assert.equal(currentContributionMcpLine(local, 'tenant-a', { ...stored,
+    mcp: { ...stored.mcp!, transport: undefined } }, ownerUserId), false,
+  'missing stdio provenance cannot be laundered into legacy HTTP authority')
 
   const legacy = store()
-  const prepared = await prepareContributionMcpLines(legacy, 'tenant-a', normalize())
-  assert.ok(prepared)
-  const stored = { ...prepared[0], id: 'line-1', used: 0 } as StoredContributionEnvelopeLine
+  const httpPrepared = await prepareContributionMcpLines(legacy, 'tenant-a', normalize())
+  assert.ok(httpPrepared)
+  const httpStored = { ...httpPrepared[0], id: 'line-1', used: 0 } as StoredContributionEnvelopeLine
   local.replace(stdioRow())
-  assert.equal(currentContributionMcpLine(local, 'tenant-a', stored, ownerUserId), false)
+  assert.equal(currentContributionMcpLine(local, 'tenant-a', httpStored, ownerUserId), false)
 })
 
 test('OAuth rechecks bind the actor and stored owner, and reject owner-stamped legacy lines', async () => {

@@ -52,6 +52,8 @@ export interface ContributionMcpPreview {
   connectionLabel: string
   toolName: string
   arguments: Record<string, import('./mcpExecution.ts').McpJsonValue>
+  /** Derived local-process provenance. Absent remains the historical HTTP shape. */
+  transport?: 'stdio'
   canRun?: true
 }
 

@@ -110,6 +110,7 @@ export function ignoreFromPackage(path) {
       'desktop/mcpOAuthRoutineMessagesSmokeFixture.mjs',
       'desktop/mcpStdioSmoke.mjs',
       'desktop/mcpStdioSmokePeer.mjs',
+      'desktop/contributionStdioSmoke.mjs',
       'desktop/discussionContextSmoke.mjs',
       'desktop/artifactContextSmoke.mjs',
       'desktop/artifactHistorySmoke.mjs',

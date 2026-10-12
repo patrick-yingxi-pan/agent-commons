@@ -14,8 +14,10 @@ import type { McpBoundExecutionOutcome } from './mcpBoundExecution.ts'
 export interface ContributionEffectIntent {
   id: string
   tenantId: string
-  /** Private OAuth owner; absent for legacy connection authority. */
+  /** Private person owner for OAuth or stdio; absent for legacy HTTP authority. */
   ownerUserId?: string
+  /** Registry-derived local-process identity; absent preserves historic HTTP hashes. */
+  transport?: 'stdio'
   projectId: string
   contributionId: string
   envelopeVersion: number
@@ -35,10 +37,12 @@ export type StoredContributionEffectAttempt = ContributionEffectIntent & {
 export const CONTRIBUTION_EFFECT_ATTEMPT_MAX = 100
 
 const INTENT_FIELDS = ['id', 'tenantId', 'projectId', 'contributionId', 'envelopeVersion', 'lineId', 'actor', 'connectionLabel', 'call', 'startedAt']
+const OPTIONAL_INTENT_FIELDS = ['ownerUserId', 'transport'] as const
 const TERMINAL_FIELDS = ['callHash', 'status', 'finishedAt', 'summary', 'result']
 const SUMMARIES = {
   done: 'The MCP tool completed.',
   failed: 'The MCP call was refused before execution.',
+  localFailed: 'The tool call was refused before execution. Starting the local program may already have had effects.',
   toolError: 'The MCP server returned a tool error. Its effects may have occurred.',
   uncertain: 'The MCP server may have accepted this call, but no valid saved result is available. It will not be run again automatically.',
 } as const
@@ -69,11 +73,14 @@ function invocation(value: McpJsonValue): McpBoundToolCall {
 function intentFrom(copy: Record<string, McpJsonValue>): ContributionEffectIntent {
   if (!text(copy.id) || !isContributionEffectExecutionId(copy.id) ||
       (Object.hasOwn(copy, 'ownerUserId') && !ownerUserId(copy.ownerUserId)) ||
+      (Object.hasOwn(copy, 'transport') && copy.transport !== 'stdio') ||
+      (copy.transport === 'stdio' && !Object.hasOwn(copy, 'ownerUserId')) ||
       !['tenantId', 'projectId', 'contributionId', 'lineId'].every((key) => text(copy[key])) ||
       !text(copy.actor, 2000) || !text(copy.connectionLabel, 2000) ||
       !timestamp(copy.startedAt) || !timestamp(copy.envelopeVersion) || copy.envelopeVersion < 1) return invalid()
   return { id: copy.id, tenantId: copy.tenantId as string, projectId: copy.projectId as string,
     ...(Object.hasOwn(copy, 'ownerUserId') ? { ownerUserId: copy.ownerUserId as string } : {}),
+    ...(copy.transport === 'stdio' ? { transport: 'stdio' as const } : {}),
     contributionId: copy.contributionId as string, lineId: copy.lineId as string, actor: copy.actor,
     connectionLabel: copy.connectionLabel, envelopeVersion: copy.envelopeVersion,
     startedAt: copy.startedAt, call: invocation(copy.call) }
@@ -83,6 +90,7 @@ function callHash(intent: ContributionEffectIntent): string {
   return createHash('sha256').update(JSON.stringify(canonical({
     id: intent.id, tenantId: intent.tenantId, projectId: intent.projectId, contributionId: intent.contributionId,
     ...(intent.ownerUserId === undefined ? {} : { ownerUserId: intent.ownerUserId }),
+    ...(intent.transport === undefined ? {} : { transport: intent.transport }),
     envelopeVersion: intent.envelopeVersion, lineId: intent.lineId, call: intent.call as unknown as McpJsonValue,
   }))).digest('hex')
 }
@@ -97,8 +105,8 @@ function exactResult(value: unknown): McpToolResult {
 export function createContributionEffectAttempt(input: ContributionEffectIntent): StoredContributionEffectAttempt {
   try {
     const copy = detached(input)
-    if (Object.keys(copy).length !== INTENT_FIELDS.length + Number(Object.hasOwn(copy, 'ownerUserId')) ||
-        Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key) && key !== 'ownerUserId')) return invalid()
+    if (Object.keys(copy).length !== INTENT_FIELDS.length + OPTIONAL_INTENT_FIELDS.filter(key => Object.hasOwn(copy, key)).length ||
+        Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key) && !(OPTIONAL_INTENT_FIELDS as readonly string[]).includes(key))) return invalid()
     const intent = intentFrom(copy)
     return { ...intent, callHash: callHash(intent), status: 'pending' }
   } catch { return invalid() }
@@ -109,7 +117,7 @@ export function createContributionEffectAttempt(input: ContributionEffectIntent)
 export function parseStoredContributionEffectAttempt(value: unknown): StoredContributionEffectAttempt {
   try {
     const copy = detached(value)
-    if (Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key) && key !== 'ownerUserId' && !TERMINAL_FIELDS.includes(key))) return invalid()
+    if (Object.keys(copy).some((key) => !INTENT_FIELDS.includes(key) && !(OPTIONAL_INTENT_FIELDS as readonly string[]).includes(key) && !TERMINAL_FIELDS.includes(key))) return invalid()
     const intent = intentFrom(copy)
     if (copy.callHash !== callHash(intent)) return invalid()
     const base = { ...intent, callHash: copy.callHash }
@@ -125,7 +133,8 @@ export function parseStoredContributionEffectAttempt(value: unknown): StoredCont
     if (copy.status !== 'done' && copy.status !== 'failed') return invalid()
     const result = Object.hasOwn(copy, 'result') ? exactResult(copy.result) : undefined
     if (copy.status === 'done' ? !result || result.isError : result && !result.isError) return invalid()
-    const summary = copy.status === 'done' ? SUMMARIES.done : result ? SUMMARIES.toolError : SUMMARIES.failed
+    const summary = copy.status === 'done' ? SUMMARIES.done : result ? SUMMARIES.toolError :
+      intent.transport === 'stdio' ? SUMMARIES.localFailed : SUMMARIES.failed
     if (copy.summary !== summary) return invalid()
     return copy.status === 'done'
       ? { ...base, status: 'done', finishedAt: copy.finishedAt, summary, result: result! }
@@ -149,7 +158,8 @@ export function settleContributionEffectAttempt(
       if (outcome.status === 'done' ? !result || result.isError : result && !result.isError) throw new Error()
       return outcome.status === 'done'
         ? { ...run, status: 'done', finishedAt, summary: SUMMARIES.done, result: result! }
-        : { ...run, status: 'failed', finishedAt, summary: result ? SUMMARIES.toolError : SUMMARIES.failed,
+        : { ...run, status: 'failed', finishedAt, summary: result ? SUMMARIES.toolError :
+          run.transport === 'stdio' ? SUMMARIES.localFailed : SUMMARIES.failed,
           ...(result ? { result } : {}) }
     } catch { /* A received but unretainable result never proves no effect. */ }
   }
@@ -166,7 +176,8 @@ export function interruptContributionEffectAttempt(value: StoredContributionEffe
 export function publicContributionEffectRun(value: StoredContributionEffectAttempt): ContributionEffectRun {
   const run = parseStoredContributionEffectAttempt(value)
   const base = { id: run.id, envelopeVersion: run.envelopeVersion, lineId: run.lineId, actor: run.actor,
-    connectionLabel: run.connectionLabel, toolName: run.call.toolName, arguments: run.call.arguments, startedAt: run.startedAt }
+    connectionLabel: run.connectionLabel, ...(run.transport === undefined ? {} : { transport: run.transport }),
+    toolName: run.call.toolName, arguments: run.call.arguments, startedAt: run.startedAt }
   if (run.status === 'pending') return { ...base, status: 'pending' }
   const terminal = { ...base, finishedAt: run.finishedAt, summary: run.summary }
   if (run.status === 'done') return { ...terminal, status: 'done', result: run.result }

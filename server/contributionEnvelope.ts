@@ -24,12 +24,13 @@ export interface NormalizedEnvelopeProposalLine {
   cardinality: number
   harness: EnvelopeHarness
   note: string
-  mcp?: ContributionMcpSelection
+  /** Derived only after registry lookup; request normalization never accepts it. */
+  mcp?: ContributionMcpSelection & { transport?: 'stdio' }
 }
 
 export interface StoredContributionEnvelopeLine extends EffectEnvelopeLine {
   /** Server-private authority; must be stripped from every wire projection. */
-  mcpAuthority?: { tenantId: string; ownerUserId?: string; call: McpBoundToolCall }
+  mcpAuthority?: { tenantId: string; ownerUserId?: string; transport?: 'stdio'; call: McpBoundToolCall }
 }
 
 export type StoredContributionEnvelope = Omit<import('../contract/contributions.ts').EffectEnvelope, 'lines'> & {
@@ -145,6 +146,7 @@ export function envelopeProposalLinesMatch(
 
 interface SelectedBinding {
   ownerUserId?: string
+  transport?: 'stdio'
   label: string
   tool: McpDiscoveredTool
   schemaHash: string
@@ -159,10 +161,13 @@ function selectedBinding(
   try {
     const row = store.privateMcpConnection(selection.connectionId, tenantId, actorUserId)
     const view = store.mcpConnection(selection.connectionId, tenantId, actorUserId)
-    if (!row || row.transport === 'stdio' || row.id !== selection.connectionId || row.tenantId !== tenantId || !row.connected ||
-        (row.authentication === 'device-oauth'
+    const isStdio = row?.transport === 'stdio'
+    const personOwned = isStdio || row?.authentication === 'device-oauth'
+    if (!row || row.id !== selection.connectionId || row.tenantId !== tenantId || !row.connected ||
+        (personOwned
           ? !ownerUserId(actorUserId) || row.ownerUserId !== actorUserId
           : Object.hasOwn(row, 'ownerUserId')) ||
+        (isStdio ? !row.grantReference || view?.transport !== 'stdio' : view?.transport === 'stdio') ||
         row.revision !== selection.connectionRevision || !row.inspection ||
         row.inspection.schemaAdmission?.version !== MCP_SCHEMA_ADMISSION_VERSION ||
         !view || view.id !== selection.connectionId || view.revision !== selection.connectionRevision ||
@@ -172,7 +177,7 @@ function selectedBinding(
     const tool = snapshotMcpJson(selected, { maxBytes: 196_608, maxDepth: 36, maxNodes: 12_288 }) as unknown as McpDiscoveredTool
     const schemaHash = mcpToolSchemaHash(tool)
     if (!row.inspection.schemaAdmission.hashes.includes(schemaHash)) return undefined
-    return { ...(row.authentication === 'device-oauth' ? { ownerUserId: row.ownerUserId } : {}),
+    return { ...(personOwned ? { ownerUserId: row.ownerUserId } : {}), ...(isStdio ? { transport: 'stdio' as const } : {}),
       label: view.label, tool, schemaHash }
   } catch { return undefined }
 }
@@ -213,8 +218,10 @@ export async function prepareContributionMcpLines(
       harness: line.harness,
       note: line.note,
       used: 0,
-      mcp: { connectionLabel: selected.label, toolName: line.mcp.toolName, arguments: line.mcp.arguments } satisfies ContributionMcpPreview,
-      mcpAuthority: { tenantId, call, ...(selected.ownerUserId === undefined ? {} : { ownerUserId: selected.ownerUserId }) },
+      mcp: { connectionLabel: selected.label, toolName: line.mcp.toolName, arguments: line.mcp.arguments,
+        ...(selected.transport === undefined ? {} : { transport: selected.transport }) } satisfies ContributionMcpPreview,
+      mcpAuthority: { tenantId, call, ...(selected.ownerUserId === undefined ? {} : { ownerUserId: selected.ownerUserId }),
+        ...(selected.transport === undefined ? {} : { transport: selected.transport }) },
       id: 'preparation-only',
     }
     if (!currentContributionMcpLine(store, tenantId, provisional, actorUserId)) return undefined
@@ -248,5 +255,8 @@ export function currentContributionMcpLine(
   return Boolean(binding && binding.schemaHash === call.schemaHash &&
     binding.label === line.mcp.connectionLabel && (binding.ownerUserId === undefined
       ? !Object.hasOwn(line.mcpAuthority, 'ownerUserId')
-      : binding.ownerUserId === line.mcpAuthority.ownerUserId))
+      : binding.ownerUserId === line.mcpAuthority.ownerUserId) &&
+    (binding.transport === undefined
+      ? !Object.hasOwn(line.mcpAuthority, 'transport') && !Object.hasOwn(line.mcp, 'transport')
+      : line.mcpAuthority.transport === binding.transport && line.mcp.transport === binding.transport))
 }

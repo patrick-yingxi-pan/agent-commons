@@ -520,6 +520,17 @@ connection identity and credentials remain private. Interrupted receipt recovery
 never repeats a call. The packaged local-fixture acceptance is recorded in
 [`production-plan.md`](production-plan.md); it is not public-service evidence.
 
+Person-owned local stdio Contributions reuse that separate per-call consent, not
+conversation attachment authority. The exact connection owner must propose and
+run the inspected tool; Project approval alone cannot launch it. An explicit
+local-process stamp survives in the approved envelope and every receipt, including
+historical versions and removed connections. Private owner/transport joins reject
+missing or mismatched provenance. The review discloses normal OS access and
+possible effects from starting the program, even before a tool request succeeds.
+Launch settings stay in native custody; reviewed arguments and results are shared
+with Project readers. Routine stdio remains unavailable. COMMONS-42 tracks this
+bounded workflow and its separate acceptance gates.
+
 Routine MCP adds a distinct opt-in permission, not context-level trust. The owner
 reviews exact tools, fixed top-level argument values, a per-run attempt cap,
 expiry and destination sharing. A queued run retains its original permission;
@@ -685,11 +696,13 @@ POSIX owner/mode checks and directory fsync there, while retaining regular-file,
 identity, bounded-read and CAS checks. It does not add Windows ACL verification;
 the new local MCP vault refuses non-macOS targets.
 
-The first product integration is interactive-only. Routine and Contribution
-execution require a separate explicit policy for local code and cannot inherit
-ordinary context attachment or tool consent. The current tests use reversible
-storage stand-ins and repository-authored subprocesses, not Keychain, actual
-native dialogs, third-party servers or packaged acceptance.
+The first product integration was interactive-only (PORT-33). COMMONS-42 adds
+separately confirmed person-owned Contribution calls; Routine execution still
+requires a distinct policy for local code. Neither workflow inherits ordinary
+context attachment as launch consent. Custody unit tests use storage stand-ins;
+the separate unsigned arm64 packaged walk uses real encrypted native custody,
+an exact fixture-only native approval and repository-authored subprocesses.
+Actual native-dialog and third-party-server acceptance remain separate gates.
 
 ## Required next work
 
@@ -699,8 +712,9 @@ native dialogs, third-party servers or packaged acceptance.
   but is not a complete MCP client. Execution-specific expiry recovery and
   input modes beyond private form elicitation remain. The bounded workflows do not
   replace those requirements or imply general server trust.
-- Local transport integration remains separate work; neither OAuth setup nor the bounded
-  Routine permission authorizes arbitrary tools or destinations.
+- Unattended local transport integration remains separate work; neither OAuth
+  setup, Contribution review nor the bounded Routine permission authorizes
+  arbitrary tools, local programs or destinations.
 - Third-party and combined packaged acceptance of the whole journey, including
   tenant walls, restart, secret exclusion, cancellation and failure recovery.
 

@@ -19,6 +19,8 @@ import { startMcpOAuthMessagesSmokeFixture, MCP_OAUTH_MESSAGES_SMOKE_MODEL,
   MCP_OAUTH_MESSAGES_SMOKE_PROMPT, MCP_OAUTH_MESSAGES_SMOKE_QUERY } from './mcpOAuthMessagesSmokeFixture.mjs'
 import { MCP_STDIO_GRANT_FILE } from './mcpStdioGrantVault.mjs'
 import { createHash } from 'node:crypto'
+import { prepareContributionStdioSmoke, assertContributionStdioInterrupted,
+  recoverContributionStdioSmoke, assertRevokedContributionStdioSmoke } from './contributionStdioSmoke.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const PEER = join(ROOT, 'desktop', 'mcpStdioSmokePeer.mjs')
@@ -232,8 +234,12 @@ export async function smokePackagedMcpStdio({ executable = packagedExecutable(),
     await assertNoRawFixtureData(profile, tracePath, launch)
     await page.screenshot({ path: join(evidence, 'approved-result.png'), fullPage: true })
 
+    stage = 'local-contribution-resolution-and-pending-interruption'
+    const contribution = await prepareContributionStdioSmoke({ page, origin, profile, connectionId, identity, tracePath, evidence })
+
     stage = 'durable-owner-relaunch-without-auto-launch'
     await closePackagedDesktop(run); run = undefined
+    assertContributionStdioInterrupted(profile, contribution)
     run = await launchPackagedDesktop(copied?.executable ?? executable, profile)
     ;({ page, origin } = run)
     assert.equal((await api(page, '/me')).user.id, identity.user.id)
@@ -244,11 +250,12 @@ export async function smokePackagedMcpStdio({ executable = packagedExecutable(),
       'the exact completed tool receipt remains bound to the same private owner after relaunch')
     await page.goto(`${origin}/s/${proposed.id}`)
     await expect(page.locator('[data-mcp-tool-status="done"]')).toContainText(`Local fixture result for: ${MCP_OAUTH_MESSAGES_SMOKE_QUERY}`)
-    assert.equal(traceRows(await readFile(tracePath, 'utf8')).filter(row => row.kind === 'process-start').length, 2,
+    assert.equal(traceRows(await readFile(tracePath, 'utf8')).filter(row => row.kind === 'process-start').length, 4,
       'startup and receipt rendering never start another local child')
     assert.equal(model.requests.length, 2, 'a completed relaunch does not rerun the model')
     await assertNoRawFixtureData(profile, tracePath, launch)
     await page.screenshot({ path: join(evidence, 'approved-result-relaunched.png'), fullPage: true })
+    await recoverContributionStdioSmoke({ page, origin, profile, connectionId, identity, tracePath, evidence }, contribution)
 
     stage = 'disconnect-and-remove-revokes-local-connection'
     await page.goto(`${origin}${detailPath}`)
@@ -268,10 +275,11 @@ export async function smokePackagedMcpStdio({ executable = packagedExecutable(),
     }).toBe(404)
     assert.equal((await readFile(grantPath)).equals(disconnectedGrant), true,
       'removal preserves the already-retired native grant state and does not recreate a launch authority')
-    assert.equal(traceRows(await readFile(tracePath, 'utf8')).filter(row => row.kind === 'process-start').length, 2,
+    assert.equal(traceRows(await readFile(tracePath, 'utf8')).filter(row => row.kind === 'process-start').length, 4,
       'disconnect/removal do not start the configured program')
+    await assertRevokedContributionStdioSmoke({ page, origin, profile, connectionId, identity, tracePath, evidence }, contribution)
     await assertNoRawFixtureData(profile, tracePath, launch)
-    console.log(`[desktop-stdio-smoke] packaged local process · ${nativeReview ? 'actual native review' : 'exact disposable fixture-only native approval'} · modern discovery/catalog inspection · separate per-call approval · one tool result · durable owner relaunch without auto-launch · disconnect/removal`)
+    console.log(`[desktop-stdio-smoke] packaged local process · ${nativeReview ? 'actual native review' : 'exact disposable fixture-only native approval'} · modern discovery/catalog inspection · separate per-call approval · interactive result and Contribution work resolution · pending recovery/replay without dispatch · durable owner relaunch without auto-launch · disconnect/removal`)
     console.log(`[desktop-stdio-smoke] evidence ${evidence}`)
     if (nativeReview && await asarSha256(sourceAsar) !== sourceAsarSha256) {
       throw new Error('The original packaged ASAR changed during native review acceptance')

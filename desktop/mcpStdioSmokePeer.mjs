@@ -31,9 +31,14 @@ input.on('line', line => {
       inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1, maxLength: 128 } }, required: ['query'], additionalProperties: false } }] }
   } else if (message.method === 'tools/call') {
     const calls = prior().filter(row => row.kind === 'request' && row.method === 'tools/call')
-    const valid = message.params?.name === 'records.search' && message.params?.arguments &&
-      typeof message.params.arguments.query === 'string' && message.params.arguments.query.length > 0 &&
-      message.params.arguments.query.length <= 128 && calls.length === 1
+    const query = message.params?.arguments?.query
+    const valid = message.params?.name === 'records.search' &&
+      typeof query === 'string' && query.length > 0 && query.length <= 128 &&
+      (calls.length === 1 || ['contribution-smoke-success', 'contribution-smoke-interrupt'].includes(query)) &&
+      calls.filter(row => row.params?.arguments?.query === query).length === 1
+    // Only this exact named fixture holds a request. Closing the application's
+    // real native process supervisor ends it; there is no delayed success.
+    if (valid && query === 'contribution-smoke-interrupt') return
     result = valid
       ? { resultType: 'complete', isError: false,
         content: [{ type: 'text', text: `Local fixture result for: ${message.params.arguments.query}` }] }

@@ -47,6 +47,7 @@ import {
   CONTRIBUTION_EFFECT_DISCLOSURE_CLASS,
   CONTRIBUTION_EFFECT_DISCLOSURE_HEADING_CLASS,
   CONTRIBUTION_EFFECT_FIELD_GRID_COLUMNS,
+  CONTRIBUTION_LOCAL_STDIO_DISCLOSURE,
 } from '../lib/contributionEffectPresentation.ts'
 import { SOFT_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button.ts'
 
@@ -100,7 +101,7 @@ export function EnvelopeCard({
   const confirmedCallMatches = (lineId: string): boolean => {
     const line = env?.lines.find((candidate) => candidate.id === lineId)
     const currentIdentity = line?.mcp && me
-      ? JSON.stringify([me.user.id, me.tenant.id, env?.version, line.id, line.mcp.connectionLabel, line.mcp.toolName, line.mcp.arguments])
+      ? JSON.stringify([me.user.id, me.tenant.id, env?.version, line.id, line.mcp.transport, line.mcp.connectionLabel, line.mcp.toolName, line.mcp.arguments])
       : null
     return currentIdentity !== null && currentIdentity === confirmMcpIdentity
   }
@@ -350,7 +351,7 @@ export function EnvelopeCard({
                     return
                   }
                   const currentIdentity = me
-                    ? JSON.stringify([me.user.id, me.tenant.id, env.version, l.id, l.mcp?.connectionLabel, l.mcp?.toolName, l.mcp?.arguments])
+                    ? JSON.stringify([me.user.id, me.tenant.id, env.version, l.id, l.mcp?.transport, l.mcp?.connectionLabel, l.mcp?.toolName, l.mcp?.arguments])
                     : null
                   setConfirmMcpLineId(l.id)
                   setConfirmMcpIdentity(currentIdentity)
@@ -369,6 +370,9 @@ export function EnvelopeCard({
               <p data-contribution-effect-disclosure className={`break-words [overflow-wrap:anywhere] ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>
                 Saved call · {l.mcp.connectionLabel} · {l.mcp.toolName}
               </p>
+              {l.mcp.transport === 'stdio' && (
+                <p data-contribution-effect-disclosure data-contribution-stdio-disclosure="proposal" className={`mt-1 ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>{CONTRIBUTION_LOCAL_STDIO_DISCLOSURE}</p>
+              )}
               <pre
                 tabIndex={0}
                 role="region"
@@ -384,6 +388,9 @@ export function EnvelopeCard({
                   <p data-contribution-effect-disclosure className={`mt-1 ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>
                     Confirming sends these arguments to the selected MCP tool once. The arguments and returned result will be visible to every Project reader; credentials stay private. Envelope approval alone never sends this call.
                   </p>
+                  {l.mcp.transport === 'stdio' && (
+                    <p data-contribution-effect-disclosure data-contribution-stdio-disclosure="confirmation" className={`mt-1 ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>{CONTRIBUTION_LOCAL_STDIO_DISCLOSURE}</p>
+                  )}
                   <p data-contribution-effect-disclosure className={`mt-1 font-medium ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>This is a new call. If an earlier result is unknown, running again may duplicate its effects.</p>
                   <div className="mt-2 flex flex-wrap justify-end gap-1.5">
                     <button onClick={() => setConfirmMcpLineId(null)} className={`${SECONDARY_BUTTON_CLASS} px-2.5 py-1 text-[11px]`}>Cancel</button>
@@ -596,6 +603,9 @@ export function EnvelopeCard({
                         />
                       </label>
                     )}
+                    {mcpChoices.find((choice) => choice.connection.id === line.mcpConnectionId && choice.toolName === line.mcpToolName)?.connection.transport === 'stdio' && (
+                      <p data-contribution-effect-disclosure data-contribution-stdio-disclosure="proposal" className={CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}>{CONTRIBUTION_LOCAL_STDIO_DISCLOSURE}</p>
+                    )}
                   </div>
                 )}
               </div>
@@ -687,6 +697,9 @@ function ContributionMcpEffectReceipt({ receipt }: { receipt: ContributionEffect
         {receipt.status === 'done' ? 'MCP call completed' : receipt.status === 'failed' ? 'MCP call refused' : uncertain ? 'MCP outcome uncertain' : 'MCP call pending'}
       </h3>
       <p data-contribution-effect-disclosure className={`mt-1 break-words [overflow-wrap:anywhere] ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>{receipt.connectionLabel} · {receipt.toolName} · {receipt.status}</p>
+      {receipt.transport === 'stdio' && (
+        <p data-contribution-effect-disclosure data-contribution-stdio-disclosure="receipt" className={`mt-1 ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>{CONTRIBUTION_LOCAL_STDIO_DISCLOSURE}</p>
+      )}
       <p data-contribution-effect-disclosure className={`mt-1 break-words [overflow-wrap:anywhere] ${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}`}>
         <time dateTime={new Date(receipt.startedAt).toISOString()} title={new Date(receipt.startedAt).toISOString()}>
           v{receipt.envelopeVersion} · by {receipt.actor} · {relativeTime(receipt.startedAt)}

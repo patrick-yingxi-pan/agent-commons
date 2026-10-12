@@ -263,8 +263,12 @@ boots use explicit profiles:
   and uses a local model peer to prove sign-in, per-call consent, exact execution
   and durable receipt replay in both conversation and Contribution workflows.
   Contribution approval and each Run remain separate acts, bound to the OAuth
-  owner even in a shared workspace. The source ASAR stays unchanged and helpers never
-  ship. These gates are local unsigned fixture evidence, separate from ordinary
+  owner even in a shared workspace. The local stdio gate separately exercises
+  person-owned native grants, interactive calls, reviewed Contribution work
+  resolution and interrupted Contribution recovery without redispatch. It uses
+  only a repository-authored child and exact fixture-only native approval; local
+  code runs with normal OS access and is not sandboxed. The source ASAR stays
+  unchanged and helpers never ship. These gates are local unsigned fixture evidence, separate from ordinary
   signed-candidate smoke, not public-service/TLS or signed two-architecture acceptance.
 - `npm run desktop:release:mac` is the fail-closed candidate lane for the chosen
   two-download macOS release. Run it once on Apple Silicon and once on Intel. It

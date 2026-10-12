@@ -95,7 +95,7 @@ test('OAuth Contribution lines cannot omit their private person owner', () => {
     'a tenant-only MCP line cannot adopt the personal OAuth connection')
 })
 
-test('Contribution authority cannot attach to a person-owned stdio connection, even with matching owner and grant', () => {
+test('legacy Contribution authority cannot silently become stdio without explicit local provenance', () => {
   const state = fixture()
   const id = mcpStdioConnectionCreationId(tenantId, 'contribution-oauth', ownerUserId)
   state.contributions![0]!.envelope!.lines[0]!.mcpAuthority!.call.connectionId = id
@@ -103,7 +103,92 @@ test('Contribution authority cannot attach to a person-owned stdio connection, e
   state.mcpConnections = { connections: [{ transport: 'stdio', tenantId, ownerUserId, id, label: 'Local calendar',
     revision: 4, connected: true, grantReference: `MCP_STDIO_${'A'.repeat(32)}`,
     inspection: { protocolVersion: '2026-07-28', cleanup: 'released', inspectedAt: 1, tools: [] } }], retired: [] }
-  assert.equal(hasCorePersistedShape(state), false, 'unattended Contribution authority must not opt into native stdio')
+  assert.equal(hasCorePersistedShape(state), false, 'matching person and grant cannot replace the missing local-process review stamp')
+})
+
+function stdioFixture({ attempt = false, historical = false, retired = false, mixed = false } = {}): PersistedState {
+  const state = fixture({ oauth: false, stamp: false, attempt: false, historical: false })
+  const row = state.contributions![0]!
+  const id = mcpStdioConnectionCreationId(tenantId, 'contribution-oauth', ownerUserId)
+  const line = row.envelope!.lines[0]!
+  line.mcp!.transport = 'stdio'
+  line.mcpAuthority!.call.connectionId = id
+  line.mcpAuthority!.ownerUserId = ownerUserId
+  line.mcpAuthority!.transport = 'stdio'
+  const proposal = row.events[0]!
+  proposal.principal = { kind: 'user', id: ownerUserId }
+  proposal.envelopeProposalOwnerUserId = ownerUserId
+  proposal.envelopeProposalLines![0]!.mcp!.connectionId = id
+  proposal.envelopeProposalLines![0]!.mcp!.transport = 'stdio'
+  const stdioConnection = { transport: 'stdio' as const, tenantId, ownerUserId, id, label: 'Local calendar', revision: 4,
+    connected: true, grantReference: `MCP_STDIO_${'A'.repeat(32)}`,
+    inspection: { protocolVersion: '2026-07-28', cleanup: 'released', inspectedAt: 1,
+      tools: [{ name: call.toolName, inputSchema: { type: 'object', properties: { title: { type: 'string' } }, additionalProperties: false } }] } }
+  const httpId = mcpConnectionCreationId(tenantId, 'mixed-http')
+  const httpConnection = { tenantId, id: httpId, label: 'Tenant HTTP', endpoint: 'https://mcp.example.test/mcp',
+    authentication: 'none' as const, revision: 4, connected: false }
+  state.mcpConnections = retired ? { connections: mixed ? [httpConnection] : [], retired: [{ tenantId, id, ownerUserId, transport: 'stdio' }] }
+    : { connections: mixed ? [stdioConnection, httpConnection] : [stdioConnection], retired: [] }
+  line.mcpAuthority!.call = { ...call, connectionId: id }
+  line.mcp!.connectionLabel = 'Local calendar'
+  if (mixed) {
+    const httpLine = { id: 'http-effect-line', type: 'mcp.mutate', target: call.toolName, cardinality: 1,
+      harness: 'explicit-call', note: 'Tenant-owned HTTP selection.', used: 0,
+      mcp: { connectionLabel: 'Tenant HTTP', toolName: call.toolName, arguments: call.arguments },
+      mcpAuthority: { tenantId, call: { ...call, connectionId: httpId } } }
+    row.envelope!.lines.push(httpLine as never)
+    proposal.envelopeProposalLines!.push({ type: line.type as never, target: line.target, cardinality: 1,
+      harness: line.harness as never, note: 'Tenant-owned HTTP selection.', mcp: { connectionId: httpId, connectionRevision: call.connectionRevision,
+        toolName: call.toolName, arguments: call.arguments } } as never)
+  }
+  if (attempt) {
+    row.effectsFired = true
+    row.effectAttempts = [createContributionEffectAttempt({
+      id: contributionEffectExecutionId(tenantId, projectId, contributionId, 'stdio-call'),
+      tenantId, ownerUserId, transport: 'stdio', projectId, contributionId, envelopeVersion: 1,
+      lineId: line.id, actor: 'Owner', connectionLabel: 'Local calendar', call: { ...call, connectionId: id }, startedAt: 30,
+    })]
+    line.used = 1
+  }
+  if (historical) {
+    if (row.effectAttempts) row.effectAttempts = row.effectAttempts.map(run => settleContributionEffectAttempt(run,
+      { status: 'uncertain', summary: '' }, 40))
+    row.envelope = { version: 2, status: 'proposed', proposedBy: 'Peer', proposedAt: 50,
+      lines: [{ id: 'replacement-line', type: 'connector.write', target: 'draft', cardinality: 1,
+        harness: 'draft-escrow', note: '', used: 0 }] }
+  }
+  return state
+}
+
+test('person-owned stdio Contribution provenance requires consistent transport through live and retired history', () => {
+  for (const retired of [false, true]) for (const historical of [false, true]) {
+    const good = stdioFixture({ attempt: true, historical, retired })
+    assert.equal(hasCorePersistedShape(good), true)
+    const corruptions = [
+      (state: any) => { delete state.contributions[0].events[0].envelopeProposalLines[0].mcp.transport },
+      (state: any) => { delete state.contributions[0].effectAttempts[0].transport },
+      (state: any) => { state.contributions[0].events[0].envelopeProposalOwnerUserId = otherUserId },
+      (state: any) => { state.mcpConnections = { connections: [], retired: [] } },
+      retired
+        ? (state: any) => { state.mcpConnections.retired[0].ownerUserId = otherUserId }
+        : (state: any) => { state.mcpConnections.connections[0].ownerUserId = otherUserId },
+    ]
+    if (!historical) corruptions.push(
+      (state: any) => { delete state.contributions[0].envelope.lines[0].mcp.transport },
+      (state: any) => { delete state.contributions[0].envelope.lines[0].mcpAuthority.transport },
+      (state: any) => { state.contributions[0].envelope.lines[0].mcpAuthority.ownerUserId = otherUserId },
+    )
+    for (const corrupt of corruptions) {
+      const invalid = structuredClone(good)
+      corrupt(invalid)
+      assert.equal(hasCorePersistedShape(invalid), false, 'transport, person, and registry identity cannot be stripped or reassigned')
+    }
+  }
+  const noAttempt = stdioFixture()
+  assert.equal(hasCorePersistedShape(noAttempt), true)
+  const mixed = stdioFixture({ mixed: true })
+  assert.equal(hasCorePersistedShape(mixed), true,
+    'a person-owned proposal stamp may coexist with its tenant-only HTTP selection')
 })
 
 test('historical OAuth proposal provenance survives replacement by a non-MCP envelope', () => {
@@ -229,6 +314,20 @@ test('OAuth attempts retain exact current and historical person joins even with 
 })
 
 for (const backendName of ['json', 'sqlite'] as const) {
+  test(`${backendName}: stdio Contribution transport and owner survive current and historical JSON/SQLite snapshots`, () => {
+    const backend = backendName === 'json' ? new JsonFileBackend() : new SqliteBackend(process.env.DATABASE_PATH)
+    try {
+      for (const retired of [false, true]) for (const historical of [false, true]) {
+        const state = stdioFixture({ attempt: true, retired, historical })
+        assert.equal(hasCorePersistedShape(state), true)
+        backend.save(state)
+        const loaded = backend.load()
+        assert.deepEqual(loaded?.contributions, state.contributions)
+        assert.equal(hasCorePersistedShape(loaded), true)
+      }
+    } finally { backend.close() }
+  })
+
   test(`${backendName}: OAuth owners and proposal provenance round-trip through retirement and envelope replacement`, () => {
     const backend = backendName === 'json' ? new JsonFileBackend() : new SqliteBackend(process.env.DATABASE_PATH)
     try {

@@ -1503,6 +1503,7 @@ function publicContribution(c: StoredContribution, viewerTenant?: string, viewer
     ...(envelope ? { envelope: { ...envelope, lines: envelope.lines.map(({ mcpAuthority: _authority, mcp, ...line }) => ({
       ...line,
       ...(mcp ? { mcp: { connectionLabel: mcp.connectionLabel, toolName: mcp.toolName, arguments: structuredClone(mcp.arguments),
+        ...(mcp.transport === undefined ? {} : { transport: mcp.transport }),
         ...(viewerTenant && c.status === 'open' && workOpen && !pendingEffect && envelope.status === 'approved' && envelope.approvedVersion === envelope.version &&
           line.used < line.cardinality && (effectAttempts?.length ?? 0) < CONTRIBUTION_EFFECT_ATTEMPT_MAX &&
           contributionEffectActor(c, viewerTenant) && currentContributionMcpLine(store, viewerTenant,
@@ -12072,6 +12073,10 @@ export const store = {
     if (storedLines.length !== lines.length || !storedLines.every((line) =>
       currentContributionMcpLine(this, tenantId, { ...line, id: 'preparing', used: 0 }, actorUserId))) return 'invalid'
     const envelopeProposalOwnerUserId = storedLines.find((line) => line.mcpAuthority?.ownerUserId !== undefined)?.mcpAuthority?.ownerUserId
+    const proposalLines = lines.map((line, index) => {
+      const transport = storedLines[index]?.mcp?.transport
+      return line.mcp && transport === 'stdio' ? { ...line, mcp: { ...line.mcp, transport } } : line
+    })
     const now = Date.now()
     const actor = tenantName(tenantId)
     const version = currentVersion + 1
@@ -12103,7 +12108,7 @@ export const store = {
         body: `v${version} · ${lines.length} act${lines.length === 1 ? '' : 's'}${superseded}`,
         ...(options.logicalId ? {
           proposedByTenant: tenantId,
-          envelopeProposalLines: structuredClone(lines),
+          envelopeProposalLines: structuredClone(proposalLines),
           ...(envelopeProposalOwnerUserId === undefined ? {} : { envelopeProposalOwnerUserId }),
           ...(req.expectedVersion !== undefined
             ? { envelopeProposalExpectedVersion: req.expectedVersion }
@@ -12272,7 +12277,8 @@ export const store = {
     const run = createContributionEffectAttempt({ id: logicalId, tenantId, projectId, contributionId: cid,
       envelopeVersion: expectedVersion, lineId, actor: tenantName(tenantId), connectionLabel: line.mcp.connectionLabel,
       call: line.mcpAuthority.call, startedAt: Date.now(),
-      ...(line.mcpAuthority.ownerUserId ? { ownerUserId: line.mcpAuthority.ownerUserId } : {}) })
+      ...(line.mcpAuthority.ownerUserId ? { ownerUserId: line.mcpAuthority.ownerUserId } : {}),
+      ...(line.mcpAuthority.transport === 'stdio' ? { transport: 'stdio' as const } : {}) })
     const fence = {}
     commitMutationBatch(() => {
       c.effectAttempts ??= []
