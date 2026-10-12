@@ -5262,7 +5262,8 @@ export function buildRouter(): Router {
     if (!key?.trim() || key.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
       return sendError(res, 'bad_request', 'A bounded Idempotency-Key is required for real Dispatch.')
     }
-    const tenantId = store.identity(req.headers).tenant.id
+    const identity = store.identity(req.headers)
+    const tenantId = identity.tenant.id
     // Another body reader may have committed while this request was awaiting
     // input. Recheck immediately before admission, with no further await.
     const represented = store.getRealDispatch(manualDispatchRunId(tenantId, key), tenantId)
@@ -5272,7 +5273,7 @@ export function buildRouter(): Router {
     if (!input) return sendError(res, 'bad_request', 'Provide a bounded task and explicit Agent, endpoint provider, and model.')
     try {
       const run = 'projectWork' in input
-        ? store.startProjectWorkDraft(input, tenantId, manualDispatchRunId(tenantId, key))
+        ? store.startProjectWorkDraft(input, tenantId, manualDispatchRunId(tenantId, key), identity.user.id)
         : store.startRealDispatch(input, tenantId, manualDispatchRunId(tenantId, key))
       const execution = run.execution!
       const known = store.getSession(execution.sessionId)!

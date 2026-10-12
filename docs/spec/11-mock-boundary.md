@@ -205,6 +205,11 @@ Dispatch admission and the tool-free model seam. The owner reviews and posts
 chosen prose as a comment; the item remains open. This does not close MOCK-9:
 unattended commissioned effects, completion and Agent proxies remain separate.
 Its local model and unsigned packaged fixtures do not prove paid-provider use.
+COMMONS-43 extends private drafting to strict JSON arguments for one selected
+inspected MCP tool. Explicit adoption only edits the Contribution proposal form;
+it grants no execution, standing permission, work resolution or Agent credit.
+The saved reply remains tenant-private Dispatch history. Current person/tool
+binding and source reads gate adoption before ordinary proposal validation.
 
 COMMONS-41 adds a separate owner-reviewed resolution path for exact posted MCP
 mutation work. A linked Contribution still requires ordinary envelope approval

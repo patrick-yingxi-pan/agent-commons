@@ -3,6 +3,7 @@
  * Historical model bindings need not remain in today's mutable registries. */
 import { parseRealDispatchInput } from '../contract/dispatchExecution.ts'
 import { parseProjectWorkDraftSource } from '../contract/projectWorkDraft.ts'
+import { parseProjectWorkMcpDraftPreview } from '../contract/projectWorkMcpDraft.ts'
 import { dispatchSessionId } from './dispatchIdentity.ts'
 
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -27,8 +28,10 @@ export function validDispatchState(runs: unknown, sessions: unknown, retired: un
       typeof run.detail !== 'string' || execution.kind !== 'conversation' ||
       execution.sessionId !== dispatchSessionId(run.id) || retired.includes(execution.sessionId) ||
       typeof execution.sessionId !== 'string' || sessionIds.has(execution.sessionId)) return false
-    if (Object.keys(execution).some((key) => !['kind', 'sessionId', 'agentId', 'providerId', 'modelId', 'state', 'messageId', 'projectWork'].includes(key))) return false
+    if (Object.keys(execution).some((key) => !['kind', 'sessionId', 'agentId', 'providerId', 'modelId', 'state', 'messageId', 'projectWork', 'mcpProposal'].includes(key))) return false
     if (Object.hasOwn(execution, 'projectWork') && !parseProjectWorkDraftSource(execution.projectWork)) return false
+    if (Object.hasOwn(execution, 'mcpProposal') &&
+      (!execution.projectWork || !parseProjectWorkMcpDraftPreview(execution.mcpProposal))) return false
     if (!parseRealDispatchInput({
       title: run.title, detail: run.detail,
       execution: { agentId: execution.agentId, providerId: execution.providerId, modelId: execution.modelId },

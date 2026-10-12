@@ -33,7 +33,8 @@ test('Project work Draft response is lazy, owner bounded, revision pinned, and e
   assert.match(panel, /const canDraft = dispatch\.available && capabilityReady && !readError && !registryLoading && !runActive/)
   assert.match(panel, /run\.execution\.state === 'running'/)
   assert.match(panel, /projectWork: source/)
-  assert.match(dispatch, /intent\.projectWork[\s\S]*\{ execution: intent\.execution, projectWork: intent\.projectWork \} satisfies ProjectWorkDraftInput/)
+  assert.match(dispatch, /const body = intent\.projectWork[\s\S]*execution: intent\.execution,[\s\S]*projectWork: intent\.projectWork,[\s\S]*\.\.\.\(intent\.mcpProposal \? \{ mcpProposal: intent\.mcpProposal \} : \{\}\)[\s\S]*\} satisfies ProjectWorkDraftInput/,
+    'project-work requests carry only the frozen source, execution, and optional structured MCP selector')
   assert.match(dispatchController, /heldProjectWorkDraftSelection\(projectId: string, itemId: string\)/)
   assert.match(dispatchController, /heldIntents\.set\(intent\.intentId, intent\)/)
   assert.match(commentController, /settled === 'applied' && issuedGeneration === accountGeneration[\s\S]*appliedListeners/,

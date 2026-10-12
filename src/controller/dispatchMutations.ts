@@ -2,6 +2,7 @@
 import { onAccountSwitch } from '../api/account.ts'
 import type { DispatchIntent } from '../api/dispatchCommands'
 import type { ProjectWorkDraftSource } from '../../contract/projectWorkDraft.ts'
+import type { ProjectWorkMcpDraftSelection } from '../../contract/projectWorkMcpDraft.ts'
 import {
   IDLE_REVISIONED_MUTATION,
   type RevisionedMutationOutcome,
@@ -41,6 +42,8 @@ export function heldProjectWorkDraftSelection(projectId: string, itemId: string)
   projectWork: ProjectWorkDraftSource
   execution: DispatchIntent['execution']
   labels?: DispatchIntent['projectWorkLabels']
+  mcpProposal?: ProjectWorkMcpDraftSelection
+  mcpLabels?: DispatchIntent['mcpProposalLabels']
 } | null {
   for (const intent of heldIntents.values()) {
     const source = intent.projectWork
@@ -49,6 +52,8 @@ export function heldProjectWorkDraftSelection(projectId: string, itemId: string)
         projectWork: { ...source },
         execution: { ...intent.execution },
         labels: intent.projectWorkLabels ? { ...intent.projectWorkLabels } : undefined,
+        mcpProposal: intent.mcpProposal ? { ...intent.mcpProposal } : undefined,
+        mcpLabels: intent.mcpProposalLabels ? { ...intent.mcpProposalLabels } : undefined,
       }
     }
   }
@@ -59,7 +64,15 @@ export function enqueueDispatch(
   input: Omit<DispatchIntent, 'intentId'>,
 ): Promise<RevisionedMutationOutcome> {
   const issuedGeneration = accountGeneration
-  const intent: DispatchIntent = { ...input, intentId: crypto.randomUUID() }
+  const intent: DispatchIntent = {
+    ...input,
+    execution: { ...input.execution },
+    projectWork: input.projectWork ? { ...input.projectWork } : undefined,
+    projectWorkLabels: input.projectWorkLabels ? { ...input.projectWorkLabels } : undefined,
+    mcpProposal: input.mcpProposal ? { ...input.mcpProposal } : undefined,
+    mcpProposalLabels: input.mcpProposalLabels ? { ...input.mcpProposalLabels } : undefined,
+    intentId: crypto.randomUUID(),
+  }
   heldIntents.set(intent.intentId, intent)
   heldCount += 1
   statusStore.refresh()

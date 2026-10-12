@@ -6427,6 +6427,7 @@ function ContributionPage({
   useContributionReviewStatus()
   useContributionReviewRequirementStatus()
   useDelegatedJudgmentStatus()
+  useDispatchMutationStatus()
   const localMcpAttempt = useContributionMcpEffectAttempt(project.id, contributionId)
   // The ONE landing ledger: the next-L# preview must span BOTH landing paths
   // (contributions + social proposals — the consolidation), or the label
@@ -6472,6 +6473,8 @@ function ContributionPage({
       </AtomicResourcePage>
     )
   }
+
+  const heldMcpDraft = c.workItemId ? heldProjectWorkDraftSelection(project.id, c.workItemId) : null
 
   // CW5 (Phase E): the OFFER mirrors the server's tier gate — the owner may
   // always land; the contributor only when the arithmetic admits it (Tier 0,
@@ -6677,9 +6680,11 @@ function ContributionPage({
           heldExecution={heldContributionEffectExecutionIntent(project.id, c.id)}
           heldApproval={heldContributionEnvelopeApprovalIntent(project.id, c.id)}
           heldProposal={heldContributionEnvelopeProposalIntent(project.id, c.id)}
+          heldMcpDraft={heldMcpDraft}
           onRun={enqueueContributionEffectExecution}
           onApprove={enqueueContributionEnvelopeApproval}
           onPropose={enqueueContributionEnvelopeProposal}
+          onOpenSession={onOpenSession}
         />
         {mcpEffectPending && (
           <p role="status" className="mt-2 rounded-md border border-warn-strong/30 bg-warn-strong/5 px-3 py-2 text-[11px] leading-relaxed text-warn-text">

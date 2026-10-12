@@ -152,10 +152,12 @@ interface SelectedBinding {
   schemaHash: string
 }
 
-function selectedBinding(
+/** One current inspected selection for draft preparation and effect consent.
+ * Resolving metadata grants no permission to call the tool. */
+export function resolveContributionMcpBinding(
   store: McpBoundExecutionStore,
   tenantId: string,
-  selection: ContributionMcpSelection,
+  selection: Pick<ContributionMcpSelection, 'connectionId' | 'connectionRevision' | 'toolName'>,
   actorUserId?: string,
 ): SelectedBinding | undefined {
   try {
@@ -198,7 +200,7 @@ export async function prepareContributionMcpLines(
       prepared.push({ type: line.type, target: line.target, cardinality: line.cardinality, harness: line.harness, note: line.note })
       continue
     }
-    const selected = selectedBinding(store, tenantId, line.mcp, actorUserId)
+    const selected = resolveContributionMcpBinding(store, tenantId, line.mcp, actorUserId)
     if (!selected) return undefined
     const admitted = await admitMcpTool(selected.tool)
     if (!admitted.ok) return undefined
@@ -246,11 +248,10 @@ export function currentContributionMcpLine(
   const preview = snapshotSelection({ connectionId: call?.connectionId, connectionRevision: call?.connectionRevision,
     toolName: line.mcp.toolName, arguments: line.mcp.arguments })
   if (!call || !preview || line.mcp.toolName !== call.toolName || !sameArguments(preview.arguments, call.arguments)) return false
-  const binding = selectedBinding(store, tenantId, {
+  const binding = resolveContributionMcpBinding(store, tenantId, {
     connectionId: call.connectionId,
     connectionRevision: call.connectionRevision,
     toolName: call.toolName,
-    arguments: call.arguments,
   }, actorUserId)
   return Boolean(binding && binding.schemaHash === call.schemaHash &&
     binding.label === line.mcp.connectionLabel && (binding.ownerUserId === undefined

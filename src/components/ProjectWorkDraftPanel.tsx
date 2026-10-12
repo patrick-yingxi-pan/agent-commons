@@ -117,6 +117,7 @@ export function ProjectWorkDraftPanel({ project, item, onOpenSession, onCommentP
 
   const runs = (dispatchQuery.data ?? []).filter((run) =>
     Boolean(tenantId) && run.tenantId === tenantId &&
+    !run.execution?.mcpProposal &&
     run.execution?.projectWork?.projectId === project.id &&
     run.execution.projectWork.itemId === item.id,
   ).sort((a, b) => b.startedAt - a.startedAt)

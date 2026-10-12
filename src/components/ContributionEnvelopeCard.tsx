@@ -27,7 +27,7 @@ import type {
   heldContributionEnvelopeProposalIntent,
 } from '../controller/contributionEnvelopeProposalMutations.ts'
 import { useMcpConnections } from '../api/mcpConnectionHooks.ts'
-import { useContributionMcpEffectAttempt } from '../api/hooks.ts'
+import { useContributionMcpEffectAttempt, useOpenSubGoals } from '../api/hooks.ts'
 import {
   beginContributionMcpEffect,
   checkContributionMcpEffectReceipt,
@@ -50,6 +50,8 @@ import {
   CONTRIBUTION_LOCAL_STDIO_DISCLOSURE,
 } from '../lib/contributionEffectPresentation.ts'
 import { SOFT_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button.ts'
+import { DeferredContributionMcpDraftHelper } from './DeferredContributionMcpDraftHelper.tsx'
+import type { heldProjectWorkDraftSelection } from '../controller/dispatchMutations.ts'
 
 type EnvelopeDraftLine = Required<Omit<ProposeEnvelopeRequest['lines'][number], 'mcp'>> & {
   /** The public envelope deliberately hides connection identity; amendments
@@ -74,8 +76,8 @@ const emptyEnvelopeDraftLine = (): EnvelopeDraftLine => ({
 })
 
 export function EnvelopeCard({
-  project, c, lifecycleHeld, me, heldExecution, heldApproval, heldProposal,
-  onRun, onApprove, onPropose,
+  project, c, lifecycleHeld, me, heldExecution, heldApproval, heldProposal, heldMcpDraft,
+  onRun, onApprove, onPropose, onOpenSession,
 }: {
   project: Project
   c: Contribution
@@ -84,14 +86,17 @@ export function EnvelopeCard({
   heldExecution: ReturnType<typeof heldContributionEffectExecutionIntent>
   heldApproval: ReturnType<typeof heldContributionEnvelopeApprovalIntent>
   heldProposal: ReturnType<typeof heldContributionEnvelopeProposalIntent>
+  heldMcpDraft: ReturnType<typeof heldProjectWorkDraftSelection>
   onRun: typeof enqueueContributionEffectExecution
   onApprove: typeof enqueueContributionEnvelopeApproval
   onPropose: typeof enqueueContributionEnvelopeProposal
+  onOpenSession: (id: string) => void
 }) {
   const own = project.own !== false
   const mayAct = c.mine === true || own
   const env = c.envelope
   const mcpConnections = useMcpConnections()
+  const workItemsQuery = useOpenSubGoals(project.id)
   const mcpChoices = contributionMcpChoices(mcpConnections.data?.connections ?? [])
   const mcpAttempt = useContributionMcpEffectAttempt(project.id, c.id)
   const unresolvedMcpEffect = c.effects?.some((effect) => effect.status === 'pending') === true ||
@@ -116,6 +121,10 @@ export function EnvelopeCard({
   const [draftBaseVersion, setDraftBaseVersion] = useState(0)
   const [draftLines, setDraftLines] = useState<EnvelopeDraftLine[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [draftHelperLineKey, setDraftHelperLineKey] = useState<string | null>(null)
+  const linkedWorkItem = c.workItemId
+    ? workItemsQuery.data?.find((item) => item.projectId === project.id && item.id === c.workItemId && item.status === 'open')
+    : undefined
   // No envelope and nothing left to declare (landed) — nothing to show.
   if (!env && !mayPropose) return null
 
@@ -139,6 +148,24 @@ export function EnvelopeCard({
         mcpArgumentsText: line.mcp ? formatContributionMcpArguments(line.mcp.arguments) : '{}',
       })) ?? [emptyEnvelopeDraftLine()],
     )
+    setError(null)
+    setComposing(true)
+  }
+  const resumeHeldMcpDraft = () => {
+    const heldSelection = heldMcpDraft?.mcpProposal
+    if (!heldSelection || !linkedWorkItem || lifecycleHeld || unresolvedMcpEffect) return
+    const line: EnvelopeDraftLine = {
+      ...emptyEnvelopeDraftLine(),
+      type: 'mcp.mutate',
+      target: heldSelection.toolName,
+      harness: 'explicit-call',
+      mcpConnectionId: heldSelection.connectionId,
+      mcpConnectionRevision: heldSelection.connectionRevision,
+      mcpToolName: heldSelection.toolName,
+    }
+    setDraftBaseVersion(env?.version ?? 0)
+    setDraftLines([line])
+    setDraftHelperLineKey(`0:${heldSelection.connectionId}:${heldSelection.connectionRevision}:${heldSelection.toolName}`)
     setError(null)
     setComposing(true)
   }
@@ -308,6 +335,15 @@ export function EnvelopeCard({
           )}
         </div>
       </div>
+      {!composing && heldMcpDraft?.mcpProposal && linkedWorkItem && !heldProposal && (
+        <div data-contribution-mcp-draft-recovery className="border-b border-line px-3 py-2">
+          <p className="text-[11px] leading-relaxed text-ink-soft">A workspace argument draft for this linked work item is still awaiting Dispatch acknowledgement. Its submitted Commission, endpoint, model, connection, and tool choices are held in workspace recovery.</p>
+          {(!mcpChoices.some((choice) => choice.connection.id === heldMcpDraft.mcpProposal?.connectionId && choice.toolName === heldMcpDraft.mcpProposal?.toolName) || mcpConnections.status !== 'success') && (
+            <p role="status" className="mt-1 break-words text-[11px] text-ink-faint [overflow-wrap:anywhere]">Held selection: {heldMcpDraft.mcpLabels?.connection ?? heldMcpDraft.mcpProposal.connectionId} · {heldMcpDraft.mcpProposal.toolName}. Live MCP choices must be refreshed to review it here.</p>
+          )}
+          <button type="button" onClick={resumeHeldMcpDraft} disabled={lifecycleHeld || unresolvedMcpEffect} className={`${SECONDARY_BUTTON_CLASS} mt-2 px-2.5 py-1 text-[11px] disabled:opacity-45`}>Review held argument draft</button>
+        </div>
+      )}
       <p data-contribution-effect-disclosure className={`${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS} border-b border-line px-3 py-2`}>
         Development-fixture actions are simulation-only and refused in release profiles. Only explicitly confirmed MCP tool calls use the real execution path.
       </p>
@@ -580,10 +616,16 @@ export function EnvelopeCard({
                             {choice.label}
                           </option>
                         ))}
+                        {heldMcpDraft?.mcpProposal && line.mcpConnectionId === heldMcpDraft.mcpProposal.connectionId && line.mcpToolName === heldMcpDraft.mcpProposal.toolName && !mcpChoices.some((choice) => choice.connection.id === line.mcpConnectionId && choice.toolName === line.mcpToolName) && (
+                          <option value={contributionMcpChoiceKey(line.mcpConnectionId, line.mcpToolName)}>{heldMcpDraft.mcpLabels?.connection ?? line.mcpConnectionId} · {line.mcpToolName} · held choice</option>
+                        )}
                       </select>
                     </label>
                     {mcpConnections.status === 'error' && <p data-contribution-effect-disclosure className={`${CONTRIBUTION_EFFECT_DISCLOSURE_CLASS} text-danger-text`}>Couldn’t load MCP connections. Refresh the page data before proposing this call.</p>}
                     {mcpConnections.status === 'loading' && <p data-contribution-effect-disclosure className={CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}>Loading inspected MCP tools…</p>}
+                    {heldMcpDraft?.mcpProposal && line.mcpConnectionId === heldMcpDraft.mcpProposal.connectionId && line.mcpToolName === heldMcpDraft.mcpProposal.toolName && mcpConnections.status === 'success' && !mcpChoices.some((choice) => choice.connection.id === line.mcpConnectionId && choice.toolName === line.mcpToolName) && (
+                      <p role="status" data-contribution-mcp-draft-stale className="text-[11px] text-warn-text">The held connection or tool is no longer an exact live choice. Do not substitute another tool; resolve the original request in workspace recovery.</p>
+                    )}
                     {mcpConnections.status === 'success' && mcpChoices.length === 0 && (
                       <p data-contribution-effect-disclosure className={CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}>
                         No inspected MCP tools are available. Add and inspect a server in Contexts before proposing a real call.
@@ -606,6 +648,39 @@ export function EnvelopeCard({
                     {mcpChoices.find((choice) => choice.connection.id === line.mcpConnectionId && choice.toolName === line.mcpToolName)?.connection.transport === 'stdio' && (
                       <p data-contribution-effect-disclosure data-contribution-stdio-disclosure="proposal" className={CONTRIBUTION_EFFECT_DISCLOSURE_CLASS}>{CONTRIBUTION_LOCAL_STDIO_DISCLOSURE}</p>
                     )}
+                    {(() => {
+                      const choice = mcpChoices.find((candidate) => candidate.connection.id === line.mcpConnectionId && candidate.toolName === line.mcpToolName)
+                      const exactTool = choice?.connection.tools.find((candidate) => candidate.name === line.mcpToolName)
+                      const exactWorkItem = linkedWorkItem && linkedWorkItem.type === 'mcp.mutate' && linkedWorkItem.target === line.target
+                        ? linkedWorkItem : undefined
+                      const lineKey = `${index}:${line.mcpConnectionId}:${line.mcpConnectionRevision}:${line.mcpToolName}`
+                      const helperEligible = c.workItemId !== undefined && workItemsQuery.status === 'success' &&
+                        mcpConnections.status === 'success' && exactWorkItem !== undefined && choice !== undefined && exactTool !== undefined &&
+                        line.mcpConnectionRevision === choice.connection.revision && !lifecycleHeld && !heldProposal && !unresolvedMcpEffect
+                      return helperEligible ? <div className="col-span-full min-w-0 border-t border-line/70 pt-2">
+                        <button type="button" data-contribution-mcp-draft-disclosure aria-expanded={draftHelperLineKey === lineKey}
+                          aria-controls={`contribution-mcp-draft-${index}`} onClick={() => setDraftHelperLineKey((current) => current === lineKey ? null : lineKey)}
+                          className="rounded-md border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-ink-soft hover:border-line-strong">
+                          Draft arguments
+                        </button>
+                        {draftHelperLineKey === lineKey && <div id={`contribution-mcp-draft-${index}`} className="mt-2">
+                          <DeferredContributionMcpDraftHelper
+                            key={lineKey}
+                            project={project}
+                            item={exactWorkItem}
+                            selection={{ connectionId: choice.connection.id, connectionRevision: choice.connection.revision, toolName: choice.toolName }}
+                            tool={exactTool}
+                            connectionLabel={choice.connection.label}
+                            connectionTransport={choice.connection.transport}
+                            currentArgumentsText={line.mcpArgumentsText}
+                            disabled={lifecycleHeld || unresolvedMcpEffect || !!heldProposal}
+                            onOpenSession={onOpenSession}
+                            onAdopt={(argumentsValue) => updateDraftLine(index, { mcpArgumentsText: formatContributionMcpArguments(argumentsValue) })}
+                            onClose={() => setDraftHelperLineKey(null)}
+                          />
+                        </div>}
+                      </div> : null
+                    })()}
                   </div>
                 )}
               </div>

@@ -13,7 +13,57 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: person-owned local Contribution calls
+## Current checkpoint: commissioned MCP argument drafts
+
+Autonomous direction (2026-10-11): connect the existing private Project-work
+draft workflow to the existing Contribution envelope editor. After selecting
+an inspected tool for linked open MCP work, the owner may choose a read-capable
+Commission and endpoint/model to draft arguments. One budgeted, tool-free first
+turn receives complete frozen viewer-readable facts and the selected input
+schema, together with the chosen Agent's configured system prompt and
+instructions. It receives no callable tools, credentials or native launch settings.
+
+The saved reply is strict bounded JSON for the exact tool. Explicit Use draft
+arguments copies it into the editable JSON field only. Propose, Project approval,
+separate Run and owner Land remain independent acts. A portable schema-binding
+hash prevents adopting a draft under a changed person, connection revision or
+schema. Current reads, open work and Commission revision also gate adoption.
+Dispatch remains tenant-private history, not person-private storage or authority.
+The drafting disclosure explicitly names workspace-member visibility of the
+selected schema and reply; other Project viewers do not inherit that access.
+Lost acknowledgements retain the exact selector and existing keyed recovery;
+interrupted jobs never silently restart. Existing prose response drafts remain
+a separate path and do not list MCP argument drafts as responses.
+
+Acceptance uses authored model/MCP fixtures and isolated profiles. It covers
+strict reply parsing, current-source gates, private visibility, held navigation,
+no effects before separate Run, persistence, and five-viewport review. Full local
+verification and UI review precede main delivery. Paid-provider, real-service,
+signed/notarized and native Intel acceptance remain separate release gates.
+
+The three focused browser journeys pass, including owner execution/resolution,
+invalid or stale replies, and exact recovery after a lost Dispatch acknowledgement.
+The shared-chrome sweep passes all 135 cells without violations or skips. Feature
+captures additionally require the named state to intersect the viewport: DOM
+visibility alone can hide an invalid-reply notice below the screenshot. Detailed
+model-input inventory is expandable; cost, no-execution and workspace visibility
+remain visible. Saved replies identify their original Agent, endpoint and model.
+The lazy helper retains the existing bundle budgets without importing the large
+navigation graph through its error boundary. Complete local verification and
+ordinary packaged-native regression acceptance remain the checkpoint's final gates.
+The first complete verifier exposed an outdated Dispatch consumer enumeration
+and a shared browser-proxy cancellation race during account navigation. The
+consumer lock now includes the helper and checks its fail-closed capability gate;
+the browser proxy now forwards through one browser-owned request. A held-read
+abort test reproduced the exact old late-fulfill failure before the correction;
+all 12 focused fixture, OAuth and argument-draft journeys then passed. No retries,
+timeouts, capability checks or bundle budgets were relaxed.
+The rebuilt unsigned arm64 package and complete ordinary `desktop:smoke` pass,
+covering existing startup, identity, draft, artifact and restore workflows. This
+is native regression evidence, not new MCP-draft-specific native-dialog,
+paid-provider, public-service, signed/notarized or Intel acceptance.
+
+## Previous checkpoint: person-owned local Contribution calls
 
 Autonomous direction (2026-10-11): complete the existing local MCP setup →
 reviewed Contribution → saved result → owner-reviewed work resolution path.
@@ -636,7 +686,7 @@ is now implemented as the next layer below; sign-in itself does not grant
 unattended execution. Public issuer/system-browser and release acceptance gates
 remain separate.
 
-## Current checkpoint: person-attributed Routine OAuth
+## Previous checkpoint: person-attributed Routine OAuth
 
 Routine MCP now supports selected person-owned OAuth connections only through a
 separate bounded per-Routine review. The private grant records the authenticated
@@ -3933,7 +3983,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. Bounded macOS local-image OCR (PORT-26) is implemented and accepted for the stated macOS path. Discussion-as-Context (CTX-DISC-1) adds confirmed saved copies under its bounded checkpoint; PORT-28 separately adds explicit macOS scanned-PDF-to-Document review; non-macOS and automatic PDF-attachment OCR, broader PDF recognition accuracy/language acceptance, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain future work. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. Actual native launch-dialog review and third-party-server acceptance remain open; fixture-only confirmation is not that evidence. Routine/Contribution local execution is intentionally unsupported. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
+| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. Actual native launch-dialog review and third-party-server acceptance remain open; fixture-only confirmation is not that evidence. COMMONS-42 now adds person-owned local Contribution execution with separate Project approval and explicit Run, durable receipts and owner-reviewed linked-work resolution. COMMONS-43 adds budgeted tool-free argument drafting with explicit review/copy; a draft confers no execution authority. Routine local execution remains unsupported. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 

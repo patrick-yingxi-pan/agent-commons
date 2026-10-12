@@ -6,6 +6,10 @@ import { turns } from '../turns.ts'
 import { store } from '../store/index.ts'
 import { manualDispatchRunId } from '../dispatchIdentity.ts'
 import { call, callFresh } from '../testkit/http.ts'
+import { accounts } from '../accounts.ts'
+import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
+import { MCP_SCHEMA_ADMISSION_VERSION, mcpToolSchemaHash } from '../mcpToolAdmission.ts'
+import { signSession } from '../auth.ts'
 
 const MODEL_ID = 'claude-opus-4-8'
 let modelServer: Server
@@ -48,6 +52,7 @@ before(async () => {
     const id = `msg_project_work_draft_${modelCalls}`
     const prompt = body.messages?.at(-1)?.content ?? ''
     const requestsTool = typeof prompt === 'string' && prompt.includes('Draft Must Not Create')
+    const requestsMcpArguments = typeof prompt === 'string' && prompt.includes('Draft arguments for the selected MCP tool')
     response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', connection: 'keep-alive' })
     const sse = (event: string, data: unknown) => response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
     const pause = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds))
@@ -66,7 +71,9 @@ before(async () => {
       await pause(30)
       sse('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
       await pause(30)
-      sse('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'A private draft for the owner to review before sharing.' } })
+      sse('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: requestsMcpArguments
+        ? JSON.stringify({ toolName: 'write_record', arguments: { query: 'drafted safely' } })
+        : 'A private draft for the owner to review before sharing.' } })
       sse('content_block_stop', { type: 'content_block_stop', index: 0 })
       sse('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 9_000 } })
     }
@@ -119,7 +126,29 @@ function actor(tenantId: string, options: { agentBudget?: unknown; providerPlan?
   return { tenantId, agentId: agent.id, providerId: provider.id, modelId: MODEL_ID }
 }
 
-function sharedProject(owner: string, name: string, subGoal = 'Summarize the migration plan') {
+const selectedTool = { name: 'write_record', description: 'Write one reviewed record.', inputSchema: {
+  type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false,
+} }
+
+function inspectedMcp(tenantId: string, userId: string, transport: 'http' | 'stdio') {
+  const id = `mcp-connection-${(++sequence).toString(16).padStart(32, '0')}`
+  if (transport === 'stdio') {
+    store.createMcpConnection({ transport: 'stdio', id, label: 'Local reviewed writer' }, tenantId, false, userId)
+    store.commitMcpInspection(id, tenantId, 0, {
+      protocolVersion: MCP_MODERN_VERSION, cleanup: 'not-needed', tools: [selectedTool],
+      schemaAdmission: { version: MCP_SCHEMA_ADMISSION_VERSION, hashes: [mcpToolSchemaHash(selectedTool)] },
+    }, Date.now(), undefined, undefined, userId, `MCP_STDIO_${sequence.toString(16).toUpperCase().padStart(32, '0')}`)
+  } else {
+    store.createMcpConnection({ id, label: 'Owner reviewed HTTP writer', endpoint: 'https://mcp.example.test/tools', authentication: 'device-oauth' }, tenantId, false, userId)
+    store.commitMcpInspection(id, tenantId, 0, {
+      protocolVersion: MCP_MODERN_VERSION, cleanup: 'not-needed', tools: [selectedTool],
+      schemaAdmission: { version: MCP_SCHEMA_ADMISSION_VERSION, hashes: [mcpToolSchemaHash(selectedTool)] },
+    }, Date.now(), `MCP_DESKTOP_${sequence.toString(16).toUpperCase().padStart(32, '0')}`, undefined, userId)
+  }
+  return { connectionId: id, selection: { connectionId: id, connectionRevision: 1, toolName: selectedTool.name } }
+}
+
+function sharedProject(owner: string, name: string, subGoal = 'Summarize the migration plan', workType = 'charge', target = 'billing') {
   const projectId = `project-work-draft-${++sequence}`
   store.applyRelationOp({
     kind: 'create-project', projectId, projectName: name,
@@ -131,7 +160,7 @@ function sharedProject(owner: string, name: string, subGoal = 'Summarize the mig
   }, owner)
   store.applyRelationOp({ kind: 'share-project', projectId, projectName: name, shared: true }, owner)
   const item = store.postOpenSubGoal(projectId, {
-    subGoal, type: 'charge', target: 'billing', note: 'Do not spend or execute anything.',
+    subGoal, type: workType, target, note: 'Do not spend or execute anything.',
   }, owner)
   assert.ok(typeof item === 'object' && item !== null)
   return { projectId, item }
@@ -141,12 +170,16 @@ function source(projectId: string, itemId: string, commissionId: string, expecte
   return { projectId, itemId, commissionId, expectedRevision }
 }
 
-function draftInput(binding: Actor, projectWork: ReturnType<typeof source>) {
-  return { projectWork, execution: { agentId: binding.agentId, providerId: binding.providerId, modelId: binding.modelId } }
+function draftInput(binding: Actor, projectWork: ReturnType<typeof source>, mcpProposal?: unknown) {
+  return { projectWork, ...(mcpProposal === undefined ? {} : { mcpProposal }), execution: { agentId: binding.agentId, providerId: binding.providerId, modelId: binding.modelId } }
 }
 
-const headers = (tenantId: string, key?: string) => ({
+const headers = (tenantId: string, key?: string, userId?: string) => ({
   'x-tenant-id': tenantId,
+  ...(userId === undefined ? {} : {
+    cookie: `uw_session=${signSession({ userId, tenantId, iat: Date.now() })}`,
+    'x-account-transition-source': `session:${userId}`,
+  }),
   ...(key === undefined ? {} : { 'idempotency-key': key }),
 })
 const logicalId = (tenantId: string, key: string) => manualDispatchRunId(tenantId, key)
@@ -441,5 +474,101 @@ test('a model tool request fails closed, and Stop/retry never duplicates a Proje
   } finally {
     await cleanup(id, tenant, [binding])
     await cleanup(logicalId(tenant, `stop-${sequence}`), tenant, [])
+  }
+})
+
+test('inspected HTTP and owner-bound stdio selections produce tool-free argument drafts and survive exact replay', async () => {
+  const ownerId = `project-draft-person-${sequence}`
+  const peerId = `project-draft-peer-${sequence}`
+  assert.ok(accounts.createUser(`Draft Person ${sequence}`, `${ownerId}@example.test`, 'fixture-password', { userId: ownerId, tenantId: `${ownerId}-home` }))
+  const organization = accounts.createOrg(ownerId, `Project draft MCP org ${sequence}`)
+  assert.ok(organization)
+  const tenant = organization.id
+  assert.ok(accounts.createUser(`Draft peer ${sequence}`, `${peerId}@example.test`, 'fixture-password', { userId: peerId, tenantId: `${peerId}-home` }))
+  const invite = accounts.issueInvite(tenant, `${peerId}@example.test`, `Draft Person ${sequence}`)
+  assert.ok(invite.kind === 'represented')
+  assert.equal(accounts.resolveInvite(invite.invite.id, peerId, 'accept')?.kind, 'accepted')
+  const binding = actor(tenant)
+  const project = sharedProject(tenant, 'MCP Draft Project', 'Draft an exact record call', 'mcp.mutate', selectedTool.name)
+  const commission = store.createCommission({ role: 'reader', agentId: binding.agentId, projectId: project.projectId }, tenant)
+  const sourceRow = source(project.projectId, project.item.id, commission.id, commission.configurationRevision ?? 0)
+  const httpConnection = inspectedMcp(tenant, ownerId, 'http')
+  const stdioConnection = inspectedMcp(tenant, ownerId, 'stdio')
+  assert.ok(store.mcpConnection(httpConnection.selection.connectionId, tenant, ownerId)?.executableTools?.includes(selectedTool.name))
+  assert.ok(store.mcpConnection(stdioConnection.selection.connectionId, tenant, ownerId)?.executableTools?.includes(selectedTool.name))
+  const callsBefore = modelCalls
+  const requestIndex = messagesRequests.length
+  const startedRuns: string[] = []
+  try {
+    const staleKey = `mcp-stale-${sequence}`
+    const stale = await call('POST', '/dispatch', draftInput(binding, sourceRow, {
+      ...httpConnection.selection, connectionRevision: 0,
+    }), headers(tenant, staleKey, ownerId))
+    assert.equal(stale.status, 400, 'a stale inspected revision refuses before Dispatch admission')
+    assert.equal(store.getRealDispatch(logicalId(tenant, staleKey), tenant), undefined)
+
+    const wrongActorKey = `mcp-wrong-actor-${sequence}`
+    const wrongActor = await callFresh('POST', '/dispatch', draftInput(binding, sourceRow, stdioConnection.selection),
+      headers(tenant, wrongActorKey, peerId))
+    assert.notEqual(wrongActor.status, 200, 'a same-tenant caller cannot borrow a person-owned local connection')
+    assert.equal(wrongActor.json.error.code, 'bad_request')
+    assert.match(wrongActor.json.error.message, /selected MCP tool is no longer available/)
+    assert.equal(store.getRealDispatch(logicalId(tenant, wrongActorKey), tenant), undefined)
+    assert.equal(modelCalls, callsBefore, 'a legitimate peer refusal never reaches Messages')
+
+    for (const [label, connection] of [['http', httpConnection], ['stdio', stdioConnection]] as const) {
+      const key = `mcp-${label}-${sequence}`
+      const id = logicalId(tenant, key)
+      startedRuns.push(id)
+      const response = await call('POST', '/dispatch', draftInput(binding, sourceRow, connection.selection), headers(tenant, key, ownerId))
+      assert.equal(response.status, 200, JSON.stringify(response.json))
+      const terminal = await waitForTerminal(id, tenant)
+      assert.equal(terminal.execution?.state, 'replied')
+      assert.deepEqual(terminal.execution?.mcpProposal?.toolName, selectedTool.name)
+      assert.equal(terminal.execution?.mcpProposal?.transport, label === 'stdio' ? 'stdio' : undefined)
+      const assistant = store.getSession(terminal.execution!.sessionId)?.messages?.find(message => message.role === 'assistant')
+      assert.ok(assistant)
+      assert.deepEqual(JSON.parse(assistant.content), { toolName: selectedTool.name, arguments: { query: 'drafted safely' } })
+      assert.equal(store.listContributions(project.projectId, tenant).length, 0, 'model arguments create no proposal or effect')
+      assert.equal(store.listOpenSubGoals(project.projectId, tenant).find(item => item.id === project.item.id)?.status, 'open')
+
+      const peerFeed = await callFresh('GET', '/dispatch', undefined, headers(tenant, undefined, peerId))
+      assert.equal(peerFeed.status, 200)
+      const peerRun = peerFeed.json.find((candidate: any) => candidate.id === id)
+      assert.ok(peerRun, 'same-tenant peer may read this tenant-private Dispatch')
+      assert.equal(peerRun.execution.mcpProposal.toolName, selectedTool.name)
+      const peerSession = await callFresh('GET', `/sessions/${terminal.execution!.sessionId}`, undefined, headers(tenant, undefined, peerId))
+      assert.equal(peerSession.status, 200, 'same-tenant peer may read the tenant-private result Session')
+      assert.match(JSON.stringify(peerSession.json.messages), /drafted safely/)
+
+      const runMessages = structuredClone(store.getSession(terminal.execution!.sessionId)?.messages)
+      const beforeReplayCalls = modelCalls
+      store.removeMcpConnection(connection.selection.connectionId, tenant, 1, ownerId)
+      const replay = await callFresh('POST', '/dispatch', draftInput(binding,
+        { ...sourceRow, itemId: 'changed-after-loss', expectedRevision: 999 },
+        { ...connection.selection, connectionRevision: 999 }), headers(tenant, key, ownerId))
+      assert.equal(replay.status, 200, 'same-key receipt wins over revoked MCP source and changed request')
+      assert.equal(replay.json.id, id)
+      assert.equal(modelCalls, beforeReplayCalls)
+      assert.deepEqual(store.getSession(terminal.execution!.sessionId)?.messages, runMessages)
+    }
+    const requests = messagesRequests.slice(requestIndex)
+    assert.equal(requests.length, 2)
+    for (const request of requests) {
+      assert.equal(Object.hasOwn(request, 'tools'), false, 'drafting never sends tool declarations to Messages')
+      assert.equal(request.messages.length, 1)
+      assert.match(request.messages[0].content, /"name":\s*"write_record"/)
+      assert.doesNotMatch(request.messages[0].content, /connectionId|bindingHash|MCP_STDIO_|grantReference/)
+    }
+    assert.equal(modelCalls, callsBefore + 2)
+  } finally {
+    for (const id of startedRuns) await cleanup(id, tenant, [])
+    for (const connection of [httpConnection, stdioConnection]) {
+      const row = store.privateMcpConnection(connection.selection.connectionId, tenant, ownerId)
+      if (row) store.removeMcpConnection(row.id, tenant, row.revision, ownerId)
+    }
+    await cleanup('', tenant, [binding])
+    accounts.deactivateUser(ownerId)
+    accounts.deactivateUser(peerId)
   }
 })

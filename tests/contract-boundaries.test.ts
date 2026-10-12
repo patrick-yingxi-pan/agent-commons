@@ -16,6 +16,21 @@ import { join } from 'node:path'
 import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
+test('MCP argument drafting shares one portable binding contract without acquiring execution authority', () => {
+  const server = stripComments(read(join(ROOT, 'server/projectWorkMcpDraft.ts')))
+  const client = stripComments(read(join(ROOT, 'src/components/ContributionMcpDraftHelper.tsx')))
+  for (const source of [server, client]) {
+    assert.match(source, /contract\/projectWorkMcpDraft\.ts/)
+    assert.match(source, /projectWorkMcpDraftBindingText\(/)
+  }
+  const check = (source: string) => assert.doesNotMatch(source,
+    /\b(?:executeBoundMcpCall|executeContributionMcpEffect|createMcpStdioClient|spawn|recordContribution|commitMutationBatch|fetch)\s*\(/,
+    'draft preparation cannot acquire tool, launch, credit or persistence authority')
+  check(server)
+  check(client)
+  assert.throws(() => check(`${server}\nexecuteBoundMcpCall()`), /cannot acquire/)
+})
+
 test('Project-work completion is a pure receipt projection separate from execution and credit', () => {
   const check = (source: string) => {
     assert.match(source, /contract\/contributions\.ts/)

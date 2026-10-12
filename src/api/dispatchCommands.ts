@@ -1,5 +1,12 @@
 /** Lazy transport for acknowledgement-gated one-off Dispatch creation. */
-import type { CreateDispatchRequest, DispatchBinding, DispatchRun, ProjectWorkDraftInput, ProjectWorkDraftSource } from '../../contract/index.ts'
+import type {
+  CreateDispatchRequest,
+  DispatchBinding,
+  DispatchRun,
+  ProjectWorkDraftInput,
+  ProjectWorkDraftSource,
+  ProjectWorkMcpDraftSelection,
+} from '../../contract/index.ts'
 import { apiGet, apiPost } from './client.ts'
 import { keys, paths } from './keys.ts'
 import { invalidate, peek } from './cache.ts'
@@ -16,6 +23,10 @@ export interface DispatchIntent {
   projectWork?: ProjectWorkDraftSource
   /** Display-only snapshot retained while an acknowledged request is held. */
   projectWorkLabels?: { commission: string; provider: string; model: string }
+  /** Exact selected MCP tool for a workspace-scoped, non-executing argument draft. */
+  mcpProposal?: ProjectWorkMcpDraftSelection
+  /** Display-only MCP labels retained while the same keyed request is held. */
+  mcpProposalLabels?: { connection: string; tool: string }
 }
 
 export interface DispatchBaseline {
@@ -32,7 +43,11 @@ export function dispatchBaseline(intent: DispatchIntent): DispatchBaseline {
 
 export async function createDispatch(intent: DispatchIntent, idempotencyKey: string): Promise<void> {
   const body = intent.projectWork
-    ? { execution: intent.execution, projectWork: intent.projectWork } satisfies ProjectWorkDraftInput
+    ? {
+        execution: intent.execution,
+        projectWork: intent.projectWork,
+        ...(intent.mcpProposal ? { mcpProposal: intent.mcpProposal } : {}),
+      } satisfies ProjectWorkDraftInput
     : { title: intent.title, detail: intent.detail, execution: intent.execution } satisfies CreateDispatchRequest
   await apiPost<DispatchRun>(
     paths.dispatch,

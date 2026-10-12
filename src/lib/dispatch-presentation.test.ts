@@ -66,14 +66,15 @@ test('Dispatch UI and rail consume one presentation model without simulation gat
 
   assert.deepEqual(
     consumers.map(({ path }) => relative(components, path)).sort(),
-    ['CompositeRailControls.tsx', 'NewDispatchDialog.tsx', 'ProjectWorkDraftPanel.tsx', 'SectionView.tsx'],
-    'the rail, ordinary form, Project work draft, and feed consume Dispatch posture',
+    ['CompositeRailControls.tsx', 'ContributionMcpDraftHelper.tsx', 'NewDispatchDialog.tsx', 'ProjectWorkDraftPanel.tsx', 'SectionView.tsx'],
+    'the rail, ordinary form, Project work drafts, and feed consume Dispatch posture',
   )
 
   const section = consumers.find(({ path }) => path.endsWith('/SectionView.tsx'))!.source
   const rail = consumers.find(({ path }) => path.endsWith('/CompositeRailControls.tsx'))!.source
   const dialog = consumers.find(({ path }) => path.endsWith('/NewDispatchDialog.tsx'))!.source
   const projectDraft = consumers.find(({ path }) => path.endsWith('/ProjectWorkDraftPanel.tsx'))!.source
+  const mcpDraft = consumers.find(({ path }) => path.endsWith('/ContributionMcpDraftHelper.tsx'))!.source
   assert.match(rail, /dispatchAvailable\(capabilities\.status === 'error' \? undefined : capabilities\.data\?\.features\.dispatchExecution\)/)
   assert.match(rail, /section === 'dispatch' && !canDispatch/)
   assert.match(rail, /disabled: primaryUnavailable/)
@@ -96,9 +97,17 @@ test('Dispatch UI and rail consume one presentation model without simulation gat
   assert.match(dialog, /canSubmit=\{canCreate && !held\}/)
   assert.match(dialog, /data-dispatch-posture=\{dispatch\.state\}[\s\S]*className=\{AUTOMATION_NOTICE_CLASS\}[\s\S]*\{dispatch\.note\}/,
     'the deferred ordinary form presents the same capability-backed posture')
-  assert.match(projectDraft, /const dispatch = dispatchPresentation\(capabilities\.status === 'error' \? undefined : capabilities\.data\?\.features\.dispatchExecution\)/)
-  assert.match(projectDraft, /!dispatch\.available && <InlineOperationStatus tone="status" message=\{dispatch\.note\} \/>/,
-    'Project work drafting fails closed and displays the same Dispatch posture')
+  for (const source of [projectDraft, mcpDraft]) {
+    assert.match(source, /const dispatch = dispatchPresentation\(capabilities\.status === 'error' \? undefined : capabilities\.data\?\.features\.dispatchExecution\)/)
+    assert.match(source, /!dispatch\.available && <InlineOperationStatus tone="status" message=\{dispatch\.note\} \/>/,
+      'Project work drafting fails closed and displays the same Dispatch posture')
+  }
+  const assertMcpGate = (source: string) => assert.match(source, /const canStart = readsReady && dispatch\.available &&/,
+    'MCP argument drafting requires affirmative Dispatch capability')
+  assertMcpGate(mcpDraft)
+  const ungated = mcpDraft.replace('readsReady && dispatch.available &&', 'readsReady &&')
+  assert.notEqual(ungated, mcpDraft)
+  assert.throws(() => assertMcpGate(ungated), /affirmative Dispatch capability/)
 })
 
 test('Dispatch page preserves private continuation and distinguishes reply-ready from action completion', () => {

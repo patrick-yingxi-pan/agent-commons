@@ -23,10 +23,14 @@ export async function proxyMcpApi(page: Page, stack: { url: string }) {
       await route.abort()
       return
     }
-    const { origin: _origin, ...headers } = route.request().headers()
-    const response = await route.fetch({ url: `${stack.url}${url.pathname}${url.search}`, headers })
-    const body = await response.body()
-    await route.fulfill({ status: response.status(), headers: response.headers(), body })
+    const { origin: _origin, host: _host, ...headers } = route.request().headers()
+    // Keep the isolated router on the browser's request path instead of
+    // buffering a second request with route.fetch() and fulfilling later.
+    // Account changes and SPA navigation can abort the browser request while
+    // that extra fetch is in flight; the late fulfill then races cancellation
+    // and reports "Route is already handled". continue() leaves request
+    // cancellation and response settlement to the browser exactly once.
+    await route.continue({ url: `${stack.url}${url.pathname}${url.search}`, headers })
   }
   await page.route(pattern, handler)
   // The page and its loss/hold routes belong to this fixture. Drain all active
@@ -65,6 +69,8 @@ export async function startMcpRouterStack(options: {
   localProcessesAvailable?: boolean
   openStdio?: McpRuntimeConfiguration['openStdio']
   synchronizeStdioBindings?: McpRuntimeConfiguration['synchronizeStdioBindings']
+  /** Test-only hook for deterministic request-lifecycle regressions. */
+  beforeHandle?: (request: IncomingMessage, url: URL) => Promise<void>
 } = {}): Promise<McpRouterStack> {
   const previousAuth = process.env.AUTH_GATE
   const previousModelBaseUrl = process.env.ANTHROPIC_BASE_URL
@@ -107,14 +113,14 @@ export async function startMcpRouterStack(options: {
     const { buildRouter } = await import('../server/routes/index.ts')
     const router = buildRouter()
     server = createServer(async (request, response) => {
-      // This test-only hop is driven by Playwright's pooled route.fetch client.
-      // A reload after the viewport sweep can race Node's idle socket expiry.
-      // Own one exchange per connection rather than retrying a possibly
-      // effectful request or changing any production/test timing budget.
+      // The isolated browser proxy owns a single request exchange. Close each
+      // response connection so later reloads never depend on an idle socket;
+      // do not retry a possibly effectful request or alter timing budgets.
       response.setHeader('connection', 'close')
       const raw = request.url ?? '/'
       const url = new URL(raw, 'http://127.0.0.1')
       if (url.pathname.startsWith('/api/v1/')) url.pathname = url.pathname.slice('/api/v1'.length)
+      await options.beforeHandle?.(request, url)
       const handled = await router.handle(request, response, url)
       if (!handled && !response.writableEnded) sendError(response, 'not_found', `No route ${request.method} ${url.pathname}`)
     })

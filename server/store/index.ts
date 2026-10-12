@@ -19,6 +19,8 @@ import { automationRuntimeMode, requireAutomationFixture } from '../automationRu
 import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput } from '../../contract/dispatchExecution.ts'
 import { parseProjectWorkDraftInput, type ProjectWorkDraftInput, type ProjectWorkDraftSource } from '../../contract/projectWorkDraft.ts'
 import { projectWorkDraftPrompt } from '../projectWorkDraft.ts'
+import { prepareProjectWorkMcpDraft } from '../projectWorkMcpDraft.ts'
+import type { ProjectWorkMcpDraftPreview } from '../../contract/projectWorkMcpDraft.ts'
 import { computeProjectWorkResolution } from '../projectWorkResolution.ts'
 import { isLinkableProjectWorkItem } from '../projectWorkPersistence.ts'
 import { dispatchSessionId } from '../dispatchIdentity.ts'
@@ -7353,7 +7355,7 @@ export const store = {
   /** A draft is computation for the Commission owner, not a Project effect.
    * Source projection, grant checks and durable admission are synchronous: no
    * body/network wait can change authority between this check and the commit. */
-  startProjectWorkDraft(value: ProjectWorkDraftInput, tenantId: string, runId: string): DispatchRun {
+  startProjectWorkDraft(value: ProjectWorkDraftInput, tenantId: string, runId: string, actorUserId?: string): DispatchRun {
     const represented = this.getRealDispatch(runId, tenantId)
     if (represented === 'retired') throw new NotFoundError('This Dispatch conversation was already removed.')
     if (represented) return represented
@@ -7386,15 +7388,19 @@ export const store = {
       const over = this.overSpendLimit(budget, tenantId)
       if (over) throw new LimitError(`Contributor budget limit reached for '${over.label}'.`)
     }
-    return this.startRealDispatch({ ...projectWorkDraftPrompt(project, item, commission), execution: input.execution }, tenantId, runId, source)
+    const mcp = input.mcpProposal
+      ? prepareProjectWorkMcpDraft(this, tenantId, actorUserId, input.mcpProposal, item)
+      : undefined
+    return this.startRealDispatch({ ...projectWorkDraftPrompt(project, item, commission, mcp), execution: input.execution }, tenantId, runId, source, mcp?.preview)
   },
-  startRealDispatch(input: RealDispatchInput, tenantId: string, runId: string, projectWork?: ProjectWorkDraftSource): DispatchRun {
+  startRealDispatch(input: RealDispatchInput, tenantId: string, runId: string, projectWork?: ProjectWorkDraftSource, mcpProposal?: ProjectWorkMcpDraftPreview): DispatchRun {
     const represented = this.getRealDispatch(runId, tenantId)
     if (represented === 'retired') throw new NotFoundError('This Dispatch conversation was already removed.')
     if (represented) return represented
     if (dispatch.some((run) => run.id === runId)) throw new ConflictError('This key already represents a different Dispatch.')
     const parsed = parseRealDispatchInput(input)
     if (!parsed) throw new ValidationError('Dispatch requires a bounded task and explicit Agent, endpoint provider, and model.')
+    if (mcpProposal && !projectWork) throw new ValidationError('An MCP argument draft requires its Project work source.')
     const { agentId, providerId, modelId } = parsed.execution
     const agent = this.listAgents(tenantId).find((row) => row.id === agentId)
     const provider = this.listProviders(tenantId).find((row) => row.id === providerId)
@@ -7417,7 +7423,8 @@ export const store = {
       id: runId, tenantId, title: parsed.title.trim(), detail: parsed.detail?.trim() ?? '',
       status: 'running', startedAt: Date.now(),
       execution: { ...parsed.execution, kind: 'conversation', sessionId, state: 'running',
-        ...(projectWork ? { projectWork: { ...projectWork } } : {}) },
+        ...(projectWork ? { projectWork: { ...projectWork } } : {}),
+        ...(mcpProposal ? { mcpProposal: { ...mcpProposal } } : {}) },
     }
     return commitMutationBatch(() => {
       mintSession({

@@ -1,5 +1,6 @@
 import type { DispatchBinding } from './dispatchExecution.ts'
 import { isClosedRecord } from './closedRecord.mjs'
+import { parseProjectWorkMcpDraftSelection, type ProjectWorkMcpDraftSelection } from './projectWorkMcpDraft.ts'
 
 /** Private provenance for a draft tied to one authored Project-work item.
  * These references are not authority to reserve, complete, or perform work. */
@@ -14,12 +15,15 @@ export interface ProjectWorkDraftSource {
 export interface ProjectWorkDraftInput {
   projectWork: ProjectWorkDraftSource
   execution: DispatchBinding
+  /** Exact reviewed local MCP selection; not execution permission. */
+  mcpProposal?: ProjectWorkMcpDraftSelection
 }
 
 const MAX_ID_CHARS = 200
 const SOURCE_KEYS = ['projectId', 'itemId', 'commissionId', 'expectedRevision'] as const
 const BINDING_KEYS = ['agentId', 'providerId', 'modelId'] as const
 const INPUT_KEYS = ['projectWork', 'execution'] as const
+const OPTIONAL_INPUT_KEYS = ['mcpProposal'] as const
 
 function plainRecord(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false
@@ -74,8 +78,11 @@ export function parseProjectWorkDraftSource(value: unknown): ProjectWorkDraftSou
  * accepted by this input shape. */
 export function parseProjectWorkDraftInput(value: unknown): ProjectWorkDraftInput | undefined {
   try {
-    if (!plainRecord(value) || !isClosedRecord(value, INPUT_KEYS, 'all')) return undefined
-    const fields = dataValues(value, INPUT_KEYS)
+    const allowedInputKeys: readonly string[] = [...INPUT_KEYS, ...OPTIONAL_INPUT_KEYS]
+    if (!plainRecord(value) || Reflect.ownKeys(value).some((key) => typeof key !== 'string' ||
+        !allowedInputKeys.includes(key)) ||
+        !INPUT_KEYS.every((key) => Object.hasOwn(value, key))) return undefined
+    const fields = dataValues(value, [...INPUT_KEYS, ...(Object.hasOwn(value, 'mcpProposal') ? OPTIONAL_INPUT_KEYS : [])])
     if (!fields) return undefined
     const projectWork = parseSource(fields.projectWork)
     const executionValue = fields.execution
@@ -83,6 +90,10 @@ export function parseProjectWorkDraftInput(value: unknown): ProjectWorkDraftInpu
     const executionFields = dataValues(executionValue, BINDING_KEYS)
     if (!executionFields || !boundedId(executionFields.agentId) || !boundedId(executionFields.providerId) ||
       !boundedId(executionFields.modelId)) return undefined
+    const mcpProposal = Object.hasOwn(fields, 'mcpProposal')
+      ? parseProjectWorkMcpDraftSelection(fields.mcpProposal)
+      : undefined
+    if (Object.hasOwn(fields, 'mcpProposal') && !mcpProposal) return undefined
     return {
       projectWork,
       execution: {
@@ -90,6 +101,7 @@ export function parseProjectWorkDraftInput(value: unknown): ProjectWorkDraftInpu
         providerId: executionFields.providerId,
         modelId: executionFields.modelId,
       },
+      ...(mcpProposal ? { mcpProposal } : {}),
     }
   } catch {
     return undefined

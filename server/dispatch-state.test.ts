@@ -131,3 +131,16 @@ test('replied Dispatch message reference survives legitimate transcript compacti
   assert.equal(validDispatchState([replied], [ownerSession({ tenantId: 'another-tenant', messages: [] })]), false,
     'compaction does not relax same-owner Session identity')
 })
+
+test('MCP draft preview is bounded historical metadata attached only to Project work', () => {
+  const valid = realRun()
+  const projectWork = { projectId: 'project', itemId: 'work', commissionId: 'commission', expectedRevision: 0 }
+  const preview = { connectionLabel: 'Owned MCP', toolName: 'write_record', bindingHash: 'a'.repeat(64), transport: 'stdio' }
+  const run = { ...valid, execution: { ...valid.execution, projectWork, mcpProposal: preview } }
+  assert.equal(validDispatchState([run], [ownerSession()]), true)
+  for (const mcpProposal of [undefined, null, {}, { ...preview, bindingHash: 'short' },
+    { ...preview, connectionId: 'private-id' }, { ...preview, transport: 'http' }]) {
+    assert.equal(validDispatchState([{ ...run, execution: { ...run.execution, mcpProposal } }], [ownerSession()]), false)
+  }
+  assert.equal(validDispatchState([{ ...valid, execution: { ...valid.execution, mcpProposal: preview } }], [ownerSession()]), false)
+})
