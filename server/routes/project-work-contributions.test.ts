@@ -120,6 +120,195 @@ test('linked Contribution validates and freezes the exact visible open work item
   }, headers(WORKER))).status, 404, 'a foreign private Project hides its work item before link validation')
 })
 
+test('explicit item-first MCP publication atomically returns a linked Contribution with one unapproved exact-call line', async (t) => {
+  const oldProfile = process.env.DEPLOYMENT_PROFILE
+  process.env.DEPLOYMENT_PROFILE = 'desktop'
+  t.after(() => {
+    if (oldProfile === undefined) delete process.env.DEPLOYMENT_PROFILE
+    else process.env.DEPLOYMENT_PROFILE = oldProfile
+  })
+  const oldRuntime = mcpRuntimeConfiguration()
+  configureMcpRuntime({ deviceBearerAvailable: false, allowLoopback: true })
+  t.after(() => configureMcpRuntime({ ...oldRuntime }))
+  const { projectId, item } = await projectAndWork('mcp.mutate', 'write')
+  const tool = { name: 'write', inputSchema: {
+    type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false,
+  } }
+  const connectionId = await registerConnection(WORKER, 'https://mcp.example.com/mcp', tool)
+  const key = `work-initial-proposal-${sequence}`
+  const request = {
+    title: 'Reviewed item-first contribution', workItemId: item.id,
+    initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'reviewed value' } },
+  }
+  const opened = await call('POST', `/projects/${projectId}/contributions`, request, headers(WORKER, key))
+  assert.equal(opened.status, 200, JSON.stringify(opened.json))
+  assert.equal(opened.json.workItemId, item.id)
+  assert.equal(opened.json.envelope.version, 1)
+  assert.equal(opened.json.envelope.status, 'proposed')
+  assert.equal(opened.json.envelope.lines.length, 1)
+  assert.deepEqual({
+    type: opened.json.envelope.lines[0].type,
+    target: opened.json.envelope.lines[0].target,
+    cardinality: opened.json.envelope.lines[0].cardinality,
+    harness: opened.json.envelope.lines[0].harness,
+    used: opened.json.envelope.lines[0].used,
+    mcp: opened.json.envelope.lines[0].mcp,
+  }, {
+    type: 'mcp.mutate', target: 'write', cardinality: 1, harness: 'explicit-call', used: 0,
+    mcp: { connectionLabel: 'Work completion peer', toolName: 'write', arguments: { value: 'reviewed value' } },
+  })
+  assert.equal((opened.json.effects ?? []).length, 0)
+  assert.equal(opened.json.events.filter((event: any) => event.kind === 'envelope-approved').length, 0)
+
+  const replay = await callFresh('POST', `/projects/${projectId}/contributions`, {
+    title: 'Changed retry', workItemId: 'different-item',
+    initialMcpProposal: { connectionId: 'mcp-connection-not-real', connectionRevision: 1, toolName: 'wrong', arguments: {} },
+  }, headers(WORKER, key))
+  assert.equal(replay.status, 200)
+  assert.equal(replay.json.id, opened.json.id)
+  assert.equal(replay.json.envelope.lines[0].mcp.arguments.value, 'reviewed value',
+    'keyed replay returns the represented creation without re-resolving the connection or changed body')
+})
+
+test('item-first publication refuses malformed or stale selections without leaving an empty linked row', async (t) => {
+  const oldProfile = process.env.DEPLOYMENT_PROFILE
+  process.env.DEPLOYMENT_PROFILE = 'desktop'
+  t.after(() => {
+    if (oldProfile === undefined) delete process.env.DEPLOYMENT_PROFILE
+    else process.env.DEPLOYMENT_PROFILE = oldProfile
+  })
+  const oldRuntime = mcpRuntimeConfiguration()
+  configureMcpRuntime({ deviceBearerAvailable: false, allowLoopback: true })
+  t.after(() => configureMcpRuntime({ ...oldRuntime }))
+  const { projectId, item } = await projectAndWork('mcp.mutate', 'write')
+  const tool = { name: 'write', inputSchema: {
+    type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false,
+  } }
+  const connectionId = await registerConnection(WORKER, 'https://mcp.example.com/mcp', tool)
+  const path = `/projects/${projectId}/contributions`
+  const base = { title: 'Must refuse safely', workItemId: item.id }
+  const attempts = [
+    { initialMcpProposal: { connectionId, connectionRevision: 0, toolName: 'write', arguments: { value: 'stale' } } },
+    { initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'another-tool', arguments: { value: 'wrong target' } } },
+    { initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { extra: true } } },
+    { initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'valid', extra: true } } },
+  ]
+  for (const [index, proposal] of attempts.entries()) {
+    const refused = await call('POST', path, { ...base, ...proposal }, headers(WORKER, `work-initial-invalid-${sequence}-${index}`))
+    assert.equal(refused.status, 400, JSON.stringify(refused.json))
+  }
+  const missingItem = await call('POST', path, {
+    title: 'Must be linked', initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'valid' } },
+  }, headers(WORKER, `work-initial-unlinked-${sequence}`))
+  assert.equal(missingItem.status, 400)
+  const unkeyed = await call('POST', path, {
+    ...base, initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'valid' } },
+  }, headers(WORKER))
+  assert.equal(unkeyed.status, 400, 'publication cannot enter the unkeyed best-effort creation path')
+  const rows = await call('GET', path, undefined, headers(OWNER))
+  assert.equal(rows.status, 200)
+  assert.equal(rows.json.length, 0, 'refused proposals leave neither empty Contributions nor partial envelopes')
+})
+
+test('work closing during asynchronous item-first preparation wins before the atomic publish', async (t) => {
+  const oldProfile = process.env.DEPLOYMENT_PROFILE
+  process.env.DEPLOYMENT_PROFILE = 'desktop'
+  t.after(() => {
+    if (oldProfile === undefined) delete process.env.DEPLOYMENT_PROFILE
+    else process.env.DEPLOYMENT_PROFILE = oldProfile
+  })
+  const oldRuntime = mcpRuntimeConfiguration()
+  configureMcpRuntime({ deviceBearerAvailable: false, allowLoopback: true })
+  t.after(() => configureMcpRuntime({ ...oldRuntime }))
+  const { projectId, item } = await projectAndWork('mcp.mutate', 'write')
+  const tool = { name: 'write', inputSchema: {
+    type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false,
+  } }
+  const connectionId = await registerConnection(WORKER, 'https://mcp.example.com/mcp', tool)
+  const logicalId = `contrib-${sequence}-closed-during-prepare`
+  const publishing = store.openContributionWithInitialMcpProposal(projectId, {
+    title: 'Close wins', workItemId: item.id,
+    initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'draft' } },
+  }, WORKER, { kind: 'user', id: `user-${WORKER}` }, { logicalId, actorUserId: `user-${WORKER}` })
+  const retracted = store.retractOpenSubGoal(projectId, item.id, OWNER, undefined)
+  assert.equal(typeof retracted, 'object', 'the item is synchronously retracted while local schema admission yields')
+  assert.equal(await publishing, 'closed-work')
+  const rows = store.listContributions(projectId, OWNER)
+  assert.equal(rows.some((row) => row.id === logicalId), false, 'the atomic commit does not publish an orphan linked row')
+})
+
+test('concurrent same-key item-first publication converges on one exact v1 proposal', async (t) => {
+  const oldProfile = process.env.DEPLOYMENT_PROFILE
+  process.env.DEPLOYMENT_PROFILE = 'desktop'
+  t.after(() => {
+    if (oldProfile === undefined) delete process.env.DEPLOYMENT_PROFILE
+    else process.env.DEPLOYMENT_PROFILE = oldProfile
+  })
+  const oldRuntime = mcpRuntimeConfiguration()
+  configureMcpRuntime({ deviceBearerAvailable: false, allowLoopback: true })
+  t.after(() => configureMcpRuntime({ ...oldRuntime }))
+  const { projectId, item } = await projectAndWork('mcp.mutate', 'write')
+  const tool = { name: 'write', inputSchema: {
+    type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false,
+  } }
+  const connectionId = await registerConnection(WORKER, 'https://mcp.example.com/mcp', tool)
+  const logicalId = `contrib-${sequence}-concurrent-item-first`
+  const request = { title: 'Concurrent publish', workItemId: item.id,
+    initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'once' } } }
+  const principal = { kind: 'user' as const, id: `user-${WORKER}` }
+  let sourceChecks = 0
+  const current = () => {
+    sourceChecks += 1
+    if (sourceChecks === 2) {
+      const closed = store.retractOpenSubGoal(projectId, item.id, OWNER, undefined)
+      assert.equal(typeof closed, 'object', 'the first keyed create has committed before the second settles')
+      store.disconnectMcpConnection(connectionId, WORKER, 1)
+    }
+    return true
+  }
+  const results = await Promise.all([
+    store.openContributionWithInitialMcpProposal(projectId, request, WORKER, principal,
+      { logicalId, actorUserId: principal.id, isCurrent: current }),
+    store.openContributionWithInitialMcpProposal(projectId, request, WORKER, principal,
+      { logicalId, actorUserId: principal.id, isCurrent: current }),
+  ])
+  assert.ok(results.every((result) => typeof result === 'object'))
+  assert.equal(results[0].id, results[1].id)
+  assert.equal(results[0].id, logicalId)
+  assert.equal(results[0].envelope?.version, 1)
+  assert.equal(results[0].envelope?.status, 'proposed')
+  assert.equal(results[0].envelope?.lines.length, 1)
+  assert.equal(sourceChecks, 2)
+  assert.equal(store.listOpenSubGoals(projectId, OWNER).find((row) => row.id === item.id)?.status, 'retracted')
+  assert.equal(store.listContributions(projectId, OWNER).filter((row) => row.id === logicalId).length, 1)
+})
+
+test('post-await account/project source fence refuses before publishing', async (t) => {
+  const oldProfile = process.env.DEPLOYMENT_PROFILE
+  process.env.DEPLOYMENT_PROFILE = 'desktop'
+  t.after(() => {
+    if (oldProfile === undefined) delete process.env.DEPLOYMENT_PROFILE
+    else process.env.DEPLOYMENT_PROFILE = oldProfile
+  })
+  const oldRuntime = mcpRuntimeConfiguration()
+  configureMcpRuntime({ deviceBearerAvailable: false, allowLoopback: true })
+  t.after(() => configureMcpRuntime({ ...oldRuntime }))
+  const { projectId, item } = await projectAndWork('mcp.mutate', 'write')
+  const tool = { name: 'write', inputSchema: {
+    type: 'object', properties: { value: { type: 'string' } }, required: ['value'], additionalProperties: false,
+  } }
+  const connectionId = await registerConnection(WORKER, 'https://mcp.example.com/mcp', tool)
+  const logicalId = `contrib-${sequence}-post-await-fence`
+  const result = await store.openContributionWithInitialMcpProposal(projectId, {
+    title: 'Must fail the final source fence', workItemId: item.id,
+    initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'draft' } },
+  }, WORKER, { kind: 'user', id: `user-${WORKER}` }, {
+    logicalId, actorUserId: `user-${WORKER}`, isCurrent: () => false,
+  })
+  assert.equal(result, 'conflict')
+  assert.equal(store.listContributions(projectId, OWNER).some((row) => row.id === logicalId), false)
+})
+
 test('only the Project owner can resolve linked work after a tool error and pending receipt are followed by a successful exact-target Run', async (t) => {
   const oldProfile = process.env.DEPLOYMENT_PROFILE
   process.env.DEPLOYMENT_PROFILE = 'desktop'

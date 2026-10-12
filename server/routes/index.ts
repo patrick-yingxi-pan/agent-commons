@@ -3265,17 +3265,25 @@ export function buildRouter(): Router {
       Object.hasOwn(input, field) && typeof input[field as keyof OpenContributionRequest] !== 'string')) {
       return sendError(res, 'bad_request', 'Contribution text and optional work identity must be strings')
     }
-    const out = store.openContribution(
-      params.id,
-      { ...input, title: input.title.trim(), ...(typeof input.summary === 'string' ? { summary: input.summary.trim() } : {}) },
-      who.tenant.id,
-      userPrincipal(who),
-      { logicalId: logicalContributionId },
-    )
+    const request = { ...input, title: input.title.trim(), ...(typeof input.summary === 'string' ? { summary: input.summary.trim() } : {}) }
+    const hasInitialMcpProposal = Object.hasOwn(input, 'initialMcpProposal')
+    if (hasInitialMcpProposal && !logicalContributionId) {
+      return sendError(res, 'bad_request', 'An explicit reviewed MCP proposal requires an Idempotency-Key')
+    }
+    const out = hasInitialMcpProposal
+      ? await store.openContributionWithInitialMcpProposal(
+        params.id, request, who.tenant.id, userPrincipal(who),
+        { logicalId: logicalContributionId, actorUserId: who.user.id,
+          isCurrent: () => accountTransitionSourceMatches(req, res) && !projectHiddenFrom(req, params.id) },
+      )
+      : store.openContribution(params.id, request, who.tenant.id, userPrincipal(who), { logicalId: logicalContributionId })
+    if (res.writableEnded) return
     if (out === 'capped') return sendError(res, 'conflict', 'This project’s ledger is at its open-contribution cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This Contribution identity is not valid for this Project')
     if (out === 'invalid-work') return sendError(res, 'bad_request', 'Select an exact MCP mutation work item in this Project; its sub-goal is fixed by the item')
     if (out === 'closed-work') return sendError(res, 'conflict', 'This work item is no longer open')
+    if (out === 'invalid-proposal') return sendError(res, 'bad_request', 'The exact MCP proposal is unavailable, stale, or does not match this work item')
+    if (out === 'conflict') return sendError(res, 'conflict', 'The account or Project changed before the reviewed proposal could be published')
     sendContribution(res, out, who)
   }, undefined, replayContribution)
   r.post('/projects/:id/contributions', (ctx) => {

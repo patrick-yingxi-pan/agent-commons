@@ -363,6 +363,13 @@ export interface OpenContributionRequest {
   sessionId?: string
   /** Optional exact open MCP-mutation work item to link to this Contribution. */
   workItemId?: string
+  /**
+   * An explicitly reviewed MCP call to publish with a linked work item. The
+   * server validates the live inspected tool and atomically creates the linked
+   * Contribution plus its initial unapproved one-line envelope. This is a
+   * proposal only: it does not approve or execute the call.
+   */
+  initialMcpProposal?: ContributionMcpSelection
 }
 
 /** Body of `POST /v1/projects/:id/contributions/:cid/comments`. */

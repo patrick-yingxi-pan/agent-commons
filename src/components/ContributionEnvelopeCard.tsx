@@ -44,6 +44,7 @@ import {
 } from '../lib/contributionMcpDraft.ts'
 import { relativeTime } from '../lib/relativeTime.ts'
 import {
+  CONTRIBUTION_ENVELOPE_STATUS_CLASSES,
   CONTRIBUTION_EFFECT_DISCLOSURE_CLASS,
   CONTRIBUTION_EFFECT_DISCLOSURE_HEADING_CLASS,
   CONTRIBUTION_EFFECT_FIELD_GRID_COLUMNS,
@@ -305,11 +306,11 @@ export function EnvelopeCard({
         <div className="flex items-center gap-1.5">
           {env &&
             (env.status === 'approved' ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-ok-strong/10 px-2 py-0.5 text-[11px] font-medium text-ok-text">
+              <span className={CONTRIBUTION_ENVELOPE_STATUS_CLASSES.approved}>
                 <CheckCircle2 size={12} /> Approved by {env.approvedBy}
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1 rounded-full bg-warn-strong/10 px-2 py-0.5 text-[11px] font-medium text-warn-text">
+              <span className={CONTRIBUTION_ENVELOPE_STATUS_CLASSES.proposed}>
                 <AlertCircle size={12} /> Awaiting approval
               </span>
             ))}

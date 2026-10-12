@@ -6,6 +6,7 @@ import { keys } from '../api/keys.ts'
 import { accountGeneration } from '../api/account.ts'
 import {
   contributionCreationDraft,
+  clearContributionCreationDraft,
   enqueueContributionCreation,
   heldContributionCreationIntent,
   isContributionCreationHeld,
@@ -36,6 +37,11 @@ export function WorkItemContributionPanel({
   const held = isContributionCreationHeld(projectId)
   const heldIntent = heldContributionCreationIntent(projectId, item.id)
   const savedDraft = contributionCreationDraft(projectId, item.id)
+  // MCP proposal drafts belong to WorkItemMcpProposalPanel. Do not mirror their
+  // held title/summary as a second, prose-only creation form here.
+  const savedManualDraft = savedDraft && !savedDraft.mcpDraft && !savedDraft.initialMcpProposal ? savedDraft : null
+  const heldMcpIntent = heldIntent?.request.initialMcpProposal ? heldIntent : null
+  const structuredDraftExists = Boolean(savedDraft?.mcpDraft || savedDraft?.initialMcpProposal || heldMcpIntent)
   const heldForAnotherContribution = held && !heldIntent
   const linked = (query.data ?? []).filter((contribution) => contribution.workItemId === item.id)
     .sort((a, b) => b.openedAt - a.openedAt)
@@ -68,14 +74,14 @@ export function WorkItemContributionPanel({
       setError(null)
       draftRef.current = { title: item.subGoal, summary: '', intentId: undefined }
     }
-    if (savedDraft) {
+    if (savedManualDraft) {
       setComposing(true)
-      setTitle(savedDraft.title)
-      setSummary(savedDraft.summary)
-      draftRef.current = { title: savedDraft.title, summary: savedDraft.summary, intentId: savedDraft.intentId }
+      setTitle(savedManualDraft.title)
+      setSummary(savedManualDraft.summary)
+      draftRef.current = { title: savedManualDraft.title, summary: savedManualDraft.summary, intentId: savedManualDraft.intentId }
     }
     if (heldIntent) setError(null)
-  }, [identityKey, item.id, item.subGoal, savedDraft?.title, savedDraft?.summary, savedDraft?.intentId, heldIntent?.intentId])
+  }, [identityKey, item.id, item.subGoal, savedManualDraft?.title, savedManualDraft?.summary, savedManualDraft?.intentId, heldIntent?.intentId])
 
   useEffect(() => subscribeContributionCreationApplied((event) => {
     if (
@@ -95,7 +101,7 @@ export function WorkItemContributionPanel({
   }), [item.subGoal])
 
   const start = async () => {
-    if (!eligible || !me || held || !title.trim()) return
+    if (!eligible || !me || held || structuredDraftExists || !title.trim()) return
     const requestedItemId = item.id
     const requestedProjectId = projectId
     const requestedTenantId = me.tenant.id
@@ -145,15 +151,16 @@ export function WorkItemContributionPanel({
     <ResourcePageSection
       title="Contributions"
       summary={count}
+      reveal={composing || Boolean(heldIntent) || Boolean(savedManualDraft)}
       heldOpen={Boolean(heldIntent) || composing}
       actions={eligible ? (
         <SectionAction
           label="Start contribution"
           icon={<Plus size={14} />}
           expanded={composing}
-          disabled={!me || held}
-          disabledReason={heldForAnotherContribution ? 'Another Contribution for this Project is being resolved; this form is not part of that request.' : heldIntent ? 'This Contribution is being resolved.' : 'Waiting for your account'}
-          onClick={() => { if (!held) setComposing((open) => !open) }}
+          disabled={!me || held || structuredDraftExists}
+          disabledReason={structuredDraftExists ? 'A structured MCP proposal is saved above; cancel it there before starting a prose Contribution.' : heldForAnotherContribution ? 'Another Contribution for this Project is being resolved; this form is not part of that request.' : heldIntent ? 'This Contribution is being resolved.' : 'Waiting for your account'}
+          onClick={() => { if (!held && !structuredDraftExists) setComposing((open) => !open) }}
         />
       ) : undefined}
     >
@@ -162,6 +169,7 @@ export function WorkItemContributionPanel({
           ? <>A linked Contribution organizes the work but does not claim or reserve this work item. Its MCP effect must use the exact tool name “<span className="break-words [overflow-wrap:anywhere]">{item.target}</span>”. The Project owner can resolve this work item only after that matching effect has a successful saved MCP result.</>
           : 'This work item is closed. Existing linked Contributions remain visible, but cannot resolve it.'}
       </p>
+      {structuredDraftExists && <p role="status" data-work-item-contribution-mcp-draft-block className="mb-3 text-[11px] text-ink-soft">A structured MCP proposal is saved in “Work this item now.” Continue it there, or cancel that proposal before starting a prose Contribution.</p>}
       {query.status === 'error' && (
         <InlineOperationStatus
           tone="alert"
@@ -192,7 +200,7 @@ export function WorkItemContributionPanel({
       ) : query.data ? (
         <p className="text-[12px] text-ink-faint">No Contributions are linked to this work item yet.</p>
       ) : null}
-      {composing && (eligible || Boolean(heldIntent) || Boolean(savedDraft)) && (
+      {composing && !structuredDraftExists && (eligible || Boolean(heldIntent) || Boolean(savedManualDraft)) && (
         <div data-work-item-contribution-form className="mt-3 space-y-2" aria-busy={Boolean(heldIntent) || undefined}>
           <input
             aria-label="Contribution title"
@@ -233,6 +241,14 @@ export function WorkItemContributionPanel({
           {mutation.error && heldIntent && <p role="status" className="text-[11px] text-warn-text">This Contribution is held for safe recovery. Use the shared notice to Retry or Dismiss.</p>}
           {heldForAnotherContribution && <p role="status" className="text-[11px] text-ink-faint">Another Contribution for this Project is being resolved; this edited form has not been submitted.</p>}
           {error && <p role="alert" className="text-[11px] text-danger">{error}</p>}
+          {savedManualDraft && !heldIntent && <button type="button" data-work-item-contribution-cancel disabled={held} onClick={() => {
+            if (!clearContributionCreationDraft(projectId, item.id, 'manual')) return
+            setComposing(false)
+            setTitle(item.subGoal)
+            setSummary('')
+            setError(null)
+            draftRef.current = { title: item.subGoal, summary: '', intentId: undefined }
+          }} className="rounded-md border border-line px-2.5 py-1 text-[11px] font-medium text-ink-soft disabled:opacity-45">Cancel manual draft</button>}
         </div>
       )}
     </ResourcePageSection>

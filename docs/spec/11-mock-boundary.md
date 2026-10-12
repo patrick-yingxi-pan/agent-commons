@@ -210,6 +210,12 @@ inspected MCP tool. Explicit adoption only edits the Contribution proposal form;
 it grants no execution, standing permission, work resolution or Agent credit.
 The saved reply remains tenant-private Dispatch history. Current person/tool
 binding and source reads gate adoption before ordinary proposal validation.
+COMMONS-44 places that draft/review flow directly on the work item. Explicit
+human publication atomically saves a linked Contribution and its unapproved
+single-call plan; it never publishes a model reply automatically. The person
+may edit the arguments before sharing them. Existing approval, separate Run
+and owner acceptance still govern all effects and completion. This removes a
+manual setup handoff, not the remaining unattended Commission/proxy boundary.
 
 COMMONS-41 adds a separate owner-reviewed resolution path for exact posted MCP
 mutation work. A linked Contribution still requires ordinary envelope approval

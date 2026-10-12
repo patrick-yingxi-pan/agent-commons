@@ -241,15 +241,19 @@ test('the fold DEFAULTS are the composite-page split: configuration folded, cont
   // the test above is what holds those to one answer. The claim here is about
   // which kinds of section are configuration, not how many pages show them.
   const folded = [...new Set(tags.filter((t) => /\bdefaultFolded\b/.test(t)).map(titleOf))].sort()
+  const actionFormFolds = folded.filter((title) => title === 'Work this item now')
+  assert.deepEqual(actionFormFolds, ['Work this item now'],
+    'only the named item-first action form is intentionally collapsed by default')
+  const configurationFolds = folded.filter((title) => title !== 'Work this item now')
   assert.deepEqual(
-    folded,
+    configurationFolds,
     ['Agent & model', 'Building blocks', 'Context', 'Context & tools', 'Danger zone', 'Delegation', 'Delivers to', 'Instructions', 'Routines', 'Schedule', 'Sharing'],
     'exactly the composite pages’ configuration sections open folded',
   )
   // The complement, named rather than implied: these are what a project page is
   // FOR, and a page that opens with them folded is a page of chevrons.
   const open = tags.map(titleOf)
-  for (const content of ['About', 'Recent sessions', 'Changes', 'Discussion', 'Contributors', 'Coordination']) {
+  for (const content of ['About', 'Recent sessions', 'Changes', 'Discussion', 'Contributors', 'Coordination', 'Contributions']) {
     assert.ok(open.includes(content), `${content} is a section on these pages`)
     assert.ok(!folded.includes(content), `${content} is content — it opens OPEN`)
   }

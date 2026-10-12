@@ -24,7 +24,7 @@ function describeFailure(error: unknown): RevisionedMutationFailure {
       return { message: 'You no longer have access to declare work here. Dismiss it to continue.', retryable: false }
     }
     if (error.status === 409 || error.status === 429) {
-      return { message: 'This Project cannot accept another Contribution right now. Review the Changes ledger, then Retry or Dismiss.', retryable: true }
+      return { message: `${error.message} The reviewed Contribution is retained. Retry the same request or Dismiss to edit it.`, retryable: true }
     }
   }
   return {

@@ -5,6 +5,7 @@ import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { DeferredProjectWorkDraftPanel } from './DeferredProjectWorkDraftPanel.tsx'
 import { DeferredWorkItemContributionPanel } from './DeferredWorkItemContributionPanel.tsx'
+import { DeferredWorkItemMcpProposalPanel } from './DeferredWorkItemMcpProposalPanel.tsx'
 import { DeferredChangesPanel } from './DeferredChangesPanel.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { automationPresentation, AUTOMATION_NOTICE_CLASS } from '../lib/automationPresentation.ts'
@@ -3771,8 +3772,10 @@ function WorkItemPage({
   const commentHeld = heldComment !== null
   const retractionHeld = isWorkItemRetractionHeld(project.id, workItemId)
   const heldDraftSelection = heldProjectWorkDraftSelection(project.id, workItemId)
-  const projectWorkDraftHeld = !!heldDraftSelection || commentHeld || retractionHeld
-  const projectWorkDraftOpen = showProjectWorkDraft || projectWorkDraftHeld
+  const heldMcpDraftSelection = heldDraftSelection?.mcpProposal ? heldDraftSelection : null
+  const heldProseDraftSelection = heldDraftSelection && !heldDraftSelection.mcpProposal ? heldDraftSelection : null
+  const projectWorkDraftHeld = !!heldProseDraftSelection || commentHeld || retractionHeld
+  const projectWorkDraftOpen = !heldMcpDraftSelection && (showProjectWorkDraft || projectWorkDraftHeld)
   useEffect(() => {
     if (!heldComment) return
     setDraft(heldComment.body)
@@ -4008,6 +4011,13 @@ function WorkItemPage({
         )}
       </div>
 
+      {o.type === 'mcp.mutate' && <DeferredWorkItemMcpProposalPanel
+        project={project}
+        item={o}
+        onOpenSession={onOpenSession}
+        onOpenContribution={(contributionId) => rel.navigate('projects', project.id, `changes/${contributionId}`)}
+      />}
+
       <FoldSection
         title="Draft response"
         summary="Choose your Commission and an endpoint model to prepare a private first reply."
@@ -4018,7 +4028,7 @@ function WorkItemPage({
           onClick={() => setShowProjectWorkDraft((open) => !open)}
           expanded={projectWorkDraftOpen}
           disabled={projectWorkDraftHeld}
-          disabledReason={heldDraftSelection ? 'A private draft is being resolved.' : 'A comment or retraction is being resolved.'}
+          disabledReason={heldProseDraftSelection ? 'A private draft is being resolved.' : 'A comment or retraction is being resolved.'}
         />}
       >
         {projectWorkDraftOpen && <DeferredProjectWorkDraftPanel project={project} item={o} onOpenSession={onOpenSession} onCommentPosted={() => { setDraft(''); mention.close() }} />}

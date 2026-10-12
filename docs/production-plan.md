@@ -13,7 +13,69 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: commissioned MCP argument drafts
+## Current checkpoint: item-first reviewed MCP proposals
+
+Autonomous direction (2026-10-11): make **Work this item now** a direct path from
+an exact open MCP item to a reviewed Contribution. Select an inspected matching
+tool, use the existing owned-Commission/model draft helper, and edit the chosen
+arguments on the item page. No empty Contribution or repeated tool setup is
+needed. The optional prose response and manual Contribution paths remain usable.
+
+**Publish contribution** is an explicit sharing act: it saves
+the linked Contribution and one unapproved v1 exact-call envelope atomically.
+The server derives the item target, cardinality of one and explicit-call harness;
+current visibility, open work, person-owned connection and schema admission must
+still hold after asynchronous validation. Rejected preparation leaves no empty
+Contribution. Exact keyed replay returns represented history without recreating
+or amending it. Raw edited JSON and detached nested submitted arguments remain
+account-scoped across navigation and uncertain acknowledgement.
+
+Drafting remains tool-free and workspace-private; publishing shares only the
+reviewed title, summary and plan with Project readers, not the model conversation
+or Commission identity. Approval, separately confirmed Run and Project-owner
+Land/resolution remain distinct. This is supervised human publication of an
+Agent-assisted proposal, not unattended Commission execution or Agent credit.
+
+Acceptance covers the complete item-to-proposal-to-receipt-to-resolution path,
+invalid/stale/person-bound refusal, lost-response recovery, atomic JSON/SQLite
+retention and five-viewport account review. Full local verification, the shared
+responsive sweep and post-test diff review precede main delivery. Use isolated
+profiles and authored peers; preserve the owner's live store. Public-service,
+paid-provider, actual native-dialog, signed/notarized and Intel acceptance remain
+separate release gates.
+
+The five focused browser journeys pass: complete item-to-result resolution,
+invalid/stale refusal, exact Dispatch recovery, exact publication recovery and
+shared-reader/private-draft separation with an explicit foreign wall after
+unsharing. All 85 feature captures and all 135 shared surface/viewport cells
+were reviewed; the shared sweep reports zero violations and zero skips.
+Review moved model suggestions ahead of the editable call; adoption closes
+the helper and focuses the editor, so Publish follows the reviewed arguments.
+It also corrected the shared status-badge contrast and visibly disables all
+three draft fields while their exact model request is held. Watched-fail
+source locks, rendered hold/release checks and exclusion-free accessibility
+checks cover those findings; no retries, timeouts or quality budgets changed.
+The complete local verifier and rebuilt unsigned-arm64 ordinary native smoke
+remain the final pre-push gates, not evidence of a signed or real-service release.
+The first complete gate caught an unintended collapsed Contributions ledger in
+six existing browser journeys and the section-default source lock. Saved linked
+Contributions retain their prior content-open default; only the new proposal
+action form starts collapsed. The new browser journey now requires the resolved
+row already visible instead of opening that fold on demand. The prose-draft
+source lock also follows the explicit prose/MCP hold split.
+All 15 focused journeys across the existing linked-work, model-draft, local
+Contribution and new item-first proposal suites pass on the corrected tree.
+The corrected product tree then passed all five full-verifier lanes (5,657 Node
+tests and 651 browser tests). Rebuilt packaged acceptance exposed an independent
+Git-smoke race after returning to a conversation: the test sampled zero replies
+before the two saved replies hydrated, then miscounted the new reply as three.
+The native harness now waits for each fixture's exact prior reply count before
+sending and still requires exactly one additional reply. A watched-fail ordering
+and baseline lock protects that precondition; no product behavior, retries or
+deadlines change. Complete local verification and ordinary packaged smoke must
+pass again on the final harness revision before delivery.
+
+## Previous checkpoint: commissioned MCP argument drafts
 
 Autonomous direction (2026-10-11): connect the existing private Project-work
 draft workflow to the existing Contribution envelope editor. After selecting

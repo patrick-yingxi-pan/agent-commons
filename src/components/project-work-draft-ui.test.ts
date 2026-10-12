@@ -15,7 +15,8 @@ test('Project work Draft response is lazy, owner bounded, revision pinned, and e
   assert.match(section, /import \{ DeferredProjectWorkDraftPanel \} from '\.\/DeferredProjectWorkDraftPanel\.tsx'/,
     'the lightweight wrapper is eager while its detailed panel remains deferred')
   assert.match(section, /<FoldSection[\s\S]*title="Draft response"[\s\S]*<SectionAction[\s\S]*label="Draft a response"[\s\S]*<DeferredProjectWorkDraftPanel project=\{project\} item=\{o\} onOpenSession=\{onOpenSession\} onCommentPosted=/)
-  assert.match(section, /projectWorkDraftHeld = !!heldDraftSelection \|\| commentHeld \|\| retractionHeld/)
+  assert.match(section, /projectWorkDraftHeld = !!heldProseDraftSelection \|\| commentHeld \|\| retractionHeld/,
+    'the prose response panel stays closed for a separately held structured MCP argument draft')
   assert.doesNotMatch(section, /Loading response draft controls failed/)
   assert.match(section, /heldProjectWorkDraftSelection\(project\.id, workItemId\)/)
   assert.match(deferred, /const Panel = lazy\(\(\) => import\('\.\/ProjectWorkDraftPanel\.tsx'\)/,

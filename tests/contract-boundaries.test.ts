@@ -31,6 +31,23 @@ test('MCP argument drafting shares one portable binding contract without acquiri
   assert.throws(() => check(`${server}\nexecuteBoundMcpCall()`), /cannot acquire/)
 })
 
+test('item-first MCP publication reuses reviewed creation without execution or approval authority', () => {
+  const ui = stripComments(read(join(ROOT, 'src/components/WorkItemMcpProposalPanel.tsx')))
+  assert.match(ui, /enqueueContributionCreation\(/)
+  assert.match(ui, /initialMcpProposal: requestSelection/)
+  const store = stripComments(read(join(ROOT, 'server/store/index.ts')))
+  const method = store.slice(store.indexOf('async openContributionWithInitialMcpProposal('), store.indexOf('getContributionCommentCreation('))
+  assert.ok(method.startsWith('async openContributionWithInitialMcpProposal('))
+  assert.match(method, /prepareContributionMcpLines\(/)
+  assert.match(method, /status: 'proposed'/)
+  const check = (source: string) => assert.doesNotMatch(source,
+    /\b(?:executeBoundMcpCall|executeContributionMcpEffect|approveEnvelope|landContribution|recordContribution|fetch|spawn)\s*\(/,
+    'reviewed publication cannot approve, execute, land, award Agent credit or perform external I/O')
+  check(ui)
+  check(method)
+  assert.throws(() => check(`${method}\napproveEnvelope()`), /cannot approve/)
+})
+
 test('Project-work completion is a pure receipt projection separate from execution and credit', () => {
   const check = (source: string) => {
     assert.match(source, /contract\/contributions\.ts/)

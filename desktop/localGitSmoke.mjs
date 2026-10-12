@@ -70,13 +70,13 @@ function gitFolder(workspace, connectionId) {
     .find(item => item.id === `ui-host::${connectionId}`)
 }
 
-async function send(page, text, expectedReply) {
+async function send(page, text, expectedReply, expectedPreviousReplies) {
   const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   const replies = page.locator('[data-turn]').filter({ hasText: expectedReply })
-  const previous = await replies.count()
+  await expect(replies).toHaveCount(expectedPreviousReplies, { timeout: TIMEOUT_MS })
   await composer.fill(text)
   await composer.press('Enter')
-  await expect(replies).toHaveCount(previous + 1, { timeout: TIMEOUT_MS })
+  await expect(replies).toHaveCount(expectedPreviousReplies + 1, { timeout: TIMEOUT_MS })
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0, { timeout: TIMEOUT_MS })
 }
 
@@ -154,7 +154,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   // Change the source after Attach but before sending: the first turn must use
   // the saved capture, not implicitly reread the repository.
   await writeFile(join(repository, 'src', 'nested.md'), 'captured-nested-v2-before-refresh\n')
-  await send(run.page, 'Read the attached Git snapshot.', 'captured-dotfile-v1')
+  await send(run.page, 'Read the attached Git snapshot.', 'captured-dotfile-v1', 0)
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
     ['.gitignore', 'ready', 'ignored-secret.md\n'],
@@ -174,7 +174,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.equal(refreshed.gitSnapshot.files.find(file => file.path === 'src/nested.md').snapshot.text,
     'captured-nested-v2-before-refresh\n')
   await writeFile(join(repository, 'src', 'nested.md'), 'review-working-only-v3\n')
-  await send(run.page, 'Read the refreshed Git snapshot.', 'captured-dotfile-v1')
+  await send(run.page, 'Read the refreshed Git snapshot.', 'captured-dotfile-v1', 1)
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
     ['.gitignore', 'ready', 'ignored-secret.md\n'],
@@ -218,7 +218,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     'review is transient and cannot alter the saved conversation snapshot')
   await assertIndexUnchanged(repository, indexBeforeReview)
   await run.page.goto(run.origin + '/s/' + encodeURIComponent(session.id))
-  await send(run.page, 'Read the saved snapshot after local review.', 'captured-dotfile-v1')
+  await send(run.page, 'Read the saved snapshot after local review.', 'captured-dotfile-v1', 2)
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
     ['.gitignore', 'ready', 'ignored-secret.md\n'],
@@ -353,7 +353,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await expect(reopenedReviewPanel.locator('[data-local-git-review-result]')).toHaveCount(0,
     'a prior transient review does not return automatically after relaunch')
   await run.page.goto(run.origin + '/s/' + encodeURIComponent(session.id))
-  await send(run.page, 'Read the Git snapshot after relaunch.', 'captured-dotfile-v1')
+  await send(run.page, 'Read the Git snapshot after relaunch.', 'captured-dotfile-v1', 3)
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
     ['.gitignore', 'ready', 'ignored-secret.md\n'],
@@ -370,7 +370,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     assert.deepEqual(await readWorkspace(run.page, session.id), beforeMissingSource,
       'missing-source refusal leaves the exact saved Git workspace and capture receipt unchanged')
     await run.page.getByRole('button', { name: 'Use saved state', exact: true }).filter({ visible: true }).first().click()
-    await send(run.page, 'Read the saved Git snapshot without its source.', 'captured-dotfile-v1')
+    await send(run.page, 'Read the saved Git snapshot without its source.', 'captured-dotfile-v1', 4)
     await assertModelFiles(endpoint, [
       ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
       ['.gitignore', 'ready', 'ignored-secret.md\n'],
@@ -406,7 +406,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.deepEqual(await readWorkspace(run.page, session.id), beforeRevokedRefresh,
     'revoked Refresh cannot delete or rewrite the saved conversation copy')
   await run.page.getByRole('button', { name: 'Use saved state', exact: true }).filter({ visible: true }).first().click()
-  await send(run.page, 'Read the saved Git snapshot after disconnect.', 'captured-dotfile-v1')
+  await send(run.page, 'Read the saved Git snapshot after disconnect.', 'captured-dotfile-v1', 5)
   await assertModelFiles(endpoint, [
     ['tracked.md', 'ready', 'captured-dotfile-v1\n'],
     ['.gitignore', 'ready', 'ignored-secret.md\n'],

@@ -149,7 +149,7 @@ The [October follow-up](../docs/acceptance/native-context-2026-10-04.md) closes 
 XLSX/PPTX/PNG/folder detach gaps. Both are revision-scoped unsigned arm64 evidence,
 not complete manual matrices or substitutes for broader native/release gates. The [PDF review](../docs/acceptance/native-pdf-ocr-2026-10-06.md) adds actual cancellation, blank refusal, scanned recognition, adoption/correction/Create and source-absent relaunch; protected-PDF manual selection remains unverified.
 
-Native Git suites use private temporary executables through [`gitFileTestFixture.mjs`](gitFileTestFixture.mjs), locked by [`gitFileTestFixture.test.ts`](gitFileTestFixture.test.ts), never concurrent writes to the development helper. Run `node --test "desktop/**/*.test.ts"`, then `npm run desktop:verify`. The MCP
+Native Git suites use private temporary executables through [`gitFileTestFixture.mjs`](gitFileTestFixture.mjs), locked by [`gitFileTestFixture.test.ts`](gitFileTestFixture.test.ts), never concurrent writes to the development helper. [`localGitSmoke.test.ts`](localGitSmoke.test.ts) locks exact hydrated-history baselines before each send. Run `node --test "desktop/**/*.test.ts"`, then `npm run desktop:verify`. The MCP
 phase proves real OS-backed token replacement/relaunch, secret exclusion,
 durable disconnect despite a real vault-write failure, explicit cleanup Retry,
 and unrelated provisional preservation. Its offline catalog fixture does not

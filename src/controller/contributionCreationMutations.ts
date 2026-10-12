@@ -4,6 +4,13 @@ import { onAccountSwitch } from '../api/account.ts'
 import { contributionCreationId } from '../api/contributionCreationIdentity.ts'
 import type { ContributionCreationIntent } from '../api/contributionCreationRevision.ts'
 import { createMutationStatusStore } from './mutationStatusStore.ts'
+import { createRetryableRuntimeLoader } from './retryableRuntimeLoader.ts'
+import {
+  editableContributionDraft,
+  snapshotContributionCreation,
+  submittedContributionDraft,
+  type ContributionCreationDraft,
+} from './contributionCreationSnapshot.ts'
 import {
   IDLE_REVISIONED_MUTATION,
   type RevisionedMutationOutcome,
@@ -12,32 +19,26 @@ import {
 const statusStore = createMutationStatusStore()
 const heldProjects = new Map<string, number>()
 const heldIntents = new Map<string, ContributionCreationIntent[]>()
-export interface ContributionCreationDraft {
-  readonly title: string
-  readonly summary: string
-  readonly intentId?: string
-}
+export type { ContributionCreationDraft } from './contributionCreationSnapshot.ts'
 const drafts = new Map<string, Map<string, ContributionCreationDraft>>()
 const appliedListeners = new Set<(event: ContributionCreationApplied) => void>()
+const appliedByItem = new Map<string, Map<string, ContributionCreationApplied>>()
 let accountGeneration = 0
 export const publishContributionCreationStatus = statusStore.publish
 
 type Runtime = typeof import('./contributionCreationMutationRuntime.ts')
 let runtime: Runtime | null = null
-let runtimePromise: Promise<Runtime> | null = null
-const loadRuntime = (): Promise<Runtime> => {
-  runtimePromise ??= import('./contributionCreationMutationRuntime.ts').then((loaded) => {
-    runtime = loaded
-    return loaded
-  })
-  return runtimePromise
-}
+const loadRuntime = createRetryableRuntimeLoader<Runtime>(
+  () => import('./contributionCreationMutationRuntime.ts'),
+  (loaded) => { runtime = loaded },
+)
 
 onAccountSwitch(() => {
   accountGeneration += 1
   heldProjects.clear()
   heldIntents.clear()
   drafts.clear()
+  appliedByItem.clear()
   if (runtime) runtime.clearContributionCreations()
   else statusStore.publish(IDLE_REVISIONED_MUTATION)
 })
@@ -61,7 +62,16 @@ export interface ContributionCreationApplied {
   title: string
   summary: string
   contributionId: string
+  initialMcpProposal?: true
 }
+
+/** An acknowledged navigation receipt, not a second Contribution registry.
+ * Returning after completion may offer this exact door without matching titles
+ * or unexpectedly navigating away from the work item. */
+export const latestAppliedContributionCreation = (
+  projectId: string,
+  workItemId: string,
+): ContributionCreationApplied | null => appliedByItem.get(projectId)?.get(workItemId) ?? null
 
 export const contributionCreationDraft = (
   projectId: string,
@@ -71,12 +81,26 @@ export const contributionCreationDraft = (
 export function rememberContributionCreationDraft(
   projectId: string,
   workItemId: string,
-  draft: Pick<ContributionCreationDraft, 'title' | 'summary'>,
+  draft: Omit<ContributionCreationDraft, 'intentId'>,
 ): void {
   const existing = drafts.get(projectId) ?? new Map<string, ContributionCreationDraft>()
   if (existing.get(workItemId)?.intentId) return
-  existing.set(workItemId, { title: draft.title, summary: draft.summary })
+  existing.set(workItemId, snapshotContributionCreation(draft))
   drafts.set(projectId, existing)
+  statusStore.refresh()
+}
+
+/** Explicit local cancellation never dismisses a submitted request or another
+ * editor's form. Model history and server Contributions are unaffected. */
+export function clearContributionCreationDraft(projectId: string, workItemId: string, kind: 'manual' | 'mcp'): boolean {
+  const projectDrafts = drafts.get(projectId)
+  const draft = projectDrafts?.get(workItemId)
+  if (isContributionCreationHeld(projectId) || draft?.intentId) return false
+  if (draft && Boolean(draft.mcpDraft || draft.initialMcpProposal) !== (kind === 'mcp')) return false
+  projectDrafts?.delete(workItemId)
+  if (projectDrafts?.size === 0) drafts.delete(projectId)
+  statusStore.refresh()
+  return true
 }
 
 export function subscribeContributionCreationApplied(
@@ -100,7 +124,7 @@ export function enqueueContributionCreation(input: {
   const issuedGeneration = accountGeneration
   const intent: ContributionCreationIntent = Object.freeze({
     ...input,
-    request: Object.freeze({ ...input.request }),
+    request: snapshotContributionCreation(input.request),
     intentId: crypto.randomUUID(),
   })
   heldProjects.set(input.projectId, (heldProjects.get(input.projectId) ?? 0) + 1)
@@ -109,12 +133,9 @@ export function enqueueContributionCreation(input: {
   heldIntents.set(input.projectId, projectIntents)
   if (intent.request.workItemId) {
     const workItemId = intent.request.workItemId
+    appliedByItem.get(input.projectId)?.delete(workItemId)
     const projectDrafts = drafts.get(input.projectId) ?? new Map<string, ContributionCreationDraft>()
-    projectDrafts.set(workItemId, {
-      title: intent.request.title,
-      summary: intent.request.summary ?? '',
-      intentId: intent.intentId,
-    })
+    projectDrafts.set(workItemId, submittedContributionDraft(intent.request, intent.intentId, projectDrafts.get(workItemId)))
     drafts.set(input.projectId, projectDrafts)
   }
   statusStore.refresh()
@@ -122,6 +143,9 @@ export function enqueueContributionCreation(input: {
     issuedGeneration === accountGeneration
       ? loaded.enqueueContributionCreationRuntime(intent)
       : 'discarded' as const,
+    // Failed module admission did not send a request. Release only that local
+    // hold and retain the complete editable form; another click may load again.
+    () => 'discarded' as const,
   )
   const result = Promise.all([
     outcome,
@@ -143,15 +167,16 @@ export function enqueueContributionCreation(input: {
             title: intent.request.title,
             summary: intent.request.summary ?? '',
             contributionId,
+            ...(intent.request.initialMcpProposal ? { initialMcpProposal: true as const } : {}),
           }
+          const appliedItems = appliedByItem.get(intent.projectId) ?? new Map<string, ContributionCreationApplied>()
+          appliedItems.set(workItemId, Object.freeze(event))
+          appliedByItem.set(intent.projectId, appliedItems)
           for (const listener of appliedListeners) {
             try { listener(event) } catch { /* Observers cannot alter the mutation outcome. */ }
           }
         } else {
-          projectDrafts!.set(workItemId, {
-            title: draft.title,
-            summary: draft.summary,
-          })
+          projectDrafts!.set(workItemId, editableContributionDraft(draft))
         }
       }
     }

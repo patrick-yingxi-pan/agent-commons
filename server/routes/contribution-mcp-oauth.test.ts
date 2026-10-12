@@ -283,3 +283,31 @@ test('OAuth revocation while credentials are pending refuses before MCP I/O and 
   assert.doesNotMatch(JSON.stringify(peerRow), new RegExp(owner.userId))
   accounts.memberships = beforeMemberships
 })
+
+test('item-first publication may use a person-owned MCP connection only for its authenticated owner', async () => {
+  const { owner, tenantId, ownerHeaders, peerHeaders } = await sharedTenant()
+  const connectionId = await bindOwnerOAuth(tenantId, owner.userId)
+  const projectId = project(tenantId)
+  const item = await call('POST', `/projects/${projectId}/open-subgoals`, {
+    subGoal: `Owner reviewed task ${sequence}`, type: 'mcp.mutate', target: 'write',
+  }, ownerHeaders)
+  assert.equal(item.status, 200, JSON.stringify(item.json))
+  const request = {
+    title: 'Reviewed owner call', workItemId: item.json.id,
+    initialMcpProposal: { connectionId, connectionRevision: 1, toolName: 'write', arguments: { value: 'reviewed' } },
+  }
+  const refusedPeer = await call('POST', `/projects/${projectId}/contributions`, request,
+    { ...peerHeaders, 'idempotency-key': `peer-item-first-${sequence}` })
+  assert.equal(refusedPeer.status, 400, 'same-tenant membership does not borrow a person-owned connection')
+  assert.equal((await call('GET', `/projects/${projectId}/contributions`, undefined, ownerHeaders)).json.length, 0,
+    'owner refusal creates no empty Contribution')
+
+  const published = await call('POST', `/projects/${projectId}/contributions`, request,
+    { ...ownerHeaders, 'idempotency-key': `owner-item-first-${sequence}` })
+  assert.equal(published.status, 200, JSON.stringify(published.json))
+  assert.equal(published.json.envelope.status, 'proposed')
+  assert.equal(published.json.envelope.lines[0].mcp.connectionLabel, 'Owner private MCP')
+  assert.deepEqual(published.json.envelope.lines[0].mcp.arguments, { value: 'reviewed' })
+  assert.doesNotMatch(JSON.stringify(published.json), /connectionId|ownerUserId|credentialReference|schemaHash|8\.8\.8\.8/)
+  assert.equal(published.json.effects?.length ?? 0, 0, 'publishing never executes the proposed tool')
+})

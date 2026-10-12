@@ -10879,6 +10879,7 @@ export const store = {
         return publicContribution(represented, tenantId)
       }
     }
+    if (Object.hasOwn(req, 'initialMcpProposal')) return 'invalid-work'
     // The link is exact immutable identity, never a free-text claim or a source
     // of authority. Derive its sub-goal from current same-Project work.
     let linkedWork: StoredOpenSubGoal | undefined
@@ -10926,6 +10927,122 @@ export const store = {
       emit({ type: 'contribution.changed', projectId })
       persist()
       return publicContribution(c, tenantId)
+    })
+  },
+  /** Explicit reviewed item-first publication. The selected call is validated
+   * against the current inspected connection before re-entering the synchronous
+   * mutation boundary; work and connection authority are checked again there.
+   * This creates a proposal only—approval and Run remain separate human acts. */
+  async openContributionWithInitialMcpProposal(
+    projectId: string,
+    req: OpenContributionRequest,
+    tenantId: string,
+    principal: PrincipalRef | undefined,
+    options: { logicalId?: string; actorUserId?: string; isCurrent?: () => boolean } = {},
+  ): Promise<Contribution | 'capped' | 'invalid' | 'invalid-work' | 'closed-work' | 'invalid-proposal' | 'conflict'> {
+    if (!options.logicalId) return 'invalid-proposal'
+    const represented = contributions.find((contribution) => contribution.id === options.logicalId)
+    if (represented) {
+      if (represented.projectId !== projectId || represented.contributorTenant !== tenantId) return 'invalid'
+      return publicContribution(represented, tenantId, options.actorUserId)
+    }
+    if (!Object.hasOwn(req, 'initialMcpProposal') || !req.initialMcpProposal ||
+        typeof req.title !== 'string' || !req.title.trim() || typeof req.workItemId !== 'string' ||
+        (req.summary !== undefined && typeof req.summary !== 'string') ||
+        (req.subGoal !== undefined && typeof req.subGoal !== 'string') ||
+        (req.sessionId !== undefined && typeof req.sessionId !== 'string')) return 'invalid-proposal'
+    if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return 'invalid-work'
+    const linkedWork = openSubGoals.find((item) => item.id === req.workItemId && item.projectId === projectId)
+    if (!isLinkableProjectWorkItem(linkedWork) || linkedWork.status !== 'open' ||
+        (req.subGoal !== undefined && (typeof req.subGoal !== 'string' || req.subGoal.trim() !== linkedWork.subGoal))) {
+      return linkedWork && linkedWork.status !== 'open' ? 'closed-work' : 'invalid-work'
+    }
+    const proposalLines = normalizedEnvelopeProposalLines({ lines: [{
+      type: 'mcp.mutate', target: linkedWork.target, cardinality: 1, harness: 'explicit-call', note: '',
+      mcp: req.initialMcpProposal,
+    }] })
+    if (!proposalLines) return 'invalid-proposal'
+    // Legacy HTTP headers may synthesize tenant test identities; ordinary
+    // tenant-owned HTTP connections need no person lookup. The binding resolver
+    // independently proves membership/ownership whenever the row is person-owned.
+    const actorUserId = principal?.kind === 'user' ? options.actorUserId ?? principal.id : undefined
+    const preparedLines = await prepareContributionMcpLines(this, tenantId, proposalLines, actorUserId)
+
+    // The async schema validator may yield. Recheck all mutable joins before
+    // publishing so a closed/retracted work item or revised connection cannot
+    // produce a half-valid public Contribution.
+    if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return 'invalid-work'
+    if (options.isCurrent && !options.isCurrent()) return 'conflict'
+    // A request that raced with this exact keyed create replays its represented
+    // row before consulting mutable item or connection state. Current read
+    // authority was checked just above; replay adds no new authority or effect.
+    const raced = contributions.find((contribution) => contribution.id === options.logicalId)
+    if (raced) {
+      if (raced.projectId !== projectId || raced.contributorTenant !== tenantId) return 'invalid'
+      return publicContribution(raced, tenantId, options.actorUserId)
+    }
+    if (!preparedLines || preparedLines.length !== 1) return 'invalid-proposal'
+    if (!openSubGoals.includes(linkedWork) || linkedWork.status !== 'open') return 'closed-work'
+    if (!isLinkableProjectWorkItem(linkedWork) || linkedWork.id !== req.workItemId ||
+        linkedWork.target !== proposalLines[0]?.target) return 'invalid-work'
+    const preparedLine = preparedLines[0]
+    if (!preparedLine || !currentContributionMcpLine(this, tenantId, { ...preparedLine, id: 'preparing', used: 0 }, actorUserId)) {
+      return 'invalid-proposal'
+    }
+    const rows = contributions.filter((contribution) => contribution.projectId === projectId)
+    if (rows.length >= MAX_CONTRIBUTIONS_PER_PROJECT ||
+        rows.filter((contribution) => contribution.status === 'open').length >= MAX_OPEN_CONTRIBUTIONS_PER_PROJECT) return 'capped'
+    const now = Date.now()
+    const actor = tenantName(tenantId)
+    const publishedProposalLine = proposalLines[0]!
+    const proposalTransport = preparedLine.mcp?.transport
+    const persistedProposalLines = [{
+      ...publishedProposalLine,
+      ...(proposalTransport === undefined || !publishedProposalLine.mcp ? {} : {
+        mcp: { ...publishedProposalLine.mcp, transport: proposalTransport },
+      }),
+    }]
+    const proposalOwnerUserId = preparedLine.mcpAuthority?.ownerUserId
+    const namedSession = req.sessionId ? SESSIONS.find((session) => session.id === req.sessionId) : undefined
+    const sessionOk = namedSession !== undefined && this.sessionVisibleToTenant(namedSession, tenantId)
+    return commitMutationBatch(() => {
+      const id = options.logicalId!
+      const openedEventId = `cev-${(contributionSeq += 1)}`
+      const lineId = `cev-${(contributionSeq += 1)}`
+      const proposalEventId = `cev-${(contributionSeq += 1)}`
+      const c: StoredContribution = {
+        id,
+        projectId,
+        title: req.title.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        summary: (req.summary ?? '').trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
+        workItemId: linkedWork.id,
+        subGoal: linkedWork.subGoal,
+        ...(sessionOk ? { sessionId: req.sessionId } : {}),
+        contributor: actor,
+        contributorTenant: tenantId,
+        ...(principal ? { contributorPrincipal: principal } : {}),
+        status: 'open',
+        openedAt: now,
+        envelope: {
+          version: 1,
+          status: 'proposed',
+          proposedBy: actor,
+          proposedAt: now,
+          lines: [{ id: lineId, ...structuredClone(preparedLine), used: 0 }],
+        },
+        events: [
+          { id: openedEventId, kind: 'opened', at: now, actor, ...(principal ? { principal } : {}) },
+          { id: proposalEventId, kind: 'envelope-proposed', at: now, actor, envelopeVersion: 1,
+            body: 'v1 · 1 act', proposedByTenant: tenantId, envelopeProposalExpectedVersion: 0,
+            envelopeProposalLines: persistedProposalLines,
+            ...(proposalOwnerUserId === undefined ? {} : { envelopeProposalOwnerUserId: proposalOwnerUserId }),
+            ...(principal ? { principal } : {}) },
+        ],
+      }
+      contributions.push(c)
+      emit({ type: 'contribution.changed', projectId })
+      persist()
+      return publicContribution(c, tenantId, options.actorUserId)
     })
   },
   /** Current containing Contribution for one keyed native comment receipt. */
