@@ -22,6 +22,7 @@ import { writeTextFileAtomically } from './atomicFile.ts'
 import { ALL_ARTIFACTS } from '../data/cowork.ts'
 import { resolveIdentity } from '../identity.ts'
 import { prepareCommissionRestoreState } from './commissionRestore.ts'
+import { prepareRoutineRestoreState } from './routineRestore.ts'
 
 function artifactHistoryReferencesAreCanonical(state: PersistedState): boolean {
   if (!state.artifactHistory?.length && !state.artifactHistoryRestoreReceipts?.length) return true
@@ -145,6 +146,7 @@ export function restoreBackendState(
     throw new Error('refusing to restore orphaned or incompatible Artifact history')
   }
   checked = prepareCommissionRestoreState(checked)
+  checked = prepareRoutineRestoreState(checked)
   checked = migrateState(checked)
   if (!hasCorePersistedShape(checked) || !artifactHistoryReferencesAreCanonical(checked)) {
     throw new Error('refusing to restore an invalid safety-transformed snapshot')

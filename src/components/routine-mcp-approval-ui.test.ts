@@ -82,6 +82,24 @@ test('owner review submits only a frozen decision and waits for server truth', (
   assert.match(facade, /onAccountSwitch\(\(\) => \{[\s\S]*?generation \+= 1/)
 })
 
+test('local Routine approval requires its own unchecked launch acknowledgement and freezes local intent only for selected local tools', () => {
+  const panel = source('src', 'components', 'RoutineMcpApprovalPanel.tsx')
+  assert.match(panel, /const \[localProgramsAcknowledged, setLocalProgramsAcknowledged\] = useState\(false\)/)
+  assert.match(panel, /selected\.some\(\(choice\) => choice\.transport === 'stdio'\)/)
+  assert.match(panel, /\.\.\.\(localPrograms \? \{ localPrograms: true as const \} : \{\}\)/)
+  assert.match(panel, /This approval may launch the selected local program unattended/)
+  assert.match(panel, /Agent Commons does not sandbox this program; it may have normal access to this computer and may have effects when it starts before any tool request/)
+  assert.match(panel, /I understand and explicitly approve unattended local-program launch\. Agent Commons does not sandbox this program; it may have normal OS access and possible startup effects/)
+  assert.match(panel, /disabled=\{held \|\| sending \|\| \(!!reviewing\.localPrograms && !localProgramsAcknowledged\)\}/)
+  assert.match(panel, /setLocalProgramsAcknowledged\(false\); setReviewing\(null\)/, 'backing out discards the prior local acknowledgement')
+  assert.match(panel, /includes local-program launch/)
+  assert.match(panel, /routineMcpTransportLabel\(receipt\.transport\)/)
+  assert.match(panel, /routineMcpTransportLabel\(choice\.transport\)/)
+  assert.match(panel, /The call failed\. This reserved call still counts toward the run limit\./, 'the general HTTP failure explanation remains intact')
+  assert.match(panel, /receipt\.transport === 'stdio' && <p[\s\S]*?The local program may have had effects during startup, even without a tool result\. This attempt paused the Routine; review its receipts before re-enabling it and renewing approval\./)
+  assert.match(panel, /rounded bg-panel p-2 text-\[10px\] text-ink-soft/, 'failed result readers retain their result surface styling')
+})
+
 test('completed receipts are labeled from actual run status even while their ledger phase is active', () => {
   const completed = { runId: 'run-complete', phase: 'active', status: 'ok', calls: [] } as const
   assert.equal(completed.phase, 'active')

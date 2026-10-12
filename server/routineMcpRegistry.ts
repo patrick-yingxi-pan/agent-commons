@@ -31,6 +31,7 @@ import {
 import {
   createRoutineMcpRun,
   parseRoutineMcpRun,
+  routineMcpReceiptNeedsReview,
   type StoredRoutineMcpRun,
 } from './routineMcpState.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
@@ -403,7 +404,7 @@ export class RoutineMcpRegistry {
       return true
     }
     if (nextCalls.length === oldCalls.length + 1 && oldCalls.some((call) =>
-      call.status === 'pending' || call.status === 'uncertain' || (call.status === 'failed' && call.result !== undefined))) return false
+      call.status === 'pending' || routineMcpReceiptNeedsReview(call))) return false
     return true
   }
 }

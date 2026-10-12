@@ -528,8 +528,22 @@ historical versions and removed connections. Private owner/transport joins rejec
 missing or mismatched provenance. The review discloses normal OS access and
 possible effects from starting the program, even before a tool request succeeds.
 Launch settings stay in native custody; reviewed arguments and results are shared
-with Project readers. Routine stdio remains unavailable. COMMONS-42 tracks this
-bounded workflow and its separate acceptance gates.
+with Project readers. Routine local stdio is a separate unattended capability:
+the authenticated person explicitly enables `localPrograms: true` in the Routine
+review, and the native host must separately expose that runtime capability.
+Neither setup nor HTTP/OAuth permission enables it. The person-private catalog,
+grant and receipt history bind exact local connection/tool/schema snapshots and
+`transport: 'stdio'`; queued runs cannot borrow a later grant. The unchecked UI
+acknowledgement discloses normal OS access and possible effects during process
+startup, before any tool result. Tool bounds are not a process sandbox, and web
+execution is unavailable. Startup failure without a result pauses the Routine,
+revokes its current local grant and never automatically retries. JSON/SQLite
+history is admitted independently of runtime availability; explicit restore
+revokes local grants, pauses affected tasks and terminalizes unfinished restored
+frozen-local runs, including queued runs with no receipt, while retaining known
+receipts. A completed historical local run alone does not revoke a newer
+HTTP-only grant. Authored-child browser coverage is being added; packaged local
+Routine smoke and full acceptance remain outstanding.
 
 Routine MCP adds a distinct opt-in permission, not context-level trust. The owner
 reviews exact tools, fixed top-level argument values, a per-run attempt cap,
@@ -704,23 +718,29 @@ the separate unsigned arm64 packaged walk uses real encrypted native custody,
 an exact fixture-only native approval and repository-authored subprocesses.
 Actual native-dialog and third-party-server acceptance remain separate gates.
 
-### Local Routine permission groundwork
+### Local Routine permission and acceptance status
 
-The next Routine transport is an explicit person-approved local program, not an
-extension of an old HTTP or OAuth grant. Pure policy preparation now requires
-`localPrograms: true` and a separately enabled trusted host. Private
-`localAuthority` pins the approving person and exact local connection IDs;
-OAuth IDs remain independently stamped, and a mixed grant must have one person,
-disjoint sets and the existing combined tool bound. Live and retired connection
-joins retain transport as well as ownership. Private receipts derive their
-`transport: 'stdio'` marker from that frozen authority rather than caller input.
+Local Routine execution is a distinct person-approved capability, not an
+extension of an old HTTP or OAuth grant. Approval requires literal
+`localPrograms: true` and a separately supplied native runtime capability.
+Private `localAuthority` pins the approving person and exact local connection
+IDs; OAuth IDs remain independently stamped, and a mixed grant must have one
+person, disjoint sets and the existing combined tool bound. Live and retired
+connection joins retain transport as well as ownership. Person-private catalog,
+grant and history preserve exact bound snapshots; receipts derive their
+`transport: 'stdio'` marker from frozen authority rather than caller input.
 
-This is internal groundwork only. Product approval/reservation and snapshot
-admission still default local programs off. Enabling the workflow requires
-person-aware host composition, explicit local-program review, truthful normal-OS
-access/startup-effect disclosures, interruption/revoke/restore fencing, and
-browser plus packaged acceptance. Existing launch grants cannot silently become
-unattended consent, and a pre-tool refusal does not prove an effect-free launch.
+The review's unchecked acknowledgement separately discloses normal OS access
+and startup effects that may occur before a tool result. Tool limits are not a
+sandbox, and web execution is unavailable. A startup failure without a result
+pauses the Routine, revokes current local authority and never triggers automatic
+retry. JSON/SQLite history admission is structural and independent of runtime
+capability. Explicit restore revokes current local grants, pauses affected tasks
+and terminalizes restored unfinished frozen-local runs, including queued runs
+with no receipt, while retaining known receipts. A completed historical local
+run alone does not revoke a newer HTTP-only grant. Browser coverage uses an
+in-memory injected stdio peer, not a child process. Packaged local Routine
+smoke and complete native acceptance remain outstanding.
 
 ## Required next work
 
@@ -730,9 +750,8 @@ unattended consent, and a pre-tool refusal does not prove an effect-free launch.
   but is not a complete MCP client. Execution-specific expiry recovery and
   input modes beyond private form elicitation remain. The bounded workflows do not
   replace those requirements or imply general server trust.
-- Unattended local transport integration remains separate work; neither OAuth
-  setup, Contribution review nor the bounded Routine permission authorizes
-  arbitrary tools, local programs or destinations.
+- Packaged local Routine smoke and full acceptance remain required; neither
+  OAuth setup nor Contribution review authorizes local Routine execution.
 - Third-party and combined packaged acceptance of the whole journey, including
   tenant walls, restart, secret exclusion, cancellation and failure recovery.
 

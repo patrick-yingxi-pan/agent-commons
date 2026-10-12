@@ -163,21 +163,29 @@ test('Commission preparation shares portable types and tool constraints without 
   assert.match(stripComments(read(join(ROOT, 'contract/routineMcp.ts'))), /RoutineMcpToolPermission\s*=\s*McpToolPermission/)
 })
 
-test('local Routine groundwork cannot silently enable the current product or snapshot hosts', () => {
+test('local Routine history is portable while execution capability remains native-owned', () => {
   const check = (snapshotHost: string, storeHost: string) => {
-    assert.ok(snapshotHost.includes('validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))'),
-      'snapshot admission must keep the default-off local Routine capability')
-    assert.doesNotMatch(storeHost, /\ballowLocalPrograms\b/,
-      'product Routine admission cannot enable unfinished local-program composition')
+    assert.ok(snapshotHost.includes('validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections), true)'),
+      'snapshot admission validates local history independently of device readiness')
+    assert.doesNotMatch(snapshotHost, /mcpRuntimeCapabilities|mcpRuntimeConfiguration/,
+      'reading history cannot depend on live native custody')
+    const gates = [...storeHost.matchAll(/allowLocalPrograms:\s*([^,\n]+)/g)].map(match => match[1])
+    assert.deepEqual(gates, Array(2).fill('mcpRuntimeCapabilities().localProcesses === true'),
+      'both approval and reservation require literal native runtime capability, never request consent alone')
+    assert.doesNotMatch(storeHost, /permission\.oauthAuthority\??\.ownerUserId|storedPolicy\?\.oauthAuthority/,
+      'Routine person projections must use the common local/OAuth permission owner')
   }
   const snapshotHost = stripComments(read(join(ROOT, 'server/persistence/format.ts')))
   const storeHost = stripComments(read(join(ROOT, 'server/store/index.ts')))
   check(snapshotHost, storeHost)
-  const mutated = snapshotHost.replace('validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))',
-    'validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections), true)')
+  const mutated = snapshotHost.replace('validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections), true)',
+    'validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))')
   assert.notEqual(mutated, snapshotHost)
-  assert.throws(() => check(mutated, storeHost), /default-off/)
-  assert.throws(() => check(snapshotHost, `${storeHost}\nconst allowLocalPrograms = true`), /unfinished local-program/)
+  assert.throws(() => check(mutated, storeHost), /independently of device readiness/)
+  const untrusted = storeHost.replace('allowLocalPrograms: mcpRuntimeCapabilities().localProcesses === true', 'allowLocalPrograms: request.approval.localPrograms')
+  assert.notEqual(untrusted, storeHost)
+  assert.throws(() => check(snapshotHost, untrusted), /literal native runtime capability/)
+  assert.throws(() => check(snapshotHost, `${storeHost}\nconst owner = storedPolicy?.oauthAuthority?.ownerUserId`), /common local\/OAuth permission owner/)
 })
 
 test('Contribution receipts and bound MCP execution share contract identity without session authority', () => {

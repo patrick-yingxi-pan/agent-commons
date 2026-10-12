@@ -69,14 +69,35 @@ The implementation proceeds through these required checkpoints:
    uncertainty without replay and explicit backup restore. Signed, Intel and
    real third-party acceptance remain separate release gates.
 
-Checkpoint 1 adds only pure policy/registry/receipt groundwork. `localPrograms:
-true` is a distinct explicit review flag; absence grants no local authority.
-Private local connection IDs and the approving person cannot be relabeled as
-OAuth or legacy HTTP. Mixed grants require the same person and disjoint exact
-connection sets. Local receipts retain a derived `stdio` marker. Each admission
-layer additionally defaults its trusted-host switch off: existing store and
-snapshot callers still refuse these grants. There is no new product execution,
-native permission, UI control or network call at this checkpoint.
+Checkpoint 1 is complete: literal `localPrograms: true` is a distinct review
+choice; absence grants no local authority. Private local connection IDs and the
+approving person cannot be relabeled as OAuth or legacy HTTP. Mixed grants
+require the same person and disjoint exact connection sets, and local receipt
+transport is derived from the frozen local stamp.
+
+Implementation checkpoint, 2026-10-12: local Routine execution is integrated
+through native runtime capability and explicit person consent. The private
+catalog/grant/history retain exact bound snapshots and `transport: 'stdio'`.
+JSON/SQLite history admission is structural and independent of runtime
+availability. A startup failure without a result pauses the Routine, revokes
+current local grants and does not retry automatically. Explicit restore revokes
+current local grants, pauses affected tasks and terminalizes restored unfinished
+frozen-local runs, including queued runs without receipts, while retaining known
+receipts; a completed historic local run alone does not revoke a newer
+HTTP-only grant. The Routine review includes a separate unchecked acknowledgement
+for normal OS access and possible startup effects. This acknowledgement is not a
+sandbox, and web execution is unavailable.
+
+The browser suite uses an in-memory injected stdio peer, not a child process;
+it covers separate consent, private receipts and account walls. The local
+registry/store failure locks were watched fail when startup-failure protection
+was removed, then restored. The shared UI sweep passed all 135 cells with zero
+violations or skips. Full local verification remains mandatory before landing;
+packaged local Routine smoke has not yet been completed. Checkpoint 3 still
+requires real child-process reviewed execution, private durable results,
+cancellation/revoke, signed-in full relaunch, uncertainty without replay and
+explicit backup restore. Signed, Intel and real third-party acceptance remain
+separate release gates.
 
 The previous Commission acceptance checkpoint landed as `05640a35`: the complete
 desktop verifier passed, followed by all five local verifier lanes and all 673
@@ -4493,7 +4514,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. Bounded macOS local-image OCR (PORT-26) is implemented and accepted for the stated macOS path. Discussion-as-Context (CTX-DISC-1) adds confirmed saved copies under its bounded checkpoint; PORT-28 separately adds explicit macOS scanned-PDF-to-Document review; non-macOS and automatic PDF-attachment OCR, broader PDF recognition accuracy/language acceptance, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain future work. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. The [2026-10-12 native review](acceptance/native-mcp-stdio-2026-10-12.md) additionally proves actual Cancel/Allow and the complete authored-peer workflow; third-party-server acceptance remains open. COMMONS-42 now adds person-owned local Contribution execution with separate Project approval and explicit Run, durable receipts and owner-reviewed linked-work resolution. COMMONS-43 adds budgeted tool-free argument drafting with explicit review/copy; a draft confers no execution authority. Routine local execution remains unsupported. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
+| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. The [2026-10-12 native review](acceptance/native-mcp-stdio-2026-10-12.md) additionally proves actual Cancel/Allow and the complete authored-peer workflow; third-party-server acceptance remains open. COMMONS-42 now adds person-owned local Contribution execution with separate Project approval and explicit Run, durable receipts and owner-reviewed linked-work resolution. COMMONS-43 adds budgeted tool-free argument drafting with explicit review/copy; a draft confers no execution authority. [MODEL-45](spec/06-model-and-tools.md) adds person-approved local Routine stdio execution through the native runtime; store and JSON/SQLite persistence locks plus the injected in-memory-peer browser scenario (2/2) cover person boundaries, separate consent and success/failure receipts. Real-child packaged Routine acceptance remains pending. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 

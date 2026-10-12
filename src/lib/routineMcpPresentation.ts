@@ -12,7 +12,13 @@ export function routineMcpApprovalIntent(
     expiresAt: review.expiresAt,
     maxCallsPerRun: review.maxCallsPerRun,
     tools: review.tools,
+    ...(review.localPrograms === true ? { localPrograms: true } : {}),
   }
+}
+
+/** Read labels distinguish connection provenance without inferring it from names. */
+export function routineMcpTransportLabel(transport?: 'stdio'): string {
+  return transport === 'stdio' ? 'Local program' : 'External server'
 }
 
 /** The receipt phase describes ledger recovery, not the owning RoutineRun. */

@@ -38,8 +38,11 @@ const fail = (code: RoutineMcpPolicyError['code'] = 'invalid'): never => { throw
 const record = (value: unknown): value is Record<string, McpJsonValue> => value !== null && typeof value === 'object' && !Array.isArray(value)
 const identity = (value: unknown): value is string => typeof value === 'string' && value.trim() === value &&
   value.length > 0 && value.length <= 200 && !/[\u0000-\u001f\u007f-\u009f]/.test(value)
-const stopsCalls = (call: RoutineMcpCallReceipt): boolean => call.status === 'pending' || call.status === 'uncertain' ||
-  (call.status === 'failed' && call.result !== undefined)
+/** A local program may act during startup, before a tools/call result exists.
+ * Failed local attempts therefore require review just like uncertain calls. */
+export const routineMcpReceiptNeedsReview = (call: RoutineMcpCallReceipt): boolean => call.status === 'uncertain' ||
+  (call.status === 'failed' && (call.result !== undefined || call.transport === 'stdio'))
+const stopsCalls = (call: RoutineMcpCallReceipt): boolean => call.status === 'pending' || routineMcpReceiptNeedsReview(call)
 
 function permissionHash(permission: StoredRoutineMcpPolicy, runId: string): string {
   return createHash('sha256').update(routineMcpJsonText({ permission, runId })).digest('hex')

@@ -1109,7 +1109,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     try {
       const routineMcp = parseRoutineMcpRegistryState(state.routineMcp)
       if (!Array.isArray(state.schedules) || !validateRoutineMcpRegistryJoins(routineMcp, state.schedules)) return false
-      if (!validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))) return false
+      // History admission proves saved owner/transport joins, not current native
+      // execution capability. Private receipts remain readable without a host.
+      if (!validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections), true)) return false
     } catch { return false }
   }
   if (state?.commissionMcp !== undefined) {

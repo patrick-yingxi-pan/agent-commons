@@ -8,7 +8,7 @@ import {
 } from './routineMcpRegistry.ts'
 import { RoutineMcpPolicyError } from './routineMcpPolicy.ts'
 import { mcpToolSchemaHash } from './mcpToolAdmission.ts'
-import { parseRoutineMcpRun, publicRoutineMcpReceipt, reserveRoutineMcpCall } from './routineMcpState.ts'
+import { interruptRoutineMcpRun, parseRoutineMcpRun, publicRoutineMcpReceipt, reserveRoutineMcpCall, settleRoutineMcpCall } from './routineMcpState.ts'
 
 const tenantId = 'tenant-local-routine'
 const routineId = 'routine-local-routine'
@@ -203,6 +203,31 @@ test('queued local calls refuse by default, require explicit host admission, and
   forged.calls[0]!.transport = 'http'
   assert.throws(() => parseRoutineMcpRun(forged), RoutineMcpPolicyError,
     'the receipt transport is derived from the frozen local authority and cannot be changed')
+})
+
+test('local startup failures stop further calls and preserve local provenance through interruption', () => {
+  const registry = new RoutineMcpRegistry()
+  decide(registry, request('local-startup-failure', intent()), { allowLocalPrograms: true })
+  const permission = registry.policy(tenantId, routineId)!
+  const queued = registry.queue(permission, 'local-startup-run')
+  const options = {
+    key: 'startup-attempt', call: localCall(), live: permission, definitionRevision: 4, reviewHash, now: now + 1,
+    allowLocalPrograms: true,
+    connection: (id: string, tenant: string, person?: string) =>
+      tenant === tenantId && person === ownerUserId && id === localId ? localConnection() : undefined,
+  }
+  const reserved = reserveRoutineMcpCall(queued, options)
+  registry.setRun(reserved.run)
+  const failed = settleRoutineMcpCall(reserved.run, reserved.receipt.id,
+    { status: 'failed', summary: 'No tool result; startup may have had effects.' }, now + 2)
+  registry.setRun(failed)
+  assert.equal(failed.calls[0].transport, 'stdio')
+  assert.equal(failed.calls[0].result, undefined)
+  catchesCode(() => reserveRoutineMcpCall(failed, { ...options, key: 'unsafe-second-attempt' }), 'denied')
+  const interrupted = interruptRoutineMcpRun(failed, now + 3)
+  assert.deepEqual(interrupted.calls, failed.calls, 'known failures are not relabeled or stripped during recovery')
+  registry.setRun(interrupted)
+  assert.deepEqual(parseRoutineMcpRegistryState(registry.snapshot()), registry.snapshot())
 })
 
 test('legacy HTTP Routine reservations remain allowed without local opt-in or transport stamps', () => {

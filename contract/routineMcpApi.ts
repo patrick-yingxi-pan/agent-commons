@@ -18,6 +18,8 @@ export interface RoutineMcpReview {
     connectionId: string
     connectionRevision: number
     connectionLabel: string
+    /** Server-derived local process provenance; absence means HTTP. */
+    transport?: 'stdio'
     schemaHash: string
     tool: McpDiscoveredTool
   }>
