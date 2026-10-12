@@ -12,9 +12,12 @@
  *  seed *plus* whatever the daemon + your clicking accreted (often thousands of
  *  runs, three features never touched). `build` boots the store on a FRESH path so
  *  it re-seeds from the source-controlled fixtures (server/data/*), then drives the
- *  REAL store mutators + relation reducer — so the snapshot can't drift from the
- *  contract, and `npm run snapshot:build` reproduces the identical playground in any
- *  clone. Snapshot files are canonical portable JSON, independent of the live
+ *  real store mutators + relation reducer for live-owned fixtures. The Commission
+ *  MCP slice is the explicit exception: its final offline history is assembled by
+ *  canonical registry transitions over the persisted snapshot, without simulating
+ *  a live consent flow or contacting an MCP server. `npm run snapshot:build`
+ *  reproduces the identical playground in any clone. Snapshot files are canonical
+ *  portable JSON, independent of the live
  *  backend, and stay gitignored under `.data/`; only this generator is checked in.
  *
  *  Persistence loads ONCE on boot (store.initPersistence), so a `restore` only
@@ -52,7 +55,7 @@ export {
 export async function buildComprehensive(): Promise<PersistedState> {
   const { store } = await import('../server/store/index.ts')
   const { opKey } = await import('../contract/index.ts')
-  const { loadState } = await import('../server/persistence/persist.ts')
+  const { loadState, saveState } = await import('../server/persistence/persist.ts')
   const {
     deriveRelayCreationSecret,
     deriveRelayRotationSecret,
@@ -823,8 +826,11 @@ export async function buildComprehensive(): Promise<PersistedState> {
 
   const { addRoutineMcpSnapshotFixture } = await import('./snapshotRoutineMcp.ts')
   if (createdScheduleId) await addRoutineMcpSnapshotFixture(store, createdScheduleId)
-  const state = loadState()
-  if (!state) throw new Error('buildComprehensive: the snapshot did not persist to the configured backend')
+  const persisted = loadState()
+  if (!persisted) throw new Error('buildComprehensive: the snapshot did not persist to the configured backend')
+  const { addCommissionMcpSnapshotFixture } = await import('./snapshotCommissionMcp.ts')
+  const state = addCommissionMcpSnapshotFixture(persisted)
+  saveState(state)
   return state
 }
 

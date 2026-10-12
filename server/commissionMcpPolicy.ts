@@ -71,7 +71,7 @@ function approvalFrom(value: McpJsonValue, scope: CommissionMcpScope): Commissio
 }
 
 /** Present malformed data fails closed. Absence is handled only as no grant by
- * the future registry; it is never reconstructed from a Commission flag. */
+ * the registry; it is never reconstructed from a Commission flag. */
 export function parseCommissionMcpPolicy(value: unknown): StoredCommissionMcpPolicy {
   const copy = detached(value)
   if (!fields(copy, [...SCOPE_FIELDS, 'policy']) || !record(copy.policy) ||

@@ -46,11 +46,11 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Staged checkpoint: fresh Commission execution foundation
+## Staged checkpoint: durable Commission execution preparation
 
 While signing and live-service acceptance await the owner inputs above, the next
-core product milestone is real Commission work. The first slice deliberately
-defines and tests permission and receipt preparation before exposing a worker.
+core product milestone is real Commission work. The preparation slices define
+permission, claims and durable receipt recovery before exposing a worker.
 It does not close MOCK-9 or change existing standing configuration.
 
 The selected initial path is one exact HTTP MCP call for each posted
@@ -69,14 +69,49 @@ without changing Routine consent or stored hash semantics. Disposable mutations
 of expiry, exact work-target matching and fixed-argument equality each caused
 their focused regression tests to fail before restoration.
 
-Next, wire the private registry and strict persistence joins, atomic work/capacity
-and model-budget admission, then the single-call worker and fresh owner review
-UI. The host must recheck current ownership/membership, role/reach, Project fire
+The private registry now stores append-only, person-scoped grant revisions and
+global Project/item claims. A claim freezes its selected tool before model
+preparation; at most one exact effect receipt can follow it. All admitted items
+consume a grant slot, including failures and uncertainty. Registry-local active
+capacity is four per process, two per paying tenant and one per tenant/Agent.
+Those bounds do not yet coordinate live model work or other execution engines.
+
+JSON, SQLite and portable snapshots carry strict assignment/work/connection
+joins. Paying ownership is the Commission/Agent tenant, not necessarily the
+Project owner: cross-tenant participation in a shared Project remains intended.
+Ownerless HTTP none/bearer connections retain their existing tenant ownership;
+OAuth identities must match the approving person, including retired connections.
+Startup interrupts pending claims and withdraws their grants before admission.
+Commission deletion retains history and retires its identity; neither keyed
+recreation nor development fixture dispatch can reuse represented work.
+
+Historical grants intentionally survive membership removal. Structural joins
+prove consistency, not past authentication; every future admission and I/O gate
+must prove the actual person's current authority. Legacy missing state remains
+empty. Explicitly restoring an older backup can roll history back, so this is
+not an anti-rollback or external exactly-once guarantee. Before enabling a
+worker, define restore handling that requires renewed review and reconciliation
+of potentially repeated external work. No model or MCP I/O is enabled here.
+
+Focused claim tests caught and corrected an integration error that compared the
+distinct work-claim and effect-receipt ID prefixes instead of their exact joined
+scope. An isolated in-memory mutation that removed interruption of pending
+claims made the recovery regression fail; the working tree was never mutated
+for that check. Backend tests exercise real disposable JSON/SQLite restarts and
+portable snapshot fixtures, not authenticated execution or external services.
+Boundary-size testing also reproduced a settlement failure when a valid large
+policy, selected call and known result exceeded the outer claim budget. Its
+composed limit now accommodates the independently bounded components; an
+oversized result still becomes uncertainty through the effect receipt parser.
+
+Next, wire live atomic work/capacity and model-budget admission, then the
+single-call worker and fresh owner review UI. The host must recheck current
+ownership/membership, role/reach, Project fire
 and Guardian gates, tool schema and publication authority through asynchronous
 waits. A durable claim must precede paid model I/O and the effect receipt must
 precede tool I/O. Completion and credit require verified successful current work;
 uncertain work cannot be automatically reassigned or replayed. None of that host
-integration is claimed by this foundation checkpoint. Full local verification
+execution integration is claimed by this preparation checkpoint. Full local verification
 and post-test diff review remain mandatory before landing.
 
 The first full verifier passed its checks lane and three browser shards, but an

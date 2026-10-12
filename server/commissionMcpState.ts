@@ -33,6 +33,14 @@ const fields = (value: Record<string, McpJsonValue>, keys: readonly string[]): b
 const text = (value: unknown, max: number, blank = false): value is string => typeof value === 'string' &&
   value.length <= max && value.trim() === value && (blank || value.length > 0)
 
+export function parseCommissionMcpWork(value: unknown): CommissionMcpWork {
+  try {
+    const copy = snapshotMcpJson(value, { maxBytes: 65_536, maxDepth: 16, maxNodes: 256 })
+    if (!record(copy)) return fail()
+    return workFrom(copy)
+  } catch { return fail() }
+}
+
 function workFrom(value: McpJsonValue): CommissionMcpWork {
   if (!record(value) || !fields(value, ['itemId', 'subGoal', 'type', 'target', 'note']) ||
       !text(value.itemId, 200) || /[\u0000-\u001f\u007f-\u009f]/.test(value.itemId) ||

@@ -481,6 +481,13 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.equal(s.routineMcp?.runs.length, 1, 'a queued run keeps its frozen permission proof')
   assert.equal(s.routineMcp?.runs[0]?.calls[0]?.status, 'done', 'the offline snapshot fixture records a settled bounded receipt')
   assert.equal(s.routineMcp?.runs[0]?.permission.policy.approval?.tools[0]?.toolName, 'snapshot_fixture')
+  assert.equal(s.commissionMcp?.policies.length, 1, 'the private Commission MCP slice has a fresh person-scoped approval')
+  assert.equal(s.commissionMcp?.policies[0]?.ownerUserId, 'user-zeta', 'the approval is scoped to one person')
+  assert.equal(s.commissionMcp?.claims.length, 1, 'the snapshot keeps the exact Project open-work claim')
+  assert.equal(s.commissionMcp?.claims[0]?.phase, 'effect', 'the offline fixture includes an exact tool receipt')
+  assert.equal(s.commissionMcp?.claims[0]?.attempt.status, 'done', 'the bounded known result round-trips')
+  assert.equal(s.commissionMcp?.claims[0]?.attempt.result.content[0]?.text, 'Known offline fixture result.')
+  assert.equal(s.commissionMcp?.retired.length, 0, 'the live fixture assignment is not retired')
   assert.ok(s.recents.repo.includes('repo-playground'), 'a recent was promoted')
   assert.ok(s.recentsByTenant?.some(([tenantId, recents]) => tenantId === 'tenant-zeta' && recents.repo.includes('repo-tenant-zeta')),
     'non-default viewer recents persist in their own partition')

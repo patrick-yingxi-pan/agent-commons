@@ -80,6 +80,8 @@ import { parseMcpInputFlows, validateMcpInputFlows, type McpInputFlow } from '..
 import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
 import { validateRoutineMcpAuthorities } from '../routineMcpAuthority.ts'
+import { parseCommissionMcpRegistryState, type CommissionMcpRegistryState } from '../commissionMcpRegistry.ts'
+import { validateCommissionMcpRegistryJoins } from '../commissionMcpAuthority.ts'
 import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
 import { parseScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
@@ -492,6 +494,9 @@ export interface PersistedState {
   mcpInputFlows?: McpInputFlow[]
   /** Owner-only unattended permissions, frozen run grants and exact receipts. */
   routineMcp?: RoutineMcpRegistryState
+  /** Private fresh Commission grants, pre-model claims and exact effect receipts.
+   * Missing legacy state is empty, never inferred from standing configuration. */
+  commissionMcp?: CommissionMcpRegistryState
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -614,6 +619,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   mcpActivityAuthorities: 'array',
   mcpInputFlows: 'array',
   routineMcp: 'singleton',
+  commissionMcp: 'singleton',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',
@@ -1099,6 +1105,18 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       const routineMcp = parseRoutineMcpRegistryState(state.routineMcp)
       if (!Array.isArray(state.schedules) || !validateRoutineMcpRegistryJoins(routineMcp, state.schedules)) return false
       if (!validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))) return false
+    } catch { return false }
+  }
+  if (state?.commissionMcp !== undefined) {
+    try {
+      const commissionMcp = parseCommissionMcpRegistryState(state.commissionMcp)
+      if ((state.commissions ?? []).some(entry => !Array.isArray(entry) || entry.length !== 2 || entry[0] !== entry[1]?.id) ||
+          (state.agents ?? []).some(entry => !Array.isArray(entry) || entry.length !== 2 || entry[0] !== entry[1]?.id)) return false
+      if (!validateCommissionMcpRegistryJoins(commissionMcp, {
+        commissions: (state.commissions ?? []).map(([, row]) => row),
+        agents: (state.agents ?? []).map(([, row]) => row), work: state.openSubGoals ?? [],
+        connections: parseMcpConnectionState(state.mcpConnections),
+      })) return false
     } catch { return false }
   }
   if (state?.modelPreferences !== undefined) {

@@ -29,6 +29,8 @@ import { createContributionEffectAttempt, settleContributionEffectAttempt, inter
 import { contributionMcpProposalOwner } from '../contributionMcpAuthority.ts'
 import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
 import { RoutineMcpRegistry, validateRoutineMcpRegistryJoins } from '../routineMcpRegistry.ts'
+import { CommissionMcpRegistry, emptyCommissionMcpRegistry } from '../commissionMcpRegistry.ts'
+import { validateCommissionMcpRegistryJoins } from '../commissionMcpAuthority.ts'
 import { RoutineMcpPolicyError, routineMcpCallPermitted, routineMcpJsonText } from '../routineMcpPolicy.ts'
 import { reserveRoutineMcpCall, settleRoutineMcpCall, interruptRoutineMcpRun, publicRoutineMcpReceipt } from '../routineMcpState.ts'
 import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
@@ -2415,6 +2417,7 @@ const contextRegistry = createContextRegistry({
 })
 const mcpConnectionRegistry = createMcpConnectionRegistry()
 const routineMcpRegistry = new RoutineMcpRegistry()
+const commissionMcpRegistry = new CommissionMcpRegistry()
 const mcpActivityAuthorities = new Map<string, McpActivityAuthority>()
 const mcpInputFlows = new Map<string, McpInputFlow>()
 const mcpActivityAuthorityKey = (sessionId: string, activityId: string) => JSON.stringify([sessionId, activityId])
@@ -2991,6 +2994,7 @@ function snapshot(): PersistedState {
     mcpActivityAuthorities: [...mcpActivityAuthorities.values()].map(row => ({ ...row })),
     mcpInputFlows: structuredClone([...mcpInputFlows.values()]),
     routineMcp: routineMcpRegistry.snapshot(),
+    commissionMcp: commissionMcpRegistry.snapshot(),
     usageMeters: usageRegistry.snapshot(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
     // the providers so a restored one keeps its concrete model id.
@@ -3103,6 +3107,7 @@ function cleanFirstBootState(): PersistedState {
   clean.savedContexts = []
   clean.mcpConnections = { connections: [], retired: [] }
   clean.routineMcp = { policies: [], runs: [], decisions: [] }
+  clean.commissionMcp = emptyCommissionMcpRegistry()
   clean.usageMeters = []
   clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
   clean.providerConfigs = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]]
@@ -3698,6 +3703,13 @@ function rehydrate(s: PersistedState): boolean {
   // back to the backlog length so freshly minted ids never collide with restored ones.
   openSubGoals.splice(0, openSubGoals.length, ...(s.openSubGoals ?? []))
   openSubGoalSeq = s.seq.openSubGoal ?? openSubGoals.length
+  commissionMcpRegistry.replace(s.commissionMcp ?? emptyCommissionMcpRegistry())
+  if (!validateCommissionMcpRegistryJoins(commissionMcpRegistry.snapshot(), {
+    commissions: [...COMMISSIONS.values()], agents: [...WORKER_AGENTS.values()], work: openSubGoals,
+    connections: mcpConnectionRegistry.snapshot(), defaultTenantId: defaultTenantId(),
+    projectIds: new Set([...baseProjects(), ...graph.extraProjects].map(project => project.id)),
+  })) throw new Error('Persisted Commission MCP state has invalid owner, work or connection bindings.')
+  const recoveredCommissionMcp = commissionMcpRegistry.recover(Date.now())
   // Phase A contributions — restore the ledgers (empty for a pre-field snapshot).
   // The counter's fallback floor is rows + ALL their events, not rows alone: the
   // shared seq mints contribution ids AND event ids (each row consumed ≥2), so a
@@ -3886,7 +3898,7 @@ function rehydrate(s: PersistedState): boolean {
   }
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch || recoveredRoutineMcp
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch || recoveredRoutineMcp || recoveredCommissionMcp
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -6757,6 +6769,9 @@ export const store = {
     options: { logicalId?: string } = {},
   ): Commission {
     const owningTenant = tenantId ?? input.tenantId
+    if (options.logicalId && commissionMcpRegistry.isRetired(options.logicalId)) {
+      throw new ConflictError('This retired Contributor identity cannot be reused. Create a new Contributor instead.')
+    }
     // Keyed creation is side-effect free on durable replay: it does not re-run
     // capacity/authority checks or rewind later Contributor configuration.
     if (options.logicalId) {
@@ -6903,6 +6918,7 @@ export const store = {
       this.projectSubGoals(commission.projectId)
         .filter((subGoal) => subGoal.holder === id)
         .forEach((subGoal) => this.releaseSubGoal(subGoal.reservationId))
+      commissionMcpRegistry.retireCommission(id, Date.now())
       COMMISSIONS.delete(id)
       emit({ type: 'commission.changed', projectId: commission.projectId })
       persist()
@@ -9402,6 +9418,9 @@ export const store = {
     // a release cannot convert them into synthetic completion or credit.
     if (automationRuntimeMode() !== 'fixture') return false
     if (item.status !== 'open') return false
+    // A durable real-work claim is never eligible for synthetic reassignment,
+    // including after a failed preparation, uncertain effect, or grant renewal.
+    if (commissionMcpRegistry.claim(item.projectId, item.id)) return false
     const monotonic = isProjectEffectMonotonic(item.type)
     const reaches = item.type.startsWith('connector.') || item.type.startsWith('mcp.')
     const candidates = [...COMMISSIONS.values()]

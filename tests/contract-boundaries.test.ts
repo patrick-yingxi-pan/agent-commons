@@ -151,7 +151,8 @@ test('Commission preparation shares portable types and tool constraints without 
     assert.doesNotMatch(source, /\bstanding\b|from ['"][^'"]*routineMcp[^'"]*['"]/,
       'legacy standing flags and Routine policy must not supply Commission authority')
   }
-  for (const path of ['server/commissionMcpPolicy.ts', 'server/commissionMcpState.ts']) {
+  for (const path of ['server/commissionMcpPolicy.ts', 'server/commissionMcpState.ts',
+    'server/commissionMcpClaim.ts', 'server/commissionMcpRegistry.ts']) {
     const source = stripComments(read(join(ROOT, path)))
     check(source)
     assert.throws(() => check(source.replace("from '../contract/commissionMcp.ts'", "from '../contract/routineMcp.ts'")), /distinct portable contract/)
