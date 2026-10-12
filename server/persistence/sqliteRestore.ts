@@ -55,11 +55,12 @@ export function restoreDamagedSqlite(
   const movedSidecars: { saved: string; original: string }[] = []
   let databasePublished = false
   let preserveStaging = false
+  let expectedState: PersistedState
 
   try {
     const staged = createBackend(stagedDatabase)
     try {
-      restoreBackendState(staged, state)
+      expectedState = restoreBackendState(staged, state)
     } finally {
       staged.close()
     }
@@ -98,7 +99,7 @@ export function restoreDamagedSqlite(
     } finally {
       finalBackend.close()
     }
-    if (!finalState || JSON.stringify(finalState) !== JSON.stringify(state)) {
+    if (!finalState || JSON.stringify(finalState) !== JSON.stringify(expectedState!)) {
       throw new Error('the published SQLite replacement did not retain the selected backup')
     }
     for (const suffix of SQLITE_COMPANIONS) {

@@ -24,6 +24,11 @@ const HOUR = 3_600_000
 const DAY = 24 * HOUR
 export const MAX_USAGE_STATE_START = 8_640_000_000_000_000 - 7 * DAY
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** Stable local window identities and lengths, shared with tenant reservation accounting. */
+export const USAGE_WINDOW_DEFINITIONS = [
+  { label: '5-hour limit', key: 'fiveHour', windowMs: 5 * HOUR },
+  { label: 'Weekly · all models', key: 'weekly', windowMs: 7 * DAY },
+] as const
 
 interface LimitWindow {
   label: string

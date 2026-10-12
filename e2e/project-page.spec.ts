@@ -549,6 +549,10 @@ test('Organize pane folds the focused page, and the posture survives a reload', 
   const page = ada.page
   await page.goto(PROJECT)
   await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
+  // Changes is a lazy section. Its temporary loading paragraph is not a
+  // FoldSection and would be counted as extra inter-section space below.
+  // Prove the actual section exists before measuring the resting page.
+  await expect(header(page, 'Changes')).toBeVisible()
 
   const expanded = () => page.locator(`${HEADERS}[aria-expanded="true"]`)
 

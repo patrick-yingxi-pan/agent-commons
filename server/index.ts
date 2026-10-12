@@ -20,6 +20,7 @@ import { buildRouter } from './routes/index.ts'
 import { configureScheduleExecutor, store } from './store/index.ts'
 import { startRoutineScheduler } from './scheduler.ts'
 import { createRoutineRunner } from './routineRunner.ts'
+import { createCommissionMcpRunner } from './commissionMcpRunner.ts'
 import { startModelServer } from './model/index.ts'
 import { positiveNumberEnv } from './env.ts'
 import { closePersistence } from './persistence/persist.ts'
@@ -55,6 +56,11 @@ process.on('exit', closePersistence)
 const router = buildRouter()
 const routineRunner = createRoutineRunner(store)
 configureScheduleExecutor((taskId, runId) => routineRunner.enqueue(taskId, runId))
+const commissionMcpRunner = createCommissionMcpRunner({
+  candidates: () => store.commissionMcpWorkCandidates(),
+  run: (candidate, signal) => store.runCommissionMcpWork(
+    candidate.commissionId, candidate.tenantId, candidate.userId, candidate.itemId, signal),
+})
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -155,6 +161,10 @@ server.listen(PORT, HOST, () => {
   // Reclaim any execution-aware run left in-flight by the previous process
   // before the cadence producer admits new work.
   routineRunner.start()
+  // Persistence has been initialized above and the listener is now accepting
+  // traffic. Stop admission immediately if a later durable commit faults.
+  commissionMcpRunner.start()
+  const unsubscribeCommissionFault = store.subscribePersistenceFault(() => { void commissionMcpRunner.stop() })
   // Waiting person reviews own no open remote session and never resume I/O on
   // restart. Local expiry only releases their private state and history hold.
   store.expireMcpInputReviews()
@@ -183,8 +193,13 @@ server.listen(PORT, HOST, () => {
     store.beginDraining()
     stopScheduler()
     routineRunner.stop()
+    unsubscribeCommissionFault()
+    const commissionMcpStopped = commissionMcpRunner.stop()
     clearInterval(inputReviewExpiry)
-    server.close(() => process.exit(0)) // exits once all connections have closed
+    // Wait within the process drain bound. If the hard fallback wins, an
+    // already-sent call keeps its durable pending receipt; startup converts it
+    // to uncertainty and never replays it. Shutdown cannot undo a remote effect.
+    server.close(() => { void commissionMcpStopped.then(() => process.exit(0)) })
     // Let normal in-flight requests finish, then force-close lingering streams so close()
     // can complete; a hard fallback guarantees exit even then. Both unref'd so they never
     // keep the process alive on their own.

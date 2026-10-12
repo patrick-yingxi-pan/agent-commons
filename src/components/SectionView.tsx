@@ -134,6 +134,7 @@ import { NotificationRow, type NotificationDoors } from './NotificationList'
 import { doorFor } from '../lib/notificationDoor'
 import { DOOR_CLASS, STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { ROW_DOOR_CLASS, cardDoorClick, isCardControlClick } from '../lib/cardDoor'
+import { ROW_DETAIL_CLASS } from '../lib/rowDetail.ts'
 import { LEDGER_LIST_CLASS, LEDGER_ROW_CLASS, LEDGER_RULE_CLASS, QUIET_CARD_CLASS } from '../lib/ledger'
 import { SOFT_BUTTON_CLASS, DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
 import { composerRows, FIELD_BARE_CLASS, FIELD_SHELL_CLASS, FORM_INPUT_CLASS } from '../lib/formInput'
@@ -404,10 +405,6 @@ import {
   useCommissionMutationStatus,
 } from '../controller/commissionMutations'
 import {
-  enqueueCommissionCreation,
-  isCommissionCreationHeld,
-} from '../controller/commissionCreationMutations'
-import {
   COMMISSION_DELETE_SCOPE,
   enqueueCommissionDeletion,
   heldCommissionDeletions,
@@ -675,6 +672,9 @@ import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
 import { DeferredNewDispatchDialog } from './DeferredNewDispatchDialog.tsx'
 import { DeferredCommissionDialog } from './DeferredCommissionDialog.tsx'
+import { DeferredCommissionAdd as CommissionAdd } from './DeferredCommissionAdd.tsx'
+import { DeferredCommissionMcpApprovalPanel } from './DeferredCommissionMcpApprovalPanel.tsx'
+import { isCommissionMcpHeld, useCommissionMcpMutationStatus } from '../controller/commissionMcpMutationState.ts'
 import { DeferredAgentProposalsReviewDialog } from './DeferredAgentProposalsReviewDialog.tsx'
 import { DeferredContributionReviewPanel } from './DeferredContributionReviewPanel.tsx'
 import { DeferredContributionEnvelopeCard } from './DeferredContributionEnvelopeCard.tsx'
@@ -682,7 +682,7 @@ import { DeferredDelegatedJudgmentPanel } from './DeferredDelegatedJudgmentPanel
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { artifactSourceSessionId } from '../lib/artifactSource'
-import { resolvedByCommission } from '../lib/commissionTrackRecord'
+import { resolvedByCommission, resolvedWorkKindLabel, type CommissionTrackRecordSummary } from '../lib/commissionTrackRecord'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { useDismissable } from '../lib/useDismissable'
 import { SCRIM_CLASS } from '../lib/scrim'
@@ -2423,6 +2423,7 @@ function ShareToggle({ project }: { project: Project }) {
  *  reads the same for owner and visitor — the commissioned agents, carded. */
 function ContributorsPanel({ project }: { project: Project }) {
   const currentCommissions = useCommissions(project.id).data ?? []
+  const resolvedHere = resolvedByCommission(useOpenSubGoals(project.id).data ?? [])
   useCommissionDeletionStatus()
   // The server may broadcast committed absence before the originating DELETE
   // response settles. Retain exactly those reviewed rows until reconciliation
@@ -2468,6 +2469,7 @@ function ContributorsPanel({ project }: { project: Project }) {
                 commission={c}
                 agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
                 contributions={agentsById.get(c.agentId)?.contributions}
+                resolvedHere={resolvedHere.get(c.id)}
               />
             </div>
           ))}
@@ -2533,13 +2535,12 @@ function ContributorRow({
   agentLabel: string
   /** The Contributor Agent's D13 reputation — successful commissioned effects (OQ1). */
   contributions?: number
-  /** S8 — for a STANDING commission, what it actually resolved on THIS project (its
-   *  local track record, distinct from the cross-project Award total). Undefined for a
-   *  non-standing commission (no unprompted acts to summarize). */
-  resolvedHere?: { count: number; lastAt: number }
+  /** Project-local results distinguish verified MCP calls from legacy simulation. */
+  resolvedHere?: CommissionTrackRecordSummary
 }) {
   useCommissionMutationStatus()
   useCommissionDeletionStatus()
+  useCommissionMcpMutationStatus()
   const reach = useCommissionAuthority(commission.id).data
   // Post-clamp the connectors are always a concrete set (the Project admits a concrete
   // list); show them as the visible isolation boundary. Each connector that resolves
@@ -2552,9 +2553,10 @@ function ContributorRow({
     .allProjects()
     .find((p) => p.id === commission.projectId)
   const [editing, setEditing] = useState(false)
+  const [mcpOpen, setMcpOpen] = useState(false)
   const [confirmingRemoval, setConfirmingRemoval] = useState(false)
   const deleting = isCommissionDeletionHeld(commission.id)
-  const mutationHeld = deleting || isCommissionMutationHeld(commission.id)
+  const mutationHeld = deleting || isCommissionMutationHeld(commission.id) || isCommissionMcpHeld(commission.id)
   const requestRemoval = () => {
     if (!mutationHeld) setConfirmingRemoval(true)
   }
@@ -2565,8 +2567,9 @@ function ContributorRow({
   }
   return (
     <div
-      className="group flex items-start gap-2.5"
+      className="group grid grid-cols-[10px_minmax(0,1fr)_auto] items-start gap-x-2.5"
       aria-busy={deleting}
+      data-contributor-row={commission.id}
       data-commission-removal={deleting || undefined}
     >
       <span className="mt-1 flex h-2.5 w-2.5 shrink-0 items-center justify-center text-ok">
@@ -2580,7 +2583,7 @@ function ContributorRow({
           </span>
           {commission.standing && (
             <span
-              title="Standing configuration: development simulation only; no unattended execution in this release"
+              title="Legacy Standing: development simulation only. Real MCP work requires separate approval."
               className="shrink-0 rounded-full bg-accent/10 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-accent"
             >
               standing
@@ -2621,16 +2624,14 @@ function ContributorRow({
             </>
           )}
         </div>
-        {/* S8 — the acts this STANDING contributor produced HERE (D19), so the row shows
-            local output, not just the cross-project Award total that misreads as local. */}
-        {resolvedHere && (
+        {(resolvedHere || commission.standing) && (
           <div
             className="text-[11px] text-ink-faint"
-            title="Historical simulated work on this Project — not proof of Agent or tool execution"
+            title="Completed items on this Project. Real MCP counts verified calls; simulated items did not run an Agent or tools."
           >
-            {resolvedHere.count > 0
-              ? `Simulated ${resolvedHere.count} item${resolvedHere.count === 1 ? '' : 's'} here · last ${relativeTime(resolvedHere.lastAt)}`
-              : 'Standing · no simulated items yet'}
+            {resolvedHere
+              ? `Real MCP: ${resolvedHere.realCount} · Simulated: ${resolvedHere.simulatedCount} here · last ${relativeTime(resolvedHere.lastAt)}`
+              : 'No completed items here yet'}
           </div>
         )}
         {deleting && <div className="text-[11px] text-ink-faint">Removing Contributor…</div>}
@@ -2641,6 +2642,10 @@ function ContributorRow({
         disabled={mutationHeld}
         disabledReason="Waiting for this Contributor change to settle"
       />
+      {commission.mine === true && <div className={ROW_DETAIL_CLASS}>
+        <button type="button" aria-expanded={mcpOpen} onClick={() => setMcpOpen(open => !open)} className="mt-2 text-[11px] font-medium text-ink-soft hover:text-ink">{mcpOpen ? 'Hide unattended MCP' : 'Unattended MCP…'}</button>
+        {mcpOpen && <DeferredCommissionMcpApprovalPanel commissionId={commission.id} agentLabel={agentLabel} />}
+      </div>}
       {editing && project && (
         <DeferredCommissionDialog
           commission={commission}
@@ -2662,119 +2667,6 @@ function ContributorRow({
   )
 }
 
-/** The "Commission an agent" picker — the Contributors header's verb, listing
- *  the Agents not already contributing. Picking one holds an acknowledged commission
- *  (inheriting the Agent's grant) until exact server truth settles it. The role is
- *  stated, not implied (INV-9 — the request must name one): `joinRole` is the
- *  Project's defaultRole-else-writer, shown in the picker so a click grants exactly
- *  what it says; per-contributor changes live in the row's Edit dialog. */
-function CommissionAdd({ projectId, available, joinRole }: { projectId: string; available: Agent[]; joinRole: ProjectRole }) {
-  const tenantId = useMe().data?.tenant.id
-  const [open, setOpen] = useState(false)
-  const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
-  const [pending, setPending] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const close = () => {
-    if (isCommissionCreationHeld(projectId)) return
-    setOpen(false)
-    setSelectedAgent(null)
-    setError(null)
-  }
-  const ref = useDismissable<HTMLDivElement>(open, close)
-  const popRef = usePopoverShift<HTMLDivElement>(open)
-  // An ambient roster refresh may represent a committed request before its
-  // transport settles. Keep the submitted row visible until the controller does.
-  const choices = selectedAgent && !available.some((agent) => agent.id === selectedAgent.id)
-    ? [selectedAgent, ...available]
-    : available
-
-  const commission = async (agent: Agent) => {
-    if (pending || !tenantId) return
-    setSelectedAgent(agent)
-    setPending(agent.id)
-    setError(null)
-    try {
-      const outcome = await enqueueCommissionCreation({
-        tenantId,
-        request: { agentId: agent.id, projectId, role: joinRole },
-      })
-      if (outcome === 'discarded') {
-        setError('Your Contributor choice is still here. Review it, then commission again when ready.')
-        return
-      }
-      setOpen(false)
-      setSelectedAgent(null)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not commission this Agent.')
-    } finally {
-      setPending(null)
-    }
-  }
-
-  return (
-    // The section header's verb (S17) — the popover anchors under the header's
-    // right edge, where the trigger now lives.
-    <div ref={ref} className="relative">
-      <SectionAction
-        label="Commission an agent"
-        icon={<Plus size={14} />}
-        onClick={() => {
-          if (open) close()
-          else if (!isCommissionCreationHeld(projectId)) setOpen(true)
-        }}
-        open={open}
-        disabled={!tenantId || pending !== null}
-        disabledReason={pending ? 'Waiting for server acknowledgement' : 'Waiting for your account'}
-      />
-
-      {open && (
-        <div
-          ref={popRef}
-          role="dialog"
-          aria-label="Commission an agent"
-          aria-busy={pending !== null}
-          className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-2 ${POPOVER_SURFACE}`}
-        >
-          {choices.length === 0 ? (
-            <p className="px-1.5 py-1 text-[12px] text-ink-faint">Every agent is already a Contributor.</p>
-          ) : (
-            <>
-              {choices.map((a) => (
-                <button
-                  key={a.id}
-                  onClick={() => commission(a)}
-                  disabled={pending !== null}
-                  data-pending={pending === a.id || undefined}
-                  className={`group mb-0.5 flex w-full items-center gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition hover:bg-panel-2 disabled:opacity-50 ${pending === a.id ? 'bg-accent/10 ring-1 ring-accent/30' : ''}`}
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-panel-2 text-ink-soft">
-                    <Cpu size={15} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[13px] font-medium text-ink">{a.label}</span>
-                    <span className="block truncate text-[11px] text-ink-faint">
-                      {a.tools.length} tool{a.tools.length === 1 ? '' : 's'}
-                    </span>
-                  </span>
-                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-ink-faint transition group-hover:bg-accent-solid group-hover:text-on-solid">
-                    {pending === a.id ? <Spinner size={13} /> : <Plus size={13} />}
-                  </span>
-                </button>
-              ))}
-              {/* The role a pick grants — stated, not implied (the strict API requires
-                  the request to name one; this is the visible edge choice). */}
-              <p className="mt-1 border-t border-line px-1.5 pt-1.5 text-[11px] text-ink-faint">
-                Joins as <span className="font-medium text-ink-soft">{joinRole}</span> — change per
-                contributor via its Edit.
-              </p>
-              {error && <p role="alert" className="px-1.5 pt-1.5 text-[11px] text-danger">{error}</p>}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
 
 /** The project's "Coordination" card (docs/agent-commons.md, D11) — the in-flight
  *  sub-goals different Contributors are handling, reserved at the Project's Guardian.
@@ -3459,7 +3351,7 @@ function WorkItemRow({
                 </>
               ) : (
                 <>
-                  {' · '}done by <AgentActor label={o.resolvedByLabel} />
+                  {' · '}{resolvedWorkKindLabel(o)} · done by <AgentActor label={o.resolvedByLabel} />
                   {o.resolvedByOwner ? (
                     <>
                       {' '}· agent of{' '}
@@ -3813,7 +3705,7 @@ function WorkItemPage({
                     </>
                   ) : (
                     <>
-                      done by <AgentActor label={o.resolvedByLabel} />
+                      {resolvedWorkKindLabel(o)} · done by <AgentActor label={o.resolvedByLabel} />
                       {o.resolvedByOwner ? (
                         <>
                           {' '}· agent of{' '}
@@ -10632,10 +10524,8 @@ function CommissionsTab() {
   )
 }
 
-/** One project's commissioned Contributors. Fetches the project's open work ONCE here
- *  (not per row) and folds it into a resolvedBy → {count, last} map, so each STANDING
- *  Contributor can show what it actually did HERE (S8) — the per-project track record
- *  that the cross-project Award total (a state word) otherwise misreads as local. */
+/** One project's Contributors, with the same Project-local track record as its
+ * detail page. Read work once per group, never once per row. */
 function ProjectCommissionGroup({
   projectId,
   title,
@@ -10672,7 +10562,7 @@ function ProjectCommissionGroup({
               commission={c}
               agentLabel={agentsById.get(c.agentId)?.label ?? c.agentLabel ?? c.agentId}
               contributions={agentsById.get(c.agentId)?.contributions}
-              resolvedHere={c.standing ? resolvedHere.get(c.id) ?? { count: 0, lastAt: 0 } : undefined}
+              resolvedHere={resolvedHere.get(c.id)}
             />
           </div>
         ))}

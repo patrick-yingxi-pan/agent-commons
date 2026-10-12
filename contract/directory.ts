@@ -136,6 +136,10 @@ export interface OpenSubGoal {
    *  live lookup that a later commission delete would erase). Completes the
    *  attribution chain's owner leg on the wire; absent on pre-Phase-3 rows. */
   resolvedByOwner?: string
+  /** Server-derived provenance for a successful real Commission MCP execution.
+   *  Present only when this exact done item joins to its durable completed MCP
+   *  claim; never persisted as a second source of truth. */
+  commissionResolution?: 'mcp'
   /** Human owner explicitly linked a Contribution to its exact successful MCP
    *  result. This is distinct from Commission resolution/credit: `by` is the
    *  public display name of the owner who landed it. */

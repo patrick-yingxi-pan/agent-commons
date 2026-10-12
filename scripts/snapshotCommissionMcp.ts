@@ -93,5 +93,26 @@ export function addCommissionMcpSnapshotFixture(
       result: { resultType: 'complete', content: [{ type: 'text', text: 'Known offline fixture result.' }], isError: false } }, NOW + 3)
   }
   state.commissionMcp = registry.snapshot()
+  // This fixture never runs a model. Current-version claim snapshots still need
+  // an exact usage-receipt join, so represent that known zero usage explicitly.
+  const claim = state.commissionMcp.claims.find(row => row.permission.commissionId === COMMISSION_ID)!
+  state.usageReservations ??= []
+  state.usageReservations.push({ id: claim.id, tenantId: TENANT, allowance: 1,
+    fiveHourStart: 0, weeklyStart: 0, status: 'settled', report: { inputTokens: 0, outputTokens: 0 } })
+  return state
+}
+
+/** Attach a private reservation to the Commission-only fixture. This constructs
+ * persisted bytes directly for restart and admission tests; it never invokes a
+ * model or changes the live usage meter. */
+export function addCommissionUsageReservationSnapshotFixture(
+  input: PersistedState,
+  status: 'active' | 'uncertain' | 'settled' = 'active',
+): PersistedState {
+  const state = addCommissionMcpSnapshotFixture(input, status === 'active' ? 'preparing' : 'done')
+  const claim = state.commissionMcp!.claims.find(row => row.permission.commissionId === COMMISSION_ID)!
+  state.usageReservations = [{ id: claim.id, tenantId: TENANT, allowance: 10_000,
+    fiveHourStart: 1_791_120_000_000, weeklyStart: 1_791_120_000_000,
+    status, report: status === 'settled' ? { inputTokens: 23, outputTokens: 9 } : null }]
   return state
 }

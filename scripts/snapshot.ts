@@ -828,8 +828,8 @@ export async function buildComprehensive(): Promise<PersistedState> {
   if (createdScheduleId) await addRoutineMcpSnapshotFixture(store, createdScheduleId)
   const persisted = loadState()
   if (!persisted) throw new Error('buildComprehensive: the snapshot did not persist to the configured backend')
-  const { addCommissionMcpSnapshotFixture } = await import('./snapshotCommissionMcp.ts')
-  const state = addCommissionMcpSnapshotFixture(persisted)
+  const { addCommissionUsageReservationSnapshotFixture } = await import('./snapshotCommissionMcp.ts')
+  const state = addCommissionUsageReservationSnapshotFixture(persisted, 'settled')
   saveState(state)
   return state
 }

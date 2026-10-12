@@ -36,7 +36,7 @@ Neither result closes the following gates:
 | Real update installation and relaunch | Select an approved HTTPS download base, verify both signed candidates and the pair manifest, then test an actual two-version installation. Publication needs separate authorization; an example URL is not configured hosting. |
 | Live model workflows | Obtain an approved provider/model, dedicated test credentials and a spend limit before running real conversation, Dispatch, Routine and review/judgment acceptance. Local counters do not guarantee a provider billing ceiling. |
 | Real external MCP workflows | Agree on exact third-party peers, disposable test resources and permitted calls before testing service discovery, authorization, execution and restart history. Authored peers and native-dialog acceptance do not establish third-party compatibility or safety. |
-| Remaining product scope | Preserve the declared [forward-looking requirements](spec/10-forward-looking.md) and [mock boundaries](spec/11-mock-boundary.md), including unattended Commission/proxy work, broader source/document capabilities and the later hosted-service phase. They are not implicitly completed by desktop preview acceptance. |
+| Remaining product scope | Preserve the declared [forward-looking requirements](spec/10-forward-looking.md) and [mock boundaries](spec/11-mock-boundary.md), including legacy standing simulation and Agent-proxy work, broader source/document capabilities and the later hosted-service phase. They are not implicitly completed by desktop preview acceptance. |
 
 The next priority is actual release and live-service evidence, not another
 speculative recovery refactor or expansion of the formula language. The owner
@@ -46,73 +46,56 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Staged checkpoint: durable Commission execution preparation
+## Current milestone: explicit Commission MCP execution
 
-While signing and live-service acceptance await the owner inputs above, the next
-core product milestone is real Commission work. The preparation slices define
-permission, claims and durable receipt recovery before exposing a worker.
-It does not close MOCK-9 or change existing standing configuration.
+The first real Commission MCP path implements
+one exact HTTP MCP call per posted `mcp.mutate` work item. It is a fresh,
+person-private owner opt-in, separate from standing Commission settings and
+Routine approval. Each grant pins the reviewed Project/Commission/Agent,
+provider/model, live review hash, selected connection revisions and tool
+schemas, fixed arguments, expiry (at most 30 days) and work limit (at most 100).
+These are scope bounds, not provider or external-service monetary caps. Local
+stdio, legacy connector fulfilment and Agent proxies remain outside this path.
 
-The selected initial path is one exact HTTP MCP call for each posted
-`mcp.mutate` work item. Every tool is treated as potentially effectful regardless
-of peer annotations. A fresh person-bound approval pins Project/Commission/Agent,
-provider/model, the live review hash, selected connection revisions/tool schemas,
-fixed argument values, expiry (at most 30 days) and work count (at most 100).
-These are scope limits, not provider or external-service monetary caps.
-Local stdio and legacy connectors/proxies are not part of this first path.
+Admission now shares active capacity with real Dispatch: at most four active
+calls per process, two per paying tenant and one per tenant/Agent. The worker
+performs one bounded, tool-free model preparation under a durable usage hold,
+then reserves and submits at most one exact HTTP effect call. It rechecks current
+membership, role/reach, Project fire, Guardian, connection/tool schema and
+publication authority across asynchronous waits. Only verified success on
+current work earns completion credit. Failed or uncertain outcomes never replay
+and withdraw only the exact grant revision that authorized the claim, so a newer
+replacement grant is not accidentally revoked. Claims are globally unique by
+Project/work item across renewals and grant replacement.
 
-Pure helpers now reject stale/replaced/revoked authority, preserve one
-Project/work-item receipt identity across renewed grants, refuse changed intent,
-retain terminal results without replay, and convert interrupted or malformed
-outcomes to uncertainty. Shared tool validation is extracted from Routine policy
-without changing Routine consent or stored hash semantics. Disposable mutations
-of expiry, exact work-target matching and fixed-argument equality each caused
-their focused regression tests to fail before restoration.
+The public work projection includes `commissionResolution: 'mcp'` only when the
+exact done item joins to its canonical successful durable claim; the field is
+recomputed and stripped from stored rows rather than trusted or persisted.
+Work timelines label those rows `Real MCP` and treat unmarked legacy Commission
+completions as `Simulated`. Both Project and Agent Contributor rosters use the
+same local per-Project real/simulated counts, without exposing private receipts.
 
-The private registry now stores append-only, person-scoped grant revisions and
-global Project/item claims. A claim freezes its selected tool before model
-preparation; at most one exact effect receipt can follow it. All admitted items
-consume a grant slot, including failures and uncertainty. Registry-local active
-capacity is four per process, two per paying tenant and one per tenant/Agent.
-Those bounds do not yet coordinate live model work or other execution engines.
+JSON/SQLite startup recovery commits pending work to uncertainty before new
+admission. Explicit backup restore revokes all Commission MCP grants and blocks
+restored open MCP work IDs for manual review; this is local recovery policy, not
+an anti-rollback ledger or external exactly-once guarantee. Local usage holds
+apply only to this Commission path and do not provide a universal billing limit.
+Snapshot v7 requires an exact claim-to-usage-receipt join. Its v6 migration adds
+zero-usage receipts only for the absent legacy slice, because v6 had no model-I/O
+host; present partial ledgers fail admission without replacing stored data.
+Focused unit/source coverage and all nine feature browser checks have passed,
+including five-size approval/receipt review, signed-in person isolation and
+same-request lost-acknowledgement recovery. The app-wide UI sweep passed all
+135 cells with no violations or skips. The complete local verifier remains
+mandatory before landing; this is local test evidence,
+not release acceptance.
+There is no packaged, signed, public-service or paid-provider acceptance
+evidence, and the broader MOCK-9 boundary remains open. Existing standing
+configuration remains unchanged. The feature-specific UI keeps the frozen
+review distinct from the current grant and exposes exact receipts through the
+existing recovery surface.
 
-JSON, SQLite and portable snapshots carry strict assignment/work/connection
-joins. Paying ownership is the Commission/Agent tenant, not necessarily the
-Project owner: cross-tenant participation in a shared Project remains intended.
-Ownerless HTTP none/bearer connections retain their existing tenant ownership;
-OAuth identities must match the approving person, including retired connections.
-Startup interrupts pending claims and withdraws their grants before admission.
-Commission deletion retains history and retires its identity; neither keyed
-recreation nor development fixture dispatch can reuse represented work.
-
-Historical grants intentionally survive membership removal. Structural joins
-prove consistency, not past authentication; every future admission and I/O gate
-must prove the actual person's current authority. Legacy missing state remains
-empty. Explicitly restoring an older backup can roll history back, so this is
-not an anti-rollback or external exactly-once guarantee. Before enabling a
-worker, define restore handling that requires renewed review and reconciliation
-of potentially repeated external work. No model or MCP I/O is enabled here.
-
-Focused claim tests caught and corrected an integration error that compared the
-distinct work-claim and effect-receipt ID prefixes instead of their exact joined
-scope. An isolated in-memory mutation that removed interruption of pending
-claims made the recovery regression fail; the working tree was never mutated
-for that check. Backend tests exercise real disposable JSON/SQLite restarts and
-portable snapshot fixtures, not authenticated execution or external services.
-Boundary-size testing also reproduced a settlement failure when a valid large
-policy, selected call and known result exceeded the outer claim budget. Its
-composed limit now accommodates the independently bounded components; an
-oversized result still becomes uncertainty through the effect receipt parser.
-
-Next, wire live atomic work/capacity and model-budget admission, then the
-single-call worker and fresh owner review UI. The host must recheck current
-ownership/membership, role/reach, Project fire
-and Guardian gates, tool schema and publication authority through asynchronous
-waits. A durable claim must precede paid model I/O and the effect receipt must
-precede tool I/O. Completion and credit require verified successful current work;
-uncertain work cannot be automatically reassigned or replayed. None of that host
-execution integration is claimed by this preparation checkpoint. Full local verification
-and post-test diff review remain mandatory before landing.
+### Earlier account-change verifier checkpoint
 
 The first full verifier passed its checks lane and three browser shards, but an
 OAuth account-change fixture lost its awaited evaluation context after the

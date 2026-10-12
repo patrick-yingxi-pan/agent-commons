@@ -131,6 +131,8 @@ export const keys = {
   artifacts: 'artifacts',
   schedules: 'schedules',
   scheduleMcpPermission: (id?: string) => id === undefined ? 'schedule-mcp-permission' : `schedule-mcp-permission:${id}`,
+  commissionMcpPermission: (id?: string, selection?: { providerId: string; modelId: string }) =>
+    id === undefined ? 'commission-mcp-permission' : `commission-mcp-permission:${JSON.stringify([id, selection?.providerId ?? null, selection?.modelId ?? null])}`,
   relations: 'relations',
   recents: 'recents',
   /** The detective audit trail (docs/agent-commons.md, D15/OQ7) — the cross-user effect log. */
@@ -409,6 +411,10 @@ export const paths = {
   schedule: (id: string) => `/schedules/${encodePathSegment(id)}`,
   scheduleRun: (id: string) => `/schedules/${encodePathSegment(id)}/run`,
   scheduleMcpPermission: (id: string) => `/schedules/${encodePathSegment(id)}/mcp-permission`,
+  commissionMcpPermission: (id: string, selection?: { providerId: string; modelId: string }) => {
+    const path = `/commissions/${encodePathSegment(id)}/mcp-permission`
+    return selection ? `${path}?providerId=${encodePathSegment(selection.providerId)}&modelId=${encodePathSegment(selection.modelId)}` : path
+  },
   relations: '/relations',
   relationOps: '/relations/ops',
   recents: '/recents',

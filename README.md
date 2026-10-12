@@ -144,7 +144,30 @@ the selected item; it does not load linked contexts or run effects. Review and
 edit the saved reply before explicitly posting a comment. The item stays open,
 and no Agent completion credit is awarded. Commission, Agent, provider and
 account budget gates apply; these token checks do not reserve a monetary ceiling.
-Unattended commissioned effects remain development-only fixtures.
+Legacy standing commissioned effects and Agent proxies remain development-only
+fixtures; the separately opted-in HTTP Commission MCP path is described below.
+
+Commission owners can separately opt in to one bounded Commission MCP path for
+posted `mcp.mutate` work. A private owner review binds the exact Project,
+Commission, Agent/provider/model, HTTP connection/tool schema, fixed arguments,
+expiry and item limit; standing settings and Routine approval grant nothing.
+The server rechecks current membership, role/reach, Project fire and Guardian
+authority across asynchronous waits, then performs one tool-free model
+preparation and at most one exact HTTP call. Capacity is bounded at four active
+calls per process, two per paying tenant and one per tenant/Agent. A durable
+usage hold covers this new Commission path only; it is not a universal billing
+limit. Only verified known success completes current work or awards credit.
+Uncertain or failed work does not replay, and withdraws only the exact grant
+that authorized it. Claims remain globally unique per Project/work item across
+grant replacement. JSON/SQLite startup recovery makes interrupted work uncertain
+without replay. Explicit restore revokes grants and blocks restored open MCP
+work IDs from automatic execution; a person must review those items manually. This local
+implementation has no packaged, signed or public-service acceptance yet and
+does not close the broader MOCK-9 boundary. Public work rows identify `Real MCP`
+only when the server derives provenance from the exact successful durable claim;
+unmarked legacy Commission completions remain `Simulated`. Contributor track
+records on both Project rosters separate those counts without exposing private
+receipts.
 
 Open MCP mutation work also offers **Start contribution**. This links the exact
 item without reserving it. Select and approve the effect, then separately confirm

@@ -1,23 +1,23 @@
 import { automationAvailability } from './automationAvailability.ts'
 
-/** Legacy fixture posture comes only from the backend capability. Absence or a
- * failed read cannot grant execution; real Routines and Contribution MCP are
- * separate workflows and do not inherit this flag. */
+/** Legacy Standing fixture posture comes only from this backend capability.
+ * Separately approved Commission MCP permission follows its own reviewed limits
+ * and can start automatically; it does not inherit the fixture flag. */
 export function automationPresentation(simulatedAutomation: boolean | undefined) {
   const availability = automationAvailability(simulatedAutomation)
   const { state } = availability
   return {
     ...availability,
     standing: state === 'fixture'
-      ? 'Development simulation only: eligible posted work may be marked done without running an Agent or calling tools. This setting does not grant real unattended execution.'
+      ? 'Legacy Standing simulation only: eligible posted work may be marked done without running an Agent or calling tools. Separately approved real MCP may start automatically within its reviewed limits.'
       : state === 'unavailable'
-        ? 'Standing execution is not available. This setting is saved for coordination only; posted work stays open. It does not grant real unattended execution.'
-        : 'Standing execution availability could not be confirmed. A development backend may simulate completion; this setting does not grant real unattended execution.',
+        ? 'Legacy Standing simulation is unavailable. This setting is saved for coordination only; separately approved real MCP may still start automatically within its reviewed limits.'
+        : 'Legacy Standing simulation availability could not be confirmed. Separately approved real MCP may start automatically within its reviewed limits.',
     work: state === 'fixture'
-      ? 'Posting adds this to the Project backlog. A standing contributor may simulate completion; no Agent or external tool runs.'
+      ? 'Posting adds this to the Project backlog. Legacy Standing simulation may mark eligible work done without running an Agent or tools; separately approved real MCP may start automatically within its reviewed limits.'
       : state === 'unavailable'
-        ? 'Posting adds this to the Project backlog. Standing execution is unavailable, so new work stays open until a real workflow handles it.'
-        : 'Posting adds this to the Project backlog. Automation availability could not be confirmed; a development backend may simulate completion without running an Agent or tool.',
+        ? 'Posting adds this to the Project backlog. Legacy Standing simulation is unavailable; separately approved real MCP may start calls automatically within its reviewed limits.'
+        : 'Posting adds this to the Project backlog. Legacy Standing simulation availability could not be confirmed; separately approved real MCP may start automatically within its own review and limits.',
   } as const
 }
 

@@ -16,7 +16,7 @@
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
 import { automationRuntimeMode, requireAutomationFixture } from '../automationRuntime.ts'
-import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput } from '../../contract/dispatchExecution.ts'
+import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput, type DispatchBinding } from '../../contract/dispatchExecution.ts'
 import { parseProjectWorkDraftInput, type ProjectWorkDraftInput, type ProjectWorkDraftSource } from '../../contract/projectWorkDraft.ts'
 import { projectWorkDraftPrompt } from '../projectWorkDraft.ts'
 import { prepareProjectWorkMcpDraft } from '../projectWorkMcpDraft.ts'
@@ -29,8 +29,15 @@ import { createContributionEffectAttempt, settleContributionEffectAttempt, inter
 import { contributionMcpProposalOwner } from '../contributionMcpAuthority.ts'
 import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
 import { RoutineMcpRegistry, validateRoutineMcpRegistryJoins } from '../routineMcpRegistry.ts'
-import { CommissionMcpRegistry, emptyCommissionMcpRegistry } from '../commissionMcpRegistry.ts'
+import { CommissionMcpRegistry, commissionMcpClaimActive, emptyCommissionMcpRegistry } from '../commissionMcpRegistry.ts'
+import { commissionMcpClaimId } from '../commissionMcpClaim.ts'
+import { CommissionMcpExecution } from '../commissionMcpExecution.ts'
+import { commissionMcpLegacyDispatchBlocked, type CommissionMcpQueueCandidate } from '../commissionMcpRunner.ts'
 import { validateCommissionMcpRegistryJoins } from '../commissionMcpAuthority.ts'
+import { CommissionMcpHost, type CommissionMcpLiveSource, type CommissionMcpModelSelection } from '../commissionMcpHost.ts'
+import { commissionMcpReviewFacts } from '../commissionMcpReview.ts'
+import { matchesHttpMcpPermission } from '../mcpPermission.ts'
+import type { CommissionMcpReview, CommissionMcpDecisionRequest, CommissionMcpDecisionResponse } from '../../contract/commissionMcpApi.ts'
 import { RoutineMcpPolicyError, routineMcpCallPermitted, routineMcpJsonText } from '../routineMcpPolicy.ts'
 import { reserveRoutineMcpCall, settleRoutineMcpCall, interruptRoutineMcpRun, publicRoutineMcpReceipt } from '../routineMcpState.ts'
 import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
@@ -214,7 +221,7 @@ import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
 import { SEED_COMMISSIONS } from '../data/commissions.ts'
 import { baseToolDefinitions } from '../model/tools.ts'
-import { systemPrompt, resolvedModelId, generateContributionReview, generateDelegatedJudgment } from '../generate.ts'
+import { systemPrompt, resolvedModelId, generateContributionReview, generateDelegatedJudgment, generateCommissionMcpArguments } from '../generate.ts'
 import { RunnerRegistry } from '../registry.ts'
 import { RunnerJournal } from '../journal.ts'
 import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from '../relay.ts'
@@ -577,6 +584,22 @@ function canRetractItem(item: StoredOpenSubGoal, viewerTenant: string): boolean 
   return isPoster || tenantWritesAs(viewerTenant, findProject(item.projectId)?.tenantId ?? defaultTenantId())
 }
 
+/** Resolution provenance is a live projection over the exact durable receipt.
+ * Resolved labels or a legacy Commission id alone are never proof of execution. */
+function hasSuccessfulCommissionMcpResolution(item: StoredOpenSubGoal): boolean {
+  if (item.status !== 'done' || !item.resolvedBy) return false
+  const claim = commissionMcpRegistry.claim(item.projectId, item.id)
+  return !!claim && claim.phase === 'effect' && claim.attempt.status === 'done' &&
+    claim.permission.projectId === item.projectId && claim.work.itemId === item.id &&
+    claim.permission.commissionId === item.resolvedBy
+}
+
+function stripStoredCommissionResolution(item: StoredOpenSubGoal): StoredOpenSubGoal {
+  const { commissionResolution: _injected, ...stored } = item as StoredOpenSubGoal & { commissionResolution?: unknown }
+  void _injected
+  return stored
+}
+
 /** The one redaction seam stored → wire: drop the poster's raw tenant id and the
  *  act principals; the wire face carries display names + principal KINDs only —
  *  plus the viewer-relative standing those stripped ids are needed to compute. */
@@ -588,9 +611,13 @@ function publicOpenSubGoal(item: StoredOpenSubGoal, viewerTenant?: string): Open
     retractedByTenant,
     retractedByPrincipal,
     comments,
-    ...pub
+    ...storedFace
   } = item
+  // A legacy or injected stored value never survives this funnel; the public
+  // field is regenerated only from the exact successful Commission MCP claim.
+  const { commissionResolution: _injected, ...pub } = storedFace as typeof storedFace & { commissionResolution?: unknown }
   void postedByTenant
+  void _injected
   void retractionId
   void retractedByTenant
   return {
@@ -599,6 +626,7 @@ function publicOpenSubGoal(item: StoredOpenSubGoal, viewerTenant?: string): Open
     ...(postedByPrincipal ? { postedByKind: postedByPrincipal.kind } : {}),
     ...(retractedByPrincipal ? { retractedByKind: retractedByPrincipal.kind } : {}),
     ...(comments ? { comments: comments.map(publicWorkItemComment) } : {}),
+    ...(hasSuccessfulCommissionMcpResolution(item) ? { commissionResolution: 'mcp' as const } : {}),
   }
 }
 
@@ -2418,6 +2446,71 @@ const contextRegistry = createContextRegistry({
 const mcpConnectionRegistry = createMcpConnectionRegistry()
 const routineMcpRegistry = new RoutineMcpRegistry()
 const commissionMcpRegistry = new CommissionMcpRegistry()
+const commissionMcpHost = new CommissionMcpHost({
+  registry: commissionMcpRegistry, source: commissionMcpLiveSource, now: () => Date.now(),
+  connection: (id, tenant, person) => store.mcpConnection(id, tenant, person),
+  commit: operation => commitMutationBatch(operation),
+  changed: (_commissionId, projectId) => { emit({ type: 'commission.changed', projectId }); persist() },
+})
+const commissionMcpExecution = new CommissionMcpExecution({
+  registry: commissionMcpRegistry, usage: usageRegistry, source: commissionMcpLiveSource, now: () => Date.now(),
+  ready: () => persistenceFault === null,
+  connection: (id, tenant, person) => store.mcpConnection(id, tenant, person),
+  commit: operation => commitMutationBatch(operation),
+  changed: (_id, projectId) => { emit({ type: 'commission.changed', projectId }); persist() },
+  work: (projectId, itemId) => {
+    const item = openSubGoals.find(row => row.projectId === projectId && row.id === itemId && row.status === 'open' && row.type === 'mcp.mutate')
+    return item ? { itemId: item.id, subGoal: item.subGoal, type: 'mcp.mutate', target: item.target, note: item.note } : undefined
+  },
+  capacity: scope => backgroundModelCapacity(scope.tenantId, scope.agentId),
+  budgetAvailable: (source, id) => usageRegistry.reservationWithinLimits(id, source.scope.tenantId,
+    [source.commission.grant, source.agent.budget, source.parentProvider?.plan, source.provider?.plan]),
+  providerConfig: id => store.providerConfig(id), generate: generateCommissionMcpArguments,
+  execute: (tenant, call, allowed, person) => executeBoundMcpCall(store, tenant, call, allowed, person),
+  lease: (source, work) => {
+    if (!source.project.guardianId) return { valid: () => true, release: () => {} }
+    const resource = subGoalKey(source.project.guardianId, work.subGoal)
+    const holder = commissionMcpClaimId(source.project.id, work.itemId)
+    // 60s preparation + the shared executor's 30s bound. This unique work
+    // holder cannot re-enter another invocation's reservation.
+    const reservation = guardian.reserve(resource, holder, { ownerTenant: source.scope.tenantId, ttlMs: 120_000 })
+    guardian.commit(reservation.id)
+    return {
+      valid: () => guardian.status(resource).active.some(row => row.id === reservation.id && row.holder === holder) &&
+        guardian.ownedBy(reservation.id, source.scope.tenantId),
+      release: () => {
+        try { guardian.release(reservation.id) }
+        catch (error) { if (!(error instanceof GuardianError) || error.code !== 'not_found') throw error }
+      },
+    }
+  },
+  complete: claim => {
+    const item = openSubGoals.find(row => row.projectId === claim.permission.projectId && row.id === claim.work.itemId)!
+    const owner = claim.permission.tenantId
+    item.status = 'done'
+    item.resolvedBy = claim.permission.commissionId
+    item.resolvedByLabel = WORKER_AGENTS.get(claim.permission.agentId)!.label
+    item.resolvedByOwner = tenantName(owner)
+    item.resolvedAt = Date.now()
+    store.recordContribution(claim.permission.commissionId)
+    store.recordAudit({ channel: 'project-effect', commissionId: claim.permission.commissionId,
+      capability: 'mcp.mutate', target: claim.work.target, outcome: 'fulfilled', tenantId: owner })
+    notifyTenants(workItemAudience(item), owner, { kind: 'work.resolved', actor: tenantName(owner),
+      projectId: item.projectId, projectName: findProject(item.projectId)?.name ?? '', subGoal: item.subGoal, workItemId: item.id })
+    emit({ type: 'openwork.changed', projectId: item.projectId })
+  },
+})
+
+/** Dispatch and commissioned jobs share the background-model envelope.
+ * Conversations and Routines retain their separate admission paths. */
+function backgroundModelCapacity(tenantId: string, agentId: string): boolean {
+  const active = dispatch.filter(run => run.execution?.state === 'running')
+    .map(run => ({ tenantId: run.tenantId ?? defaultTenantId(), agentId: run.execution!.agentId }))
+  active.push(...commissionMcpRegistry.snapshot().claims.filter(commissionMcpClaimActive)
+    .map(claim => ({ tenantId: claim.permission.tenantId, agentId: claim.permission.agentId })))
+  return active.length < 4 && active.filter(run => run.tenantId === tenantId).length < 2 &&
+    !active.some(run => run.tenantId === tenantId && run.agentId === agentId)
+}
 const mcpActivityAuthorities = new Map<string, McpActivityAuthority>()
 const mcpInputFlows = new Map<string, McpInputFlow>()
 const mcpActivityAuthorityKey = (sessionId: string, activityId: string) => JSON.stringify([sessionId, activityId])
@@ -2428,6 +2521,184 @@ function discardMcpActivityAuthorities(sessionId: string): void {
 
 /** Only stable reviewed facts enter the digest. Run progress, cadence cursors,
  * names on receipts and unrelated graph edits cannot manufacture authority. */
+function commissionMcpLiveSource(id: string, viewerTenant: string, actorUserId: string,
+  selection?: CommissionMcpModelSelection): CommissionMcpLiveSource | undefined {
+  const commission = COMMISSIONS.get(id)
+  const owner = store.commissionOwnerTenant(id)
+  if (!commission || !owner || !tenantWritesAs(viewerTenant, owner) || activeMcpActor(owner, actorUserId) !== actorUserId) return undefined
+  const agent = WORKER_AGENTS.get(commission.agentId)
+  const project = store.listProjects(owner).find(row => row.id === commission.projectId)
+  const projectOwner = findProject(commission.projectId)?.tenantId ?? defaultTenantId()
+  if (!agent || !project || (projectOwner !== owner && !project.shared)) return undefined
+  const parentProvider = store.listProviders(owner).find(row => row.id === (agent.providerId ?? DEFAULT_PROVIDER.id))
+  const provider = selection && store.listProviders(owner).find(row => row.id === selection.providerId)
+  let execution: DispatchBinding | null = null
+  let blockedReason: string | null = 'Choose an endpoint model before reviewing this permission.'
+  if (selection) {
+    const parsed = parseRealDispatchInput({ title: 'Commission work', execution: {
+      agentId: agent.id, providerId: selection.providerId, modelId: selection.modelId } })
+    if (parsed && provider && provider.kind !== 'session' && ['configured', 'mock'].includes(provider.execution ?? '')) {
+      try { assertModelInCatalog(parsed.execution.modelId, provider.id, agent.id); execution = parsed.execution; blockedReason = null }
+      catch { blockedReason = 'The selected model is no longer available. Choose a current endpoint model.' }
+    } else blockedReason = 'Connect an endpoint provider and choose an available model.'
+  }
+  if (!parentProvider) blockedReason = 'The Agent’s configured provider is unavailable.'
+  if (!store.commissionRolePermits(id, 'read') || !store.commissionRolePermits(id, 'reserve') || !store.commissionRolePermits(id, 'fire')) {
+    blockedReason = 'This Contributor needs a role that can read, reserve and perform Project work.'
+  }
+  const ceilings = [parentProvider?.authority ?? {}, agent.authority ?? {}, commission.authority ?? {}, provider?.authority ?? {}]
+  const tools = store.mcpConnections(owner, actorUserId)
+    .filter(connection => connection.transport !== 'stdio' && connection.status === 'connected' &&
+      connection.execution === 'approval-required' && ['none', 'device-bearer', 'device-oauth'].includes(connection.authentication ?? ''))
+    .flatMap(connection => connection.tools.filter(tool => connection.executableTools?.includes(tool.name) &&
+      store.commissionCanReach(id, 'connectors', tool.name) && ceilings.every(authority => authorityAdmits(authority, 'connectors', tool.name)))
+      .map(tool => ({ connectionId: connection.id, connectionRevision: connection.revision,
+        connectionLabel: connection.label, schemaHash: mcpToolSchemaHash(tool), tool })))
+  if (!blockedReason && !tools.length) blockedReason = 'No inspected HTTP MCP tool is admitted by this Project and Contributor.'
+  const audience = grants.filter(row => row.subject.kind === 'project' && row.subject.id === project.id)
+    .sort((a, b) => a.id.localeCompare(b.id)).map(row => ({ id: row.id, audience: row.audience, tier: row.tier,
+      audienceTenant: row.audienceTenant, redeemedBy: row.redeemedBy ?? [] }))
+  return { scope: { tenantId: owner, ownerUserId: actorUserId, commissionId: id, projectId: project.id, agentId: agent.id },
+    tenantId: owner, ownerUserId: actorUserId, commission, agent, project, provider, parentProvider, execution,
+    projectContext: graph.projectContexts[project.id] ?? [], audience, tools, blockedReason }
+}
+
+type CommissionMcpLiveReviewCache = Map<string, { source: CommissionMcpLiveSource; reviewHash: string } | null>
+type CommissionMcpPolicyRow = ReturnType<CommissionMcpRegistry['snapshot']>['policies'][number]
+
+/** One exact work-target approval check shared by the unattended queue and the
+ * legacy fixture fence. Capacity is deliberately handled by the caller: a busy
+ * real approval remains real authority and must not turn into fixture work. */
+function commissionMcpApprovedToolForWork(item: StoredOpenSubGoal, row: CommissionMcpPolicyRow, now: number,
+  usedByRevision: ReadonlyMap<string, number>, liveReviewCache: CommissionMcpLiveReviewCache): boolean {
+  const approval = row.policy.approval
+  if (!approval || now < approval.approvedAt || now >= approval.expiresAt ||
+      !approval.tools.some(tool => tool.toolName === item.target)) return false
+  const revisionKey = JSON.stringify([row.tenantId, row.ownerUserId, row.commissionId, row.policy.revision])
+  if ((usedByRevision.get(revisionKey) ?? 0) >= approval.maxWorkItems) return false
+  const reviewKey = JSON.stringify([row.tenantId, row.ownerUserId, row.commissionId])
+  let liveReview = liveReviewCache.get(reviewKey)
+  if (liveReview === undefined) {
+    const source = commissionMcpLiveSource(row.commissionId, row.tenantId, row.ownerUserId, approval.execution)
+    const facts = source && commissionMcpReviewFacts(source)
+    const current = !!source && !!facts && !source.blockedReason &&
+      approval.configurationRevision === (source.commission.configurationRevision ?? 0) &&
+      approval.reviewHash === facts.reviewHash && approval.tools.every(tool => source.tools.some(available =>
+        available.connectionId === tool.connectionId && available.connectionRevision === tool.connectionRevision &&
+        available.tool.name === tool.toolName && available.schemaHash === tool.schemaHash) &&
+        (() => {
+          const connection = store.mcpConnection(tool.connectionId, row.tenantId, row.ownerUserId)
+          return !!connection && matchesHttpMcpPermission(tool, connection)
+        })())
+    liveReview = current && source && facts ? { source, reviewHash: facts.reviewHash } : null
+    liveReviewCache.set(reviewKey, liveReview)
+  }
+  if (!liveReview) return false
+  return liveReview.source.tools.some(tool => tool.tool.name === item.target &&
+    approval.tools.some(allowed => allowed.connectionId === tool.connectionId &&
+      allowed.connectionRevision === tool.connectionRevision && allowed.schemaHash === tool.schemaHash &&
+      allowed.toolName === tool.tool.name))
+}
+
+/** Does this exact still-open MCP item have fresh explicit authority for its
+ * target? This intentionally ignores process/tenant/Agent occupancy so legacy
+ * fixture dispatch cannot consume work that is merely waiting for queue room. */
+function commissionMcpHasCurrentWorkAuthority(item: StoredOpenSubGoal): boolean {
+  if (item.status !== 'open' || item.type !== 'mcp.mutate' ||
+      !openSubGoals.some(row => row.projectId === item.projectId && row.id === item.id && row.status === 'open' &&
+        row.type === 'mcp.mutate' && row.target === item.target)) return false
+  const state = commissionMcpRegistry.snapshot()
+  const workId = commissionMcpClaimId(item.projectId, item.id)
+  if (state.claims.some(claim => claim.id === workId) || (state.blockedWork ?? []).includes(workId)) return false
+  const current = new Map<string, typeof state.policies[number]>()
+  for (const row of state.policies) {
+    if (row.projectId !== item.projectId) continue
+    const key = JSON.stringify([row.tenantId, row.ownerUserId, row.commissionId])
+    const prior = current.get(key)
+    if (!prior || prior.policy.revision < row.policy.revision) current.set(key, row)
+  }
+  const usedByRevision = new Map<string, number>()
+  for (const claim of state.claims) {
+    const key = JSON.stringify([claim.permission.tenantId, claim.permission.ownerUserId,
+      claim.permission.commissionId, claim.permission.policy.revision])
+    usedByRevision.set(key, (usedByRevision.get(key) ?? 0) + 1)
+  }
+  const liveReviewCache: CommissionMcpLiveReviewCache = new Map()
+  const policies = [...current.values()].filter(row => row.policy.approval)
+    .sort((a, b) => a.commissionId.localeCompare(b.commissionId))
+  const now = Date.now()
+  return policies.some(row => commissionMcpApprovedToolForWork(item, row, now, usedByRevision, liveReviewCache))
+}
+
+/** Fresh queue projection from the registry and live store facts. Durable
+ * claims and restore fences are global work identity barriers, even when the
+ * old claim belongs to another person or Commission. */
+function commissionMcpWorkCandidates() {
+  const now = Date.now()
+  const state = commissionMcpRegistry.snapshot()
+  const current = new Map<string, typeof state.policies[number]>()
+  for (const row of state.policies) {
+    const key = JSON.stringify([row.tenantId, row.ownerUserId, row.commissionId])
+    const prior = current.get(key)
+    if (!prior || prior.policy.revision < row.policy.revision) current.set(key, row)
+  }
+  const active = dispatch.filter(run => run.execution?.state === 'running')
+    .map(run => ({ tenantId: run.tenantId ?? defaultTenantId(), agentId: run.execution!.agentId }))
+  active.push(...state.claims.filter(commissionMcpClaimActive)
+    .map(claim => ({ tenantId: claim.permission.tenantId, agentId: claim.permission.agentId })))
+  const globalSlots = Math.max(0, 4 - active.length)
+  if (globalSlots === 0) return [] as CommissionMcpQueueCandidate[]
+
+  const tenantCounts = new Map<string, number>()
+  const activeTenantAgents = new Set<string>()
+  for (const row of active) {
+    tenantCounts.set(row.tenantId, (tenantCounts.get(row.tenantId) ?? 0) + 1)
+    activeTenantAgents.add(JSON.stringify([row.tenantId, row.agentId]))
+  }
+  const usedByRevision = new Map<string, number>()
+  for (const claim of state.claims) {
+    const key = JSON.stringify([claim.permission.tenantId, claim.permission.ownerUserId,
+      claim.permission.commissionId, claim.permission.policy.revision])
+    usedByRevision.set(key, (usedByRevision.get(key) ?? 0) + 1)
+  }
+  const claimedWork = new Set(state.claims.map(claim => claim.id))
+  const blockedWork = new Set(state.blockedWork ?? [])
+  const policiesByProject = new Map<string, typeof state.policies>()
+  for (const row of current.values()) {
+    if (!row.policy.approval) continue
+    const policies = policiesByProject.get(row.projectId) ?? []
+    policies.push(row)
+    policiesByProject.set(row.projectId, policies)
+  }
+  for (const policies of policiesByProject.values()) policies.sort((a, b) => a.commissionId.localeCompare(b.commissionId))
+  // FIFO by post time, with stable identity tie-breakers. This order is shared
+  // across Agent scopes so an old backlog item is not hidden by a later post.
+  const pendingWork = openSubGoals.filter(item => item.status === 'open' && item.type === 'mcp.mutate')
+    .sort((a, b) => a.postedAt - b.postedAt || a.projectId.localeCompare(b.projectId) || a.id.localeCompare(b.id))
+  const liveReviewCache: CommissionMcpLiveReviewCache = new Map()
+  const candidates: CommissionMcpQueueCandidate[] = []
+  const selectedTenantAgents = new Set<string>()
+  for (const item of pendingWork) {
+    if (candidates.length >= globalSlots) break
+    if (claimedWork.has(commissionMcpClaimId(item.projectId, item.id)) || blockedWork.has(commissionMcpClaimId(item.projectId, item.id))) continue
+    for (const row of policiesByProject.get(item.projectId) ?? []) {
+      if (candidates.length >= globalSlots) break
+      const tenantAgent = JSON.stringify([row.tenantId, row.agentId])
+      if ((tenantCounts.get(row.tenantId) ?? 0) >= 2 || activeTenantAgents.has(tenantAgent) ||
+          selectedTenantAgents.has(tenantAgent)) continue
+      if (!commissionMcpApprovedToolForWork(item, row, now, usedByRevision, liveReviewCache)) continue
+      candidates.push({ commissionId: row.commissionId, tenantId: row.tenantId, userId: row.ownerUserId,
+        projectId: row.projectId, agentId: row.agentId, itemId: item.id })
+      selectedTenantAgents.add(tenantAgent)
+      tenantCounts.set(row.tenantId, (tenantCounts.get(row.tenantId) ?? 0) + 1)
+      // One pending job per tenant/Agent in a projection. Further work for
+      // this Agent is reconsidered after its durable attempt occupies history.
+      break
+    }
+  }
+  return candidates
+}
+
 function routineMcpFacts(task: ScheduledTask): { reviewHash: string; disclosures: string[] } {
   const owner = task.tenantId ?? defaultTenantId()
   const artifact = graph.extraArtifacts.find(row => row.sourceScheduleId === task.id && (row.tenantId ?? defaultTenantId()) === owner)
@@ -2996,6 +3267,7 @@ function snapshot(): PersistedState {
     routineMcp: routineMcpRegistry.snapshot(),
     commissionMcp: commissionMcpRegistry.snapshot(),
     usageMeters: usageRegistry.snapshot(),
+    usageReservations: usageRegistry.snapshotReservations(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
     // the providers so a restored one keeps its concrete model id.
     providers: [...MODEL_PROVIDERS.entries()],
@@ -3017,7 +3289,7 @@ function snapshot(): PersistedState {
     ),
     auditLog, // D15/OQ7 — the cross-user effect trail (append-only)
     dispatch, // P7 — one-off dispatch runs (a live run survives a restart)
-    openSubGoals, // D19 — the Project open-work backlog (an un-taken item survives a restart)
+    openSubGoals: openSubGoals.map(stripStoredCommissionResolution), // D19 — durable backlog; derived MCP provenance stays out of snapshots
     contributions, // Phase A — the Project landing ledgers (the linear history survives a restart)
     delegations, // Phase F — the delegation rosters (a standing judgment grant survives a restart)
     delegationRetirements, // Phase F — revoked keyed authority cannot be resurrected by Retry
@@ -3109,6 +3381,7 @@ function cleanFirstBootState(): PersistedState {
   clean.routineMcp = { policies: [], runs: [], decisions: [] }
   clean.commissionMcp = emptyCommissionMcpRegistry()
   clean.usageMeters = []
+  clean.usageReservations = []
   clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
   clean.providerConfigs = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER_CONFIG]]
   clean.systemPrompts = [[defaultPrompt.id, defaultPrompt]]
@@ -3664,6 +3937,8 @@ function rehydrate(s: PersistedState): boolean {
     }
   }
   usageRegistry.rehydrate(s.usageMeters, demoWorld)
+  usageRegistry.rehydrateReservations(s.usageReservations)
+  const recoveredUsageReservations = usageRegistry.recoverReservations()
   rehydrateModelPreferences(s.modelPreferences)
   const knownUsers = new Set(accounts.toPersisted().users.map(([id]) => id))
   rehydrateSessionPreferences(s.sessionPreferences, (userId, sessionId) => {
@@ -3701,7 +3976,7 @@ function rehydrate(s: PersistedState): boolean {
   dispatchSeq = s.seq.dispatch ?? dispatchSeq
   // D19 open work — restore the backlog (empty for a pre-field snapshot); counter falls
   // back to the backlog length so freshly minted ids never collide with restored ones.
-  openSubGoals.splice(0, openSubGoals.length, ...(s.openSubGoals ?? []))
+  openSubGoals.splice(0, openSubGoals.length, ...(s.openSubGoals ?? []).map(stripStoredCommissionResolution))
   openSubGoalSeq = s.seq.openSubGoal ?? openSubGoals.length
   commissionMcpRegistry.replace(s.commissionMcp ?? emptyCommissionMcpRegistry())
   if (!validateCommissionMcpRegistryJoins(commissionMcpRegistry.snapshot(), {
@@ -3898,7 +4173,7 @@ function rehydrate(s: PersistedState): boolean {
   }
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch || recoveredRoutineMcp || recoveredCommissionMcp
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch || recoveredRoutineMcp || recoveredCommissionMcp || recoveredUsageReservations
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -6919,6 +7194,13 @@ export const store = {
         .filter((subGoal) => subGoal.holder === id)
         .forEach((subGoal) => this.releaseSubGoal(subGoal.reservationId))
       commissionMcpRegistry.retireCommission(id, Date.now())
+      const retiredClaims = new Set(commissionMcpRegistry.snapshot().claims
+        .filter(claim => claim.permission.commissionId === id).map(claim => claim.id))
+      for (const hold of usageRegistry.snapshotReservations()) {
+        if (retiredClaims.has(hold.id) && hold.status === 'active') {
+          usageRegistry.settleReservation(hold.id, hold.tenantId, hold.report !== null)
+        }
+      }
       COMMISSIONS.delete(id)
       emit({ type: 'commission.changed', projectId: commission.projectId })
       persist()
@@ -7435,9 +7717,7 @@ export const store = {
     if (over) throw new LimitError(`Plan limit reached for '${over.label}'.`)
     // A Dispatch starts immediately or retains the user's form for Retry. It
     // never silently queues work that could later spend under changed authority.
-    const active = dispatch.filter((run) => run.execution?.state === 'running')
-    if (active.length >= 4 || active.filter((run) => run.tenantId === tenantId).length >= 2 ||
-      active.some((run) => run.tenantId === tenantId && run.execution?.agentId === agentId)) {
+    if (!backgroundModelCapacity(tenantId, agentId)) {
       throw new LimitError('Dispatch capacity is busy. Retry when another run finishes (4 per instance, 2 per account, 1 per Agent).')
     }
     const sessionId = dispatchSessionId(runId)
@@ -9418,9 +9698,13 @@ export const store = {
     // a release cannot convert them into synthetic completion or credit.
     if (automationRuntimeMode() !== 'fixture') return false
     if (item.status !== 'open') return false
+    // The legacy fixture shortcut is synchronous and tenant-standing based.
+    // Keep it from completing freshly approved MCP work even when a shared
+    // Dispatch/queue slot is occupied; capacity means "wait", not fixture work.
+    if (item.type === 'mcp.mutate' && commissionMcpHasCurrentWorkAuthority(item)) return false
     // A durable real-work claim is never eligible for synthetic reassignment,
     // including after a failed preparation, uncertain effect, or grant renewal.
-    if (commissionMcpRegistry.claim(item.projectId, item.id)) return false
+    if (commissionMcpLegacyDispatchBlocked(commissionMcpRegistry, item.projectId, item.id)) return false
     const monotonic = isProjectEffectMonotonic(item.type)
     const reaches = item.type.startsWith('connector.') || item.type.startsWith('mcp.')
     const candidates = [...COMMISSIONS.values()]
@@ -13037,6 +13321,25 @@ export const store = {
   // ── Scheduled runs (a single live feed; runs are server-owned) ──
   /** Separate owner-only permission projection; never attach this to a shared
    * ScheduledTask, graph or public run Session. */
+  commissionMcpReview(id: string, viewerTenant: string, actorUserId: string,
+    selection?: CommissionMcpModelSelection): CommissionMcpReview | undefined {
+    return commissionMcpHost.review(id, viewerTenant, actorUserId, selection)
+  },
+  /** Internal queue projection. Each row is freshly checked against the
+   * current person-private approval, model review, current HTTP tool binding,
+   * open work identity, and durable claim/restore fences. */
+  commissionMcpWorkCandidates() {
+    return commissionMcpWorkCandidates()
+  },
+  decideCommissionMcp(id: string, viewerTenant: string, request: CommissionMcpDecisionRequest,
+    actorUserId: string): CommissionMcpDecisionResponse | undefined {
+    return commissionMcpHost.decide(id, viewerTenant, request, actorUserId)
+  },
+  /** Host-only one-shot execution seam. The server queue calls this only for
+   * candidates from the current private person-scoped approval projection. */
+  runCommissionMcpWork(id: string, tenantId: string, actorUserId: string, itemId: string, signal?: AbortSignal) {
+    return commissionMcpExecution.run(id, tenantId, actorUserId, itemId, signal)
+  },
   routineMcpReview(id: string, viewerTenant: string, actorUserId?: string): RoutineMcpReview | undefined {
     const task = schedules.find(task => task.id === id)
     if (!task) return undefined

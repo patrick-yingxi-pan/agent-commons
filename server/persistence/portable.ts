@@ -21,6 +21,7 @@ import { migrateState } from './migrate.ts'
 import { writeTextFileAtomically } from './atomicFile.ts'
 import { ALL_ARTIFACTS } from '../data/cowork.ts'
 import { resolveIdentity } from '../identity.ts'
+import { prepareCommissionRestoreState } from './commissionRestore.ts'
 
 function artifactHistoryReferencesAreCanonical(state: PersistedState): boolean {
   if (!state.artifactHistory?.length && !state.artifactHistoryRestoreReceipts?.length) return true
@@ -136,12 +137,17 @@ export function restoreBackendState(
   backend: PersistenceBackend,
   state: PersistedState,
 ): PersistedState {
-  const checked = migrateState(canonical(state))
+  let checked = migrateState(canonical(state))
   if (!hasCorePersistedShape(checked)) {
     throw new Error('refusing to restore an unsupported or invalid store version')
   }
   if (!artifactHistoryReferencesAreCanonical(checked)) {
     throw new Error('refusing to restore orphaned or incompatible Artifact history')
+  }
+  checked = prepareCommissionRestoreState(checked)
+  checked = migrateState(checked)
+  if (!hasCorePersistedShape(checked) || !artifactHistoryReferencesAreCanonical(checked)) {
+    throw new Error('refusing to restore an invalid safety-transformed snapshot')
   }
   backend.save(checked)
   const restored = backend.load()

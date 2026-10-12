@@ -8,8 +8,9 @@
  *  The v2/v3 historical bumps have no registered path. `migrateState` reports
  *  those versions unusable; live startup now fails closed while explicit restore rejects them.
  *  v4 → v5 backfills the tenant-scoped audit anchor; v5 → v6 assigns deterministic,
- *  revision-local identities to retained Document blocks. Future migrations append
- *  one new `DataMigration` per `STORE_VERSION` step. */
+ *  revision-local identities to retained Document blocks; v6 → v7 joins the newly
+ *  introduced Commission model-usage receipt slice to legacy non-executing claims.
+ *  Future migrations append one new `DataMigration` per `STORE_VERSION` step. */
 import { STORE_VERSION, type PersistedState } from './format.ts'
 import { migrateDocumentIdentityV6 } from './documentIdentityV6.ts'
 
@@ -43,6 +44,30 @@ export const DATA_MIGRATIONS: DataMigration[] = [
   {
     to: 6,
     migrate: migrateDocumentIdentityV6,
+  },
+  // v6 → v7: the shipped v6 store had Commission claim history but no model-I/O
+  // execution path or usage reservation slice. For that absent legacy slice only,
+  // attach settled zero-usage receipts to its claims. A PRESENT slice is preserved
+  // byte-for-byte for strict validation: a partial or malformed ledger must fail
+  // closed, never be silently filled in. Current v7 claims require exact joins.
+  {
+    to: 7,
+    migrate: (state) => {
+      if (state.usageReservations !== undefined) return state
+      const claims = state.commissionMcp?.claims ?? []
+      return {
+        ...state,
+        usageReservations: claims.map(claim => ({
+          id: claim.id,
+          tenantId: claim.permission.tenantId,
+          allowance: 1,
+          fiveHourStart: 0,
+          weeklyStart: 0,
+          status: 'settled' as const,
+          report: { inputTokens: 0, outputTokens: 0 },
+        })),
+      }
+    },
   },
 ]
 

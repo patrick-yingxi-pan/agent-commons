@@ -27,7 +27,17 @@ import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, type CompactionPar
 import type { ImageSnapshot } from '../contract/imageInput.ts'
 import { createModelUsageRecorder, UsageRecordingError, type ModelUsageHandler } from './modelUsage.ts'
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
+import type { McpBoundToolCall } from '../contract/mcpExecution.ts'
+import { parseProjectWorkMcpDraftReply } from '../contract/projectWorkMcpDraft.ts'
 import { ContributionReviewGenerationError, ContributionReviewTransportError, ContributionReviewUsageError, parseContributionReviewResult } from './contributionReviewResult.ts'
+import {
+  commissionMcpDraftCall,
+  CommissionMcpPreparationOutputError,
+  CommissionMcpPreparationTransportError,
+  CommissionMcpPreparationUsageError,
+  snapshotPreparedCommissionMcpInput,
+  type PreparedCommissionMcpInput,
+} from './commissionMcpPreparation.ts'
 import {
   delegatedJudgmentSnapshot,
   DelegatedJudgmentGenerationError,
@@ -510,6 +520,45 @@ export async function generateDelegatedJudgment(
     throw new DelegatedJudgmentGenerationError('The delegated reviewer returned a non-text response.')
   }
   return parseDelegatedJudgmentResult(response.content[0].text)
+}
+
+/** One tool-free Messages request for a frozen Commission MCP argument draft.
+ * The model cannot choose a different binding or execute the drafted effect. */
+export async function generateCommissionMcpArguments(
+  prepared: PreparedCommissionMcpInput,
+  provider: ProviderConfig = {},
+  signal?: AbortSignal,
+  onUsage?: ModelUsageHandler,
+): Promise<McpBoundToolCall> {
+  const frozen = snapshotPreparedCommissionMcpInput(prepared)
+  let response: Anthropic.Message
+  try {
+    response = await clientFor(provider, 0).messages.create({
+      model: provider.model ?? MODEL,
+      max_tokens: 4_096,
+      system: frozen.system,
+      messages: [{ role: 'user', content: frozen.prompt }],
+    }, { signal })
+  } catch (cause) {
+    throw new CommissionMcpPreparationTransportError({ cause })
+  }
+
+  // A settled response is accounted before stop reason, content shape or JSON
+  // validation. Missing counters are uncertainty, never a zero-cost reply.
+  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
+  const inputTokens = usage?.input_tokens
+  const outputTokens = usage?.output_tokens
+  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
+      !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
+      !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) {
+    throw new CommissionMcpPreparationUsageError()
+  }
+  createModelUsageRecorder(onUsage).record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  if (response.stop_reason !== 'end_turn') throw new CommissionMcpPreparationOutputError()
+  if (response.content.length !== 1 || response.content[0]?.type !== 'text') throw new CommissionMcpPreparationOutputError()
+  const parsed = parseProjectWorkMcpDraftReply(response.content[0].text, frozen.toolPermission.toolName)
+  if (!parsed.ok) throw new CommissionMcpPreparationOutputError()
+  return commissionMcpDraftCall(frozen, parsed.arguments)
 }
 
 /** Stream an assistant reply through the Messages API tool-use loop. Fires the

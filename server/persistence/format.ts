@@ -82,7 +82,7 @@ import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type Rou
 import { validateRoutineMcpAuthorities } from '../routineMcpAuthority.ts'
 import { parseCommissionMcpRegistryState, type CommissionMcpRegistryState } from '../commissionMcpRegistry.ts'
 import { validateCommissionMcpRegistryJoins } from '../commissionMcpAuthority.ts'
-import { parseUsageMeterEntries, type UsageMeterEntries } from '../usageRegistry.ts'
+import { parseUsageMeterEntries, parseUsageReservations, type UsageMeterEntries, type UsageReservationState } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
 import { parseScheduledArtifactSpec } from '../../contract/scheduledArtifact.ts'
 import { isProjectContextSource } from '../../contract/cowork.ts'
@@ -114,7 +114,7 @@ import { persistencePath } from './persistencePath.ts'
  *  (Dispatch runs joined as an *additive optional* slice — `dispatch?` + `seq.dispatch?` —
  *  so a v5 snapshot without them loads cleanly (rehydrate keeps the seed feed); no bump,
  *  matching how `savedContexts?` / `auditLog?` were added.) */
-export const STORE_VERSION = 6
+export const STORE_VERSION = 7
 
 /** A notification as STORED — the wire row plus three server-private anchors the
  *  read strips (the caller sees a plain `AppNotification`).
@@ -497,6 +497,10 @@ export interface PersistedState {
   /** Private fresh Commission grants, pre-model claims and exact effect receipts.
    * Missing legacy state is empty, never inferred from standing configuration. */
   commissionMcp?: CommissionMcpRegistryState
+  /** Private durable model-usage receipts/holds, exactly joined to Commission
+   * claims. Optional only when claimless; v6's absent legacy slice is normalized
+   * by migration because that release had no Commission model-I/O execution. */
+  usageReservations?: UsageReservationState[]
   /** The account registry (multi-account P7 — real onboarded accounts): users
    *  (with their server-only scrypt credential), tenants/workspaces, and
    *  memberships. Additive-optional like `dispatch` (a pre-P7 snapshot loads
@@ -620,6 +624,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   mcpInputFlows: 'array',
   routineMcp: 'singleton',
   commissionMcp: 'singleton',
+  usageReservations: 'array',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
   memberships: 'array',
@@ -1118,6 +1123,22 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
         connections: parseMcpConnectionState(state.mcpConnections),
       })) return false
     } catch { return false }
+  }
+  if (state?.usageReservations !== undefined) {
+    try {
+      const reservations = parseUsageReservations(state.usageReservations)
+      const claims = new Map((state.commissionMcp?.claims ?? []).map(claim => [claim.id, claim]))
+      if (reservations.length !== claims.size) return false
+      for (const reservation of reservations) {
+        const claim = claims.get(reservation.id)
+        if (!claim || reservation.tenantId !== claim.permission.tenantId ||
+            (reservation.status === 'active' && (claim.phase !== 'preparing'))) return false
+      }
+    } catch { return false }
+  } else if ((state?.commissionMcp?.claims.length ?? 0) > 0) {
+    // Current snapshots with claims must retain their model usage receipt or
+    // uncertainty hold; the v6 migration materializes legacy zero-usage rows.
+    return false
   }
   if (state?.modelPreferences !== undefined) {
     try { parsePersistedModelPreferences(state.modelPreferences) } catch { return false }

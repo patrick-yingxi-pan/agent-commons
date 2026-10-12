@@ -4,7 +4,9 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('Commission an agent holds one exact assignment until authoritative acknowledgement', () => {
-  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'CommissionAdd.tsx')))
+  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredCommissionAdd.tsx')))
   const legacy = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commissionCreationCommands.ts')))
   const cache = stripComments(read(join(ROOT, 'src', 'api', 'commissionRosterCache.ts')))
@@ -16,6 +18,10 @@ test('Commission an agent holds one exact assignment until authoritative acknowl
 
   assert.doesNotMatch(legacy, /export async function createCommission/, 'legacy invalidate-only creation is removed')
   assert.doesNotMatch(view, /createCommission\(/, 'the picker cannot bypass acknowledged creation')
+  assert.match(section, /DeferredCommissionAdd as CommissionAdd/, 'the section uses the deferred picker')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/CommissionAdd\.tsx'\)/)
+  assert.match(deferred, /Contributor picker unavailable/, 'chunk failure remains visible')
+  assert.match(deferred, /disabledReason="Loading contributor picker"/, 'loading cannot create a Commission')
   assert.equal((view.match(/enqueueCommissionCreation\(\{/g) ?? []).length, 1)
   assert.match(view, /tenantId,\s*request: \{ agentId: agent\.id, projectId, role: joinRole \}/,
     'the visible Agent, Project, role, and account become one retained intent')

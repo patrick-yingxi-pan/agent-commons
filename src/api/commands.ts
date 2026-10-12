@@ -341,6 +341,7 @@ export function acceptRelationOp(op: RelationOp, updated: RelationGraph): void {
   // Agent Commons CRUD ops edit registries rather than graph slices.
   invalidateForCommonsOp(op)
   invalidateForProjectProse(op)
+  invalidatePrefix(keys.commissionMcpPermission())
 }
 
 function invalidateForProjectProse(op: RelationOp): void {
@@ -360,6 +361,7 @@ export async function reconcileRelationOp(op: RelationOp): Promise<RelationGraph
   if (current === incoming) setData(keys.relations, incoming)
   invalidateForCommonsOp(op)
   invalidateForProjectProse(op)
+  invalidatePrefix(keys.commissionMcpPermission())
   return current
 }
 
@@ -467,6 +469,7 @@ export async function deleteSchedule(
  *  Project's Contributor list, the global list, and the commission's effective authority. */
 function acceptCommissionConfiguration(commission: Commission, projectId: string): Commission {
   mergeCommissionIntoCachedRosters(commission, projectId)
+  invalidatePrefix(keys.commissionMcpPermission())
   return newestCommissionConfiguration(
     peek<Commission[]>(keys.commissions(projectId))?.find((row) => row.id === commission.id),
     peek<Commission[]>(keys.commissions())?.find((row) => row.id === commission.id),
@@ -481,6 +484,7 @@ function acceptCommissionAbsence(id: string, projectId: string): void {
     mutate<Commission[]>(key, (rows) => (rows ?? []).filter((row) => row.id !== id))
   }
   invalidate(keys.commissionAuthority(id))
+  invalidatePrefix(keys.commissionMcpPermission())
   invalidate(keys.projectSubGoals(projectId))
   invalidatePrefix(keys.directoryProjects())
 }
@@ -572,6 +576,7 @@ export async function updateProviderConnection(
 }
 
 function acceptProviderConnection(provider: ModelProvider): ModelProvider {
+  invalidatePrefix(keys.commissionMcpPermission())
   const rows = peek<ModelProvider[]>(keys.providers)
   const index = rows?.findIndex((candidate) => candidate.id === provider.id) ?? -1
   if (!rows || index < 0) return provider
@@ -608,6 +613,7 @@ export async function reconcileProviderConnection(id: string): Promise<ModelProv
 }
 
 function acceptProviderDefinition(provider: ModelProvider): ModelProvider {
+  invalidatePrefix(keys.commissionMcpPermission())
   const rows = peek<ModelProvider[]>(keys.providers)
   const index = rows?.findIndex((candidate) => candidate.id === provider.id) ?? -1
   if (!rows || index < 0) return provider
@@ -732,6 +738,7 @@ export async function deleteSystemPrompt(
 /** Project an acknowledged Agent configuration without letting its response
  * rewind independently moving reputation/fork activity. */
 export function acceptAgentConfiguration(agent: Agent): void {
+  invalidatePrefix(keys.commissionMcpPermission())
   mutate<Agent[]>(keys.workerAgents, (rows) => {
     const current = rows ?? []
     const index = current.findIndex((candidate) => candidate.id === agent.id)
@@ -749,6 +756,7 @@ export function acceptAgentConfiguration(agent: Agent): void {
  * derived from that definition. Project delegation lists heal from the
  * server's project-addressed events because their ids are not carried here. */
 function acceptAgentAbsence(id: string): void {
+  invalidatePrefix(keys.commissionMcpPermission())
   mutate<Agent[]>(keys.workerAgents, (rows) =>
     (rows ?? []).filter((candidate) => candidate.id !== id))
   invalidate(keys.agentProposals(id))

@@ -126,7 +126,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     makeFixture(legacyFile, backend)
     const removeSlice = run(legacyFile, backend, `
       const { loadState, saveState, closePersistence } = await import(${JSON.stringify(persistModule)});
-      const state = loadState(); delete state.commissionMcp; saveState(state); closePersistence();
+      const state = loadState(); delete state.commissionMcp; delete state.usageReservations; saveState(state); closePersistence();
     `)
     assert.equal(removeSlice.status, 0, removeSlice.stderr)
     const legacy = output(legacyFile, backend, `
@@ -170,6 +170,7 @@ test('Commission MCP snapshot joins reject wrong ownership, work, connection, an
   cleanFixtureBase.commissions = cleanFixtureBase.commissions.filter(([id]) => id !== COMMISSION_ID)
   cleanFixtureBase.openSubGoals = cleanFixtureBase.openSubGoals.filter(row => row.id !== ITEM_ID)
   cleanFixtureBase.commissionMcp = { policies: [], claims: [], retired: [] }
+  cleanFixtureBase.usageReservations = []
   const existingConnectionCount = cleanFixtureBase.mcpConnections.connections.length
   const reusedCatalog = addCommissionMcpSnapshotFixture(cleanFixtureBase)
   assert.equal(reusedCatalog.mcpConnections.connections.length, existingConnectionCount,
@@ -246,6 +247,7 @@ test('store startup rejects a structurally consistent Commission MCP assignment 
     state.commissions = state.commissions.filter(([id]) => id !== ${JSON.stringify(COMMISSION_ID)});
     state.openSubGoals = state.openSubGoals.filter(row => row.id !== ${JSON.stringify(ITEM_ID)});
     state.commissionMcp = { policies: [], claims: [], retired: [] };
+    state.usageReservations = [];
     saveState(addCommissionMcpSnapshotFixture(state, 'done', 'project-mcp-missing'));
     closePersistence();
   `)

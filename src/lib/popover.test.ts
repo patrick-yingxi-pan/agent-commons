@@ -92,6 +92,7 @@ const ANCHORED = [
   'src/components/Composer.tsx',
   'src/components/artifactPreview.tsx',
   'src/components/SectionView.tsx',
+  'src/components/CommissionAdd.tsx',
   'src/components/RunHistoryMenu.tsx',
   'src/components/SessionShareButton.tsx',
   'src/components/MessageButton.tsx',
@@ -134,7 +135,7 @@ test('the consumer enumeration is COMPLETE — no popover escapes by not being l
 /** The import path to a `src/lib` module from a consumer — either up out of
  *  `src/components` or, since the mention picker moved into `src/lib` itself,
  *  a sibling `./`. Both are the SAME module; only the depth differs. */
-const fromLib = (mod: string) => new RegExp(String.raw`from\s+'(?:(?:\.\./)+lib|\.)/${mod}'`)
+const fromLib = (mod: string) => new RegExp(String.raw`from\s+'(?:(?:\.\./)+lib|\.)/${mod}(?:\.tsx?)?'`)
 
 test('every anchored popover wears the shared surface and the shift hook', () => {
   for (const rel of ANCHORED) {

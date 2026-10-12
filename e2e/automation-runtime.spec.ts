@@ -17,9 +17,9 @@ const REVIEW_DIR = join(process.cwd(), '.data', 'automation-runtime-review')
 const AVAILABLE_DISPATCH_NOTICE = 'Run a task with your chosen Agent and model. Open its private conversation to follow progress, review proposed actions, or continue the work. External tool calls need your approval.'
 const UNAVAILABLE_DISPATCH_NOTICE = 'Dispatch execution is unavailable on this backend. Existing history is still readable.'
 const UNKNOWN_DISPATCH_NOTICE = 'Dispatch availability could not be confirmed. No task can be started.'
-const STANDING_UNAVAILABLE_NOTICE = 'Standing execution is not available. This setting is saved for coordination only; posted work stays open. It does not grant real unattended execution.'
-const WORK_UNAVAILABLE_NOTICE = 'Posting adds this to the Project backlog. Standing execution is unavailable, so new work stays open until a real workflow handles it.'
-const WORK_DEVELOPMENT_NOTICE = 'Posting adds this to the Project backlog. A standing contributor may simulate completion; no Agent or external tool runs.'
+const STANDING_UNAVAILABLE_NOTICE = 'Legacy Standing simulation is unavailable. This setting is saved for coordination only; separately approved real MCP may still start automatically within its reviewed limits.'
+const WORK_UNAVAILABLE_NOTICE = 'Posting adds this to the Project backlog. Legacy Standing simulation is unavailable; separately approved real MCP may start calls automatically within its reviewed limits.'
+const WORK_DEVELOPMENT_NOTICE = 'Posting adds this to the Project backlog. Legacy Standing simulation may mark eligible work done without running an Agent or tools; separately approved real MCP may start automatically within its reviewed limits.'
 
 async function overrideAutomationCapability(page: Page, posture: 'false' | 'missing') {
   await page.route('**/api/v1/capabilities', async (route) => {
@@ -283,12 +283,20 @@ test('Project Open work and contributor editing disclose simulation limits acros
       await capturePosture(owner.page, viewport, `commission-editor-unavailable-${viewport.width}`, standingNotice)
       if (viewport.height === 390) {
         await standingNotice.scrollIntoViewIfNeeded()
-        expect(await standingNotice.evaluate((notice) => {
+        const noticeBounds = await standingNotice.evaluate((notice) => {
           const panel = notice.closest('[data-bounded-dialog]')!
           const rect = notice.getBoundingClientRect()
-          return rect.bottom <= panel.lastElementChild!.getBoundingClientRect().top
-            && rect.top >= panel.firstElementChild!.getBoundingClientRect().bottom
-        })).toBe(true)
+          return {
+            bottom: rect.bottom,
+            top: rect.top,
+            footerTop: panel.lastElementChild!.getBoundingClientRect().top,
+            headerBottom: panel.firstElementChild!.getBoundingClientRect().bottom,
+          }
+        })
+        // Chromium rounds scroll offsets to CSS pixels while dialog edges can
+        // be fractional. Permit only that subpixel rounding, not clipped lines.
+        expect(noticeBounds.bottom, JSON.stringify(noticeBounds)).toBeLessThanOrEqual(Math.ceil(noticeBounds.footerTop))
+        expect(noticeBounds.top, JSON.stringify(noticeBounds)).toBeGreaterThanOrEqual(Math.floor(noticeBounds.headerBottom))
         await owner.page.screenshot({ path: join(REVIEW_DIR, '844x390-commission-editor-scrolled.png') })
       }
     }

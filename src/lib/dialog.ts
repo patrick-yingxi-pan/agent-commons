@@ -25,7 +25,7 @@ export const BOUNDED_DIALOG_PANEL_CLASS =
 export const BOUNDED_DIALOG_BODY_CLASS = 'min-h-0 flex-1 overflow-y-auto'
 
 /** Any bounded text reader needs a named keyboard entry point. */
-export function namedReadRegionProps(label: string, marker: 'dialog' | 'routine-mcp' | 'conversation' | 'mcp-input') {
+export function namedReadRegionProps(label: string, marker: 'dialog' | 'routine-mcp' | 'commission-mcp' | 'conversation' | 'mcp-input') {
   return { [`data-${marker}-read-region`]: true, role: 'region', 'aria-label': label, tabIndex: 0 } as const
 }
 

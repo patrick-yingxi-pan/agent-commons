@@ -27,6 +27,7 @@ let knownEpoch: string | null = null
 /** Routine consent includes Agent/provider configuration and destination grants. */
 function invalidateRoutineMcpReviews(): void {
   invalidatePrefix(keys.scheduleMcpPermission())
+  invalidatePrefix(keys.commissionMcpPermission())
 }
 
 /** Profile and search projections share the public findability boundary. */
@@ -46,6 +47,7 @@ const notifySessionRemoved = sessionRemoved.notify
  * access and definition. Canonical registry/graph/feed caches stay visible in
  * each event case because their refresh is event-specific and broader. */
 function invalidateProjectDependencies(projectId: string): void {
+  invalidateRoutineMcpReviews()
   invalidate(keys.commissions(projectId))
   invalidate(keys.commissions())
   invalidate(keys.openSubGoals(projectId))
@@ -251,6 +253,7 @@ function route(e: ServerEvent): void {
     // A Project's Contributor roster changed — possibly a cross-tenant arrival (P8).
     // The roster count also rides the directory card ("N contributors", D17).
     case 'commission.changed':
+      invalidateRoutineMcpReviews()
       invalidate(keys.commissions(e.projectId))
       invalidate(keys.commissions())
       invalidatePrefix(keys.directoryProjects())

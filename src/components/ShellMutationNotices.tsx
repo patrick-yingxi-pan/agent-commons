@@ -13,6 +13,7 @@ import { ArtifactLifecycleMutationNotice } from './ArtifactLifecycleMutationNoti
 import { ArtifactPermanentDeletionMutationNotice } from './ArtifactPermanentDeletionMutationNotice'
 import { ArtifactHistoryRestoreMutationNotice } from './ArtifactHistoryRestoreMutationNotice'
 import { CommissionMutationNotice } from './CommissionMutationNotice'
+import { CommissionMcpMutationNotice } from './CommissionMcpMutationNotice.tsx'
 import { CommissionCreationMutationNotice } from './CommissionCreationMutationNotice'
 import { DispatchMutationNotice } from './DispatchMutationNotice'
 import { DelegationCreationMutationNotice } from './DelegationCreationMutationNotice'
@@ -154,6 +155,7 @@ export function ShellMutationNotices() {
       <SystemPromptDefinitionMutationNotice />
       <SystemPromptCreationMutationNotice />
       <CommissionMutationNotice />
+      <CommissionMcpMutationNotice />
       <CommissionCreationMutationNotice />
     </>
   )

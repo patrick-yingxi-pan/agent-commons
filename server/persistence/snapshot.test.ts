@@ -488,6 +488,10 @@ test('build produces a snapshot covering every persisted slice', async () => {
   assert.equal(s.commissionMcp?.claims[0]?.attempt.status, 'done', 'the bounded known result round-trips')
   assert.equal(s.commissionMcp?.claims[0]?.attempt.result.content[0]?.text, 'Known offline fixture result.')
   assert.equal(s.commissionMcp?.retired.length, 0, 'the live fixture assignment is not retired')
+  assert.equal(s.usageReservations?.length, 1, 'the comprehensive snapshot includes the private model admission hold')
+  assert.equal(s.usageReservations?.[0]?.id, s.commissionMcp?.claims[0]?.id, 'the hold joins its exact durable work claim')
+  assert.equal(s.usageReservations?.[0]?.status, 'settled', 'known model usage releases estimated headroom')
+  assert.deepEqual(s.usageReservations?.[0]?.report, { inputTokens: 23, outputTokens: 9 })
   assert.ok(s.recents.repo.includes('repo-playground'), 'a recent was promoted')
   assert.ok(s.recentsByTenant?.some(([tenantId, recents]) => tenantId === 'tenant-zeta' && recents.repo.includes('repo-tenant-zeta')),
     'non-default viewer recents persist in their own partition')
