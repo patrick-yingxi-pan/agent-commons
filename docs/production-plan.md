@@ -13,7 +13,40 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: bounded cross-sheet workbook formulas
+## Current checkpoint: actual native local-MCP consent acceptance
+
+On 2026-10-12 the owner unlocked the Mac and the unchanged unsigned-arm64
+package passed `npm run desktop:smoke:stdio -- --native-review`. Actual native
+Cancel left the exact connection unchanged with no process or encrypted grant;
+fresh Allow enabled inspection only. Separate rendered per-call consent,
+interactive and Contribution results, interrupted-history recovery, signed-in
+full relaunch without redispatch, and Disconnect/removal all passed afterward.
+The source archive remained unchanged. The [acceptance record](acceptance/native-mcp-stdio-2026-10-12.md)
+identifies the exact revision/archive, observed controls, isolation, evidence
+and unsuccessful UI-control attempts. No deadline or test assertion was relaxed.
+
+This closes the actual-dialog gap for the authored local-MCP workflow only.
+It does not establish arbitrary third-party-server safety or substitute for
+public-service, signed/notarized, Intel or real update-installation acceptance.
+No product behavior or execution authority changed in this checkpoint; complete
+local verification and diff review remain mandatory before direct main delivery.
+
+The release-blocker audit found no concrete implementation defect in the
+signed-pair/update path. No completed release directory was present. The signing
+identity, notary Keychain profile and update-base environment configuration were
+absent from the current process; this is not evidence that credentials are
+absent from the device. Next, obtain authorized release configuration and native
+Intel execution, then validate both signed candidates and a real two-version
+update. Do not invent a download destination, inspect secrets, publish or spend
+without separate authority. Preserve the remaining live-service and hosted
+deployment requirements rather than declaring fixture coverage production-ready.
+
+The cross-sheet checkpoint landed as `2d2d7a54`: all five complete local verifier
+lanes (671 browser tests), 135/135 shared UI cells with zero violations/skips and
+all 142 captures reviewed, and rebuilt unsigned-arm64 ordinary packaged smoke
+passed after the final duplicate-pane regression repair.
+
+## Previous checkpoint: bounded cross-sheet workbook formulas
 
 Autonomous direction (2026-10-12): make summary and detail tabs useful together.
 Authored formulas may reference another tab in the same artifact using
@@ -41,8 +74,8 @@ regression was reproduced before replacing dictionary assignment with own-key
 construction. Post-gate review found the same class of identity in a second
 pane's untouched error dictionary: `__proto__` rendered an inherited object and
 unmounted that editor. The real duplicate-pane regression was watched fail;
-error display now also requires an own key. The complete gate must pass again
-with that rendered regression and correction before delivery.
+error display now also requires an own key. The final complete gate passed with
+that rendered regression and correction before delivery.
 Stable-ID rename/removal and row/column deletion rewrite all supported references
 against the complete pre-image, preserve unrelated source bytes and refuse
 source-budget overflow atomically. Deleted targets become explicit `#REF!`
@@ -70,7 +103,7 @@ walk proves lower contributor permissions scroll into view; its geometry lock
 allows one CSS pixel for native integer-scroll/subpixel-layout rounding.
 Rebuilt unsigned-arm64 ordinary smoke passed, including actual rendered named-tab
 formula source and result before and after full app relaunch. The complete frozen-tree
-local verifier remains the final required gate before direct main delivery.
+local verifier passed before direct main delivery.
 Signed/notarized, Intel, actual native-dialog, update-installation and live-service
 release gates remain separate. The owner's preview and data remain untouched.
 

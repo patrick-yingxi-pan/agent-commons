@@ -73,7 +73,7 @@ The [Folder](../docs/acceptance/native-folder-2026-10-05.md) and [Git](../docs/a
 Profile tests cover mode/ACL and changed-identity refusal without repair, using
 only generated profiles. Early admission and startup/relaunch have separate locks;
 post-readiness modes alone are not evidence. Fixture scope and remaining limits
-live in the [production plan](../docs/production-plan.md); user profiles are never fixtures.
+live in the [production plan](../docs/production-plan.md); user profiles are never fixtures. The [local-MCP review](../docs/acceptance/native-mcp-stdio-2026-10-12.md) records actual Cancel/fresh Allow and full authored-peer follow-through on the unchanged unsigned-arm64 package; third-party, signed, Intel and live-service gates remain separate.
 
 The packaged restore phase drives Customize's actual backup/restore controls
 against its own generated profile. Distinct before/after Documents, Sheets,
