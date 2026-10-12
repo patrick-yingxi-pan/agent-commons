@@ -1,4 +1,4 @@
-/** Cross-slice OAuth provenance for unattended Routine MCP work. Leaf parsers
+/** Cross-slice person/transport provenance for unattended Routine MCP work. Leaf parsers
  * own strict fields; these joins never infer a person from Routine tenancy. */
 import type { McpConnectionState } from './mcpConnections.ts'
 import type { RoutineMcpRegistryState, StoredRoutineMcpDecision } from './routineMcpRegistry.ts'
@@ -9,29 +9,25 @@ const scopeKey = (scope: { tenantId: string; routineId: string }): string => ide
 
 interface ConnectionIndex {
   identities: Map<string, McpConnectionState['retired'][number]>
-  knownOAuthIds: Set<string>
-  knownStdioIds: Set<string>
+  knownPersonIds: Set<string>
 }
 
 function indexConnections(connections: McpConnectionState): ConnectionIndex {
   const identities: ConnectionIndex['identities'] = new Map()
-  const knownOAuthIds = new Set<string>()
-  const knownStdioIds = new Set<string>()
-  const add = (row: McpConnectionState['retired'][number], oauth: boolean) => {
+  const knownPersonIds = new Set<string>()
+  const add = (row: McpConnectionState['retired'][number]) => {
     const id = row.id
     const key = identityKey(row.tenantId, id)
     // Leaf admission already disallows duplicates; retain the original
     // current-before-retired, first-row lookup semantics regardless.
     if (!identities.has(key)) identities.set(key, row)
-    if (oauth) knownOAuthIds.add(id)
-    if (row.transport === 'stdio') knownStdioIds.add(key)
+    if (row.ownerUserId !== undefined || row.transport === 'stdio') knownPersonIds.add(id)
   }
   for (const row of connections.connections) add({ tenantId: row.tenantId, id: row.id,
     ...(row.ownerUserId === undefined ? {} : { ownerUserId: row.ownerUserId }),
-    ...(row.transport === 'stdio' ? { transport: 'stdio' as const } : {}) },
-  row.transport !== 'stdio' && row.authentication === 'device-oauth')
-  for (const row of connections.retired) add(row, row.ownerUserId !== undefined)
-  return { identities, knownOAuthIds, knownStdioIds }
+    ...(row.transport === 'stdio' ? { transport: 'stdio' as const } : {}) })
+  for (const row of connections.retired) add(row)
+  return { identities, knownPersonIds }
 }
 
 interface DecisionHistory {
@@ -88,55 +84,81 @@ function validAuthority(
   tenantId: string,
   authority: StoredRoutineMcpOAuthAuthority | undefined,
   connections: ConnectionIndex,
+  transport: 'http' | 'stdio',
 ): boolean {
-  return !authority || authority.connectionIds.every(id =>
-    connections.identities.get(identityKey(tenantId, id))?.ownerUserId === authority.ownerUserId)
+  return !authority || authority.connectionIds.every(id => {
+    const identity = connections.identities.get(identityKey(tenantId, id))
+    return identity?.ownerUserId === authority.ownerUserId && (identity.transport ?? 'http') === transport
+  })
 }
 
+const sameAuthorities = (left: Pick<StoredRoutineMcpPolicy, 'oauthAuthority' | 'localAuthority'>,
+  right: Pick<StoredRoutineMcpPolicy, 'oauthAuthority' | 'localAuthority'>): boolean =>
+  sameAuthority(left.oauthAuthority, right.oauthAuthority) && sameAuthority(left.localAuthority, right.localAuthority)
+const hasPersonAuthority = (permission: Pick<StoredRoutineMcpPolicy, 'oauthAuthority' | 'localAuthority'>): boolean =>
+  permission.oauthAuthority !== undefined || permission.localAuthority !== undefined
+const validAuthorities = (permission: Pick<StoredRoutineMcpPolicy, 'tenantId' | 'oauthAuthority' | 'localAuthority'>,
+  connections: ConnectionIndex): boolean =>
+  validAuthority(permission.tenantId, permission.oauthAuthority, connections, 'http') &&
+  validAuthority(permission.tenantId, permission.localAuthority, connections, 'stdio')
+
 function validPermission(permission: StoredRoutineMcpPolicy, connections: ConnectionIndex): boolean {
-  if (!validAuthority(permission.tenantId, permission.oauthAuthority, connections)) return false
+  if (!validAuthorities(permission, connections)) return false
   const approval = permission.policy.approval
   if (!approval) return true
   const selectedOAuth = new Set<string>()
+  const selectedLocal = new Set<string>()
   for (const tool of approval.tools) {
     const identity = connections.identities.get(identityKey(permission.tenantId, tool.connectionId))
-    if (connections.knownStdioIds.has(identityKey(permission.tenantId, tool.connectionId))) return false
     if (!identity) {
-      if (connections.knownOAuthIds.has(tool.connectionId)) return false
+      if (connections.knownPersonIds.has(tool.connectionId)) return false
       continue
     }
-    if (identity.ownerUserId !== undefined) {
+    if (identity.transport === 'stdio') {
+      if (!identity.ownerUserId || identity.ownerUserId !== permission.localAuthority?.ownerUserId) return false
+      selectedLocal.add(tool.connectionId)
+    } else if (identity.ownerUserId !== undefined) {
       if (identity.ownerUserId !== permission.oauthAuthority?.ownerUserId) return false
       selectedOAuth.add(tool.connectionId)
     }
   }
-  if (selectedOAuth.size === 0) return permission.oauthAuthority === undefined
-  const expected = [...selectedOAuth].sort()
-  return permission.oauthAuthority?.connectionIds.length === expected.length &&
-    permission.oauthAuthority.connectionIds.every((id, index) => id === expected[index])
+  for (const [selected, authority] of [[selectedOAuth, permission.oauthAuthority], [selectedLocal, permission.localAuthority]] as const) {
+    if (selected.size === 0) { if (authority !== undefined) return false; continue }
+    const expected = [...selected].sort()
+    if (authority?.connectionIds.length !== expected.length || !authority.connectionIds.every((id, index) => id === expected[index])) return false
+  }
+  return true
 }
 
 function matchingApproval(permission: StoredRoutineMcpPolicy, history: DecisionHistory | undefined): boolean {
   const approval = history?.approvalsByRevision.get(permission.policy.revision) ?? []
   // Older tenant-only snapshots retain their original history requirements.
-  if (!permission.oauthAuthority && approval.length === 0) return true
-  return approval.length === 1 && sameAuthority(permission.oauthAuthority, approval[0]!.oauthAuthority)
+  if (!hasPersonAuthority(permission) && approval.length === 0) return true
+  return approval.length === 1 && sameAuthorities(permission, approval[0]!)
 }
 
 /** The caller supplies already parsed registry and connection snapshots. A
  * retained decision can be cross-checked with matching policy/run revisions;
  * absence of all historical discriminators remains indistinguishable from
  * legacy state, rather than inventing authority during migration. */
-export function validateRoutineMcpAuthorities(state: RoutineMcpRegistryState, connections: McpConnectionState): boolean {
+export function validateRoutineMcpAuthorities(state: RoutineMcpRegistryState, connections: McpConnectionState,
+  allowLocalPrograms = false): boolean {
+  // Groundwork is not shipping authority: current snapshot/store callers must
+  // keep rejecting local grants until person-scoped host integration is ready.
+  if (allowLocalPrograms !== true && (state.policies.some(policy => policy.localAuthority !== undefined) ||
+      state.runs.some(run => run.permission.localAuthority !== undefined) ||
+      state.decisions.some(decision => decision.localAuthority !== undefined))) return false
   const connectionIndex = indexConnections(connections)
   const histories = indexDecisions(state.decisions)
   for (const decision of state.decisions) {
-    if (!validAuthority(decision.tenantId, decision.oauthAuthority, connectionIndex)) return false
-    if (decision.oauthAuthority && (decision.actorUserId === undefined ||
-        (decision.action === 'approve' && decision.actorUserId !== decision.oauthAuthority.ownerUserId))) return false
+    if (!validAuthorities(decision, connectionIndex)) return false
+    for (const authority of [decision.oauthAuthority, decision.localAuthority]) {
+      if (authority && (decision.actorUserId === undefined ||
+          (decision.action === 'approve' && decision.actorUserId !== authority.ownerUserId))) return false
+    }
     if (decision.action === 'revoke') {
       const prior = priorApproval(histories.get(scopeKey(decision))!, decision.policyRevision)
-      if (prior ? !sameAuthority(prior.oauthAuthority, decision.oauthAuthority) : decision.oauthAuthority !== undefined) return false
+      if (prior ? !sameAuthorities(prior, decision) : hasPersonAuthority(decision)) return false
     }
   }
   for (const permission of state.policies) {
@@ -149,8 +171,8 @@ export function validateRoutineMcpAuthorities(state: RoutineMcpRegistryState, co
     // Revocation removes executable tools but preserves the last person's exact
     // connection set, including automatic suspension without a new decision.
     const latest = history?.latest ?? []
-    if (latest.length === 0 ? permission.oauthAuthority !== undefined :
-      latest.some(decision => !sameAuthority(decision.oauthAuthority, permission.oauthAuthority))) return false
+    if (latest.length === 0 ? hasPersonAuthority(permission) :
+      latest.some(decision => !sameAuthorities(decision, permission))) return false
   }
   for (const run of state.runs) {
     if (!validPermission(run.permission, connectionIndex) || !matchingApproval(run.permission, histories.get(scopeKey(run.permission)))) return false

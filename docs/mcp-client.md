@@ -704,6 +704,24 @@ the separate unsigned arm64 packaged walk uses real encrypted native custody,
 an exact fixture-only native approval and repository-authored subprocesses.
 Actual native-dialog and third-party-server acceptance remain separate gates.
 
+### Local Routine permission groundwork
+
+The next Routine transport is an explicit person-approved local program, not an
+extension of an old HTTP or OAuth grant. Pure policy preparation now requires
+`localPrograms: true` and a separately enabled trusted host. Private
+`localAuthority` pins the approving person and exact local connection IDs;
+OAuth IDs remain independently stamped, and a mixed grant must have one person,
+disjoint sets and the existing combined tool bound. Live and retired connection
+joins retain transport as well as ownership. Private receipts derive their
+`transport: 'stdio'` marker from that frozen authority rather than caller input.
+
+This is internal groundwork only. Product approval/reservation and snapshot
+admission still default local programs off. Enabling the workflow requires
+person-aware host composition, explicit local-program review, truthful normal-OS
+access/startup-effect disclosures, interruption/revoke/restore fencing, and
+browser plus packaged acceptance. Existing launch grants cannot silently become
+unattended consent, and a pre-tool refusal does not prove an effect-free launch.
+
 ## Required next work
 
 - Complete protocol execution: discovery supports the

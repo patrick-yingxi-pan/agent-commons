@@ -163,6 +163,23 @@ test('Commission preparation shares portable types and tool constraints without 
   assert.match(stripComments(read(join(ROOT, 'contract/routineMcp.ts'))), /RoutineMcpToolPermission\s*=\s*McpToolPermission/)
 })
 
+test('local Routine groundwork cannot silently enable the current product or snapshot hosts', () => {
+  const check = (snapshotHost: string, storeHost: string) => {
+    assert.ok(snapshotHost.includes('validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))'),
+      'snapshot admission must keep the default-off local Routine capability')
+    assert.doesNotMatch(storeHost, /\ballowLocalPrograms\b/,
+      'product Routine admission cannot enable unfinished local-program composition')
+  }
+  const snapshotHost = stripComments(read(join(ROOT, 'server/persistence/format.ts')))
+  const storeHost = stripComments(read(join(ROOT, 'server/store/index.ts')))
+  check(snapshotHost, storeHost)
+  const mutated = snapshotHost.replace('validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections))',
+    'validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections), true)')
+  assert.notEqual(mutated, snapshotHost)
+  assert.throws(() => check(mutated, storeHost), /default-off/)
+  assert.throws(() => check(snapshotHost, `${storeHost}\nconst allowLocalPrograms = true`), /unfinished local-program/)
+})
+
 test('Contribution receipts and bound MCP execution share contract identity without session authority', () => {
   const check = (source: string) => assert.match(source, /from '\.\.\/contract\/mcpExecution\.ts'/,
     'the bound call must use the framework-free shared contract')

@@ -19,7 +19,7 @@ import {
 
 export interface StoredRoutineMcpRun {
   permission: StoredRoutineMcpPolicy
-  /** Creation-time join commitment, including private OAuth authority when
+  /** Creation-time join commitment, including private person authority when
    * present and an empty ledger. Not a MAC or a defense against someone
    * authorized to rewrite the backing store. */
   permissionHash: string
@@ -67,14 +67,17 @@ function receiptFrom(value: McpJsonValue, permission: StoredRoutineMcpPolicy, ru
     tool.toolName === call.toolName && tool.schemaHash === call.schemaHash)
   if (!tool || !Object.keys(tool.fixedArguments).every(key => Object.hasOwn(call.arguments, key) &&
       sameRoutineMcpJson(tool.fixedArguments[key], call.arguments[key]))) return fail()
-  const base = { id: value.id, call, callHash: value.callHash as string, startedAt: value.startedAt }
+  const local = permission.localAuthority?.connectionIds.includes(call.connectionId) === true
+  if (local ? value.transport !== 'stdio' : Object.hasOwn(value, 'transport')) return fail()
+  const base = { id: value.id, call, callHash: value.callHash as string, startedAt: value.startedAt,
+    ...(local ? { transport: 'stdio' as const } : {}) }
   const keys = Object.keys(value)
   if (value.status === 'pending') {
-    if (keys.length !== 5) return fail()
+    if (keys.length !== (local ? 6 : 5)) return fail()
     return { ...base, status: 'pending' }
   }
   if (!routineMcpInteger(value.finishedAt) || value.finishedAt < value.startedAt ||
-      keys.some(key => !['id', 'call', 'callHash', 'startedAt', 'status', 'finishedAt', 'result'].includes(key))) return fail()
+      keys.some(key => !['id', 'call', 'callHash', 'startedAt', 'status', 'finishedAt', 'result', ...(local ? ['transport'] : [])].includes(key))) return fail()
   if (value.status === 'uncertain') {
     if (Object.hasOwn(value, 'result')) return fail()
     return { ...base, status: 'uncertain', finishedAt: value.finishedAt }
@@ -129,6 +132,8 @@ export function reserveRoutineMcpCall(value: StoredRoutineMcpRun, input: {
   reviewHash: string
   now: number
   connection: RoutineMcpConnectionReader
+  /** A trusted host must explicitly enable local execution after its own review. */
+  allowLocalPrograms?: boolean
 }): { run: StoredRoutineMcpRun; receipt: StoredRoutineMcpReceipt; created: boolean } {
   const run = parseRoutineMcpRun(value)
   const id = receiptId(run, input.key)
@@ -141,9 +146,11 @@ export function reserveRoutineMcpCall(value: StoredRoutineMcpRun, input: {
   }
   if (run.phase !== 'active' || run.calls.some(stopsCalls)) return fail('denied')
   if (run.calls.length >= run.permission.policy.approval!.maxCallsPerRun) return fail('limit')
-  if (!routineMcpCallPermitted(run.permission, input.live, input.definitionRevision, exact, input.now, input.connection, input.reviewHash)) return fail('denied')
+  if (!routineMcpCallPermitted(run.permission, input.live, input.definitionRevision, exact, input.now, input.connection, input.reviewHash,
+    input.allowLocalPrograms === true)) return fail('denied')
   const receipt: StoredRoutineMcpReceipt = { id, call: exact, callHash: callHash(run.permission, run.runId, id, exact),
-    startedAt: input.now, status: 'pending' }
+    startedAt: input.now, status: 'pending',
+    ...(run.permission.localAuthority?.connectionIds.includes(exact.connectionId) ? { transport: 'stdio' as const } : {}) }
   run.calls.push(receipt)
   return { run, receipt, created: true }
 }

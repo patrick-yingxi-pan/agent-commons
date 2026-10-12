@@ -16,6 +16,8 @@ export interface RoutineMcpApproval {
   expiresAt: number
   maxCallsPerRun: number
   tools: RoutineMcpToolPermission[]
+  /** Explicit unattended local-program intent; absence grants no launch authority. */
+  localPrograms?: true
 }
 
 /** Independent ordering survives revocation. A null approval grants nothing;
@@ -36,6 +38,8 @@ export interface RoutineMcpApprovalIntent {
   expiresAt: number
   maxCallsPerRun: number
   tools: RoutineMcpToolPermission[]
+  /** Separate from native setup consent; only literal true requests local-program authority. */
+  localPrograms?: true
 }
 
 export type RoutineMcpCallState =
@@ -50,5 +54,7 @@ export type RoutineMcpCallState =
 export type RoutineMcpCallReceipt = {
   id: string
   call: McpBoundToolCall
+  /** Derived local-process provenance; absence preserves legacy HTTP meaning. */
+  transport?: 'stdio'
   startedAt: number
 } & RoutineMcpCallState

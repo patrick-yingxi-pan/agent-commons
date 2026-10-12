@@ -46,7 +46,46 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current milestone: explicit Commission MCP execution
+## Current milestone: person-approved local Routine MCP
+
+Autonomous direction (2026-10-12): let a person run an existing configured local
+MCP program from a Routine after a separate, explicit unattended review. This
+closes a core desktop workflow gap; it does not turn connection setup, OAuth,
+Contribution consent or an HTTP Routine grant into permission to launch local
+code. The program retains normal OS access and may have startup effects before
+any tool request. Tool bounds are not a process sandbox or a money ceiling.
+
+The implementation proceeds through these required checkpoints:
+
+1. Strict portable opt-in and private person/transport provenance, separate from
+   HTTP/OAuth authority, with immutable queued permission and receipt history.
+2. Person-scoped store, persistence and native execution integration; explicit
+   unchecked local-program acknowledgement in the existing Routine review;
+   truthful launch/failure disclosures; revocation, disconnect and restore
+   fencing before admission. A local failure must not trigger an automatic
+   relaunch under an assumption that a missing tool result means no effects.
+3. Authored-child browser and real packaged acceptance: reviewed execution,
+   private durable results, cancellation/revoke, signed-in full relaunch,
+   uncertainty without replay and explicit backup restore. Signed, Intel and
+   real third-party acceptance remain separate release gates.
+
+Checkpoint 1 adds only pure policy/registry/receipt groundwork. `localPrograms:
+true` is a distinct explicit review flag; absence grants no local authority.
+Private local connection IDs and the approving person cannot be relabeled as
+OAuth or legacy HTTP. Mixed grants require the same person and disjoint exact
+connection sets. Local receipts retain a derived `stdio` marker. Each admission
+layer additionally defaults its trusted-host switch off: existing store and
+snapshot callers still refuse these grants. There is no new product execution,
+native permission, UI control or network call at this checkpoint.
+
+The previous Commission acceptance checkpoint landed as `05640a35`: the complete
+desktop verifier passed, followed by all five local verifier lanes and all 673
+browser tests in 725.1 seconds. Packaged Commission explicit-restore acceptance
+remains required, alongside the new local Routine path; it is not closed by the
+restart-only result. Apple residence/account-region input remains pending, and
+release/live-service prerequisites above are unchanged.
+
+## Completed implementation milestone: explicit Commission MCP execution
 
 The first real Commission MCP path implements
 one exact HTTP MCP call per posted `mcp.mutate` work item. It is a fresh,
