@@ -32,7 +32,8 @@ import { useFsText, fsContentUrl } from '../api/fsHooks.ts'
 import { artifactEditDrafts, useArtifactEditDraft } from '../controller/artifactEditDrafts'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
-import { ProposalsPanel, type MainPageSectionComponent } from './ProposalsPanel'
+import { DeferredProposalsPanel as ProposalsPanel } from './DeferredProposalsPanel'
+import type { MainPageSectionComponent } from './ProposalsPanel'
 import { artifactMetaIsSpecific } from '../lib/artifactMeta'
 import { PhotoThumb } from './PhotoThumb'
 import { GrantsPanel } from './GrantsPanel'
@@ -1076,6 +1077,8 @@ export function ArtifactDetailPage({
               showLatest={structuredMutation.activeResourceId === artifact.id && Boolean(structuredMutation.error)}
               saving={structuredBusy}
               error={draftState?.error}
+              worksheetRenameDrafts={draftState?.worksheetRenames}
+              onWorksheetRenameDraftChange={(sheetId, rename) => artifactEditDrafts.setWorksheetRename(artifact.id, sheetId, rename)}
               onSave={() => { void artifactEditDrafts.save(artifact.id) }}
               onCancel={() => artifactEditDrafts.cancel(artifact.id)}
             />

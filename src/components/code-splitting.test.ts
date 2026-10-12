@@ -5,6 +5,38 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
 
+test('proposal review loads only for proposal messages and failure grants no decision authority', () => {
+  const message = stripComments(read(join(ROOT, 'src/components/Message.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredRelationActionCard.tsx')))
+  const check = (source: string) => {
+    assert.match(source, /from '\.\/DeferredRelationActionCard'/)
+    assert.doesNotMatch(source, /from '\.\/RelationActionCard'/)
+  }
+  check(message)
+  assert.throws(() => check(message.replaceAll("from './DeferredRelationActionCard'", "from './RelationActionCard'")), assert.AssertionError)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/RelationActionCard\.tsx'\)/)
+  assert.match(deferred, /DeferredLoadBoundary[\s\S]*data-relation-action-load-error[\s\S]*No decision was made/)
+  assert.match(deferred, /Copy unsent workspace text before reloading[\s\S]*window\.location\.reload\(\)[\s\S]*Reload proposal review/)
+  assert.match(deferred, /Suspense[\s\S]*data-relation-action-loading[\s\S]*<Card \{\.\.\.props\}/)
+  assert.doesNotMatch(deferred, /enqueueRelationActionDecision|onConfirm|onDecline|onApprove/)
+})
+
+test('resource Improvements loads behind its page section without offering consent in its fallback', () => {
+  for (const file of ['SectionView.tsx', 'artifactPreview.tsx']) {
+    const source = stripComments(read(join(ROOT, 'src/components', file)))
+    assert.match(source, /DeferredProposalsPanel as ProposalsPanel/)
+    assert.doesNotMatch(source, /import \{ ProposalsPanel[, }]/)
+  }
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredProposalsPanel.tsx')))
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ProposalsPanel\.tsx'\)/)
+  assert.match(deferred, /<Section title="Improvements"[\s\S]*heldOpen/)
+  assert.match(deferred, /data-proposals-load=\{failed \? 'error' : 'loading'\}/)
+  assert.match(deferred, /No change was offered or decision made[\s\S]*Copy unsent workspace text before reloading/)
+  assert.match(deferred, /Reload improvements[\s\S]*window\.location\.reload/)
+  assert.match(deferred, /DeferredLoadBoundary[\s\S]*Suspense[\s\S]*<Panel \{\.\.\.props\}/)
+  assert.doesNotMatch(deferred, /enqueueSocialProposalCreation|onConfirm|onDecline|onApprove/)
+})
+
 test('usage gauge remains eager while the details body loads only on first open', () => {
   const control = stripComments(read(join(ROOT, 'src/components/UsageControl.tsx')))
   const details = stripComments(read(join(ROOT, 'src/components/UsageDetails.tsx')))
@@ -46,6 +78,46 @@ test('account menu content loads only after opening the always-visible chip', ()
   assert.match(menu, /export function AccountMenuContent/)
   assert.match(menu, /fieldset disabled=\{held !== null\}/,
     'menu actions retain the existing account-transition hold')
+})
+
+test('contributor edit form loads only after its row opens and its fallback cannot save', () => {
+  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredCommissionDialog.tsx')))
+  const dialog = stripComments(read(join(ROOT, 'src/components/CommissionDialog.tsx')))
+  assert.match(section, /import \{ DeferredCommissionDialog \} from '\.\/DeferredCommissionDialog\.tsx'/)
+  assert.doesNotMatch(section, /import \{ CommissionDialog \} from/)
+  assert.match(section, /<DeferredCommissionDialog[\s\S]*standingNotice=\{<AutomationNotice kind="standing" \/>\}/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/CommissionDialog\.tsx'\)/)
+  assert.match(deferred, /DeferredLoadBoundary[\s\S]*<Suspense[\s\S]*<Dialog \{\.\.\.props\} \/>/)
+  assert.match(deferred, /data-commission-form-load=\{failed \? 'failed' : 'loading'\}/)
+  assert.match(deferred, /window\.location\.reload\(\)[\s\S]*No change was made/)
+  assert.doesNotMatch(deferred, /updateCommissionConfiguration|submitLabel="Save"/)
+  assert.match(dialog, /updateCommissionConfiguration[\s\S]*held edits were not saved/)
+  assert.match(dialog, /standingNotice/)
+})
+
+test('owner proposal review content loads on demand with a no-verdict failure state', () => {
+  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredAgentProposalsReviewDialog.tsx')))
+  const review = stripComments(read(join(ROOT, 'src/components/AgentProposalsReviewDialog.tsx')))
+  assert.match(section, /import \{ DeferredAgentProposalsReviewDialog \} from '\.\/DeferredAgentProposalsReviewDialog\.tsx'/)
+  assert.doesNotMatch(section, /import \{ AgentProposalsReviewDialog \} from/)
+  assert.match(section, /<DeferredAgentProposalsReviewDialog[\s\S]*Thread=\{ProposalThread\}[\s\S]*FieldDiff=\{ProposalFieldDiff\}[\s\S]*GitPullRequestIcon=\{GitPullRequest\}[\s\S]*GitMergeIcon=\{GitMerge\}/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/AgentProposalsReviewDialog\.tsx'\)/)
+  assert.match(deferred, /DeferredLoadBoundary[\s\S]*<Suspense[\s\S]*<Dialog \{\.\.\.props\} \/>/)
+  assert.match(deferred, /data-agent-proposal-review-load=\{failed \? 'failed' : 'loading'\}/)
+  assert.match(deferred, /useBoundedDialog\(dialogRef\)[\s\S]*BOUNDED_DIALOG_LAYER_CLASS[\s\S]*BOUNDED_DIALOG_BODY_CLASS/)
+  assert.match(deferred, /overflowWrap: 'anywhere'/)
+  assert.match(deferred, /className=\{SCRIM_CLASS\}/)
+  assert.match(deferred, /No decision was made[\s\S]*Reload proposal review/)
+  assert.doesNotMatch(deferred, />Merge<|>Decline</)
+  assert.match(review, /heldAgentProposalVerdictIntent[\s\S]*data-agent-proposal-verdict[\s\S]*Merge[\s\S]*Decline/)
+  assert.match(review, /overflowWrap: 'anywhere'/)
+  assert.match(review, /<Thread agentId=\{agent\.id\} proposal=\{proposal\}/)
+  assert.match(review, /<FieldDiff fields=\{proposal\.fields\} current=\{current\}/)
+  assert.match(review, /GitPullRequestIcon: LucideIcon[\s\S]*GitMergeIcon: LucideIcon/)
+  assert.doesNotMatch(review, /import \{[^}]*Git(?:PullRequest|Merge)[^}]*\} from 'lucide-react'/,
+    'dialog-specific icon chunks must not create a back-edge to SectionPane')
 })
 
 test('expanded Contexts rail rows load registry and native metadata behind local recovery', () => {

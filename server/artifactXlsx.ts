@@ -4,7 +4,7 @@
  * ST_Xstring escaping follows MS-OE376 §2.1.1127, including literal escape text:
  * https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oe376/bd0aa042-434a-4ca7-b25f-4e1fd25a954d */
 import { artifactExportFilename, spreadsheetSheets, XLSX_MEDIA_TYPE, type ArtifactContent, type ArtifactSpreadsheetExport, type WorkbookSheet } from '../contract/index.ts'
-import { calculateSheet } from '../contract/workbookCalculation.ts'
+import { calculateWorkbook } from '../contract/workbookCalculation.ts'
 import { writeOfficeZip } from './artifactOfficeZip.ts'
 
 type SpreadsheetBody = Extract<ArtifactContent, { type: 'sheet' | 'workbook' }>
@@ -48,6 +48,9 @@ const STYLES = `${XML}<styleSheet xmlns="${MAIN}"><fonts count="3"><font><sz val
 
 export async function sheetXlsx(name: string, body: SpreadsheetBody): Promise<Omit<ArtifactSpreadsheetExport, 'artifactId'>> {
   const sheets = spreadsheetSheets(body)
+  const calculatedSheets = new Map(calculateWorkbook(sheets).map((sheet) => [
+    sheet.id, sheet.rows.map((row) => row.map((cell) => cell.text)),
+  ]))
   const strings = new Map<string, number>()
   let count = 0
   const stringId = (value: string): number => {
@@ -56,7 +59,7 @@ export async function sheetXlsx(name: string, body: SpreadsheetBody): Promise<Om
     return strings.get(value)!
   }
   const worksheetParts: [string, string][] = sheets.map((sheet: WorkbookSheet, sheetIndex) => {
-    const calculatedRows = calculateSheet(sheet).map((row) => row.map((cell) => cell.text))
+    const calculatedRows = calculatedSheets.get(sheet.id)!
     const widths = sheet.columns.map((column, index) => Math.min(60, Math.max(18, displayWidth(column) + 3, ...calculatedRows.map((row) => displayWidth(row[index] ?? '') + 3))))
     const lastColumn = spreadsheetColumn(sheet.columns.length - 1)
     const dataEnd = sheet.rows.length + 1

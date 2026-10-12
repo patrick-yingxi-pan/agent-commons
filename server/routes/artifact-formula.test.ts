@@ -159,3 +159,59 @@ test('formula evaluator returns stable explicit errors and leaves legacy formula
     assert.ok(shared.includes(literal), `${literal} remains literal text without an explicit formula object`)
   }
 })
+
+test('named workbook formulas are calculated from the whole saved body and keep the artifact access boundary', async () => {
+  const stamp = randomUUID()
+  const body = {
+    type: 'workbook',
+    sheets: [
+      { id: 'overview', name: 'Overview', columns: ['Result', 'Literal'], rows: [[{ formula: "='detail TAB'!A1*2" }, '=A1']] },
+      { id: 'detail', name: 'Detail tab', columns: ['Input'], rows: [['21']] },
+      { id: 'cycle', name: 'Cycle', columns: ['Value'], rows: [[{ formula: "='Cycle two'!A1" }]] },
+      { id: 'cycle-two', name: 'Cycle two', columns: ['Value'], rows: [[{ formula: '=CYCLE!A1' }]] },
+    ],
+  }
+  const created = await call('POST', '/artifacts', {
+    name: `cross-sheet-formulas-${stamp}.xlsx`, kind: 'sheet', body,
+  }, headers(OWNER, { 'idempotency-key': `cross-sheet-formula-${stamp}` }))
+  assert.equal(created.status, 201, JSON.stringify(created.json))
+  const artifact = created.json.artifact as ArtifactItem
+  assert.deepEqual(await artifactBody(artifact.id), { ...body, revision: 0 }, 'GET retains tagged formula source verbatim')
+
+  const grant = await call('POST', '/grants', {
+    subject: { kind: 'artifact', id: artifact.id }, audience: { kind: 'org', orgId: READER }, tier: 'view',
+  }, headers(OWNER))
+  assert.equal(grant.status, 200)
+  assert.deepEqual(await artifactBody(artifact.id, READER), { ...body, revision: 0 }, 'a granted reader gets the same authored body')
+  assert.equal(await artifactBody(artifact.id, FOREIGN), undefined, 'a foreign tenant gets no body')
+
+  const session = await call('POST', '/sessions', { firstMessage: `Cross-sheet formula snapshot ${stamp}` }, headers(OWNER))
+  assert.equal(session.status, 200)
+  const attached = await call('PATCH', `/sessions/${session.json.id}/context-state`, {
+    operations: [], workspace: { workspaces: [], repos: [], connectors: [], attachments: [{
+      id: artifactContextId(artifact.id), label: artifact.name, kind: 'artifact', artifactCaptureId: randomUUID(),
+    }] },
+  }, headers(OWNER))
+  assert.equal(attached.status, 200, JSON.stringify(attached.json))
+  const snapshot = attached.json.workspace.attachments[0].artifactSnapshot
+  assert.deepEqual(snapshot.body, body, 'the frozen model snapshot keeps source, not calculated values')
+  assert.deepEqual(JSON.parse(artifactSnapshotText(snapshot)).calculation, {
+    version: 1,
+    sheets: [
+      { id: 'overview', rows: [['42', '=A1']] },
+      { id: 'detail', rows: [['21']] },
+      { id: 'cycle', rows: [['#CYCLE!']] },
+      { id: 'cycle-two', rows: [['#CYCLE!']] },
+    ],
+  })
+
+  const exported = await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, headers(OWNER))
+  assert.equal(exported.status, 200, JSON.stringify(exported.json))
+  const files = await zipFiles(exported.json.content)
+  assert.ok(files['xl/sharedStrings.xml']!.includes('42'))
+  assert.ok(files['xl/sharedStrings.xml']!.includes('#CYCLE!'))
+  assert.doesNotMatch(Object.values(files).join('\n'), /<f(?:\s|>)/, 'values-only export does not emit executable formulas')
+  const readerExport = await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, headers(READER))
+  assert.deepEqual(readerExport.json, exported.json, 'a granted reader receives the same calculated values')
+  assert.equal((await call('GET', `/artifacts/${artifact.id}/export?format=xlsx`, undefined, headers(FOREIGN))).status, 404)
+})

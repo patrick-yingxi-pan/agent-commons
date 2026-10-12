@@ -51,7 +51,7 @@ function sheetCellSchema(): ArtifactBodySchema {
       { type: 'string', description: `A literal cell value (≤${MAX_AUTHORED_CELL_CHARS} characters).`, maxLength: MAX_AUTHORED_CELL_CHARS },
       {
         type: 'object',
-        description: 'A formula cell. Formula source is saved exactly; supported expressions are optional leading =, unary/binary + - * /, parentheses, same-sheet data-row A1 references, and SUM of values, arguments, or ranges. Headers and other sheets are not addressable. An empty source is retained and evaluates to #FORMULA!.',
+        description: "A formula cell. Formula source is saved exactly; supported expressions are optional leading =, unary/binary + - * /, parentheses, same-sheet data-row A1 references, named-sheet references such as Sheet!A1 or 'Sheet name'!A1 (doubled apostrophes escape apostrophes), and SUM of values, arguments, or ranges. Sheet names match case-insensitively within this workbook. Headers and external sheets are not addressable. An empty source is retained and evaluates to #FORMULA!.",
         properties: { formula: { type: 'string', maxLength: MAX_AUTHORED_CELL_CHARS } },
         required: ['formula'], additionalProperties: false,
       },

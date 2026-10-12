@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
 import { docBlockId } from '../server/documentIdentity.ts'
+import { calculateWorkbook } from '../contract/workbookCalculation.ts'
 
 const TIMEOUT_MS = 30_000
 
@@ -27,8 +28,8 @@ export async function prepareArtifactSearchSmoke({ page, request, stamp }) {
       label: 'workbook', name: `Packaged search workbook ${stamp}.xlsx`, kind: 'sheet',
       query: `workbookneedle${stamp}`, field: 'workbook.1.cell.0.1',
       body: { type: 'workbook', revision: 0, sheets: [
-        { id: 'overview', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Opening', 'Ordinary']] },
-        { id: 'details', name: 'Details', columns: ['Metric', 'Value'], rows: [['Later', `workbookneedle${stamp}`]] },
+        { id: 'overview', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Opening', '21']] },
+        { id: 'details', name: 'Details', columns: ['Metric', 'Value', 'Twice overview'], rows: [['Later', `workbookneedle${stamp}`, { formula: "='Overview'!B1*2" }]] },
       ] },
     },
     {
@@ -90,6 +91,11 @@ async function assertMatch(page, fixture) {
       (!region || (rect.left >= region.left && rect.right <= region.right))
   }), { message: `${fixture.label} match is inside its visible reading region` }).toBe(true)
   await expect(content.locator('[data-artifact-history-body]')).toHaveCount(0)
+  if (fixture.label === 'workbook') {
+    const formulaCell = content.locator('[data-structured-artifact-body="sheet"] tbody tr').first().locator('td').nth(2)
+    await expect(formulaCell.getByLabel('Formula source C1')).toHaveText("='Overview'!B1*2")
+    await expect(formulaCell.locator('span').first()).toHaveText('42')
+  }
   return content
 }
 
@@ -139,6 +145,14 @@ export async function verifyArtifactSearchSmoke({ page, origin, request, fixture
     const bodies = await request(page, '/artifact-content')
     for (const fixture of fixtures) assert.deepEqual(bodies[fixture.id], fixture.body,
       `${phase} navigation leaves the exact ${fixture.label} body unchanged`)
+    const workbookFixture = fixtures.find(fixture => fixture.label === 'workbook')
+    assert.ok(workbookFixture)
+    assert.deepEqual(workbookFixture.body.sheets[1].rows[0][2], { formula: "='Overview'!B1*2" },
+      `${phase} saved workbook keeps the exact cross-sheet formula source`)
+    const calculated = calculateWorkbook(workbookFixture.body.sheets)
+    assert.deepEqual(calculated.find(sheet => sheet.id === 'details')?.rows.map(row => row.map(cell => cell.text)), [
+      ['Later', workbookFixture.query, '42'],
+    ], `${phase} relaunch/search journey recalculates the named cross-sheet value from saved workbook content`)
     assert.deepEqual(mutations, [], 'current search, reveal, tab navigation, reload and Back do not mutate Artifacts')
     assert.deepEqual(historyReads, [], 'current search never reads private saved versions')
   } finally { page.off('request', observe) }

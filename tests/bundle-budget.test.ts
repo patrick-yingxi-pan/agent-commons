@@ -9,6 +9,7 @@ import {
   INITIAL_GRAPH_BUDGET_BYTES,
   WORKER_BUDGET_BYTES,
   bundleBudgetViolations,
+  bundleBudgetPlugin,
   workerBudgetViolations,
 } from '../scripts/bundleBudget.ts'
 
@@ -58,4 +59,40 @@ test('worker JavaScript assets have a separate aggregate gate that splitting can
   assert.equal(violations[0].kind, 'worker')
   assert.equal(violations[0].bytes, 1_400_001)
   assert.equal(violations[0].limit, WORKER_BUDGET_BYTES)
+})
+
+test('the post generateBundle adapter rejects a Vite-injected preload map that pushes the final cold graph over budget', () => {
+  const plugin = bundleBudgetPlugin()
+  const hook = plugin.generateBundle as unknown as {
+    order?: string
+    handler?: (this: { error(message: string): never }, options: unknown, bundle: Record<string, unknown>) => void
+  }
+  assert.equal(hook.order, 'post', 'the budget gate runs after Vite normal-priority bundle mutations')
+  assert.equal(typeof hook.handler, 'function')
+
+  const injected = 'const __vite__mapDeps=(i)=>i;'
+  const finalEntryCode = injected + 'x'.repeat(400_001 - injected.length)
+  const encoder = new TextEncoder()
+  assert.ok(encoder.encode(finalEntryCode.slice(injected.length)).byteLength + 400_000 <= INITIAL_GRAPH_BUDGET_BYTES,
+    'the original chunks pass before the preload map is injected')
+  assert.equal(encoder.encode(finalEntryCode).byteLength + 400_000, INITIAL_GRAPH_BUDGET_BYTES + 1,
+    'the final emitted graph is one byte over budget')
+  const bundle = {
+    'entry.js': {
+      type: 'chunk', fileName: 'entry.js', isEntry: true, code: finalEntryCode,
+      imports: ['shared.js'], dynamicImports: [], modules: {},
+    },
+    'shared.js': {
+      type: 'chunk', fileName: 'shared.js', isEntry: false, code: 'y'.repeat(400_000),
+      imports: [], dynamicImports: [], modules: {},
+    },
+  }
+  let failure = ''
+  try {
+    hook.handler!.call({ error(message) { throw new Error(message) } }, {}, bundle)
+  } catch (error) {
+    failure = error instanceof Error ? error.message : String(error)
+  }
+  assert.match(failure, /initial graph is 800001 bytes; budget is 800000/)
+  assert.match(failure, /JavaScript bundle budget exceeded/)
 })

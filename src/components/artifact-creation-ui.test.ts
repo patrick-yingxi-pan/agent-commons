@@ -74,7 +74,12 @@ test('New artifact authors every supported format through the shared bounded fie
     'creation uses the same structured field component as correction')
   const creation = stripComments(read(join(ROOT, 'src/components/NewArtifactDialog.tsx')))
   assert.match(creation, /A1 is the first data cell under the column headings/, 'creation guidance distinguishes data coordinates from labels')
+  assert.match(creation, /A1 references within this workbook.*Detail!A1 or 'Detail tab'!A1/, 'creation guidance explains cross-worksheet references stay within the workbook')
   assert.match(creation, /XLSX downloads contain calculated values and errors, not formulas/, 'creation discloses values-only exports')
+  assert.match(creation, /kind === 'sheet' && pendingSheetRenames\.length > 0/, 'Create cannot silently ignore an unapplied tab rename')
+  assert.match(creation, /onPendingRenameChange=\{kind === 'sheet' \? setPendingSheetRenames : undefined\}/, 'the sheet form reports pending names to its owner')
+  assert.match(creation, /Finish or cancel worksheet rename/, 'creation explains why the submit action is held')
+  assert.match(creation, /data-pending-sheet-renames className="break-words \[overflow-wrap:anywhere\]/, 'pending-name guidance wraps even for long unbroken worksheet names')
   assert.match(creation, /projects\.filter\(\(project\) => project\.own === true\)\.map\(/,
     'optional filing offers only projects whose server projection grants owner acts')
   assert.match(fields, /<StructuredArtifactFields body=\{body\} onChange=\{onChange\} disabled=\{saving\}/,

@@ -69,6 +69,8 @@ export function ArtifactDraftHistory({ body, onChange, history, disabled, childr
       const direction = key === 'z' ? (event.shiftKey ? 'redo' : 'undo')
         : key === 'y' && event.ctrlKey && !event.metaKey && !event.shiftKey ? 'redo' : undefined
       if (!direction) return
+      const target = event.target
+      if (target instanceof Element && target.closest('[data-artifact-transient-input]')) return
       event.preventDefault()
       event.stopPropagation()
       traverse(direction)

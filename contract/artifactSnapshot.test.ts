@@ -100,6 +100,34 @@ test('formula context keeps the saved source and adds a calculated projection fr
   assert.equal(artifactSnapshotText(snapshot).includes('"11"'), false)
 })
 
+test('workbook context calculates named cross-tab references and contains dependency cycles', () => {
+  const snapshot = buildArtifactSnapshot({
+    artifactId: 'cross-tab-formulas', title: 'Workbook', artifactKind: 'sheet',
+    body: { type: 'workbook', sheets: [
+      { id: 'overview', name: 'Overview', columns: ['Result'], rows: [[{ formula: "='detail TAB'!A1*2" }]] },
+      { id: 'detail', name: 'Detail tab', columns: ['Value'], rows: [['21']] },
+      { id: 'loop-a', name: 'Loop', columns: ['Value'], rows: [[{ formula: "='Loop two'!A1" }]] },
+      { id: 'loop-b', name: 'Loop two', columns: ['Value'], rows: [[{ formula: '=LOOP!A1' }]] },
+    ] },
+  }, receipt, at)
+  assert.ok(snapshot)
+  assert.deepEqual(snapshot.body, {
+    type: 'workbook', sheets: [
+      { id: 'overview', name: 'Overview', columns: ['Result'], rows: [[{ formula: "='detail TAB'!A1*2" }]] },
+      { id: 'detail', name: 'Detail tab', columns: ['Value'], rows: [['21']] },
+      { id: 'loop-a', name: 'Loop', columns: ['Value'], rows: [[{ formula: "='Loop two'!A1" }]] },
+      { id: 'loop-b', name: 'Loop two', columns: ['Value'], rows: [[{ formula: '=LOOP!A1' }]] },
+    ],
+  }, 'the wire body retains authored formulas exactly')
+  const calculation = JSON.parse(artifactSnapshotText(snapshot)).calculation
+  assert.deepEqual(calculation, { version: 1, sheets: [
+    { id: 'overview', rows: [['42']] },
+    { id: 'detail', rows: [['21']] },
+    { id: 'loop-a', rows: [['#CYCLE!']] },
+    { id: 'loop-b', rows: [['#CYCLE!']] },
+  ] })
+})
+
 test('formula snapshot budget includes the complete derived grid and all workbook tabs', () => {
   const body = {
     type: 'workbook' as const,

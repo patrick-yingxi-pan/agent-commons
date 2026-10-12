@@ -39,6 +39,7 @@ export function NewArtifactDialog({
   const [draftBody, setBody] = useState(typeof initial?.body === 'string' ? initial.body : '')
   const [draftSheet, setSheet] = useState<StructuredArtifactBody>(initial?.kind === 'sheet' && typeof initial.body !== 'string' ? initial.body : { type: 'sheet', columns: [''], rows: [['']] })
   const [draftSlides, setSlides] = useState<StructuredArtifactBody>(initial?.kind === 'slide' && typeof initial.body !== 'string' ? initial.body : { type: 'slides', slides: [{ title: '', bullets: [] }] })
+  const [pendingSheetRenames, setPendingSheetRenames] = useState<string[]>([])
   const [draftProjectId, setProjectId] = useState<string | null>(initial?.projectId ?? null)
   // A second open pane sees the actual held request, not its unrelated local
   // draft wearing a false Creating label. Unsubmitted format drafts stay local.
@@ -94,7 +95,7 @@ export function NewArtifactDialog({
   const normalizedName = normalizeArtifactName(name)
   const authored = normalizedName && authoredArtifact(normalizedName, kind, kind === 'doc' ? body : kind === 'sheet' ? sheet : slides)
   const canFileProject = projectId === null || projects.some((project) => project.id === projectId && project.own === true)
-  const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && !presentationImport.reviewing && !sheetImport.reviewing && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
+  const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && !presentationImport.reviewing && !sheetImport.reviewing && !(kind === 'sheet' && pendingSheetRenames.length > 0) && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
   const submit = () => {
     if (canCreate && authored && normalizedName && tenantId) {
       setError(null)
@@ -180,10 +181,13 @@ export function NewArtifactDialog({
       </FormField></> : <fieldset ref={structuredFieldsRef} className="min-w-0 space-y-2" aria-describedby={helpId}>
         <legend className="mb-1.5 text-[12px] font-medium text-ink-soft">Content</legend>
         <p id={helpId} className="text-[11px] text-ink-faint">
-          {kind === 'sheet' ? 'A1 is the first data cell under the column headings. Cells are Text by default; Formula supports numbers, same-worksheet A1 references, + - * /, parentheses, and SUM ranges. Imports and pastes stay literal. XLSX downloads contain calculated values and errors, not formulas.' : 'Give each slide a title, then add optional bullets.'}
+          {kind === 'sheet' ? "A1 is the first data cell under the column headings. Cells are Text by default; Formula supports numbers and A1 references within this workbook, including another worksheet (Detail!A1 or 'Detail tab'!A1), + - * /, parentheses, and SUM ranges. Imports and pastes stay literal. XLSX downloads contain calculated values and errors, not formulas." : 'Give each slide a title, then add optional bullets.'}
           {' '}Up to 20,000 characters across this content.
         </p>
-        <StructuredArtifactFields body={kind === 'sheet' ? sheet : slides} onChange={kind === 'sheet' ? setSheet : setSlides} disabled={busy} />
+        <StructuredArtifactFields body={kind === 'sheet' ? sheet : slides} onChange={kind === 'sheet' ? setSheet : setSlides} disabled={busy} onPendingRenameChange={kind === 'sheet' ? setPendingSheetRenames : undefined} />
+        {kind === 'sheet' && pendingSheetRenames.length > 0 && <p role="status" data-pending-sheet-renames className="break-words [overflow-wrap:anywhere] text-[11px] text-ink-soft">
+          Finish or cancel worksheet rename{pendingSheetRenames.length === 1 ? '' : 's'} for {pendingSheetRenames.join(', ')} before creating this sheet.
+        </p>}
         {normalizedName && !authored && <p role="status" className="text-[11px] text-ink-faint">{kind === 'sheet' ? 'Review required labels and worksheet names. Each cell or formula source must be at most 2,000 characters and the whole sheet or workbook at most 20,000; structural edits can expand formula references past these limits.' : 'Complete the required labels and keep the content within its size limits to create.'}</p>}
       </fieldset>}
       <FormField label="Project" optional>

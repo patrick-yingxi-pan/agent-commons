@@ -295,6 +295,7 @@ test('workbook second-tab formulas use only that tab and survive save, reload, s
     const editor = detail.locator('[data-structured-artifact-editor="workbook"]')
     await expect(editor).toBeVisible()
     await editor.getByLabel('Worksheet name', { exact: true }).fill('Isolated')
+    await editor.getByRole('button', { name: 'Rename worksheet', exact: true }).click()
     await editor.getByRole('textbox', { name: 'Sheet row 1 value 1', exact: true }).fill('6')
     await editor.getByRole('button', { name: 'Add column', exact: true }).click()
     await editor.getByRole('textbox', { name: 'Sheet row 1 value 2', exact: true }).focus()

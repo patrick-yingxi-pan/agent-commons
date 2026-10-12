@@ -64,7 +64,8 @@ test('routine tool schema admits only explicitly tagged formula cells and captur
   const formula = sheetCell?.oneOf?.[1]
   assert.equal(formula?.properties?.formula.type, 'string')
   assert.equal(formula?.properties?.formula.minLength, undefined, 'empty source remains admissible and is evaluated as #FORMULA!')
-  assert.match(formula?.description ?? '', /same-sheet data-row A1 references/)
+  assert.match(formula?.description ?? '', /named-sheet references such as Sheet!A1/)
+  assert.match(formula?.description ?? '', /doubled apostrophes escape apostrophes/)
   assert.match(formula?.description ?? '', /#FORMULA!/)
 
   const body = { type: 'sheet' as const, columns: ['Formula', 'Literal'], rows: [[{ formula: '=1+1' }, '=1+1']] }

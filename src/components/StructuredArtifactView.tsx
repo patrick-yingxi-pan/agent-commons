@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { StructuredArtifactBody, SheetGrid } from '../../contract/index.ts'
-import { calculateSheet } from '../../contract/workbookCalculation.ts'
+import { spreadsheetSheets, type StructuredArtifactBody, type SheetGrid } from '../../contract/index.ts'
+import { calculateWorkbook, type CalculatedCell } from '../../contract/workbookCalculation.ts'
 import { isFormulaCell, sheetCellSource, sheetColumnLabel } from '../../contract/sheetCell.ts'
 import { WorkbookTabs } from './WorkbookTabs'
 import { useArtifactSearchFields } from './ArtifactSearchReveal.tsx'
@@ -21,8 +21,13 @@ const HEX = /^#[0-9a-f]{6}$/i
 export function StructuredArtifactView({ body, size }: { body: StructuredArtifactBody; size: Size }) {
   if (body.type === 'workbook') return <StructuredWorkbookView body={body} size={size} />
   return body.type === 'sheet'
-    ? <StructuredSheetView body={body} size={size} />
+    ? <LegacySheetView body={body} size={size} />
     : <StructuredSlidesView body={body} size={size} />
+}
+
+function LegacySheetView({ body, size }: { body: Extract<StructuredArtifactBody, { type: 'sheet' }>; size: Size }) {
+  const calculations = useMemo(() => calculateWorkbook(spreadsheetSheets(body))[0]?.rows, [body])
+  return <StructuredSheetView body={body} calculations={calculations} size={size} />
 }
 
 function StructuredWorkbookView({ body, size }: { body: Extract<StructuredArtifactBody, { type: 'workbook' }>; size: Size }) {
@@ -31,32 +36,35 @@ function StructuredWorkbookView({ body, size }: { body: Extract<StructuredArtifa
   const targetSheetId = targetIndex === undefined ? undefined : body.sheets[targetIndex]?.id
   const [selected, select] = useState(targetSheetId ?? body.sheets[0]!.id)
   useEffect(() => { if (targetSheetId) select(targetSheetId) }, [targetSheetId, search.request])
+  const calculated = useMemo(() => new Map(calculateWorkbook(body.sheets).map(sheet => [sheet.id, sheet.rows])), [body.sheets])
   const active = body.sheets.find(sheet => sheet.id === selected) ?? body.sheets[0]!
   const activeIndex = body.sheets.indexOf(active)
   if (size === 'thumb') return <div data-structured-artifact-body="workbook">
-    <StructuredSheetView body={body.sheets[0]!} size={size} />
+    <StructuredSheetView body={body.sheets[0]!} calculations={calculated.get(body.sheets[0]!.id)} size={size} />
     <p className="mt-1 text-[11px] text-ink-faint">{body.sheets.length} worksheets · first sheet preview</p>
   </div>
   return <div data-structured-artifact-body="workbook">
     <WorkbookTabs sheets={body.sheets} activeId={active.id} onSelect={select} searchFieldProps={search.props}>
-      <StructuredSheetView body={active} size={size} fieldPrefix={`workbook.${activeIndex}`} />
+      <StructuredSheetView body={active} calculations={calculated.get(active.id)} size={size} fieldPrefix={`workbook.${activeIndex}`} />
     </WorkbookTabs>
   </div>
 }
 
 function StructuredSheetView({
   body,
+  calculations: providedCalculations,
   size,
   fieldPrefix = 'sheet',
 }: {
   body: SheetGrid
+  calculations?: CalculatedCell[][]
   size: Size
   fieldPrefix?: string
 }) {
   const search = useArtifactSearchFields()
   const t = SHEET[size]
   const rows = size === 'thumb' ? body.rows.slice(0, 3) : body.rows
-  const calculations = useMemo(() => body.rows.some(values => values.some(isFormulaCell)) ? calculateSheet(body) : undefined, [body])
+  const calculations = providedCalculations
   return (
     <div
       className={`@container max-w-full overflow-x-auto overflow-y-hidden rounded-lg border border-line ${t.text}`}

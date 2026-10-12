@@ -8,7 +8,7 @@ import { FOCUS_FLASH_CLASS, useFocusFlash, usePendingFocus } from '../lib/focusC
 import { useAgents, useProviders } from '../api'
 import { useRelations } from '../controller/useRelations'
 import { ClaudeMark } from './ClaudeMark'
-import { RelationActionCard } from './RelationActionCard'
+import { DeferredRelationActionCard as RelationActionCard } from './DeferredRelationActionCard'
 import { DeferredToolActivityCard } from './DeferredToolActivityCard'
 import { LocusGutter } from './LocusGutter'
 import { DRAFT_ID } from '../data/liveSession'

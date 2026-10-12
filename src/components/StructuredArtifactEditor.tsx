@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, Minus, Plus, Save, X } from 'lucide-react'
 import {
   MAX_AUTHORED_CELL_CHARS,
@@ -15,7 +15,8 @@ import {
   type SheetGrid,
   type StructuredArtifactBody,
 } from '../../contract/index.ts'
-import { calculateSheet, removeSheetColumn, removeSheetRow } from '../../contract/workbookCalculation.ts'
+import { workbookSheetNameError } from '../../contract/workbook.ts'
+import { calculateWorkbook, removeWorkbookColumn, removeWorkbookRow, removeWorkbookSheet, renameWorkbookSheet, type CalculatedCell } from '../../contract/workbookCalculation.ts'
 import { isFormulaCell, sheetCellAddress, sheetCellSource, sheetColumnLabel, type SheetCell } from '../../contract/sheetCell.ts'
 import { StructuredArtifactView } from './DeferredStructuredArtifactView'
 import { DocumentArtifactEditor, DocumentBodyLiteral } from './DocumentArtifactEditor'
@@ -24,6 +25,7 @@ import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
 import { WorkbookTabs } from './WorkbookTabs'
 import { pasteSheetCells, reconcileSheetPasteFeedback, type SheetPasteFeedback, type SpreadsheetBody } from '../lib/sheetPaste'
+import type { WorksheetRenameDraft } from '../controller/artifactEditDraftsCore'
 
 type Props = {
   body: EditableArtifactBody
@@ -34,6 +36,8 @@ type Props = {
   onCancel: () => void
   saving?: boolean
   error?: string | null
+  worksheetRenameDrafts?: Record<string, WorksheetRenameDraft>
+  onWorksheetRenameDraftChange?: (sheetId: string, draft: WorksheetRenameDraft | undefined) => void
   /** The latest read is shown beside a held draft after a conflict. */
   showLatest?: boolean
 }
@@ -43,8 +47,14 @@ const buttonClass = INLINE_ACTION_CLASS
 /** Owner-only full-page editor for one complete structured body. Previews keep
  * using StructuredArtifactView; the account-scoped draft store owns lifetime
  * across navigation and duplicate panes. Save emits one complete replacement. */
-export function StructuredArtifactEditor({ body, onChange, history, latestBody, onSave, onCancel, saving = false, error, showLatest = false }: Props) {
+export function StructuredArtifactEditor({ body, onChange, history, latestBody, onSave, onCancel, saving = false, error, showLatest = false, worksheetRenameDrafts, onWorksheetRenameDraftChange }: Props) {
   const valid = parseEditableArtifactBody(body) !== undefined
+  const pendingRenames = (body.type === 'sheet' || body.type === 'workbook' ? spreadsheetSheets(body) : [])
+    .filter(sheet => {
+      const draft = worksheetRenameDrafts?.[sheet.id]
+      return !!draft && draft.baseName === sheet.name && draft.value !== sheet.name
+    })
+    .map(sheet => sheet.name)
 
   return (
     <ArtifactDraftHistory body={body} onChange={onChange} history={history} disabled={saving}>{onChange => body.type === 'doc'
@@ -52,9 +62,9 @@ export function StructuredArtifactEditor({ body, onChange, history, latestBody, 
           onSave={onSave} onCancel={onCancel} saving={saving} error={error} showLatest={showLatest} />
       : (
         <div className="space-y-3" data-structured-artifact-editor={body.type}>
-          <StructuredArtifactFields body={body} onChange={onChange} disabled={saving} undoManaged />
+          <StructuredArtifactFields body={body} onChange={onChange} disabled={saving} undoManaged worksheetRenameDrafts={worksheetRenameDrafts} onWorksheetRenameDraftChange={onWorksheetRenameDraftChange} />
           <div className="flex flex-wrap items-center gap-1.5 border-t border-line pt-2">
-            <button type="button" data-inline-action className={buttonClass} disabled={saving || !valid} onClick={onSave}>
+            <button type="button" data-inline-action className={buttonClass} disabled={saving || !valid || pendingRenames.length > 0} onClick={onSave}>
               <Save size={13} /> {saving ? 'Saving…' : 'Save changes'}
             </button>
             <button type="button" data-inline-action className={buttonClass} disabled={saving} onClick={onCancel}>
@@ -62,6 +72,7 @@ export function StructuredArtifactEditor({ body, onChange, history, latestBody, 
             </button>
           </div>
           {error && <p className="text-[11px] text-danger-text" role="status">{error}</p>}
+          {pendingRenames.length > 0 && <p role="status" data-pending-sheet-renames className="break-words [overflow-wrap:anywhere] text-[11px] text-ink-soft">Finish or cancel worksheet rename{pendingRenames.length === 1 ? '' : 's'} for {pendingRenames.join(', ')} before saving.</p>}
           {!valid && <p className="text-[11px] text-danger-text" role="alert">Review blank labels and worksheet names. Each cell or formula source must be at most 2,000 characters, and the whole sheet or workbook must be at most 20,000 characters. Structural edits can expand formula references past these limits; shorten the affected source before saving.</p>}
           {showLatest && latestBody && (
             <div className="space-y-1.5 rounded-lg border border-line bg-panel-2/40 p-2.5" role="status">
@@ -77,31 +88,70 @@ export function StructuredArtifactEditor({ body, onChange, history, latestBody, 
 
 /** Controlled fields shared by creation and correction. The enclosing workflow
  * owns draft lifetime and its single submit/cancel pair. */
-export function StructuredArtifactFields({ body, onChange, disabled = false, undoManaged = false }: {
+export function StructuredArtifactFields({ body, onChange, disabled = false, undoManaged = false, onPendingRenameChange, worksheetRenameDrafts, onWorksheetRenameDraftChange }: {
   body: StructuredArtifactBody
   onChange: (body: StructuredArtifactBody) => void
   disabled?: boolean
   undoManaged?: boolean
+  onPendingRenameChange?: (sheetNames: string[]) => void
+  worksheetRenameDrafts?: Record<string, WorksheetRenameDraft>
+  onWorksheetRenameDraftChange?: (sheetId: string, draft: WorksheetRenameDraft | undefined) => void
 }) {
   return body.type === 'slides'
     ? <SlidesEditor body={body} onChange={onChange} disabled={disabled} />
-    : <WorkbookEditor body={body} onChange={onChange} disabled={disabled} undoManaged={undoManaged} />
+    : <WorkbookEditor body={body} onChange={onChange} disabled={disabled} undoManaged={undoManaged} onPendingRenameChange={onPendingRenameChange} worksheetRenameDrafts={worksheetRenameDrafts} onWorksheetRenameDraftChange={onWorksheetRenameDraftChange} />
 }
 
-function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
+function WorkbookEditor({ body, onChange, disabled, undoManaged, onPendingRenameChange, worksheetRenameDrafts, onWorksheetRenameDraftChange }: {
   body: Exclude<StructuredArtifactBody, { type: 'slides' }>
   onChange: (body: StructuredArtifactBody) => void
   disabled: boolean
   undoManaged: boolean
+  onPendingRenameChange?: (sheetNames: string[]) => void
+  worksheetRenameDrafts?: Record<string, WorksheetRenameDraft>
+  onWorksheetRenameDraftChange?: (sheetId: string, draft: WorksheetRenameDraft | undefined) => void
 }) {
   const sheets = spreadsheetSheets(body)
   const [selected, select] = useState(sheets[0]!.id)
-  const [removed, setRemoved] = useState<{ sheet: typeof sheets[number]; index: number } | null>(null)
+  const [removed, setRemoved] = useState<{ before: SpreadsheetBody; after: string; sheetName: string; selectedId: string } | null>(null)
+  const [localRenameDrafts, setLocalRenameDrafts] = useState<Record<string, WorksheetRenameDraft>>({})
+  const renameDrafts = worksheetRenameDrafts ?? localRenameDrafts
+  const [renameErrors, setRenameErrors] = useState<Record<string, string>>({})
+  const [structureError, setStructureError] = useState<string | null>(null)
   const [paste, setPaste] = useState<SheetPasteFeedback | null>(null)
-  const change = (next: SpreadsheetBody) => { setPaste(null); onChange(next) }
+  const change = (next: SpreadsheetBody) => { setPaste(null); setStructureError(null); onChange(next) }
   const active = sheets.find(sheet => sheet.id === selected) ?? sheets[0]!
   const index = sheets.indexOf(active)
   const setSheets = (next: typeof sheets) => change({ type: 'workbook', sheets: next })
+  const calculatedWorkbook = useMemo(() => calculateWorkbook(sheets), [body])
+  const calculations = calculatedWorkbook.find(sheet => sheet.id === active.id)?.rows
+  const renameDraft = renameDrafts[active.id]?.baseName === active.name ? renameDrafts[active.id]!.value : active.name
+  const pendingRenames = sheets.filter(sheet => {
+    const draft = renameDrafts[sheet.id]
+    return !!draft && draft.baseName === sheet.name && draft.value !== sheet.name
+  })
+  const pendingSheetNames = pendingRenames.map(sheet => sheet.name)
+  const pendingSheetKey = pendingSheetNames.join('\u0000')
+  useEffect(() => {
+    onPendingRenameChange?.(pendingSheetNames)
+  }, [pendingSheetKey, onPendingRenameChange])
+  useEffect(() => () => onPendingRenameChange?.([]), [onPendingRenameChange])
+  useEffect(() => {
+    const names = new Map(sheets.map(sheet => [sheet.id, sheet.name]))
+    for (const [id, draft] of Object.entries(renameDrafts)) {
+      if (names.get(id) !== draft.baseName) {
+        if (onWorksheetRenameDraftChange) onWorksheetRenameDraftChange(id, undefined)
+        else setLocalRenameDrafts(current => {
+          if (!current[id]) return current
+          const next = { ...current }
+          delete next[id]
+          return next
+        })
+      }
+    }
+  }, [body, renameDrafts, onWorksheetRenameDraftChange])
+  const currentRemoved = removed?.after === JSON.stringify(body) ? removed : null
+  if (currentRemoved !== removed) setRemoved(currentRemoved)
   // A duplicate pane may edit the shared draft. Never undo across a later edit.
   const currentPaste = reconcileSheetPasteFeedback(paste, body)
   // Adjust this component's state before children render; equal text restored
@@ -133,24 +183,93 @@ function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
     setSheets([...sheets, sheet])
     select(sheet.id)
   }
+  const updateRenameDraft = (value: string) => {
+    const draft = value === active.name ? undefined : { baseName: active.name, value }
+    if (onWorksheetRenameDraftChange) onWorksheetRenameDraftChange(active.id, draft)
+    else setLocalRenameDrafts(current => {
+      const next = { ...current, ...(draft ? { [active.id]: draft } : {}) }
+      if (!draft) delete next[active.id]
+      return next
+    })
+    setRenameErrors(current => ({ ...current, [active.id]: '' }))
+  }
+  const cancelRename = () => {
+    updateRenameDraft(active.name)
+    setRenameErrors(current => ({ ...current, [active.id]: '' }))
+  }
+  const applyRename = () => {
+    if (renameDraft === active.name) return
+    const nameError = workbookSheetNameError(sheets, active.id, renameDraft)
+    if (nameError) {
+      setRenameErrors(current => ({ ...current, [active.id]: nameError }))
+      return
+    }
+    const renamed = renameWorkbookSheet(sheets, active.id, renameDraft)
+    if (renamed.find(sheet => sheet.id === active.id)?.name !== renameDraft) {
+      setRenameErrors(current => ({ ...current, [active.id]: 'This rename would exceed the workbook’s formula-source or content limit. Shorten the affected formula source, then try again.' }))
+      return
+    }
+    setRenameErrors(current => ({ ...current, [active.id]: '' }))
+    updateRenameDraft(active.name)
+    setSheets(renamed)
+  }
+  const removeActiveSheet = () => {
+    if (sheets.length <= 1) return
+    const next = removeWorkbookSheet(sheets, active.id)
+    if (next.length === sheets.length) {
+      setStructureError('This removal would exceed the workbook’s formula-source or content limit, so no worksheet was removed. Shorten affected formula sources and try again.')
+      return
+    }
+    if (!undoManaged) setRemoved({ before: body, after: JSON.stringify({ type: 'workbook', sheets: next }), sheetName: active.name, selectedId: active.id })
+    setSheets(next)
+    select(sheets[index === 0 ? 1 : index - 1]!.id)
+    updateRenameDraft(active.name)
+  }
+  const removeActiveRow = (row: number): boolean => {
+    const next = removeWorkbookRow(sheets, active.id, row)
+    const grid = next.find(sheet => sheet.id === active.id)
+    if (!grid || grid.rows.length === active.rows.length) {
+      setStructureError('This removal would exceed the workbook’s formula-source or content limit, so no row was removed. Shorten affected formula sources and try again.')
+      return false
+    }
+    if (body.type === 'sheet') {
+      change({ type: 'sheet', columns: grid.columns, rows: grid.rows, ...(grid.note === undefined ? {} : { note: grid.note }) })
+    } else setSheets(next)
+    return true
+  }
+  const removeActiveColumn = (column: number): boolean => {
+    const next = removeWorkbookColumn(sheets, active.id, column)
+    const grid = next.find(sheet => sheet.id === active.id)
+    if (!grid || grid.columns.length === active.columns.length) {
+      setStructureError('This removal would exceed the workbook’s formula-source or content limit, so no column was removed. Shorten affected formula sources and try again.')
+      return false
+    }
+    if (body.type === 'sheet') {
+      change({ type: 'sheet', columns: grid.columns, rows: grid.rows, ...(grid.note === undefined ? {} : { note: grid.note }) })
+    } else setSheets(next)
+    return true
+  }
   return <div className="min-w-0 space-y-2">
     <WorkbookTabs sheets={sheets} activeId={active.id} onSelect={id => { setPaste(null); select(id) }}>
       <div className="space-y-2">
         <label className="block text-[11px] text-ink-soft">Worksheet name
-          <input aria-label="Worksheet name" maxLength={MAX_WORKBOOK_SHEET_NAME_CHARS} className={`${FORM_INPUT_CLASS} mt-1 w-full`} value={active.name} disabled={disabled}
-            onChange={event => setSheets(sheets.map(sheet => sheet.id === active.id ? { ...sheet, name: event.target.value } : sheet))} />
+          <input aria-label="Worksheet name" data-artifact-transient-input maxLength={MAX_WORKBOOK_SHEET_NAME_CHARS} className={`${FORM_INPUT_CLASS} mt-1 w-full`} value={renameDraft} disabled={disabled}
+            onChange={event => updateRenameDraft(event.target.value)}
+            onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); applyRename() } }} />
         </label>
+        {renameDraft !== active.name && <div className="flex flex-wrap items-center gap-1.5">
+          <button type="button" data-inline-action className={buttonClass} disabled={disabled} onClick={applyRename}>Rename worksheet</button>
+          <button type="button" data-inline-action className={buttonClass} disabled={disabled} onClick={cancelRename}>Cancel rename</button>
+        </div>}
+        {renameDraft !== active.name && Object.hasOwn(renameErrors, active.id) && renameErrors[active.id] && <p role="alert" data-sheet-rename-error className="text-[11px] text-danger-text">{renameErrors[active.id]}</p>}
+        {structureError && <p role="alert" data-sheet-structure-error className="text-[11px] text-danger-text">{structureError}</p>}
         <div className="flex flex-wrap gap-1.5">
           <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length >= MAX_AUTHORED_WORKBOOK_SHEETS} onClick={add}><Plus size={12} /> Add worksheet</button>
           <button type="button" data-inline-action className={buttonClass} disabled={disabled || index === 0} onClick={() => move(-1)}><ArrowUp size={12} /> Move worksheet earlier</button>
           <button type="button" data-inline-action className={buttonClass} disabled={disabled || index === sheets.length - 1} onClick={() => move(1)}><ArrowDown size={12} /> Move worksheet later</button>
-          <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length <= 1} onClick={() => {
-            if (!undoManaged) setRemoved({ sheet: active, index })
-            setSheets(sheets.filter(sheet => sheet.id !== active.id))
-            select(sheets[index === 0 ? 1 : index - 1]!.id)
-          }}><Minus size={12} /> Remove worksheet</button>
+          <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length <= 1 || renameDraft !== active.name} onClick={removeActiveSheet}><Minus size={12} /> Remove worksheet</button>
         </div>
-        <SheetEditor key={active.id} body={active} disabled={disabled} onPasteCells={pasteCells} onChange={({ columns, rows, note }) => {
+        <SheetEditor key={active.id} body={active} calculations={calculations} disabled={disabled} onPasteCells={pasteCells} onRemoveRow={removeActiveRow} onRemoveColumn={removeActiveColumn} onChange={({ columns, rows, note }) => {
           const grid = { columns, rows, ...(note === undefined ? {} : { note }) }
           if (body.type === 'sheet') change({ type: 'sheet', ...grid })
           else setSheets(sheets.map(sheet => sheet.id === active.id ? { id: sheet.id, name: sheet.name, ...grid } : sheet))
@@ -162,13 +281,11 @@ function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
         </div>}
       </div>
     </WorkbookTabs>
-    {!undoManaged && removed && <div role="status" className="flex flex-wrap items-center gap-2 text-[11px] text-ink-soft">
-      <span className="min-w-0 break-words [overflow-wrap:anywhere]">Removed “{removed.sheet.name}” from this draft.</span>
-      <button type="button" data-inline-action className={buttonClass} disabled={disabled || sheets.length >= MAX_AUTHORED_WORKBOOK_SHEETS || sheets.some(sheet => sheet.id === removed.sheet.id || sheet.name.toLowerCase() === removed.sheet.name.toLowerCase())} onClick={() => {
-        const next = [...sheets]
-        next.splice(Math.min(removed.index, next.length), 0, removed.sheet)
-        setSheets(next)
-        select(removed.sheet.id)
+    {!undoManaged && currentRemoved && <div role="status" className="flex flex-wrap items-center gap-2 text-[11px] text-ink-soft">
+      <span className="min-w-0 break-words [overflow-wrap:anywhere]">Removed “{currentRemoved.sheetName}” from this draft.</span>
+      <button type="button" data-inline-action className={buttonClass} disabled={disabled} onClick={() => {
+        change(currentRemoved.before)
+        select(currentRemoved.selectedId)
         setRemoved(null)
       }}>Undo removal</button>
     </div>}
@@ -178,13 +295,19 @@ function WorkbookEditor({ body, onChange, disabled, undoManaged }: {
 
 function SheetEditor({
   body,
+  calculations,
   onChange,
   onPasteCells,
+  onRemoveRow,
+  onRemoveColumn,
   disabled,
 }: {
   body: SheetGrid
+  calculations?: CalculatedCell[][]
   onChange: (body: SheetGrid) => void
   onPasteCells: (row: number, column: number, text: string) => boolean
+  onRemoveRow: (row: number) => boolean
+  onRemoveColumn: (column: number) => boolean
   disabled: boolean
 }) {
   const [selected, setSelected] = useState({ row: 0, column: 0 })
@@ -194,7 +317,6 @@ function SheetEditor({
   const cell = body.rows[row]?.[column] ?? ''
   const formulaMode = isFormulaCell(cell)
   const source = sheetCellSource(cell)
-  const calculations = useMemo(() => body.rows.some(values => values.some(isFormulaCell)) ? calculateSheet(body) : undefined, [body])
   const result = calculations?.[row]?.[column]
   const displayResult = result?.text ?? (formulaMode ? '#FORMULA!' : source)
   const updateSelectedCell = (value: SheetCell) => onChange({
@@ -224,19 +346,7 @@ function SheetEditor({
     rows: body.rows.map((values, rowIndex) => rowIndex === row ? values.map((cell, columnIndex) => columnIndex === column ? value : cell) : values),
   })
   const addColumn = () => onChange({ ...body, columns: [...body.columns, 'New column'], rows: body.rows.map((row) => [...row, '']) })
-  const removeColumn = (index: number) => {
-    if (body.columns.length <= 1) return
-    const next = removeSheetColumn(body, index)
-    onChange(next)
-    setSelected(current => ({ ...current, column: current.column > index ? current.column - 1 : Math.min(current.column, next.columns.length - 1) }))
-  }
   const addRow = () => onChange({ ...body, rows: [...body.rows, body.columns.map(() => '')] })
-  const removeRow = (index: number) => {
-    if (body.rows.length <= 1) return
-    const next = removeSheetRow(body, index)
-    onChange(next)
-    setSelected(current => ({ ...current, row: current.row > index ? current.row - 1 : Math.min(current.row, next.rows.length - 1) }))
-  }
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
@@ -260,7 +370,7 @@ function SheetEditor({
           </p>}
         </div>
       </div>
-      <p className="text-[11px] leading-relaxed text-ink-faint">A1 means the first data cell under the column headings; headings are not addressed. Formula mode supports numeric literals, same-worksheet A1 references, + - * /, parentheses, and SUM ranges such as SUM(A1:B3). XLSX downloads contain calculated values and errors, not formulas. Paste a table here with tabs between columns and line breaks between rows. Pasted cells always stay literal, including text starting with =; replaced formulas are counted and can be undone.</p>
+      <p className="text-[11px] leading-relaxed text-ink-faint">A1 means the first data cell under the column headings; headings are not addressed. Formula mode supports numeric literals, A1 references within this workbook (including another worksheet, such as Detail!A1 or 'Detail tab'!A1), + - * /, parentheses, and SUM ranges such as SUM(A1:B3). XLSX downloads contain calculated values and errors, not formulas. Paste a table here with tabs between columns and line breaks between rows. Pasted cells always stay literal, including text starting with =; replaced formulas are counted and can be undone.</p>
       {modeError && <p className="text-[11px] text-danger-text" role="alert" data-sheet-mode-error>{modeError}</p>}
       <div className="@container max-w-full overflow-x-auto rounded-lg border border-line" tabIndex={0} role="region" aria-label="Edit sheet">
         <table className="min-w-full border-collapse text-[12px]">
@@ -273,7 +383,10 @@ function SheetEditor({
             <th className="w-9" aria-label="Row coordinate" />
             {body.columns.map((column, index) => <th key={index} className="min-w-24 border-l border-line p-1.5 align-top first:border-l-0">
               <textarea aria-label={`Sheet column ${index + 1}`} maxLength={MAX_AUTHORED_LABEL_CHARS} className={`${FORM_INPUT_CLASS} min-w-24 resize-y`} rows={2} disabled={disabled} value={column} onChange={(event) => setColumn(index, event.target.value)} />
-              <button type="button" data-inline-action aria-label={`Remove sheet column ${index + 1}`} className={`${buttonClass} mt-1`} disabled={disabled || body.columns.length <= 1} onClick={() => removeColumn(index)}><Minus size={11} /> Remove column</button>
+              <button type="button" data-inline-action aria-label={`Remove sheet column ${index + 1}`} className={`${buttonClass} mt-1`} disabled={disabled || body.columns.length <= 1} onClick={() => {
+                if (!onRemoveColumn(index)) return
+                setSelected(current => ({ ...current, column: current.column > index ? current.column - 1 : Math.min(current.column, body.columns.length - 2) }))
+              }}><Minus size={11} /> Remove column</button>
             </th>)}
             <th className="w-8" />
           </tr></thead>
@@ -284,7 +397,10 @@ function SheetEditor({
                 onPaste={event => { if (onPasteCells(rowIndex, columnIndex, event.clipboardData.getData('text/plain'))) event.preventDefault() }} />
               {isFormulaCell(row[columnIndex]) && <div className={`mt-1 text-[10px] ${calculations?.[rowIndex]?.[columnIndex]?.kind === 'error' ? 'text-danger-text' : 'text-ink-faint'}`} data-sheet-cell-preview title={sheetCellSource(row[columnIndex]!)}>{calculations?.[rowIndex]?.[columnIndex]?.text ?? '#FORMULA!'}</div>}
             </td>)}
-            <td className="p-1 align-top"><button type="button" aria-label={`Remove sheet row ${rowIndex + 1}`} className="text-ink-faint hover:text-ink" disabled={disabled || body.rows.length <= 1} onClick={() => removeRow(rowIndex)}><Minus size={13} /></button></td>
+            <td className="p-1 align-top"><button type="button" aria-label={`Remove sheet row ${rowIndex + 1}`} className="text-ink-faint hover:text-ink" disabled={disabled || body.rows.length <= 1} onClick={() => {
+              if (!onRemoveRow(rowIndex)) return
+              setSelected(current => ({ ...current, row: current.row > rowIndex ? current.row - 1 : Math.min(current.row, body.rows.length - 2) }))
+            }}><Minus size={13} /></button></td>
           </tr>)}</tbody>
         </table>
       </div>

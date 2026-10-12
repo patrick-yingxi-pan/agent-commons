@@ -114,42 +114,49 @@ export function bundleBudgetPlugin(): Plugin {
   return {
     name: 'agent-commons-bundle-budget',
     apply: 'build',
-    generateBundle(_options, bundle) {
-      const encoder = new TextEncoder()
-      const chunks: BundleChunkMeasure[] = Object.values(bundle).flatMap((item) =>
-        item.type === 'chunk'
-          ? [{
-              fileName: item.fileName,
-              isEntry: item.isEntry,
-              bytes: encoder.encode(item.code).byteLength,
-              imports: item.imports,
-              dynamicImports: item.dynamicImports,
-            }]
-          : [],
-      )
-      const assets = Object.values(bundle).flatMap((item) => item.type === 'asset'
-        ? [{ fileName: item.fileName, bytes: typeof item.source === 'string' ? encoder.encode(item.source).byteLength : item.source.byteLength }]
-        : [])
-      const violations = [...bundleBudgetViolations(chunks), ...workerBudgetViolations(assets)]
-      if (violations.length) {
-        const diagnostics = violations.flatMap((violation) => {
-          const chunk = bundle[violation.fileName]
-          if (!chunk || chunk.type !== 'chunk') return []
-          const largest = Object.entries(chunk.modules)
-            .map(([id, info]) => ({ id, bytes: info.renderedLength }))
-            .filter((item) => item.bytes > 0)
-            .sort((a, b) => b.bytes - a.bytes)
-            .slice(0, 8)
-          return largest.length
-            ? [`  largest modules in ${violation.fileName}:`, ...largest.map((item) => `  - ${item.bytes} B ${item.id}`)]
-            : []
-        })
-        this.error(
-          `JavaScript bundle budget exceeded:\n${violations
-            .map((item) => `- ${item.fileName}: ${item.reason}`)
-            .join('\n')}${diagnostics.length ? `\n${diagnostics.join('\n')}` : ''}`,
+    // Vite's buildImportAnalysisPlugin injects its module-preload map from a
+    // normal-priority generateBundle hook. Rollup calls order:'post' hooks
+    // after every normal hook, so this gate measures the final code Vite will
+    // write rather than the pre-injection Rollup chunks.
+    generateBundle: {
+      order: 'post',
+      handler(_options, bundle) {
+        const encoder = new TextEncoder()
+        const chunks: BundleChunkMeasure[] = Object.values(bundle).flatMap((item) =>
+          item.type === 'chunk'
+            ? [{
+                fileName: item.fileName,
+                isEntry: item.isEntry,
+                bytes: encoder.encode(item.code).byteLength,
+                imports: item.imports,
+                dynamicImports: item.dynamicImports,
+              }]
+            : [],
         )
-      }
+        const assets = Object.values(bundle).flatMap((item) => item.type === 'asset'
+          ? [{ fileName: item.fileName, bytes: typeof item.source === 'string' ? encoder.encode(item.source).byteLength : item.source.byteLength }]
+          : [])
+        const violations = [...bundleBudgetViolations(chunks), ...workerBudgetViolations(assets)]
+        if (violations.length) {
+          const diagnostics = violations.flatMap((violation) => {
+            const chunk = bundle[violation.fileName]
+            if (!chunk || chunk.type !== 'chunk') return []
+            const largest = Object.entries(chunk.modules)
+              .map(([id, info]) => ({ id, bytes: info.renderedLength }))
+              .filter((item) => item.bytes > 0)
+              .sort((a, b) => b.bytes - a.bytes)
+              .slice(0, 8)
+            return largest.length
+              ? [`  largest modules in ${violation.fileName}:`, ...largest.map((item) => `  - ${item.bytes} B ${item.id}`)]
+              : []
+          })
+          this.error(
+            `JavaScript bundle budget exceeded:\n${violations
+              .map((item) => `- ${item.fileName}: ${item.reason}`)
+              .join('\n')}${diagnostics.length ? `\n${diagnostics.join('\n')}` : ''}`,
+          )
+        }
+      },
     },
   }
 }

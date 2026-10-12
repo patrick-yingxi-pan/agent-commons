@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('Agent proposal verdicts are exact shell-owned actions with monotonic recovery', () => {
-  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'AgentProposalsReviewDialog.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'agentProposalVerdictCommands.ts')))
   const legacyCommands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const facade = stripComments(read(join(ROOT, 'src', 'controller', 'agentProposalVerdictMutations.ts')))
@@ -19,10 +19,10 @@ test('Agent proposal verdicts are exact shell-owned actions with monotonic recov
   assert.doesNotMatch(legacyCommands, /export async function resolveAgentProposal/,
     'there is no best-effort verdict command for future callers to bypass through')
   assert.match(view, /useAgentProposalVerdictStatus\(\)/)
-  assert.match(view, /heldAgentProposalVerdictIntent\(agent\.id, p\.id\)/)
-  assert.match(view, /enqueueAgentProposalVerdict\(\{ tenantId, agentId: agent\.id, proposalId: pid, action \}\)/)
+  assert.match(view, /heldAgentProposalVerdictIntent\(agent\.id, proposal\.id\)/)
+  assert.match(view, /enqueueAgentProposalVerdict\(\{ tenantId, agentId: agent\.id, proposalId, action \}\)/)
   assert.match(view, /data-agent-proposal-verdict=\{heldVerdict \? 'held' : 'ready'\}/)
-  assert.match(view, /p\.status === 'open' \|\| heldVerdict/,
+  assert.match(view, /proposal\.status === 'open' \|\| heldVerdict/,
     'an acknowledgement-lost verdict remains visible even after ambient terminal truth arrives')
   assert.match(view, /heldVerdict\?\.action === 'merge' \? 'Merging…' : 'Merge'/)
   assert.match(view, /heldVerdict\?\.action === 'decline' \? 'Declining…' : 'Decline'/)

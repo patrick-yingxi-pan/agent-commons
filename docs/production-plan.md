@@ -13,7 +13,79 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: explicit bounded authored Sheet formulas
+## Current checkpoint: bounded cross-sheet workbook formulas
+
+Autonomous direction (2026-10-12): make summary and detail tabs useful together.
+Authored formulas may reference another tab in the same artifact using
+`Detail!A1` or `'Detail tab'!A1`; quoted names escape apostrophes by doubling them.
+Name lookup is case-insensitive and ambiguous or missing names fail closed.
+Unqualified references remain relative to the formula's own tab. SUM ranges
+may name one target worksheet, never span worksheets or external workbooks.
+
+One workbook projection supplies editor/read views, saved-copy model text and
+values-only XLSX exports. Dependency depth, cycles and the 100,000-step work
+budget span the whole workbook; exhaustion marks all formula cells, not a
+partially successful subset. Stored source and the existing whole-body mutation,
+history, access, replay and restart boundaries remain authoritative.
+
+Worksheet rename is an explicit inline transaction rather than per-keystroke
+mutation. Pending name drafts block Save/Create until applied or cancelled.
+Saved-editor name drafts share the account-scoped editor lifetime across duplicate
+panes and navigation; the controller also refuses Save while any name is pending.
+They never enter body history or a server payload.
+Keyboard Undo in a transient worksheet name edits that text rather than traversing
+unrelated body history; the shared keyboard scope recognizes the explicit field
+marker while toolbar Undo remains whole-body.
+Prototype-shaped admitted worksheet IDs retain the same name-draft hold; the
+regression was reproduced before replacing dictionary assignment with own-key
+construction. Post-gate review found the same class of identity in a second
+pane's untouched error dictionary: `__proto__` rendered an inherited object and
+unmounted that editor. The real duplicate-pane regression was watched fail;
+error display now also requires an own key. The complete gate must pass again
+with that rendered regression and correction before delivery.
+Stable-ID rename/removal and row/column deletion rewrite all supported references
+against the complete pre-image, preserve unrelated source bytes and refuse
+source-budget overflow atomically. Deleted targets become explicit `#REF!`
+tokens, so reusing a tab name cannot redirect an already bound reference. Undo
+restores the entire prior workbook, including source and order. Unsupported or
+malformed formulas are retained verbatim, not partly rewritten.
+Adversarial review reproduced a malformed range outside SUM being rewritten by
+a structural edit. Grammar admission now rejects that placement before rewriting;
+the failing regression preserves the exact invalid source through edits.
+
+The size-gate audit found that Vite's preload map was added after measurement.
+The gate now runs after build-import analysis and measures final emitted code;
+the existing 800,000-byte initial and 500,000-byte async budgets are unchanged.
+Optional proposal displays load behind local, announced loading/failure states
+that keep their surrounding conversation or page and cannot grant authority.
+Contributor configuration and Agent proposal review also load on demand, with
+bounded, dismissible recovery shells and unchanged acknowledgement-owned writes.
+
+No external data access, imported-formula execution, Excel compatibility, new
+backend operation, or persistent computed authority is added. The focused browser
+walk passed all 22 cases; five-viewport owner/shared/foreign and loading/recovery
+captures were reviewed. The shared UI sweep passed 135/135 cells with no violations
+or skips, with all 142 captures reviewed. The additional short-landscape keyboard
+walk proves lower contributor permissions scroll into view; its geometry lock
+allows one CSS pixel for native integer-scroll/subpixel-layout rounding.
+Rebuilt unsigned-arm64 ordinary smoke passed, including actual rendered named-tab
+formula source and result before and after full app relaunch. The complete frozen-tree
+local verifier remains the final required gate before direct main delivery.
+Signed/notarized, Intel, actual native-dialog, update-installation and live-service
+release gates remain separate. The owner's preview and data remain untouched.
+
+The next self-approved checkpoint is a release-blocker audit: reconcile the
+remaining mock boundaries with the desktop-v1 workflow and release evidence,
+then address the highest-impact locally verifiable gap. Do not expand the formula
+language or treat fixture success as live-service acceptance. Credential use,
+spending and public release still require separate authority.
+
+The authored same-sheet checkpoint landed as `2ddf0c2e`: all five complete local
+verifier lanes (660 browser tests), 135/135 shared UI cells with no violations or
+skips, five-viewport formula/import/blocked-module review, and rebuilt
+unsigned-arm64 ordinary packaged smoke passed.
+
+## Previous checkpoint: explicit bounded authored Sheet formulas
 
 Autonomous direction (2026-10-12): add a deliberately small calculation language
 to first-party Sheets. Text stays literal, even when it starts with `=`; Formula

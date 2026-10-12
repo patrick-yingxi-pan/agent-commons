@@ -30,7 +30,24 @@ test('all complete Artifact formats share one local history control and keyboard
 test('creation-only one-step reversals do not compete with saved-editor draft history', () => {
   const editor = read('./StructuredArtifactEditor.tsx')
   assert.match(editor, /undoManaged/)
-  assert.match(editor, /!undoManaged && removed/)
+  assert.match(editor, /!undoManaged && currentRemoved/)
+  assert.match(editor, /const currentRemoved = removed\?\.after === JSON\.stringify\(body\) \? removed : null/,
+    'creation-only removal Undo refuses a changed whole-workbook pre-image')
+  assert.match(editor, /if \(currentRemoved !== removed\) setRemoved\(currentRemoved\)/,
+    'later equal content cannot resurrect an expired creation Undo')
   assert.match(editor, /!undoManaged && currentPaste\.before/)
   assert.match(editor, /<StructuredArtifactFields[^>]*undoManaged/)
+})
+
+test('transient worksheet-name fields keep native text undo outside artifact body history', () => {
+  const scope = read('./ArtifactDraftHistory.tsx')
+  const editor = read('./StructuredArtifactEditor.tsx')
+  assert.match(editor, /aria-label="Worksheet name"[^>]*data-artifact-transient-input/,
+    'unapplied worksheet names are marked as transient rather than authored body input')
+  assert.match(scope, /target instanceof Element && target\.closest\('\[data-artifact-transient-input\]'\)/,
+    'the global keyboard shortcut leaves native undo available in marked transient fields')
+  const transientGuard = scope.indexOf("target.closest('[data-artifact-transient-input]')")
+  const preventDefault = scope.indexOf('event.preventDefault()', transientGuard)
+  assert.ok(transientGuard >= 0 && preventDefault > transientGuard,
+    'marked transient inputs are exempted before the shared handler prevents the native undo event')
 })

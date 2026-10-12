@@ -5,13 +5,13 @@ import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { calculateSheet } from '../../contract/workbookCalculation.ts'
 import { hasCorePersistedShape } from './format.ts'
 
 const ROOT = mkdtempSync(join(tmpdir(), `agent-commons-artifact-formulas-${process.pid}-`))
 const storeModule = new URL('../store/index.ts', import.meta.url).href
 const persistenceModule = new URL('./persist.ts', import.meta.url).href
 const routesModule = new URL('../testkit/http.ts', import.meta.url).href
+const calculationModule = new URL('../../contract/workbookCalculation.ts', import.meta.url).href
 after(() => rmSync(ROOT, { recursive: true, force: true }))
 
 const authored = {
@@ -26,17 +26,18 @@ const workbookAuthored = {
   type: 'workbook',
   sheets: [
     { id: 'overview', name: 'Overview', columns: ['Input'], rows: [['100']] },
-    { id: 'detail', name: 'Detail', columns: ['Input', 'Calculated', 'Literal'], rows: [['6', { formula: '=A1*2' }, '=A1*2']] },
+    { id: 'detail', name: 'Detail', columns: ['Input', 'Calculated', 'Literal'], rows: [['6', { formula: "='Overview'!A1*2" }, '=A1*2']] },
   ],
 }
 const workbookEdited = structuredClone(workbookAuthored)
-workbookEdited.sheets[1]!.rows[0]![0] = '8'
+workbookEdited.sheets[0]!.rows[0]![0] = '120'
 
 function boot(file: string, backend: 'json' | 'sqlite', work: string) {
   const script = `
     const { store } = await import(${JSON.stringify(storeModule)});
     const { loadState, closePersistence } = await import(${JSON.stringify(persistenceModule)});
     const { call } = await import(${JSON.stringify(routesModule)});
+    const { calculateWorkbook } = await import(${JSON.stringify(calculationModule)});
     store.initPersistence();
     ${work}
     closePersistence();
@@ -77,7 +78,9 @@ for (const backend of ['json', 'sqlite'] as const) {
       const workbookRestore = await call('POST', '/artifacts/' + workbookId + '/history/0/restore', { expectedRevision: 1 }, { 'x-tenant-id': owner, 'idempotency-key': 'workbook-formula-restore' });
       if (workbookRestore.status !== 200) throw new Error('Workbook Formula Artifact restore failed: ' + JSON.stringify(workbookRestore));
       const state = loadState();
-      console.log(JSON.stringify({ id, body: store.artifactContent(owner)[id], historyPage: store.artifactHistoryPage(id, owner), history: state.artifactHistory.find(([artifactId]) => artifactId === id)?.[1], workbookId, workbookBody: store.artifactContent(owner)[workbookId], workbookHistoryPage: store.artifactHistoryPage(workbookId, owner), workbookHistory: state.artifactHistory.find(([artifactId]) => artifactId === workbookId)?.[1], state }));
+      const restoredWorkbook = store.artifactContent(owner)[workbookId];
+      const workbookCalculation = calculateWorkbook(restoredWorkbook.sheets);
+      console.log(JSON.stringify({ id, body: store.artifactContent(owner)[id], historyPage: store.artifactHistoryPage(id, owner), history: state.artifactHistory.find(([artifactId]) => artifactId === id)?.[1], workbookId, workbookBody: restoredWorkbook, workbookCalculation, workbookHistoryPage: store.artifactHistoryPage(workbookId, owner), workbookHistory: state.artifactHistory.find(([artifactId]) => artifactId === workbookId)?.[1], state }));
     `))
     assert.deepEqual(first.body, { ...authored, revision: 2 }, 'restore returns the original exact formula source')
     assert.deepEqual(first.history.map((version: any) => version.body), [authored, edited, authored])
@@ -87,7 +90,10 @@ for (const backend of ['json', 'sqlite'] as const) {
     const bodyRow = first.state.artifactBodies.find(([id]: [string]) => id === first.id)
     assert.deepEqual(bodyRow[1], { ...authored, revision: 2 }, 'canonical durable current body does not flatten formulas')
     assert.deepEqual(first.workbookBody, { ...workbookAuthored, revision: 2 }, 'non-legacy worksheet IDs retain formula sources and literal formula-looking text')
-    assert.deepEqual(calculateSheet(first.workbookBody.sheets[1]).map((row) => row.map((cell) => cell.text)), [['6', '12', '=A1*2']], 'the detail formula resolves its own A1, not Overview!A1')
+    assert.deepEqual(first.workbookCalculation.map((sheet: any) => ({ id: sheet.id, rows: sheet.rows.map((row: any[]) => row.map((cell) => cell.text)) })), [
+      { id: 'overview', rows: [['100']] },
+      { id: 'detail', rows: [['6', '200', '=A1*2']] },
+    ], 'the named-sheet formula resolves against Overview while preserving literal formula-like text')
     assert.deepEqual(first.workbookHistory.map((version: any) => version.body), [workbookAuthored, workbookEdited, workbookAuthored])
     assert.deepEqual(first.workbookHistory.map((version: any) => version.reason), ['baseline', 'edit', 'restore'])
     assert.equal(first.workbookHistoryPage.currentRevision, 2)
@@ -99,12 +105,15 @@ for (const backend of ['json', 'sqlite'] as const) {
       const id = ${JSON.stringify(first.id)};
       const workbookId = ${JSON.stringify(first.workbookId)};
       const state = loadState();
-      console.log(JSON.stringify({ body: store.artifactContent(owner)[id], historyPage: store.artifactHistoryPage(id, owner), history: state.artifactHistory.find(([artifactId]) => artifactId === id)?.[1], workbookBody: store.artifactContent(owner)[workbookId], workbookHistoryPage: store.artifactHistoryPage(workbookId, owner), workbookHistory: state.artifactHistory.find(([artifactId]) => artifactId === workbookId)?.[1], state }));
+      const workbookBody = store.artifactContent(owner)[workbookId];
+      const workbookCalculation = calculateWorkbook(workbookBody.sheets);
+      console.log(JSON.stringify({ body: store.artifactContent(owner)[id], historyPage: store.artifactHistoryPage(id, owner), history: state.artifactHistory.find(([artifactId]) => artifactId === id)?.[1], workbookBody, workbookCalculation, workbookHistoryPage: store.artifactHistoryPage(workbookId, owner), workbookHistory: state.artifactHistory.find(([artifactId]) => artifactId === workbookId)?.[1], state }));
     `))
     assert.deepEqual(restarted.body, first.body)
     assert.deepEqual(restarted.history, first.history, 'all source revisions and restore provenance survive a real restart')
     assert.deepEqual(restarted.historyPage, first.historyPage)
     assert.deepEqual(restarted.workbookBody, first.workbookBody)
+    assert.deepEqual(restarted.workbookCalculation, first.workbookCalculation, 'named cross-sheet calculations rederive from the exact source after restart')
     assert.deepEqual(restarted.workbookHistory, first.workbookHistory, 'every second-tab formula source revision survives restart')
     assert.deepEqual(restarted.workbookHistoryPage, first.workbookHistoryPage)
     assert.equal(hasCorePersistedShape(restarted.state), true)

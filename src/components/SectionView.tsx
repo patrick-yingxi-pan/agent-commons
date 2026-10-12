@@ -35,8 +35,8 @@ import {
   FolderGit2,
   GitBranch,
   GitFork,
-  Github,
   GitMerge,
+  Github,
   GitPullRequest,
   Globe,
   History,
@@ -142,7 +142,7 @@ import { LocusGutter } from './LocusGutter'
 import { GrantsPanel } from './GrantsPanel'
 import { FollowButton } from './FollowButton'
 import { MessageButton } from './MessageButton'
-import { ProposalsPanel } from './ProposalsPanel'
+import { DeferredProposalsPanel as ProposalsPanel } from './DeferredProposalsPanel'
 import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -400,13 +400,7 @@ import {
   useAgentProposalCommentCreationStatus,
 } from '../controller/agentProposalCommentCreationMutations.ts'
 import {
-  enqueueAgentProposalVerdict,
-  heldAgentProposalVerdictIntent,
-  useAgentProposalVerdictStatus,
-} from '../controller/agentProposalVerdictMutations.ts'
-import {
   isCommissionMutationHeld,
-  updateCommissionConfiguration,
   useCommissionMutationStatus,
 } from '../controller/commissionMutations'
 import {
@@ -621,7 +615,6 @@ import {
 import {
   promptFitWarning,
   defaultEntry,
-  projectAdmittedAuthority,
   PROJECT_ROLES,
   PROJECT_EFFECT_TYPES,
   OPEN_WORK_FIELD_MAX,
@@ -681,6 +674,8 @@ import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
 import { DeferredNewDispatchDialog } from './DeferredNewDispatchDialog.tsx'
+import { DeferredCommissionDialog } from './DeferredCommissionDialog.tsx'
+import { DeferredAgentProposalsReviewDialog } from './DeferredAgentProposalsReviewDialog.tsx'
 import { DeferredContributionReviewPanel } from './DeferredContributionReviewPanel.tsx'
 import { DeferredContributionEnvelopeCard } from './DeferredContributionEnvelopeCard.tsx'
 import { DeferredDelegatedJudgmentPanel } from './DeferredDelegatedJudgmentPanel.tsx'
@@ -2647,7 +2642,12 @@ function ContributorRow({
         disabledReason="Waiting for this Contributor change to settle"
       />
       {editing && project && (
-        <CommissionDialog commission={commission} project={project} onClose={() => setEditing(false)} />
+        <DeferredCommissionDialog
+          commission={commission}
+          project={project}
+          standingNotice={<AutomationNotice kind="standing" />}
+          onClose={() => setEditing(false)}
+        />
       )}
       {confirmingRemoval && (
         <ConfirmDialog
@@ -2659,175 +2659,6 @@ function ContributorRow({
         />
       )}
     </div>
-  )
-}
-
-/** One Project-admitted reach axis as a checklist (connectors or file scopes) — the shared
- *  primitive behind both, so the two axes can't drift (same role ⇒ same look). */
-function AdmittedChecklist({
-  label,
-  admitted,
-  selected,
-  onToggle,
-  emptyText,
-}: {
-  label: string
-  admitted: string[]
-  selected: Set<string>
-  onToggle: (value: string) => void
-  emptyText: string
-}) {
-  return (
-    <div>
-      <span className="mb-1.5 block text-[12px] font-medium text-ink-soft">{label}</span>
-      {admitted.length === 0 ? (
-        <p className="text-[12px] text-ink-faint">{emptyText}</p>
-      ) : (
-        <div className="space-y-1.5">
-          {admitted.map((v) => (
-            <CheckboxRow key={v} checked={selected.has(v)} onToggle={() => onToggle(v)} className="text-[13px] text-ink">
-              {v}
-            </CheckboxRow>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** Re-grant a Contributor — narrow (or restore) which of the Project's admitted **connectors
- *  and file scopes** it may reach (D12). The Project's admitted set is the wall on each axis:
- *  each checklist is bounded by it, and unchecking narrows the Contributor below it. The role
- *  (D14) sets the permission baseline. All-checked ⇒ the full admitted reach. */
-function CommissionDialog({
-  commission,
-  project,
-  onClose,
-}: {
-  commission: Commission
-  project: Project
-  onClose: () => void
-}) {
-  // Freeze the opening base. Ambient commission.changed events may refresh the
-  // row behind this held draft; dirty comparison remains the user's own intent.
-  const original = useRef(commission).current
-  const admitted = projectAdmittedAuthority(project.contexts)
-  const admittedConnectors = admitted.connectors ?? []
-  const admittedScopes = admitted.scopes ?? []
-  // Start from the current grant, or the full admitted set when the grant is unset / '*'.
-  const startSet = (granted: string[] | undefined, all: string[]) =>
-    new Set(!granted || granted.includes('*') ? all : granted)
-  const [connectors, setConnectors] = useState<Set<string>>(() => startSet(commission.authority?.connectors, admittedConnectors))
-  const [scopes, setScopes] = useState<Set<string>>(() => startSet(commission.authority?.scopes, admittedScopes))
-  const [role, setRole] = useState<ProjectRole>(commission.role ?? 'writer')
-  const [standing, setStanding] = useState(commission.standing === true)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const sameSet = (left: Set<string>, right: Set<string>): boolean =>
-    left.size === right.size && [...left].every((value) => right.has(value))
-  const originalConnectors = startSet(original.authority?.connectors, admittedConnectors)
-  const originalScopes = startSet(original.authority?.scopes, admittedScopes)
-  const connectorsChanged = !sameSet(connectors, originalConnectors)
-  const scopesChanged = !sameSet(scopes, originalScopes)
-  const roleChanged = role !== (original.role ?? 'writer')
-  const standingChanged = standing !== (original.standing === true)
-  const hasChanges = roleChanged || standingChanged || connectorsChanged || scopesChanged
-
-  const toggle = (setFn: typeof setConnectors) => (v: string) =>
-    setFn((prev) => {
-      const next = new Set(prev)
-      next.has(v) ? next.delete(v) : next.add(v)
-      return next
-    })
-
-  const submit = async () => {
-    if (busy || !hasChanges) return
-    setBusy(true)
-    setError(null)
-    // Each touched authority axis sends its explicit checked set; untouched axes
-    // stay absent so a conflict Retry cannot overwrite a newer orthogonal grant.
-    try {
-      const outcome = await updateCommissionConfiguration(commission.id, commission.projectId, {
-        ...(roleChanged ? { role } : {}),
-        ...(standingChanged ? { standing } : {}),
-        ...(connectorsChanged || scopesChanged ? {
-          authority: {
-            ...(connectorsChanged ? { connectors: [...connectors] } : {}),
-            ...(scopesChanged ? { scopes: [...scopes] } : {}),
-          },
-        } : {}),
-      })
-      if (outcome === 'discarded') {
-        setError('Your held edits were not saved. Review the latest contributor, then apply what you still want.')
-        setBusy(false)
-        return
-      }
-      onClose()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not update this contributor.')
-      setBusy(false)
-    }
-  }
-
-  return (
-    <FormDialog
-      title="Edit contributor"
-      icon={<Cpu size={18} className="text-ink-soft" />}
-      submitLabel="Save"
-      canSubmit={hasChanges && !busy}
-      onSubmit={submit}
-      onClose={onClose}
-      error={error}
-      busy={busy}
-    >
-      <div className="mb-3">
-        <label className="mb-1.5 block text-[12px] font-medium text-ink-soft" htmlFor="commission-role">
-          Project role
-        </label>
-        <select
-          id="commission-role"
-          value={role}
-          onChange={(e) => setRole(e.target.value as ProjectRole)}
-          className={FORM_INPUT_CLASS}
-        >
-          {PROJECT_ROLES.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1.5 text-[11px] text-ink-faint">
-          The permission baseline: a reader may read; writer &amp; maintainer may fire effects and
-          reserve sub-goals; owner may also commission others.
-        </p>
-      </div>
-      <CheckboxRow checked={standing} onToggle={() => setStanding(!standing)} className="mb-3">
-        <span className="text-[12px] leading-snug text-ink-soft">
-          <span className="font-medium text-ink">Standing</span> — configure this Agent as a volunteer for the Project’s open work.
-        </span>
-      </CheckboxRow>
-      <AutomationNotice kind="standing" />
-      <div className="space-y-3">
-        <AdmittedChecklist
-          label="Connectors this contributor may reach"
-          admitted={admittedConnectors}
-          selected={connectors}
-          onToggle={toggle(setConnectors)}
-          emptyText="This project admits no connectors."
-        />
-        <AdmittedChecklist
-          label="File scopes this contributor may reach"
-          admitted={admittedScopes}
-          selected={scopes}
-          onToggle={toggle(setScopes)}
-          emptyText="This project admits no folders or repos."
-        />
-        <p className="text-[11px] text-ink-faint">
-          The Project’s admitted set is the wall; unchecking narrows this Contributor’s reach below it.
-        </p>
-      </div>
-    </FormDialog>
   )
 }
 
@@ -8837,10 +8668,14 @@ function AgentRow({
         />
       )}
       {manageable && reviewing && (
-        <ProposalsReviewDialog
+        <DeferredAgentProposalsReviewDialog
           agent={agent}
           proposals={proposals}
           focusProposalId={reviewFocus}
+          Thread={ProposalThread}
+          FieldDiff={ProposalFieldDiff}
+          GitPullRequestIcon={GitPullRequest}
+          GitMergeIcon={GitMerge}
           onClose={() => {
             setReviewing(false)
             setReviewFocus(null)
@@ -9095,139 +8930,6 @@ function ChangelogList({ changelog }: { changelog: AgentChangelogEntry[] }) {
         </li>
       ))}
     </ul>
-  )
-}
-
-/** D25 — the owner's review queue: each proposal as a side-by-side (current vs
- *  proposed, per changed field), with the stale flag and the two verdicts. Merging
- *  applies the fields, bumps the version, and credits the proposer in the changelog. */
-function ProposalsReviewDialog({
-  agent,
-  proposals,
-  onClose,
-  focusProposalId = null,
-}: {
-  agent: Agent
-  proposals: AgentChangeProposal[]
-  onClose: () => void
-  /** A notification door opened this dialog ON a specific proposal (R5) — scroll it
-   *  into view and mark it. Null when opened by the Review button. */
-  focusProposalId?: string | null
-}) {
-  const dialogRef = useRef<HTMLDivElement>(null)
-  useFocusTrap(dialogRef, onClose)
-  const tenantId = useMe().data?.tenant.id
-  useAgentProposalVerdictStatus()
-  const currentVersion = agent.version ?? 1
-  // Scroll the door's target proposal into view once it's present (the list is a
-  // live fetch, so it may arrive after the dialog opens).
-  const focusRef = useRef<HTMLDivElement>(null)
-  const focusPresent = proposals.some((p) => p.id === focusProposalId)
-  useEffect(() => {
-    if (focusProposalId && focusPresent) focusRef.current?.scrollIntoView({ block: 'center' })
-  }, [focusProposalId, focusPresent])
-  const verdict = (pid: string, action: 'merge' | 'decline') => {
-    if (!tenantId) return
-    void enqueueAgentProposalVerdict({ tenantId, agentId: agent.id, proposalId: pid, action })
-  }
-  const current: Record<string, string> = {
-    label: agent.label,
-    systemPrompt: agent.systemPrompt,
-    instructions: agent.instructions,
-    tools: agent.tools.join(', '),
-  }
-  return (
-    <div
-      className="fixed inset-0 z-50 flex justify-center px-4 pt-[10dvh] short:pt-[5dvh]"
-      onMouseDown={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Proposals — ${agent.label}`}
-    >
-      <div className={SCRIM_CLASS} />
-      <div
-        ref={dialogRef}
-        onMouseDown={(e) => e.stopPropagation()}
-        className={`relative flex max-h-[76dvh] w-[640px] max-w-full flex-col ${DIALOG_SURFACE_CLASS}`}
-      >
-        <div className="flex shrink-0 items-center gap-2.5 border-b border-line px-4 py-3">
-          <GitPullRequest size={16} className="shrink-0 text-ink-faint" />
-          <span className="flex-1 text-[15px] font-semibold text-ink">
-            Proposals — {agent.label} <span className="font-normal text-ink-faint">(v{currentVersion})</span>
-          </span>
-          <button onClick={onClose} aria-label="Close" className="text-ink-faint transition hover:text-ink">
-            <X size={16} />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-          {proposals.map((p) => {
-            const isFocus = p.id === focusProposalId
-            const heldVerdict = heldAgentProposalVerdictIntent(agent.id, p.id)
-            return (
-            <div
-              key={p.id}
-              ref={isFocus ? focusRef : undefined}
-              className={`scroll-mt-4 rounded-xl border p-3 transition-colors ${
-                isFocus ? `border-co ${FOCUS_FLASH_CLASS}` : 'border-line'
-              }`}
-            >
-              <div className="flex items-center gap-2 text-[12px]">
-                <span className="font-medium text-ink">{p.proposedBy}</span>
-                <span className="text-ink-faint">· {relativeTime(p.at)} · against v{p.baseVersion}</span>
-                {p.status === 'open' && p.baseVersion < currentVersion && (
-                  <span
-                    title="Authored against an older version — review with care (never auto-rebased)"
-                    className="rounded-full bg-warn/10 px-1.5 py-px text-[10px] font-medium text-warn-text"
-                  >
-                    stale
-                  </span>
-                )}
-                {p.status !== 'open' && (
-                  <span className="rounded-full bg-panel-2 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-ink-faint">
-                    {p.status}
-                  </span>
-                )}
-                {/* The terminal lifecycle event's timestamp (D25; surface-audit S1). */}
-                {p.status !== 'open' && p.resolvedAt && (
-                  <span className="text-ink-faint">· {relativeTime(p.resolvedAt)}</span>
-                )}
-              </div>
-              {p.note && <p className="mt-1 text-[12px] text-ink-soft">{p.note}</p>}
-              <ProposalFieldDiff fields={p.fields} current={current} />
-              {/* D27 — the check row: the honest, knowable facts about a prompt
-                  replacement (advisory, never gating — the merge stays the gate). */}
-              {p.check && (
-                <p className="mt-2 flex items-start gap-1 rounded-lg bg-warn/10 px-2 py-1.5 text-[11px] leading-snug text-warn-text">
-                  <AlertCircle size={12} className="mt-0.5 shrink-0" /> {p.check.note}
-                </p>
-              )}
-              <ProposalThread agentId={agent.id} proposal={p} openForComments={p.status === 'open'} />
-              {p.status === 'open' || heldVerdict ? (
-                <div
-                  className="mt-2.5 flex items-center gap-2"
-                  data-agent-proposal-verdict={heldVerdict ? 'held' : 'ready'}
-                  aria-busy={heldVerdict ? 'true' : undefined}
-                >
-                  <button
-                    onClick={() => void verdict(p.id, 'merge')}
-                    disabled={!!heldVerdict}
-                    className={`inline-flex items-center gap-1.5 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-                  >
-                    <GitMerge size={13} /> {heldVerdict?.action === 'merge' ? 'Merging…' : 'Merge'}
-                  </button>
-                  <button onClick={() => void verdict(p.id, 'decline')} disabled={!!heldVerdict} className={INLINE_ACTION_CLASS}>
-                    {heldVerdict?.action === 'decline' ? 'Declining…' : 'Decline'}
-                  </button>
-                </div>
-              ) : p.responseNote ? (
-                <p className="mt-2 text-[11px] text-ink-faint">Owner’s note: {p.responseNote}</p>
-              ) : null}
-            </div>
-            )
-          })}
-        </div>
-      </div>
-    </div>
   )
 }
 

@@ -109,10 +109,12 @@ bodies. Saved literal sheets and slides export through the authenticated boundar
 as real XLSX and PPTX packages, and packaged-executable smoke verifies their exact
 downloaded bytes. Standing routine approval and the guarded model loop likewise
 deliver bounded Document, Sheet, or Slides bodies under a frozen explicit format
-and name (REL-13 / MODEL-29). REL-33 adds explicitly authored, bounded same-sheet
-arithmetic and SUM formulas with one shared calculated projection; imported
+and name (REL-13 / MODEL-29). REL-33 adds explicitly authored, bounded arithmetic
+and SUM formulas; REL-34 adds named references within the same workbook and
+atomic reference-preserving structural edits. One shared workbook calculation
+supplies all derived values; imported
 formula caches stay literal. This does not imply Excel compatibility,
-external or cross-sheet formulas, arbitrary slide layout or media authoring, imported Office
+external formulas, arbitrary slide layout or media authoring, imported Office
 fidelity, paid-provider acceptance, or a signed/notarized two-architecture release;
 those remain required work. ADAPT-35 imports actual text/PDF/DOCX text into a
 reviewed Document draft; ADAPT-36 additionally maps actual visible PPTX slide

@@ -2,7 +2,7 @@ import type { ArtifactKind } from './entities.ts'
 import type { ArtifactContent } from './content.ts'
 import { parseArtifactHistoryBody } from './artifactHistory.ts'
 import { isFormulaCell } from './sheetCell.ts'
-import { calculateSheet } from './workbookCalculation.ts'
+import { calculateWorkbook } from './workbookCalculation.ts'
 import { spreadsheetSheets } from './workbook.ts'
 import { isServedCaptureTime, isSnapshotId } from './servedSnapshotIdentity.ts'
 
@@ -193,9 +193,9 @@ function textFor(snapshot: Pick<ArtifactSnapshot, 'title' | 'artifactKind' | 're
   if (!sheets.some((sheet) => sheet.rows.some((row) => row.some(isFormulaCell)))) return JSON.stringify(value)
   const calculation = {
     version: 1 as const,
-    sheets: sheets.map((sheet) => ({
+    sheets: calculateWorkbook(sheets).map((sheet) => ({
       id: sheet.id,
-      rows: calculateSheet(sheet).map((row) => row.map((cell) => cell.text)),
+      rows: sheet.rows.map((row) => row.map((cell) => cell.text)),
     })),
   }
   return JSON.stringify({ ...value, calculation })

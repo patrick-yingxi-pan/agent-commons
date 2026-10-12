@@ -1,5 +1,5 @@
 /** Rendered acknowledgement recovery for owner Agent proposal decisions. */
-import { test, expect, type Browser, type Page } from '@playwright/test'
+import { test, expect, type Browser, type Page, type TestInfo } from '@playwright/test'
 import type { Agent, AgentChangeProposal, Identity } from '../contract/index.ts'
 import { agentProposalVerdictId } from '../server/agentProposalVerdictIdentity.ts'
 import { agentBindings } from './agent-bindings.ts'
@@ -7,6 +7,11 @@ import { agentSynopsisRow } from './agent-synopsis-row.ts'
 import { ms } from './budget.ts'
 
 const PROPOSER_HEADERS = { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' }
+const REVIEW_VIEWPORTS = [
+  { width: 320, height: 700 }, { width: 375, height: 812 },
+  { width: 768, height: 1024 }, { width: 844, height: 390 },
+  { width: 1280, height: 800 },
+]
 
 async function newUser(browser: Browser, headers?: Record<string, string>) {
   const context = await browser.newContext(headers ? { extraHTTPHeaders: headers } : {})
@@ -57,6 +62,148 @@ async function proposalRows(page: Page, agentId: string): Promise<AgentChangePro
   expect(response.ok()).toBe(true)
   return response.json() as Promise<AgentChangeProposal[]>
 }
+
+async function captureReviewLoad(page: Page, testInfo: TestInfo, phase: 'loading' | 'failed') {
+  const marker = page.locator(`[data-agent-proposal-review-load="${phase}"]`)
+  const dialog = page.getByRole('dialog')
+  const panel = dialog.locator('div.relative.flex')
+  for (const viewport of REVIEW_VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await expect(marker).toBeVisible()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const box = await panel.boundingBox()
+    expect(box, `proposal review panel has a box at ${viewport.width}x${viewport.height}`).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.y).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
+    await marker.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: testInfo.outputPath(`agent-proposal-review-${phase}-${viewport.width}x${viewport.height}.png`) })
+  }
+}
+
+async function captureReviewReady(page: Page, testInfo: TestInfo, agent: Agent, proposalText: string) {
+  const dialog = page.getByRole('dialog', { name: `Proposals — ${agent.label}` })
+  const panel = dialog.locator('div.relative.flex')
+  for (const viewport of REVIEW_VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    await expect(dialog.getByText('One reviewed change.', { exact: true })).toBeVisible()
+    await expect(dialog.getByText(proposalText, { exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Merge', exact: true })).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Decline', exact: true })).toBeVisible()
+    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    const box = await panel.boundingBox()
+    expect(box, `proposal review panel has a box at ${viewport.width}x${viewport.height}`).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.y).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+    expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
+    await page.screenshot({ path: testInfo.outputPath(`agent-proposal-review-ready-${viewport.width}x${viewport.height}.png`) })
+  }
+}
+
+test('Agent proposal review loads actual history before exposing Merge and Decline', async ({ browser }, testInfo) => {
+  test.setTimeout(ms(90_000))
+  const owner = await newUser(browser)
+  const proposer = await newUser(browser, PROPOSER_HEADERS)
+  const stamp = `${Date.now().toString(36)}-deferred-review`
+  try {
+    const { agent, proposal } = await arena(owner.page, proposer.page, stamp)
+    let verdictWrites = 0
+    await owner.page.route(`**/api/v1/agents/${agent.id}/proposals/${proposal.id}/**`, async (route) => {
+      if (route.request().method() === 'POST' && /\/(merge|decline)$/.test(new URL(route.request().url()).pathname)) verdictWrites += 1
+      await route.continue()
+    })
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let intercepted = false
+    await owner.page.route('**/src/components/AgentProposalsReviewDialog.tsx*', async (route) => {
+      intercepted = true
+      await gate
+      await route.continue()
+    })
+
+    const dialog = await openReview(owner.page, agent)
+    const loading = owner.page.locator('[data-agent-proposal-review-load="loading"]')
+    try {
+      await expect(loading).toBeVisible({ timeout: ms(20_000) })
+      await expect(loading).toHaveAttribute('role', 'status')
+      await expect(loading).toContainText('Loading proposal review…')
+      await expect(dialog.getByText('One reviewed change.', { exact: true })).toHaveCount(0)
+      await expect(dialog.getByRole('button', { name: 'Merge', exact: true })).toHaveCount(0)
+      await expect(dialog.getByRole('button', { name: 'Decline', exact: true })).toHaveCount(0)
+      await captureReviewLoad(owner.page, testInfo, 'loading')
+      expect(intercepted, 'the test held the actual Agent proposal review module').toBe(true)
+      expect(verdictWrites, 'loading proposal history cannot write a verdict').toBe(0)
+    } finally {
+      release()
+    }
+
+    const proposalText = `Apply the reviewed evidence policy ${stamp}.`
+    await expect(dialog.getByText('One reviewed change.', { exact: true })).toBeVisible()
+    await expect(dialog.getByText(proposalText, { exact: true })).toBeVisible()
+    await captureReviewReady(owner.page, testInfo, agent, proposalText)
+    expect(verdictWrites, 'rendering proposal history does not choose a verdict').toBe(0)
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+  } finally {
+    await Promise.allSettled([owner.context.close(), proposer.context.close()])
+  }
+})
+
+test('failed Agent proposal review preserves the page without Merge/Decline authority', async ({ browser }, testInfo) => {
+  test.setTimeout(ms(90_000))
+  const owner = await newUser(browser)
+  const proposer = await newUser(browser, PROPOSER_HEADERS)
+  const stamp = `${Date.now().toString(36)}-deferred-review-failed`
+  try {
+    const { agent, proposal } = await arena(owner.page, proposer.page, stamp)
+    let verdictWrites = 0
+    await owner.page.route(`**/api/v1/agents/${agent.id}/proposals/${proposal.id}/**`, async (route) => {
+      if (route.request().method() === 'POST' && /\/(merge|decline)$/.test(new URL(route.request().url()).pathname)) verdictWrites += 1
+      await route.continue()
+    })
+    let blocked = true
+    let intercepted = false
+    await owner.page.route('**/src/components/AgentProposalsReviewDialog.tsx*', async (route) => {
+      intercepted = true
+      if (blocked) await route.abort('failed')
+      else await route.continue()
+    })
+
+    let dialog = await openReview(owner.page, agent)
+    const failed = owner.page.locator('[data-agent-proposal-review-load="failed"]')
+    await expect(failed).toBeVisible({ timeout: ms(20_000) })
+    await expect(failed).toHaveAttribute('role', 'alert')
+    await expect(failed).toContainText('No decision was made')
+    await expect(dialog.getByRole('button', { name: 'Merge', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Decline', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Reload proposal review', exact: true })).toBeVisible()
+    await captureReviewLoad(owner.page, testInfo, 'failed')
+    expect(intercepted, 'the test failed the actual Agent proposal review module').toBe(true)
+    expect(verdictWrites, 'a failed review chunk cannot write a verdict').toBe(0)
+
+    await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    dialog = await openReview(owner.page, agent)
+    const cachedFailure = owner.page.locator('[data-agent-proposal-review-load="failed"]')
+    await expect(cachedFailure).toBeVisible()
+    await expect(dialog.getByRole('button', { name: 'Merge', exact: true })).toHaveCount(0)
+    await expect(dialog.getByRole('button', { name: 'Decline', exact: true })).toHaveCount(0)
+    blocked = false
+    await cachedFailure.getByRole('button', { name: 'Reload proposal review', exact: true }).click()
+    const recovered = await openReview(owner.page, agent)
+    const proposalText = `Apply the reviewed evidence policy ${stamp}.`
+    await expect(recovered.getByText('One reviewed change.', { exact: true })).toBeVisible({ timeout: ms(20_000) })
+    await expect(recovered.getByText(proposalText, { exact: true })).toBeVisible()
+    await captureReviewReady(owner.page, testInfo, agent, proposalText)
+    expect(verdictWrites, 'explicit module recovery does not resolve the proposal').toBe(0)
+  } finally {
+    await Promise.allSettled([owner.context.close(), proposer.context.close()])
+  }
+})
 
 test('a failed Agent proposal decision stays held across navigation and Retry applies it once', async ({ browser }) => {
   test.setTimeout(ms(90_000))

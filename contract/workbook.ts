@@ -101,6 +101,18 @@ function validWorksheetNameXmlText(value: string): boolean {
   return true
 }
 
+/** One name policy for admission and atomic editor renames. */
+export function workbookSheetNameError(sheets: readonly Pick<WorkbookSheet, 'id' | 'name'>[], id: string, name: string): string | undefined {
+  if (!name.trim() || name.length > MAX_WORKBOOK_SHEET_NAME_CHARS || name !== name.trim() ||
+    name.startsWith("'") || name.endsWith("'") || /[\[\]:*?/\\]/u.test(name) || !validWorksheetNameXmlText(name)) {
+    return 'Use 1–31 characters, without outer spaces, outer apostrophes, or [ ] : * ? / \\.'
+  }
+  if (sheets.some(sheet => sheet.id !== id && foldWorksheetName(sheet.name) === foldWorksheetName(name))) return 'Each worksheet needs a unique name.'
+  return undefined
+}
+
+export function foldWorksheetName(name: string): string { return name.toLocaleLowerCase('en-US') }
+
 /** Strict detached authoring parser. Formula mode stays explicit; no revision or other
  * authority-bearing field is accepted, and no caller-owned nested value leaks. */
 export function parseAuthoredWorkbook(value: unknown): Omit<WorkbookContent, 'revision'> | undefined {
@@ -118,10 +130,8 @@ export function parseAuthoredWorkbook(value: unknown): Omit<WorkbookContent, 're
     if (!record(raw) || !fields(raw, ['id', 'name', 'columns', 'rows'], ['note']) ||
       typeof raw.id !== 'string' || raw.id.length < 1 || raw.id.length > MAX_WORKBOOK_SHEET_ID_CHARS ||
       !/^[A-Za-z0-9_-]+$/u.test(raw.id) || ids.has(raw.id) ||
-      typeof raw.name !== 'string' || raw.name.length < 1 || raw.name.length > MAX_WORKBOOK_SHEET_NAME_CHARS ||
-      !raw.name.trim() || raw.name !== raw.name.trim() || raw.name.startsWith("'") || raw.name.endsWith("'") || /[\[\]:*?/\\]/u.test(raw.name)) return undefined
-    if (!validWorksheetNameXmlText(raw.name)) return undefined
-    const foldedName = raw.name.toLocaleLowerCase('en-US')
+      typeof raw.name !== 'string' || workbookSheetNameError([], raw.id, raw.name)) return undefined
+    const foldedName = foldWorksheetName(raw.name)
     if (names.has(foldedName)) return undefined
     ids.add(raw.id)
     names.add(foldedName)

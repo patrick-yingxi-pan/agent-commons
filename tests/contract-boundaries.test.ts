@@ -598,19 +598,21 @@ test('the client routers handle no event the ServerEvent contract does not decla
 test('authored formula consumers share one inert evaluator and preserve source-only search', () => {
   const consumers = ['src/components/StructuredArtifactEditor.tsx', 'src/components/StructuredArtifactView.tsx', 'contract/artifactSnapshot.ts', 'server/artifactXlsx.ts']
   const check = (source: string) => {
-    assert.match(source, /import \{[^}]*calculateSheet[^}]*\} from '[^']*workbookCalculation\.ts'/)
-    assert.match(source, /calculateSheet\(/)
+    assert.match(source, /import \{[^}]*calculateWorkbook[^}]*\} from '[^']*workbookCalculation\.ts'/)
+    assert.match(source, /calculateWorkbook\(/)
   }
   for (const path of consumers) {
     const source = stripComments(read(join(ROOT, path)))
     check(source)
-    assert.throws(() => check(source.replaceAll('calculateSheet', 'parallelCalculator')), assert.AssertionError)
+    assert.throws(() => check(source.replaceAll('calculateWorkbook', 'parallelCalculator')), assert.AssertionError)
   }
-  const evaluator = stripComments(read(join(ROOT, 'contract/workbookCalculation.ts')))
-  assert.doesNotMatch(evaluator, /\b(?:eval|Function|fetch|XMLHttpRequest|WebSocket|Date|process|document|window)\b/)
+  for (const file of ['workbookCalculation.ts', 'workbookFormula.ts', 'workbookStructure.ts']) {
+    const evaluator = stripComments(read(join(ROOT, 'contract', file)))
+    assert.doesNotMatch(evaluator, /\b(?:eval|Function|fetch|XMLHttpRequest|WebSocket|Date|process|document|window)\b/)
+  }
   const search = stripComments(read(join(ROOT, 'contract/artifactSearch.ts')))
   assert.match(search, /sheetCellSource\(/)
-  assert.doesNotMatch(search, /calculateSheet/)
+  assert.doesNotMatch(search, /calculate(?:Sheet|Workbook)/)
 })
 
 test('renderer and native local MCP review import and render one framework-free approval disclosure', () => {

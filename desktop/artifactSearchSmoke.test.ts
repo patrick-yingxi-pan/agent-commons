@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { ignoreFromPackage } from './packager.config.mjs'
 import { docBlockId } from '../server/documentIdentity.ts'
+import { calculateWorkbook } from '../contract/workbookCalculation.ts'
 import { prepareArtifactSearchSmoke } from './artifactSearchSmoke.mjs'
 
 const source = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf8')
@@ -45,8 +46,8 @@ test('current-body preparation preserves all authored fixtures and assigns every
     },
     'search-workbook': {
       type: 'workbook', revision: 0, sheets: [
-        { id: 'overview', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Opening', 'Ordinary']] },
-        { id: 'details', name: 'Details', columns: ['Metric', 'Value'], rows: [['Later', `workbookneedle${stamp}`]] },
+        { id: 'overview', name: 'Overview', columns: ['Metric', 'Value'], rows: [['Opening', '21']] },
+        { id: 'details', name: 'Details', columns: ['Metric', 'Value', 'Twice overview'], rows: [['Later', `workbookneedle${stamp}`, { formula: "='Overview'!B1*2" }]] },
       ],
     },
     'search-slides': {
@@ -75,6 +76,12 @@ test('current-body preparation preserves all authored fixtures and assigns every
   ])
   assert.deepEqual(Object.fromEntries(fixtures.map(fixture => [fixture.id, fixture.body])), expectedBodies,
     'the helper compares exact authored content and all canonical Document block IDs')
+  const workbook = fixtures.find(fixture => fixture.label === 'workbook')
+  assert.ok(workbook)
+  assert.deepEqual(workbook.body.sheets[1].rows[0][2], { formula: "='Overview'!B1*2" },
+    'the authored workbook keeps the exact cross-sheet source')
+  assert.deepEqual(calculateWorkbook(workbook.body.sheets).find(sheet => sheet.id === 'details')?.rows
+    .map(row => row.map(cell => cell.text)), [['Later', `workbookneedle${stamp}`, '42']])
 })
 
 test('current-body search verifies exact URLs, focused reveal, reload, Back, and Show match without writes or history reads', () => {
@@ -105,6 +112,18 @@ test('current search body locks are read-only SQLite projections and survive the
   assert.match(history, /const searchBodiesBeforeQuit = readSqliteSearchBodies\(profile, searchFixtures\)/)
   assert.match(history, /assert\.deepEqual\(readSqliteSearchBodies\(profile, searchFixtures\), searchBodiesBeforeQuit,[\s\S]*?before relaunch/)
   assert.match(history, /assert\.deepEqual\(readSqliteSearchBodies\(profile, searchFixtures\), searchBodiesBeforeQuit,[\s\S]*?ordinary signed-in relaunch preserves exact current search bodies without rewrites/)
+})
+
+test('authored workbook formula source and derived value are checked in the post-relaunch journey', () => {
+  const helper = source('./artifactSearchSmoke.mjs')
+  const history = source('./artifactHistorySmoke.mjs')
+  assert.match(helper, /import \{ calculateWorkbook \} from '\.\.\/contract\/workbookCalculation\.ts'/)
+  assert.match(helper, /formula: "='Overview'!B1\*2"/)
+  assert.match(helper, /saved workbook keeps the exact cross-sheet formula source/)
+  assert.match(helper, /relaunch\/search journey recalculates the named cross-sheet value from saved workbook content/)
+  assert.match(helper, /getByLabel\('Formula source C1'\)\)\.toHaveText\("='Overview'!B1\*2"\)/)
+  assert.match(helper, /formulaCell\.locator\('span'\)\.first\(\)\)\.toHaveText\('42'\)/)
+  assert.match(history, /verifyArtifactSearchSmoke\(\{ page, origin, request, fixtures: searchFixtures, evidenceDirectory, phase: 'after-relaunch' \}\)/)
 })
 
 test('old current locators go stale after restore and remain unhighlighted before and after relaunch', () => {

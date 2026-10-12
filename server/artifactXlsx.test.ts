@@ -141,6 +141,29 @@ test('XLSX exports authored formulas as calculated value strings without formula
   assert.deepEqual(body.sheets[0]!.rows[0], ['2', '3', { formula: '=A1+B1' }, '=A1+B1'])
 })
 
+test('XLSX calculates named cross-tab formulas and exports cycles as error strings only', async () => {
+  const body = {
+    type: 'workbook' as const,
+    sheets: [
+      { id: 'overview', name: 'Overview', columns: ['Result', 'Literal'], rows: [[{ formula: "='detail TAB'!A1*2" }, '=A1']] },
+      { id: 'detail', name: 'Detail tab', columns: ['Value'], rows: [['21']] },
+      { id: 'loop-a', name: 'Loop', columns: ['Value'], rows: [[{ formula: "='Loop two'!A1" }]] },
+      { id: 'loop-b', name: 'Loop two', columns: ['Value'], rows: [[{ formula: '=LOOP!A1' }]] },
+    ],
+  }
+  const files = await parts((await sheetXlsx('Cross tab', body)).content)
+  const overview = cells(files, 'xl/worksheets/sheet1.xml')
+  const detail = cells(files, 'xl/worksheets/sheet2.xml')
+  const loop = cells(files, 'xl/worksheets/sheet3.xml')
+  const loopTwo = cells(files, 'xl/worksheets/sheet4.xml')
+  assert.equal(overview.A2, '42')
+  assert.equal(overview.B2, '=A1', 'formula-looking literal strings stay literal')
+  assert.equal(detail.A2, '21')
+  assert.equal(loop.A2, '#CYCLE!')
+  assert.equal(loopTwo.A2, '#CYCLE!')
+  assert.doesNotMatch(Object.values(files).join(''), /<f[\s>]/u, 'the export contains values, never formula elements')
+})
+
 test('XLSX is one self-contained valid XML package with readable saved-value formatting', async () => {
   const body = { type: 'sheet' as const, columns: ['Person', 'Status'], rows: [['Ada', 'Ready'], ['Grace', 'Review\nNext week']] }
   const first = await sheetXlsx('Team.sheet', body)

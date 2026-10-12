@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { StructuredArtifactBody } from '../../contract/index.ts'
+import type { EditableArtifactBody, StructuredArtifactBody } from '../../contract/index.ts'
 import { createArtifactEditDraftStore, type ArtifactEditDraft } from './artifactEditDraftsCore.ts'
 
 type WriteCall = {
@@ -131,6 +131,73 @@ test('subscriptions publish edits and allow a remounted view to read current sta
   assert.equal(remountedView.length, 1)
   assert.equal(store.get('artifact'), undefined)
   stopRemounted()
+})
+
+test('every admitted worksheet ID can own a pending rename, including object-prototype names', async () => {
+  const writes: unknown[] = []
+  const store = createArtifactEditDraftStore(async (_id, draft) => { writes.push(draft); return 'applied' })
+  for (const sheetId of ['__proto__', 'constructor', 'toString']) {
+    store.start(sheetId, { kind: 'structured', expectedRevision: 1, content: {
+      type: 'workbook', sheets: [{ id: sheetId, name: 'Detail', columns: ['Value'], rows: [['2']] }],
+    } })
+    const rename = { baseName: 'Detail', value: 'Details' }
+    store.setWorksheetRename(sheetId, sheetId, rename)
+    assert.ok(Object.hasOwn(store.get(sheetId)!.worksheetRenames ?? {}, sheetId))
+    assert.deepEqual(store.get(sheetId)!.worksheetRenames![sheetId], rename)
+    assert.equal(store.canSave(sheetId), false)
+    assert.equal(await store.save(sheetId), 'discarded')
+    store.setWorksheetRename(sheetId, sheetId, undefined)
+    assert.equal(store.canSave(sheetId), true)
+  }
+  assert.deepEqual(writes, [])
+})
+
+test('pending worksheet names are shared transient state, block every pane save, and stay outside body history', async () => {
+  const { calls, store } = deferredWrites()
+  const opening: ArtifactEditDraft = { kind: 'structured', expectedRevision: 7, content: { type: 'workbook', sheets: [
+    { id: 'detail-id', name: 'Detail', columns: ['Amount'], rows: [['2']] },
+    { id: 'summary-id', name: 'Summary', columns: ['Total'], rows: [['=Detail!A1']] },
+  ] } }
+  store.start('artifact', opening)
+  const pending = { baseName: 'Detail', value: 'Details' }
+  store.setWorksheetRename('artifact', 'detail-id', pending)
+
+  assert.deepEqual(store.get('artifact')?.worksheetRenames?.['detail-id'], pending, 'the second pane reads the same stable-ID pending name')
+  assert.deepEqual(store.get('artifact')?.draft, opening, 'transient rename input never enters the authored body')
+  assert.equal(store.canSave('artifact'), false, 'every pane observes the shared save guard')
+  assert.equal(store.canUndo('artifact'), false, 'transient name typing is not body history')
+
+  const workbook = opening.content as Extract<EditableArtifactBody, { type: 'workbook' }>
+  const editedBody: EditableArtifactBody = { ...workbook, sheets: [
+    { id: 'detail-id', name: 'Detail', columns: ['Amount'], rows: [['3']] },
+    { id: 'summary-id', name: 'Summary', columns: ['Total'], rows: [['=Detail!A1']] },
+  ] }
+  store.update('artifact', { ...opening, content: editedBody })
+  assert.deepEqual(store.get('artifact')?.worksheetRenames?.['detail-id'], pending, 'ordinary edits in another pane preserve the pending rename')
+  assert.equal(store.canSave('artifact'), false)
+  assert.equal(await store.save('artifact'), 'discarded', 'a stale pane callback cannot bypass shared pending-name validity')
+  assert.equal(calls.length, 0, 'no body write starts until the rename is committed or cancelled')
+
+  store.setWorksheetRename('artifact', 'detail-id', undefined)
+  assert.equal(store.canSave('artifact'), true)
+  assert.equal(store.canUndo('artifact'), true, 'only the real body edit entered undo history')
+  store.undo('artifact')
+  assert.deepEqual(store.get('artifact')?.draft, opening, 'body Undo does not recreate a cleared transient name')
+  assert.equal(store.get('artifact')?.worksheetRenames, undefined)
+})
+
+test('changing a shared draft to a non-sheet format safely retires worksheet names', () => {
+  const { store } = deferredWrites()
+  const workbook: ArtifactEditDraft = { kind: 'structured', expectedRevision: 1, content: { type: 'workbook', sheets: [
+    { id: 'tab', name: 'Detail', columns: ['Amount'], rows: [['2']] },
+  ] } }
+  store.start('artifact', workbook)
+  store.setWorksheetRename('artifact', 'tab', { baseName: 'Detail', value: 'Details' })
+  assert.equal(store.canSave('artifact'), false)
+
+  store.update('artifact', { kind: 'structured', expectedRevision: 1, content: slides() })
+  assert.equal(store.get('artifact')?.worksheetRenames, undefined, 'a Slides body cannot retain sheet-only transient input')
+  assert.equal(store.canSave('artifact'), true)
 })
 
 test('cancel removes an editable draft, while update and cancel cannot change a held save', async () => {
