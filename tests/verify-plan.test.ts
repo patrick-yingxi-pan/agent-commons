@@ -46,7 +46,7 @@ test('coverage mismatch emits the E2E lane tail and exits nonzero', () => {
     mkdirSync(join(tmp, 'bin'))
     const runnerPath = join(tmp, 'scripts', 'verify.mjs')
     const runnerSource = readFileSync(join(ROOT, 'scripts', 'verify.mjs'), 'utf8')
-    for (const file of ['verify.mjs', 'verifyPlan.mjs', 'hostSpeed.mjs']) {
+    for (const file of ['verify.mjs', 'verifyPlan.mjs', 'hostSpeed.mjs', 'childProcessLifecycle.mjs']) {
       writeFileSync(join(tmp, 'scripts', file), file === 'verify.mjs' ? runnerSource : readFileSync(join(ROOT, 'scripts', file)))
     }
     writeFileSync(join(tmp, 'package.json'), JSON.stringify({ scripts: { test: 'node --test --test-concurrency=4 "tests/**/*.test.ts"' } }))

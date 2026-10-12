@@ -13,7 +13,46 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: actual native local-MCP consent acceptance
+## Current checkpoint: interrupted verification owns its cleanup
+
+The native local-MCP acceptance checkpoint landed as `06e80fcc`. During that
+checkpoint an interrupted verifier left four isolated test backends holding
+their ports, and the next run failed on address conflicts. The exact owned
+processes were identified and stopped before the final clean verifier passed.
+This is a demonstrated delivery defect, not a new product feature.
+
+The verifier now coordinates SIGINT/SIGTERM, stops queued steps, waits for
+owned-process cleanup and cannot report success or publish timing weights after
+interruption. Playwright lanes receive SIGINT so their own teardown runs. The
+dev launcher waits for actual child closure with bounded TERM-to-KILL escalation;
+the Playwright web-server configuration allows that cleanup to finish. POSIX
+group ownership includes surviving descendants, not just a departed leader.
+These guarantees cover controlled interruption, not an uncatchable SIGKILL of
+the supervisor or arbitrary daemons that detach themselves from its groups.
+Windows descendant-tree acceptance remains unproved.
+
+Disposable-process regressions reproduce early launcher/verifier exit and
+check actual port release. A real installed-Playwright fixture exercises the
+web-server teardown boundary without external services or the owner's store.
+The complete local verifier and post-test diff review remain the landing gate.
+
+The first full verifier found a fixture-only port-allocation race: the new
+Playwright lifecycle test probed and released an ephemeral port before starting
+its child, and concurrent traffic occupied it before bind. Fixtures now let the
+OS assign their ports at the actual server bind and read the resulting readiness
+records; no retry or timing budget was widened. Controlled SIGINT of that
+already-failed full verifier exercised all four real browser stacks: it exited
+130 and all twelve shard UI/API/model ports were immediately bindable, without
+manual orphan recovery. That interrupted attempt is not a passing gate; the
+corrected frozen tree still requires an uninterrupted complete local pass.
+
+The owner requested help enrolling for Developer ID as an individual/sole
+proprietor. Mainland China versus US enrollment details are still being
+clarified; no membership purchase, credential use or release publication is
+authorized by this checkpoint. Signing, native Intel and live update acceptance
+remain open while this local verification repair proceeds.
+
+## Previous checkpoint: actual native local-MCP consent acceptance
 
 On 2026-10-12 the owner unlocked the Mac and the unchanged unsigned-arm64
 package passed `npm run desktop:smoke:stdio -- --native-review`. Actual native

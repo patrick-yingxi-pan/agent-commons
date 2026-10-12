@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { observeChild, stopOwnedChildren } from './childProcessLifecycle.mjs'
 
 // Resolve Vite's CLI from wherever the package actually lives. In a git worktree
 // that shares the parent checkout's hoisted node_modules, a path hardcoded
@@ -27,7 +28,9 @@ const UI_PORT = process.env.PORT
 const MOCK_PORT = process.env.MOCK_PORT ?? (UI_PORT ? String(Number(UI_PORT) + 1) : '8787')
 
 function run(name, command, args, color, env) {
-  const p = spawn(command, args, { env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] })
+  const p = spawn(command, args, { env: { ...process.env, ...env },
+    detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] })
+  const owned = observeChild(p, { processGroup: true })
   const prefix = `\x1b[${color}m[${name}]\x1b[0m `
   const pipe = (stream, out) => {
     let buf = ''
@@ -40,24 +43,35 @@ function run(name, command, args, color, env) {
   }
   pipe(p.stdout, process.stdout)
   pipe(p.stderr, process.stderr)
-  p.on('exit', (code) => {
-    if (shuttingDown) return
-    process.stdout.write(prefix + `exited (${code}) — shutting the other process down\n`)
-    shutdown(code ?? 1)
+  p.on('error', error => {
+    process.stderr.write(prefix + `could not start: ${error.message}\n`)
+    shutdown(1)
   })
-  procs.push(p)
+  owned.outcome.then(({ code, signal, closed }) => {
+    if (shuttingDown) return
+    process.stdout.write(prefix + `closed (${signal ?? code}) — shutting the other process down\n`)
+    shutdown(closed ? code ?? 1 : 1)
+  })
+  procs.push(owned)
   return p
 }
 
-function shutdown(code) {
+async function shutdown(code) {
   if (shuttingDown) return
   shuttingDown = true
-  for (const p of procs) p.kill('SIGTERM')
-  setTimeout(() => process.exit(code), 200)
+  const result = await stopOwnedChildren(procs)
+  if (!result.complete || result.errors.length) {
+    process.stderr.write('Dev stack shutdown could not be confirmed cleanly.\n')
+  }
+  process.exitCode = result.complete && result.errors.length === 0 ? code : 1
 }
 
 process.on('SIGINT', () => shutdown(0))
 process.on('SIGTERM', () => shutdown(0))
+// A disappearing parent must not strand the backend just because log forwarding
+// encountered a closed pipe before its signal handler could finish.
+process.stdout.on('error', () => { void shutdown(1) })
+process.stderr.on('error', () => { void shutdown(1) })
 
 // 36 = cyan (backend), 35 = magenta (ui). Interactive development watches the
 // backend by default. Owned verification stacks are immutable for their whole

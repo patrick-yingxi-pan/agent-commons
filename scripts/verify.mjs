@@ -74,6 +74,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { e2ePartition, envCount, specFiles, specGroups, suiteConcurrency, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
 import { resolvedFactor, shardCount } from './hostSpeed.mjs'
+import { observeChild, stopOwnedChildren } from './childProcessLifecycle.mjs'
 
 /** The plan — which suites, which specs, how they split. Its own module so a
  *  node test can hold it: these decide the sweep's COVERAGE, and this file
@@ -155,38 +156,71 @@ if (lanes.length === 0) {
 }
 
 const started = Date.now()
+const activeChildren = new Map()
+let interrupted = 0
+let stopping = Promise.resolve()
+function interrupt(signal, code = signal === 'SIGINT' ? 130 : 143) {
+  if (interrupted) return
+  interrupted = code
+  process.stdout.write(`\nverify: interrupted (${signal}); waiting for owned steps to close\n`)
+  stopping = Promise.all([...activeChildren].map(([owned, browserLane]) =>
+    stopOwnedChildren([owned], {
+      // Playwright's test runner installs a SIGINT cleanup handler. SIGTERM
+      // would terminate it before its detached web servers are torn down.
+      signal: browserLane ? 'SIGINT' : signal,
+      graceMs: 35_000,
+    }),
+  )).then(results => {
+    if (results.some(result => !result.complete || result.errors.length)) {
+      process.stderr.write('verify: owned-step shutdown could not be confirmed cleanly\n')
+    }
+  })
+}
+process.on('SIGINT', () => interrupt('SIGINT'))
+process.on('SIGTERM', () => interrupt('SIGTERM'))
+// A closed log consumer must still initiate cleanup instead of throwing an
+// unhandled EPIPE and abandoning active lanes.
+process.stdout.on('error', () => interrupt('SIGTERM', 1))
+process.stderr.on('error', () => interrupt('SIGTERM', 1))
 /** One step. `shell: true` on win32: npm/npx are .cmd shims, which spawn cannot
  *  exec directly. Output is buffered and surfaced only on failure — four live
  *  streams interleaved are unreadable, and the tail is the part that says why. */
-const step = (st) =>
-  new Promise((resolve) => {
-    const child = spawn(st.cmd, st.args, {
-      shell: process.platform === 'win32',
-      env: { ...process.env, ...st.env },
-    })
-    let out = ''
-    const take = (d) => {
-      out += d
-      if (out.length > 400_000) out = out.slice(-200_000)
-    }
-    child.stdout.on('data', take)
-    child.stderr.on('data', take)
-    // A ChildProcess 'error' with no listener is RETHROWN by EventEmitter, so
-    // an unspawnable command (npx off PATH, EACCES, a missing win32 shim) would
-    // kill the runner with a bare stack trace and take the other lanes' results
-    // with it. It becomes a failed lane like any other.
-    child.on('error', (err) => {
-      take(`\nverify: could not run \`${st.cmd} ${st.args.slice(0, 3).join(' ')}…\` — ${err.message}\n`)
-      resolve({ code: 1, out })
-    })
-    child.on('close', (code) => resolve({ code: code ?? 1, out }))
+const step = async (st) => {
+  if (interrupted) return { code: interrupted, out: '' }
+  const child = spawn(st.cmd, st.args, {
+    shell: process.platform === 'win32',
+    detached: process.platform !== 'win32',
+    env: { ...process.env, ...st.env },
   })
+  const owned = observeChild(child, { processGroup: true })
+  activeChildren.set(owned, st.env?.E2E_SHARD !== undefined)
+  let out = ''
+  let spawnFailed = false
+  const take = (d) => {
+    out += d
+    if (out.length > 400_000) out = out.slice(-200_000)
+  }
+  child.stdout.on('data', take)
+  child.stderr.on('data', take)
+  // A ChildProcess 'error' with no listener is RETHROWN by EventEmitter, so
+  // an unspawnable command (npx off PATH, EACCES, a missing win32 shim) would
+  // kill the runner with a bare stack trace and take the other lanes' results
+  // with it. It becomes a failed lane like any other.
+  child.on('error', (err) => {
+    spawnFailed = true
+    take(`\nverify: could not run \`${st.cmd} ${st.args.slice(0, 3).join(' ')}…\` — ${err.message}\n`)
+  })
+  const result = await owned.outcome
+  activeChildren.delete(owned)
+  return { code: interrupted || (spawnFailed || !result.closed ? 1 : result.code ?? 1), out }
+}
 
 const runLane = async (lane) => {
   const t = Date.now()
   let out = ''
   let code = 0
   for (const st of lane.steps) {
+    if (interrupted) { code = interrupted; break }
     const r = await step(st)
     out += r.out
     // Stop the lane at its first failure: the steps after it would report
@@ -207,6 +241,7 @@ process.stdout.write(
   `verify — ${lanes.length} lanes in parallel (${E2E_GROUPS.length} e2e shard${E2E_GROUPS.length === 1 ? '' : 's'}${partitionNote})\n`,
 )
 const results = await Promise.all(lanes.map(runLane))
+await stopping
 const failed = results.filter((r) => r.code !== 0)
 
 for (const f of failed) {
@@ -257,7 +292,7 @@ function e2eCoverage(rs) {
  *  Best-effort by construction. The cache is an optimisation; a sweep that
  *  passed must not be reported as failed because a directory was read-only. */
 function recordWeights(rs) {
-  if (failed.length > 0 || ONLY.length > 0) return
+  if (interrupted || failed.length > 0 || ONLY.length > 0) return
   const e2eLanes = rs.filter((r) => r.name.startsWith('e2e'))
   if (e2eLanes.length !== SHARDS) return
   const durations = {}
@@ -284,11 +319,10 @@ function recordWeights(rs) {
     writeFileSync(WEIGHTS_FILE, `${JSON.stringify(weights, null, 2)}\n`)
   } catch {}
 }
-recordWeights(results)
-
 const wall = ((Date.now() - started) / 1000).toFixed(1)
 const serial = (results.reduce((s, r) => s + r.ms, 0) / 1000).toFixed(1)
-const coverage = failed.length === 0 ? e2eCoverage(results) : { note: '', shortfall: null }
+const coverage = !interrupted && failed.length === 0 ? e2eCoverage(results) : { note: '', shortfall: null }
+if (!coverage.shortfall) recordWeights(results)
 if (coverage.shortfall) {
   process.stdout.write(`\ncoverage mismatch diagnostics (${coverage.shortfall}):\n`)
   for (const lane of results.filter((r) => r.name.startsWith('e2e'))) {
@@ -301,6 +335,7 @@ process.stdout.write(
   // would follow it with "all 0 lanes green" — the exact sentence that guard
   // exists to prevent anyone reading.
   results.length === 0 ? ''
+  : interrupted ? `\nverification interrupted — no passing revision (${wall}s)\n`
   : failed.length > 0 ? `\n${failed.length} of ${results.length} lanes FAILED — ${wall}s\n`
   : coverage.shortfall ?
     `\nlanes green but the shards ran ${coverage.shortfall} e2e tests — a spec went unrun\n`
@@ -311,3 +346,4 @@ process.stdout.write(
 // failing run is the forty-line tail that says what broke. Piping the sweep
 // into `tee` or a CI log is the normal case, not the exotic one.
 if (failed.length > 0 || coverage.shortfall) process.exitCode = 1
+if (interrupted) process.exitCode = interrupted

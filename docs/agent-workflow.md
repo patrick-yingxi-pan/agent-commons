@@ -18,6 +18,14 @@ procedure so the always-loaded map stays small.
 - Run `npm run ui:sweep` separately from the full verifier: its isolated
   5193/5194 stack overlaps the verifier's second browser shard. Never enable
   server reuse to mask this collision; wait for the first command to finish.
+- Interrupt a verifier with SIGINT/SIGTERM and wait for its shutdown result
+  before starting another run. Cancellation is a failed verification, even if
+  a child exits cleanly; it never publishes success weights. On POSIX, the
+  verifier and dev launcher signal only process groups they spawned and confirm
+  closure with bounded escalation. Playwright gets SIGINT for its cleanup path
+  and gives its web-server launcher a TERM grace period. SIGKILL of a supervisor
+  cannot run cleanup; if ports remain occupied, identify exact test-owned PIDs
+  before recovery, never kill unrelated servers or enable server reuse.
 - Keep the whole tree unchanged during browser acceptance, including tests,
   scripts and documentation. Vite can reload after watched-file changes outside
   the product modules; a code-only freeze is insufficient. Apply review findings

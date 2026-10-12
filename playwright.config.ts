@@ -95,6 +95,10 @@ export default defineConfig({
     // store). The dedicated ports make the fresh boot conflict-free.
     reuseExistingServer: false,
     timeout: budget(120_000, HOST_FACTOR, SHARD_TOTAL),
+    // dev.mjs drains owned child groups for up to 8s (6s grace + 2s confirm).
+    // Keep Playwright's wrapper alive long enough for that handler to finish;
+    // its default process-group SIGKILL would bypass the cleanup protocol.
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 10_000 },
     env: {
       PORT: String(UI_PORT),
       DATA_FILE: STORE,
