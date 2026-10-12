@@ -146,6 +146,13 @@ and no Agent completion credit is awarded. Commission, Agent, provider and
 account budget gates apply; these token checks do not reserve a monetary ceiling.
 Unattended commissioned effects remain development-only fixtures.
 
+Open MCP mutation work also offers **Start contribution**. This links the exact
+item without reserving it. Select and approve the effect, then separately confirm
+its Run; the Project owner can **Land and resolve work** only after a matching
+successful saved result under the current plan. Pending or uncertain effects
+keep work unresolved. The resolution names its Contribution and accepting owner,
+never awards Agent credit, and survives restart with the ordinary landing receipt.
+
 ## Run it
 
 Requires **Node 26+**.

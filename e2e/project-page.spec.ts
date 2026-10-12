@@ -537,7 +537,8 @@ test('composite resources preserve parent → section → resource in the rail a
   await page.goto('/projects/p-infra/open-work')
   await expect(page).toHaveURL(/\/projects\/p-infra\/open-work$/)
   await expect(header(page, 'Open work')).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByText('This project isn’t a guarded resource, so it has no coordinated backlog.')).toBeVisible()
+  await expect(page.getByRole('note').filter({ hasText: 'Posting and reading the backlog does not claim an item or require Guardian coordination.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Post a work item', exact: true })).toBeVisible()
 
   await ada.context.close()
 })

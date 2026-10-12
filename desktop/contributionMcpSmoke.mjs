@@ -47,6 +47,15 @@ function storedContribution(profile, id) {
   } finally { database.close() }
 }
 
+function storedOpenWork(profile, id) {
+  const database = new DatabaseSync(join(profile, 'store.db'), { readOnly: true })
+  try {
+    const row = database.prepare('SELECT json FROM entities WHERE slice = ? AND entity_id = ?').get('openSubGoals', id)
+    assert.ok(row, 'the exact Open Work item exists in the actual SQLite store')
+    return JSON.parse(row.json)
+  } finally { database.close() }
+}
+
 function assertPublic(value, privateValues) {
   const text = JSON.stringify(value)
   assert.ok(privateValues.every(secret => !text.includes(secret)), 'Project-visible history must not reveal private connection authority')
@@ -355,12 +364,83 @@ export async function smokePackagedContributionMcp({ executable = packagedExecut
     assert.deepEqual(portable.contributions.find(row => row.id === contribution.id).effectAttempts, final.effectAttempts)
     await page.locator('[data-contribution-effect-status="done"]').last().scrollIntoViewIfNeeded()
     await page.screenshot({ path: join(evidenceDirectory, 'cardinality-exhausted.png') })
+
+    stage = 'linked-project-work-run-and-resolution'
+    const linkedWork = await request(page, `/projects/${project.id}/open-subgoals`, {
+      subGoal: `Native linked MCP work ${randomUUID()}`,
+      type: 'mcp.mutate',
+      target: 'write_record',
+    })
+    assert.equal(linkedWork.status, 'open')
+    assert.equal(storedOpenWork(profile, linkedWork.id).status, 'open')
+    const linkedContribution = await request(page, `/projects/${project.id}/contributions`, {
+      title: `Resolve ${linkedWork.subGoal}`,
+      summary: 'Run the exact approved mutation and land it to resolve this work item.',
+      subGoal: linkedWork.subGoal,
+      workItemId: linkedWork.id,
+    })
+    assert.equal(linkedContribution.workItemId, linkedWork.id)
+    const linkedRoute = `/projects/${project.id}/changes/${linkedContribution.id}`
+    const linkedSaved = () => storedContribution(profile, linkedContribution.id)
+    await page.goto(`${origin}${linkedRoute}`)
+    await page.getByRole('button', { name: 'Declare effects', exact: true }).click()
+    await page.getByLabel('Effect type 1', { exact: true }).selectOption('mcp.mutate')
+    await page.getByLabel('MCP tool 1', { exact: true }).selectOption({ label: 'Native exact-call fixture · write_record' })
+    const linkedArguments = { text: `Exact linked work ${linkedWork.id}` }
+    await page.getByLabel('MCP arguments 1', { exact: true }).fill(JSON.stringify(linkedArguments))
+    await page.getByLabel('Max acts 1', { exact: true }).fill('1')
+    await page.getByRole('button', { name: 'Propose v1', exact: true }).click()
+    await page.getByRole('button', { name: 'Approve', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Review & run', exact: true })).toBeVisible()
+    assert.equal(peer.calls.length, 3, 'the linked work post and approved envelope do not execute the MCP tool')
+    await confirmOneCall(page)
+    await expect(page.locator('[data-contribution-effect-status="done"]')).toBeVisible({ timeout: TIMEOUT_MS })
+    assert.deepEqual(peer.calls.at(-1), { name: 'write_record', arguments: linkedArguments })
+    const readyItem = (await request(page, `/projects/${project.id}/open-subgoals`)).find(row => row.id === linkedWork.id)
+    assert.equal(readyItem.status, 'open', 'a successful MCP result is evidence, not implicit resolution')
+    assert.equal(storedOpenWork(profile, linkedWork.id).status, 'open', 'the real SQLite row remains open before Land')
+    assert.equal(linkedSaved().status, 'open', 'the saved Contribution remains open before the separate landing act')
+
+    await page.getByRole('button', { name: 'Land and resolve work', exact: true }).click()
+    await expect(page.locator('[data-linked-work-item-resolution]')).toHaveText('This Contribution landed and resolved the linked work item.', { timeout: TIMEOUT_MS })
+    const resolved = (await request(page, `/projects/${project.id}/open-subgoals`)).find(row => row.id === linkedWork.id)
+    const savedResolved = storedOpenWork(profile, linkedWork.id)
+    assert.equal(resolved.status, 'done')
+    assert.equal(savedResolved.status, 'done', 'the owner resolution is durable in the actual SQLite store')
+    assert.deepEqual(resolved.contributionResolution, savedResolved.contributionResolution)
+    assert.equal(resolved.contributionResolution.contributionId, linkedContribution.id)
+    assert.equal(resolved.contributionResolution.effectId, linkedSaved().effectAttempts[0].id)
+    assert.equal(typeof resolved.contributionResolution.by, 'string')
+    assert.equal(resolved.resolvedBy, undefined, 'human Contribution resolution never claims Commission credit')
+    assert.equal(savedResolved.resolvedBy, undefined, 'SQLite keeps the Commission resolver field absent')
+    assert.equal(savedResolved.resolvedByLabel, undefined)
+    assert.equal(savedResolved.resolvedByOwner, undefined)
+    assert.equal(linkedSaved().status, 'landed')
+    assert.equal(linkedSaved().workItemResolution, undefined, 'readiness is a live projection, never stored')
+    const publicLinked = (await request(page, `/projects/${project.id}/contributions`)).find(row => row.id === linkedContribution.id)
+    assert.equal(publicLinked.workItemResolution, 'closed')
+    assert.equal(peer.calls.length, 4, 'landing itself makes no second external call')
+    await page.screenshot({ path: join(evidenceDirectory, 'linked-work-resolved.png') })
+
+    stage = 'linked-project-work-relaunch'
+    await closePackagedDesktop(run)
+    run = undefined
+    run = await launchPackagedDesktop(fixturePackage.executable, profile)
+    ;({ page, origin } = run)
+    assert.equal((await request(page, '/me')).user.id, owner.user.id, 'the linked resolution survives a complete signed-in relaunch')
+    await page.goto(`${origin}${linkedRoute}`)
+    await expect(page.locator('[data-linked-work-item-resolution]')).toHaveText('This Contribution landed and resolved the linked work item.', { timeout: TIMEOUT_MS })
+    assert.equal((await request(page, `/projects/${project.id}/open-subgoals`)).find(row => row.id === linkedWork.id).status, 'done')
+    assert.equal(storedOpenWork(profile, linkedWork.id).status, 'done')
+    assert.equal(peer.calls.length, 4, 'relaunch and rendered review never replay a completed linked effect')
+
     await writeFile(join(evidenceDirectory, 'evidence.json'), `${JSON.stringify({
       checkedAt: new Date().toISOString(), sourceAsarSha256: fixturePackage.sourceAsarSha256,
       fixtureAsarSha256: fixturePackage.fixtureAsarSha256, toolCalls: peer.calls.length,
       statuses: final.effectAttempts.map(row => row.status), originalPackagePublicOnly: true,
       realOsVaultAndAuthentication: true, exactRetryWithoutReplay: true,
       sharedReceiptWithoutConnectionAuthority: true, durableBackup: true,
+      linkedProjectWorkResolvedBySeparateOwnerLanding: true, linkedResolutionSurvivesRelaunch: true,
       scope: 'Disposable unsigned macOS package copy: only startup allowLoopback changed for a local HTTP peer. Not production TLS/public-service, signed/notarized or Intel acceptance.',
     }, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
     console.log(`[desktop-contribution-mcp-smoke] exact consent · OS vault · owner/reader/foreign · SQLite · real interrupted call · signed-in relaunch without replay · backup · evidence ${evidenceDirectory}`)

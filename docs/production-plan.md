@@ -13,7 +13,43 @@ public-service calls, release publication, real credential use or destructive
 actions on the owner's data. Local verification, review and direct main delivery
 remain mandatory; GitHub CI is not a dependency.
 
-## Current checkpoint: private Project-work response drafts
+## Current checkpoint: reviewed Project-work resolution
+
+Autonomous direction (2026-10-11): connect an exact open MCP work item to the
+existing Contribution workflow. **Start contribution** creates an immutable
+item link, not an exclusive claim or execution permission. The server derives
+its sub-goal from the item. Multiple contributors may propose work; only one
+successful resolution closes the item.
+
+For this bounded first release path, the item must request `mcp.mutate` and its
+target must name the exact MCP tool. Existing connection selection, envelope
+approval and separately confirmed Run remain required. The Project owner may
+**Land and resolve work** only after a matching successful saved receipt under
+the current approved envelope. Pending, uncertain and returned-error attempts
+prevent completion; model prose and fixture effects never count as evidence.
+Landing and resolution persist atomically with one existing keyed landing
+receipt. Attribution names the accepting owner and Contribution, not an Agent
+or Commission; no Agent credit is awarded. Closed items cannot start another
+linked call. Unattended Commission effects and proxies remain MOCK-9 gaps.
+
+Acceptance must cover exact-link/owner walls, interrupted or refused execution,
+changed envelope and closed-item races, lost acknowledgement and JSON/SQLite
+restart, owner/visitor rendered controls and five viewport tiers. Preserve the
+owner's live store; use isolated generated profiles. Full local verification,
+UI review and post-test diff review remain required before committing to main.
+
+The bundle gate exposed a shared count formatter importing the whole navigation
+pane into the lazy Changes panel. Keep that pure formatter independently chunked,
+with the existing graph budgets unchanged. The Changes form stays in one persistent
+panel so switching actions does not discard its text. Admission also rejects a
+linked persisted Contribution missing the event history its reader requires.
+The complete design locks keep linked Contributions in the shared frameless
+ledger and now scan both the canonical section component and its local alias.
+Browser navigation acceptance waits for the actual lazy Changes section before
+clicking a later row; a retained first-failure trace exposed its loading layout
+being replaced during the click. No retries or timing budgets were relaxed.
+
+## Previous checkpoint: private Project-work response drafts
 
 Autonomous direction (2026-10-11): complete an explicit **Draft a response →
 review → post comment** workflow before expanding unattended Project execution.

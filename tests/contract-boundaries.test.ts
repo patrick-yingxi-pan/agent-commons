@@ -16,6 +16,18 @@ import { join } from 'node:path'
 import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
+test('Project-work completion is a pure receipt projection separate from execution and credit', () => {
+  const check = (source: string) => {
+    assert.match(source, /contract\/contributions\.ts/)
+    assert.match(source, /contract\/directory\.ts/)
+    assert.doesNotMatch(source, /\b(?:fetch|executeBoundMcpCall|recordContribution|commitMutationBatch|persist)\s*\(/,
+      'work readiness grants neither execution, persistence nor Agent credit')
+  }
+  const source = stripComments(read(join(ROOT, 'server/projectWorkResolution.ts')))
+  check(source)
+  assert.throws(() => check(`${source}\nrecordContribution('commission')`), /neither execution/)
+})
+
 // ── The built UI survives a canonical deep link ─────────────────────────────
 test('form-elicitation execution is confined to the private person-consent workflow', () => {
   const allowed = new Set(['server/mcpToolCall.ts', 'server/mcpSession.ts', 'server/mcpFormToolSession.ts', 'server/mcpStdioClient.ts',

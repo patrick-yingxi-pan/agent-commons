@@ -19,6 +19,8 @@ import { automationRuntimeMode, requireAutomationFixture } from '../automationRu
 import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput } from '../../contract/dispatchExecution.ts'
 import { parseProjectWorkDraftInput, type ProjectWorkDraftInput, type ProjectWorkDraftSource } from '../../contract/projectWorkDraft.ts'
 import { projectWorkDraftPrompt } from '../projectWorkDraft.ts'
+import { computeProjectWorkResolution } from '../projectWorkResolution.ts'
+import { isLinkableProjectWorkItem } from '../projectWorkPersistence.ts'
 import { dispatchSessionId } from '../dispatchIdentity.ts'
 import { normalizedEnvelopeProposalLines, envelopeProposalLinesMatch, prepareContributionMcpLines, currentContributionMcpLine, type StoredContributionEnvelopeLine } from '../contributionEnvelope.ts'
 import { createContributionEffectAttempt, settleContributionEffectAttempt, interruptContributionEffectAttempt, publicContributionEffectRun, contributionEffectConsumesSlot, CONTRIBUTION_EFFECT_ATTEMPT_MAX } from '../contributionEffectState.ts'
@@ -1492,12 +1494,16 @@ function publicContribution(c: StoredContribution, viewerTenant?: string, viewer
   const { contributorTenant, contributorPrincipal, landingId, landedByTenant, events, reviewedVersion, reviewAttempts, judgmentAttempts, effectAttempts, envelope, ...pub } = c
   const effectiveReview = c.status === 'open' || reviewAttempts?.length ? contributionReviewVersion(c) : reviewedVersion
   const pendingEffect = effectAttempts?.some((run) => run.status === 'pending')
+  const linkedWork = c.workItemId === undefined ? undefined :
+    openSubGoals.find((item) => item.id === c.workItemId && item.projectId === c.projectId)
+  const workOpen = c.workItemId === undefined || linkedWork?.status === 'open'
   return {
     ...pub,
+    ...(c.workItemId === undefined ? {} : { workItemResolution: computeProjectWorkResolution(linkedWork, c).status }),
     ...(envelope ? { envelope: { ...envelope, lines: envelope.lines.map(({ mcpAuthority: _authority, mcp, ...line }) => ({
       ...line,
       ...(mcp ? { mcp: { connectionLabel: mcp.connectionLabel, toolName: mcp.toolName, arguments: structuredClone(mcp.arguments),
-        ...(viewerTenant && c.status === 'open' && !pendingEffect && envelope.status === 'approved' && envelope.approvedVersion === envelope.version &&
+        ...(viewerTenant && c.status === 'open' && workOpen && !pendingEffect && envelope.status === 'approved' && envelope.approvedVersion === envelope.version &&
           line.used < line.cardinality && (effectAttempts?.length ?? 0) < CONTRIBUTION_EFFECT_ATTEMPT_MAX &&
           contributionEffectActor(c, viewerTenant) && currentContributionMcpLine(store, viewerTenant,
             { ...line, mcp, mcpAuthority: _authority }, activeMcpActor(viewerTenant, viewerUserId))
@@ -9572,6 +9578,9 @@ export const store = {
         workItemId: item.id,
       })
       emit({ type: 'openwork.changed', projectId })
+      if (contributions.some((entry) => entry.projectId === projectId && entry.workItemId === itemId)) {
+        emit({ type: 'contribution.changed', projectId })
+      }
       persist()
       return publicOpenSubGoal(item, tenantId)
     })
@@ -10854,13 +10863,25 @@ export const store = {
     tenantId: string,
     principal: PrincipalRef | undefined,
     options: { logicalId?: string } = {},
-  ): Contribution | 'capped' | 'invalid' {
+  ): Contribution | 'capped' | 'invalid' | 'invalid-work' | 'closed-work' {
     if (options.logicalId) {
       const represented = contributions.find((contribution) => contribution.id === options.logicalId)
       if (represented) {
         if (represented.projectId !== projectId || represented.contributorTenant !== tenantId) return 'invalid'
         return publicContribution(represented, tenantId)
       }
+    }
+    // The link is exact immutable identity, never a free-text claim or a source
+    // of authority. Derive its sub-goal from current same-Project work.
+    let linkedWork: StoredOpenSubGoal | undefined
+    if (req.workItemId !== undefined) {
+      if (typeof req.workItemId !== 'string' || !req.workItemId || req.workItemId.length > 200 ||
+          req.workItemId.trim() !== req.workItemId || /[\u0000-\u001f\u007f-\u009f]/.test(req.workItemId) ||
+          !this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return 'invalid-work'
+      linkedWork = openSubGoals.find((item) => item.id === req.workItemId && item.projectId === projectId)
+      if (!isLinkableProjectWorkItem(linkedWork) ||
+          (req.subGoal !== undefined && (typeof req.subGoal !== 'string' || req.subGoal.trim() !== linkedWork.subGoal))) return 'invalid-work'
+      if (linkedWork.status !== 'open') return 'closed-work'
     }
     const rows = contributions.filter((c) => c.projectId === projectId)
     if (rows.length >= MAX_CONTRIBUTIONS_PER_PROJECT || rows.filter((c) => c.status === 'open').length >= MAX_OPEN_CONTRIBUTIONS_PER_PROJECT) {
@@ -10883,7 +10904,8 @@ export const store = {
         projectId,
         title: req.title.slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
         summary: (req.summary ?? '').slice(0, MAX_CONTRIBUTION_FIELD_CHARS),
-        ...(req.subGoal?.trim() ? { subGoal: req.subGoal.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
+        ...(linkedWork ? { workItemId: linkedWork.id, subGoal: linkedWork.subGoal } :
+          req.subGoal?.trim() ? { subGoal: req.subGoal.trim().slice(0, MAX_CONTRIBUTION_FIELD_CHARS) } : {}),
         ...(sessionOk ? { sessionId: req.sessionId } : {}),
         contributor: actor,
         contributorTenant: tenantId,
@@ -10995,7 +11017,7 @@ export const store = {
     tenantId: string,
     principal: PrincipalRef | undefined,
     options: { eventActor?: string; logicalId?: string } = {},
-  ): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | 'pending-effect' | undefined {
+  ): Contribution | 'forbidden' | 'closed' | 'needs-owner' | 'needs-review' | 'pending-effect' | 'closed-work' | 'needs-work-result' | undefined {
     if (options.logicalId) {
       const represented = this.getContributionLanding(options.logicalId, projectId, cid, tenantId)
       if (typeof represented === 'object') return represented
@@ -11010,7 +11032,19 @@ export const store = {
     const isContributor = c.contributorTenant !== undefined && c.contributorTenant === tenantId
     if (!isContributor && !ownerActs) return 'forbidden'
     if (c.status !== 'open') return 'closed'
+    if (c.workItemId !== undefined && (!ownerActs || principal?.kind !== 'user' || options.eventActor !== undefined)) return 'needs-owner'
     if (c.effectAttempts?.some((run) => run.status === 'pending')) return 'pending-effect'
+    let resolvedWork: { item: StoredOpenSubGoal; effectId: string } | undefined
+    if (c.workItemId !== undefined) {
+      // A linked landing is the owner's explicit acceptance, not an Agent
+      // judgment or automatic tier promotion. It spends no Commission credit.
+      if (!this.grantSubjectVisible({ kind: 'project', id: projectId }, tenantId)) return 'forbidden'
+      const item = openSubGoals.find((entry) => entry.id === c.workItemId && entry.projectId === projectId)
+      const resolution = computeProjectWorkResolution(item, c)
+      if (!item || resolution.status === 'closed') return 'closed-work'
+      if (resolution.status !== 'ready') return 'needs-work-result'
+      resolvedWork = { item, effectId: resolution.effectId }
+    }
     // CW5 — the tier gates the CONTRIBUTOR's self-land; the owner may always
     // land (the human authority the tiers exist to spend wisely, not to bind).
     if (!ownerActs) {
@@ -11037,6 +11071,17 @@ export const store = {
       if (options.logicalId) c.landingId = options.logicalId
       // `eventActor` — the CW8 dual stamp, same rationale as approveEnvelope's.
       c.events.push({ id: `cev-${(contributionSeq += 1)}`, kind: 'landed', at: now, actor: options.eventActor ?? c.landedBy, ...(principal ? { principal } : {}) })
+      if (resolvedWork) {
+        const { item, effectId } = resolvedWork
+        item.status = 'done'
+        item.resolvedAt = now
+        item.contributionResolution = { contributionId: c.id, effectId, by: c.landedBy }
+        notifyTenants(workItemAudience(item), tenantId, {
+          kind: 'work.resolved', actor: c.landedBy, projectId,
+          projectName: findProject(projectId)?.name ?? '', subGoal: item.subGoal, workItemId: item.id,
+        })
+        emit({ type: 'openwork.changed', projectId })
+      }
       emit({ type: 'contribution.changed', projectId })
       persist()
       return publicContribution(c, tenantId)
@@ -12215,6 +12260,9 @@ export const store = {
       entry.effectAttempts?.some((run) => run.id === logicalId) || entry.reviewAttempts?.some((run) => run.id === logicalId) ||
       entry.judgmentAttempts?.some((run) => run.id === logicalId))) return 'conflict'
     if (!contributionEffectActor(c, tenantId)) return 'forbidden'
+    const workOpen = () => c.workItemId === undefined || openSubGoals.some((item) =>
+      item.id === c.workItemId && item.projectId === projectId && item.status === 'open')
+    if (!workOpen()) return 'conflict'
     const envelope = c.envelope
     const line = envelope?.lines.find((entry) => entry.id === lineId)
     if (c.status !== 'open' || !envelope || envelope.status !== 'approved' || envelope.version !== expectedVersion ||
@@ -12242,7 +12290,7 @@ export const store = {
       try {
         outcome = await executeBoundMcpCall(this, tenantId, run.call, () =>
           activeContributionEffects.get(logicalId) === fence && contributions.includes(c) &&
-          contributionEffectActor(c, tenantId) && c.status === 'open' && c.envelope === envelope &&
+          contributionEffectActor(c, tenantId) && workOpen() && c.status === 'open' && c.envelope === envelope &&
           envelope.status === 'approved' && envelope.approvedVersion === expectedVersion &&
           c.effectAttempts?.includes(run) === true && run.status === 'pending' &&
           currentContributionMcpLine(this, tenantId, line, activeMcpActor(tenantId, actorUserId)), actorUserId)

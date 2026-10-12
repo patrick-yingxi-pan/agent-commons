@@ -28,3 +28,22 @@ test('local Contribution MCP acceptance cannot ship its loopback fixture or wide
   const release = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8')
   assert.equal(release.includes('contributionMcpSmoke'), false, 'signed candidate acceptance never substitutes a modified fixture copy')
 })
+
+test('packaged MCP smoke lands a linked Contribution and preserves owner-resolved work through relaunch', () => {
+  const smoke = readFileSync(new URL('./contributionMcpSmoke.mjs', import.meta.url), 'utf8')
+  for (const evidence of [
+    "stage = 'linked-project-work-run-and-resolution'",
+    "type: 'mcp.mutate',",
+    "target: 'write_record',",
+    'workItemId: linkedWork.id',
+    "getByRole('button', { name: 'Land and resolve work', exact: true })",
+    'storedOpenWork(profile, linkedWork.id)',
+    "status, 'done'",
+    'contributionResolution.contributionId',
+    'resolvedBy, undefined',
+    "stage = 'linked-project-work-relaunch'",
+    "peer.calls.length, 4",
+  ]) assert.ok(smoke.includes(evidence), `linked work native smoke proves ${evidence}`)
+  assert.match(smoke, /linkedWork.*status, 'open'[\s\S]*?linkedWork.*status, 'done'/,
+    'the actual work item remains open after the result and closes only on the rendered landing act')
+})

@@ -61,7 +61,8 @@ const fn = (name: string): string =>
     ? resourcePageComponent(templateName[name as keyof typeof templateName])
     : sectionViewComponent(name))
 
-/** Every `<FoldSection …>` opening tag's prop text.
+/** Every section opening tag's prop text, including the canonical name used
+ * by extracted panels as well as SectionView's local FoldSection alias.
  *
  *  Scanned with a brace counter rather than a regex to the first `>`, because
  *  the first `>` is routinely INSIDE a prop — `actions={<SectionAction … />}` —
@@ -70,7 +71,8 @@ const fn = (name: string): string =>
  *  used to be `icon={<Globe size={14} />}`, which is gone; the hazard is not.) */
 function foldSectionTags(): string[] {
   const out: string[] = []
-  for (let i = foldCode.indexOf('<FoldSection'); i >= 0; i = foldCode.indexOf('<FoldSection', i + 1)) {
+  for (const match of foldCode.matchAll(/<(?:FoldSection|ResourcePageSection)\b/g)) {
+    const i = match.index
     let depth = 0
     for (let j = i; j < foldCode.length; j++) {
       const c = foldCode[j]

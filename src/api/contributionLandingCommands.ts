@@ -38,6 +38,7 @@ function acceptLanding(intent: ContributionLandingIntent, contribution: Contribu
     })
   }
   invalidate(keys.contributions(intent.projectId))
+  invalidate(keys.openSubGoals(intent.projectId))
   invalidate(keys.attention(intent.projectId))
 }
 

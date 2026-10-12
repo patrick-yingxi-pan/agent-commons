@@ -4,11 +4,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 function changesPanel(): string {
-  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
-  const start = view.indexOf('function ChangesPanel')
-  const end = view.indexOf('function ContributionPage', start)
-  assert.ok(start >= 0 && end > start)
-  return view.slice(start, end)
+  return stripComments(read(join(ROOT, 'src', 'components', 'ChangesPanel.tsx')))
 }
 
 test('Offer a change holds one exact Proposal until server truth', () => {

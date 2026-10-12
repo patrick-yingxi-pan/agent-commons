@@ -140,6 +140,10 @@ test("browser Back walks the pane's OWN history per page (the pop arm keeps the 
   // list → detail → session: three history entries in one pane.
   await page.getByText('Platform hardening').first().click()
   await expect(page).toHaveURL(/\/projects\/p-infra$/)
+  // The Changes panel is lazy-loaded and its fallback has no reserved height.
+  // Wait for the actual section before scrolling to Recent sessions so the
+  // fallback-to-panel replacement cannot move the session door mid-click.
+  await expect(page.locator('[data-main-pane] [data-resource-page-section][data-resource-section="Changes"]')).toBeVisible()
   await page.locator('[data-main-pane]').getByRole('button', { name: /^Refactor auth middleware/ }).click()
   await expect(page.locator('[data-conversation-pane="auth-refactor"]')).toBeVisible()
   await clearAutoPanel(page)

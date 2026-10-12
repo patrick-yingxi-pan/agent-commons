@@ -22,7 +22,7 @@ test('Contribution landing is one shell-owned durable act on its substantive rev
   assert.match(view, /const lifecycleHeld = landingHeld \|\| effectExecutionHeld/)
   assert.match(view, /ChangesetCard project=\{project\} c=\{c\} lifecycleHeld=\{contributionActionHeld\}/)
   assert.match(view, /<DeferredContributionEnvelopeCard[\s\S]*lifecycleHeld=\{contributionActionHeld\}/)
-  assert.match(view, /landingHeld \? 'Landing…' : 'Land'/)
+  assert.match(view, /landingHeld \? 'Landing…' : linkedWorkItem \? 'Land and resolve work' : 'Land'/)
   assert.doesNotMatch(view, /confirmLabel=["'{]Land/,
     'the canonical page already presents the changeset, envelope, tier, and exact next ledger position')
   assert.match(facade, /const existing = heldLandings\.get\(key\)[\s\S]*if \(existing\) return existing\.result/)

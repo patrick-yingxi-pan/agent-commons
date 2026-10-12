@@ -100,9 +100,11 @@ export interface OpenSubGoal {
   /** The posting principal's KIND (FWD-5 Phase 1) — see `WorkItemComment.authorKind`. */
   postedByKind?: PrincipalKind
   postedAt: number
-  /** `open` = awaiting a taker; `done` = a Contributor fired the effect;
-   *  `retracted` = closed unresolved by its poster or the Project owner (D23 —
-   *  open items only: a `done` item is immutable history, credit already accrued).
+  /** `open` = awaiting a taker; `done` = completed through Commission dispatch,
+   *  or resolved by the Project owner landing a linked Contribution after its
+   *  exact successful MCP result; `retracted` = closed unresolved by its poster
+   *  or the Project owner (D23 — open items only: a `done` item is immutable
+   *  history, and the human landing is not Commission credit).
    *  Native retraction is a keyed desired-state act; the durable operation anchor
    *  stays server-private while this lifecycle is its authoritative wire result. */
   status: 'open' | 'done' | 'retracted'
@@ -122,18 +124,22 @@ export interface OpenSubGoal {
    *  when the A2A call carried a valid peer credential; `postedBy` then equals it).
    *  A verification stamp, still never an authority distinction. */
   verifiedPeer?: string
-  /** The Commission that resolved it (D19 standing dispatch, or a later manual
-   *  path) + its Agent's display label — the public credit line. The resolving
-   *  principal needs no separate stamp (FWD-5): a resolution is definitionally an
-   *  AGENT act, and this field already records the GRANT it acted under — the
-   *  full attribution chain (who / under what authority / on whose thing). */
+  /** Commission/Agent attribution for Commission-resolved items (D19 standing
+   *  dispatch or legacy manual path) — never the identity or credit for a human
+   *  Contribution landing. Human owner resolution is recorded separately in
+   *  `contributionResolution` and leaves these Commission fields absent. */
   resolvedBy?: string
   resolvedByLabel?: string
-  /** The resolving Agent's OWNER namespace display name (FWD-5 Phase 3) —
+  /** For Commission-resolved items, the resolving Agent's OWNER namespace
+   *  display name (FWD-5 Phase 3) —
    *  captured at resolution time like `resolvedByLabel` (the act's record, not a
    *  live lookup that a later commission delete would erase). Completes the
    *  attribution chain's owner leg on the wire; absent on pre-Phase-3 rows. */
   resolvedByOwner?: string
+  /** Human owner explicitly linked a Contribution to its exact successful MCP
+   *  result. This is distinct from Commission resolution/credit: `by` is the
+   *  public display name of the owner who landed it. */
+  contributionResolution?: { contributionId: string; effectId: string; by: string }
   resolvedAt?: number
 }
 

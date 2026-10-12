@@ -21,6 +21,7 @@ function refreshRetractionFaces(projectId: string, item?: OpenSubGoal): void {
     )
   }
   invalidate(keys.openSubGoals(projectId))
+  invalidate(keys.contributions(projectId))
   invalidatePrefix(keys.directoryProjects())
   invalidatePrefix(keys.ownerProfile())
   invalidatePrefix(keys.search())

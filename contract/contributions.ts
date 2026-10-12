@@ -251,6 +251,13 @@ export interface Contribution {
   judgments?: DelegatedJudgmentRun[]
   id: string
   projectId: string
+  /** Optional exact Project backlog item this Contribution is intended to
+   * resolve. Absence is the legacy/unlinked meaning; this reference grants no
+   * execution or landing authority by itself. */
+  workItemId?: string
+  /** Serve-time projection for a linked item, computed from its current state,
+   * approved envelope and durable MCP receipts. Absent on legacy/unlinked rows. */
+  workItemResolution?: 'ready' | 'needs-result' | 'uncertain' | 'closed'
   /** The landing number — the project-ledger position (L{n}), assigned ONLY at
    *  landing, monotonic per project. Absent while open: an open contribution
    *  has no place in history yet, and the absence says so (INV-9: absence has
@@ -352,6 +359,8 @@ export interface OpenContributionRequest {
   summary?: string
   subGoal?: string
   sessionId?: string
+  /** Optional exact open MCP-mutation work item to link to this Contribution. */
+  workItemId?: string
 }
 
 /** Body of `POST /v1/projects/:id/contributions/:cid/comments`. */

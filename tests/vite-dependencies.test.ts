@@ -17,6 +17,7 @@ test('shared collaboration policy cannot fold a lazy draft back into the full na
   assert.equal(chunk(join(ROOT, 'contract/roles.ts')), 'collaboration-policy')
   assert.equal(chunk(join(ROOT, 'src/lib/dispatchPresentation.ts')), 'collaboration-policy')
   assert.equal(chunk(join(ROOT, 'src/lib/automationPresentation.ts')), 'collaboration-policy')
+  assert.equal(chunk(join(ROOT, 'src/lib/countLabel.ts')), 'resource-presentation')
   assert.equal(chunk(join(ROOT, 'src/components/SectionView.tsx')), undefined)
 })
 

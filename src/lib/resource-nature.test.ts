@@ -66,7 +66,7 @@ test('composite main pages use the project reading-column form and enumerate the
     artifact: /title="Artifacts"/,
     context: /title="Context"/,
     schedule: /title="Routines"/,
-    change: /<ChangesPanel\b/,
+    change: /<DeferredChangesPanel\b/,
     session: /title="Recent sessions"/,
     discussion: /<DiscussionsPanel\b/,
   }

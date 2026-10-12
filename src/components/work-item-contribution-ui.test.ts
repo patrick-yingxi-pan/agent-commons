@@ -1,0 +1,85 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { join } from 'node:path'
+import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
+
+test('open MCP work offers a linked contribution without claiming it', () => {
+  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const panel = stripComments(read(join(ROOT, 'src', 'components', 'WorkItemContributionPanel.tsx')))
+  const creation = stripComments(read(join(ROOT, 'src', 'controller', 'contributionCreationMutations.ts')))
+
+  assert.match(section, /<DeferredWorkItemContributionPanel\s+projectId=\{project\.id\}\s+item=\{o\}\s+onOpenContribution=/)
+  assert.match(section, /<h1 className=\{`\$\{PAGE_TITLE_CLASS\} break-words \[overflow-wrap:anywhere\]`\}>\{c\.title\}<\/h1>/)
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredWorkItemContributionPanel.tsx')))
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/WorkItemContributionPanel\.tsx'\)/)
+  assert.match(deferred, /<DeferredLoadBoundary fallback=/)
+  assert.match(deferred, /Reloading clears unsent form text and in-memory recovery/)
+  assert.match(panel, /item\.status === 'open' && item\.type === 'mcp\.mutate'/)
+  assert.match(panel, /useContributions\(projectId\)/)
+  assert.match(panel, /contribution\.workItemId === item\.id/)
+  assert.match(panel, /enqueueContributionCreation\(\{[\s\S]*subGoal: item\.subGoal,[\s\S]*workItemId: item\.id/)
+  assert.match(panel, /isContributionCreationHeld\(projectId\)/)
+  assert.match(panel, /heldContributionCreationIntent\(projectId, item\.id\)/)
+  assert.match(panel, /contributionCreationDraft\(projectId, item\.id\)/)
+  assert.match(panel, /savedDraft\.title/)
+  assert.match(panel, /savedDraft\.summary/)
+  assert.match(panel, /accountGeneration\(\) === requestedAccountGeneration/)
+  assert.match(panel, /subscribeContributionCreationApplied/)
+  assert.match(panel, /event\.intentId !== draftRef\.current\.intentId/)
+  assert.match(panel, /heldForAnotherContribution[\s\S]*Another Contribution for this Project is being resolved/)
+  assert.match(panel, /draftRef\.current = \{[\s\S]*title: submittedIntent\.request\.title,[\s\S]*summary: submittedIntent\.request\.summary \?\? '',[\s\S]*intentId: submittedIntent\.intentId,[\s\S]*\}/)
+  assert.match(panel, /className=\{`block min-w-0 max-w-full break-words \[overflow-wrap:anywhere\] text-left text-\[13px\] text-ink \$\{DOOR_CLASS\}`\}[\s\S]*\{contribution\.title\}/)
+  assert.match(panel, /Couldn’t confirm whether this Contribution was created/)
+  assert.doesNotMatch(panel, /Contribution was not created/)
+  assert.match(creation, /heldContributionCreationIntent = \(/)
+  assert.match(creation, /intent\.request\.workItemId === workItemId/)
+  assert.match(creation, /heldIntents\.clear\(\)/)
+  assert.match(creation, /drafts\.clear\(\)/)
+  assert.match(creation, /request: Object\.freeze\(\{ \.\.\.input\.request \}\)/)
+  assert.match(creation, /if \(draft\?\.intentId === intent\.intentId\)[\s\S]*if \(settled === 'applied'\)/)
+  assert.match(creation, /if \(settled === 'applied'\)[\s\S]*for \(const listener of appliedListeners\)/)
+  assert.match(creation, /rememberContributionCreationDraft[\s\S]*if \(existing\.get\(workItemId\)\?\.intentId\) return/)
+  assert.match(panel, /does not claim or reserve this work item/i)
+  assert.match(panel, /exact tool name/i)
+  assert.match(panel, /data-work-item-contribution/)
+})
+
+test('linked contribution landing is owner-only, readiness-gated, and returns to exact work', () => {
+  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+
+  assert.match(section, /const linkedWorkItem = c\.workItemId !== undefined/)
+  assert.match(section, /c\.workItemResolution === 'ready'/)
+  assert.match(section, /const contributionsQuery = useContributions\(project\.id\)/)
+  assert.match(section, /contributionsQuery\.status === 'success'/)
+  assert.match(section, /Couldn’t read this Project’s Contributions\. Its absence is not confirmed/)
+  assert.match(section, /const linkedItemRead = workItemsQuery\.status === 'success' && linkedItem !== undefined/)
+  assert.match(section, /project\.own !== true \|\| !linkedItemRead \|\| c\.workItemResolution !== 'ready'/)
+  assert.match(section, /Couldn’t refresh the linked work item; its resolution by this Contribution is not confirmed/)
+  assert.match(section, /project\.own !== true/)
+  assert.match(section, /Land and resolve work/)
+  assert.match(section, /successful saved result matching/i)
+  assert.match(section, /linkedWorkItem &&[\s\S]*rel\.navigate\('projects', project\.id, c\.workItemId!/)
+  assert.match(section, /workItemResolution === 'needs-result'[\s\S]*workItemResolution === 'uncertain'[\s\S]*workItemResolution === 'closed'/)
+  assert.match(section, /o\.contributionResolution \? \([\s\S]*rel\.navigate\('projects', project\.id, `changes\/\$\{o\.contributionResolution!\.contributionId\}`\)/)
+  assert.match(section, /contributionResolution\.by/)
+  assert.match(section, /data-work-item-resolution[\s\S]*className="min-w-0 flex-1 \[overflow-wrap:anywhere\]"/)
+  assert.match(section, /o\.contributionResolution \? \([\s\S]*:\s*\([\s\S]*<AgentActor/)
+})
+
+test('Project backlog remains visible without a Guardian while coordination remains distinct', () => {
+  const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const projectBranch = section.slice(section.indexOf("{showProjectSection('open-work')"), section.indexOf("{/* An artifact filed"))
+
+  assert.match(projectBranch, /<OpenWorkList projectId=\{project\.id\} shared=\{project\.shared === true\} guarded=\{Boolean\(project\.guardianId\)\}/)
+  assert.doesNotMatch(projectBranch, /project\.guardianId \? \(/)
+  assert.match(section, /guarded \? \([\s\S]*<AutomationNotice kind="work" \/>/)
+  assert.match(section, /Posting and reading the backlog does not claim an item or require Guardian coordination/)
+})
+
+test('landing and retraction refresh the linked work/contribution projections', () => {
+  const landing = stripComments(read(join(ROOT, 'src', 'api', 'contributionLandingCommands.ts')))
+  const retraction = stripComments(read(join(ROOT, 'src', 'api', 'workItemRetractionCommands.ts')))
+
+  assert.match(landing, /invalidate\(keys\.openSubGoals\(intent\.projectId\)\)/)
+  assert.match(retraction, /invalidate\(keys\.contributions\(projectId\)\)/)
+})

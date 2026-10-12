@@ -4,6 +4,8 @@ import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { DeferredProjectWorkDraftPanel } from './DeferredProjectWorkDraftPanel.tsx'
+import { DeferredWorkItemContributionPanel } from './DeferredWorkItemContributionPanel.tsx'
+import { DeferredChangesPanel } from './DeferredChangesPanel.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { automationPresentation, AUTOMATION_NOTICE_CLASS } from '../lib/automationPresentation.ts'
 import { namedIconProps } from '../lib/namedIcon.ts'
@@ -140,8 +142,6 @@ import { GrantsPanel } from './GrantsPanel'
 import { FollowButton } from './FollowButton'
 import { MessageButton } from './MessageButton'
 import { ProposalsPanel } from './ProposalsPanel'
-import { ProposalDeltaView } from './DeltaView'
-import { ProposalVerdictActions } from './ProposalVerdictActions'
 import { MentionText } from './MentionText'
 import { Tooltip } from './Tooltip'
 import { ConfirmDialog } from './ConfirmDialog'
@@ -468,11 +468,6 @@ import {
 } from '../controller/orgInviteOwnerMutations.ts'
 import { orgInviteOwnerResourceId } from '../api/orgInviteOwnerRevision.ts'
 import {
-  enqueueContributionCreation,
-  isContributionCreationHeld,
-  useContributionCreationStatus,
-} from '../controller/contributionCreationMutations.ts'
-import {
   enqueueContributionLanding,
   isContributionLandingHeld,
   useContributionLandingStatus,
@@ -545,11 +540,6 @@ import {
   isProjectSubGoalReleaseScopeHeld,
   useProjectSubGoalReleaseStatus,
 } from '../controller/projectSubGoalReleaseMutations.ts'
-import {
-  enqueueSocialProposalCreation,
-  isSocialProposalCreationHeld,
-  useSocialProposalCreationStatus,
-} from '../controller/socialProposalCreationMutations.ts'
 import {
   SYSTEM_PROMPT_DELETE_SCOPE,
   enqueueSystemPromptDeletion,
@@ -1671,15 +1661,7 @@ function ProjectDetail({
           {showProjectSection('contributors') && <ContributorsPanel project={project} />}
           {showProjectSection('coordination') && <CoordinationPanel project={project} />}
           {showProjectSection('open-work') && (
-            project.guardianId ? (
-              <OpenWorkList projectId={project.id} shared={project.shared === true} />
-            ) : (
-              <FoldSection title="Open work" summary="Not guarded">
-                <p className="text-[12px] text-ink-faint">
-                  This project isn’t a guarded resource, so it has no coordinated backlog.
-                </p>
-              </FoldSection>
-            )
+            <OpenWorkList projectId={project.id} shared={project.shared === true} guarded={Boolean(project.guardianId)} />
           )}
 
           {/* An artifact filed to this project is one of the resources that
@@ -1874,7 +1856,7 @@ function ProjectDetail({
               (S3) are two paths into the same history, so they render as one
               panel over one L# sequence — what's in flight now, then the linear
               history of what landed. Payload for owner and visitor alike. */}
-          {showProjectSection('changes') && <ChangesPanel project={project} own={own} onOpenSession={onOpenSession} />}
+          {showProjectSection('changes') && <DeferredChangesPanel project={project} own={own} onOpenSession={onOpenSession} onOpenContribution={(id) => rel.navigate('projects', project.id, `changes/${id}`)} onOpenDiscussion={(id) => rel.navigate('discussions', id)} />}
 
           {showProjectSection('recent-sessions') && <FoldSection
             title="Recent sessions"
@@ -3228,7 +3210,7 @@ const openWorkTargetPlaceholder = (type: ProjectEffectType | ''): string => {
   return 'Choose an action first…'
 }
 
-function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolean }) {
+function OpenWorkList({ projectId, shared, guarded }: { projectId: string; shared: boolean; guarded: boolean }) {
   const items = useOpenSubGoals(projectId).data ?? []
   // Read once here rather than per row: every row's mention roster drops the
   // caller, and this is one cached query either way.
@@ -3293,7 +3275,13 @@ function OpenWorkList({ projectId, shared }: { projectId: string; shared: boolea
         />
       }
     >
-      <AutomationNotice kind="work" />
+      {guarded ? (
+        <AutomationNotice kind="work" />
+      ) : (
+        <p role="note" className="mb-3 text-[12px] text-ink-faint">
+          Posting and reading the backlog does not claim an item or require Guardian coordination. Reservations and standing coordination are unavailable until this Project has a Guardian.
+        </p>
+      )}
       {items.length === 0 ? (
         <p className="text-[12px] text-ink-faint">
           Nothing posted. Post a work item to keep it in the Project backlog.
@@ -3624,13 +3612,30 @@ function WorkItemRow({
               + its owner namespace (a door), the grant on the tooltip. */}
           {o.status === 'done' ? (
             <span title={o.resolvedBy ? `Resolved under commission ${o.resolvedBy}` : undefined}>
-              {' · '}done by <AgentActor label={o.resolvedByLabel} />
-              {o.resolvedByOwner ? (
+              {o.contributionResolution ? (
                 <>
-                  {' '}· agent of{' '}
-                  <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => rel.openOwner(o.resolvedByOwner!)} />
+                  {' · '}done by{' '}
+                  <button
+                    type="button"
+                    onClick={() => rel.navigate('projects', projectId, `changes/${o.contributionResolution!.contributionId}`)}
+                    className={`text-ink-soft ${DOOR_CLASS}`}
+                  >
+                    Contribution
+                  </button>
+                  {' '}· landed by{' '}
+                  <OwnerLink bare ownerName={o.contributionResolution.by} onClick={() => rel.openOwner(o.contributionResolution!.by)} />
                 </>
-              ) : null}
+              ) : (
+                <>
+                  {' · '}done by <AgentActor label={o.resolvedByLabel} />
+                  {o.resolvedByOwner ? (
+                    <>
+                      {' '}· agent of{' '}
+                      <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => rel.openOwner(o.resolvedByOwner!)} />
+                    </>
+                  ) : null}
+                </>
+              )}
               {o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}
             </span>
           ) : o.status === 'retracted' ? (
@@ -3749,6 +3754,7 @@ function WorkItemPage({
   onOpenSession: (id: string) => void
 }) {
   const items = useOpenSubGoals(project.id).data ?? []
+  const contributions = useContributions(project.id).data ?? []
   const o = items.find((i) => i.id === workItemId) ?? null
   const me = useMe().data
   const tenantId = me?.tenant.id
@@ -3955,16 +3961,33 @@ function WorkItemPage({
                 </div>
               </div>
             ) : ev.kind === 'done' ? (
-              <div key={ev.key} className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
+              <div key={ev.key} data-work-item-resolution className="flex items-center gap-2 py-0.5 text-[12px] text-ink-faint">
                 <CheckCircle2 size={14} className="shrink-0 text-ok-strong" />
-                <span title={o.resolvedBy ? `Resolved under commission ${o.resolvedBy}` : undefined}>
-                  done by <AgentActor label={o.resolvedByLabel} />
-                  {o.resolvedByOwner ? (
+                <span className="min-w-0 flex-1 [overflow-wrap:anywhere]" title={o.resolvedBy ? `Resolved under commission ${o.resolvedBy}` : undefined}>
+                  {o.contributionResolution ? (
                     <>
-                      {' '}· agent of{' '}
-                      <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => rel.openOwner(o.resolvedByOwner!)} />
+                      done by{' '}
+                      <button
+                        type="button"
+                        onClick={() => rel.navigate('projects', project.id, `changes/${o.contributionResolution!.contributionId}`)}
+                        className={`max-w-full text-left [overflow-wrap:anywhere] text-ink-soft ${DOOR_CLASS}`}
+                      >
+                        {contributions.find((contribution) => contribution.id === o.contributionResolution!.contributionId)?.title ?? 'Contribution'}
+                      </button>
+                      {' '}· landed by{' '}
+                      <OwnerLink bare ownerName={o.contributionResolution.by} onClick={() => rel.openOwner(o.contributionResolution!.by)} />
                     </>
-                  ) : null}
+                  ) : (
+                    <>
+                      done by <AgentActor label={o.resolvedByLabel} />
+                      {o.resolvedByOwner ? (
+                        <>
+                          {' '}· agent of{' '}
+                          <OwnerLink bare ownerName={o.resolvedByOwner} onClick={() => rel.openOwner(o.resolvedByOwner!)} />
+                        </>
+                      ) : null}
+                    </>
+                  )}
                   {o.resolvedAt ? ` · ${relativeTime(o.resolvedAt)}` : ''}
                 </span>
               </div>
@@ -4000,6 +4023,12 @@ function WorkItemPage({
       >
         {projectWorkDraftOpen && <DeferredProjectWorkDraftPanel project={project} item={o} onOpenSession={onOpenSession} onCommentPosted={() => { setDraft(''); mention.close() }} />}
       </FoldSection>
+
+      {o.type === 'mcp.mutate' && <DeferredWorkItemContributionPanel
+        projectId={project.id}
+        item={o}
+        onOpenContribution={(contributionId) => rel.navigate('projects', project.id, `changes/${contributionId}`)}
+      />}
 
       {/* The conversation continues below the timeline — same funnel as the
           backlog row's composer (anyone who can see the project may comment),
@@ -6362,281 +6391,6 @@ function MessagesSection() {
   )
 }
 
-/** The subject's Improvements (social S3, SOCIAL-7b) — offered proposals +
- *  the landed ledger, generic over the subject ref (the GrantsPanel rule).
- *  Payload for owner and visitor alike: the owner gets land/decline consent,
- *  a propose-tier visitor gets the offer form, everyone gets the ledger and
- *  each row's review-thread door. */
-/** The ONE landing ledger (the Changes/Improvements consolidation, 2026-07-21):
- *  contributions (the Phase A–E workflow — declared work with envelopes and
- *  review) and social proposals (S3 — a typed change offered at the propose
- *  tier) are two PATHS into the same project history, so they render as one
- *  panel over the ONE L# sequence the server derives across both landing
- *  paths. Three bands: in flight (newest first), landed (L# descending),
- *  then the polite no's. */
-function ChangesPanel({ project, own, onOpenSession }: { project: Project; own: boolean; onOpenSession: (id: string) => void }) {
-  const rel = useRelations()
-  const subject: SocialEntityRef = { kind: 'project', id: project.id }
-  const contributionList = useContributions(project.id).data ?? []
-  const proposalList = useSocialProposals(subject.kind, subject.id).data ?? []
-  const tenantId = useMe().data?.tenant.id
-  useContributionCreationStatus()
-  useSocialProposalCreationStatus()
-  // Capability shapes affordances: offering needs the `propose` tier, so a
-  // comment-tier visitor is not shown a form the server would refuse.
-  const canPropose = useSocialCapability(subject.kind, subject.id).data?.canPropose === true
-  const [composing, setComposing] = useState<'contribution' | 'proposal' | null>(null)
-  const [title, setTitle] = useState('')
-  const [summary, setSummary] = useState('')
-  const [text, setText] = useState('')
-  const [rationale, setRationale] = useState('')
-  const [contributionError, setContributionError] = useState<string | null>(null)
-  const [offerError, setOfferError] = useState<string | null>(null)
-  const contributionHeld = isContributionCreationHeld(project.id)
-  const proposalHeld = isSocialProposalCreationHeld(subject)
-  const changesHeld = contributionHeld || proposalHeld
-  const openPage = (cid: string) => rel.navigate('projects', project.id, `changes/${cid}`)
-  const declare = async () => {
-    if (changesHeld || !tenantId || !title.trim()) return
-    setContributionError(null)
-    try {
-      const result = await enqueueContributionCreation({
-        tenantId,
-        projectId: project.id,
-        request: { title: title.trim(), summary: summary.trim() || undefined },
-      })
-      if (result.outcome === 'applied') {
-        setTitle('')
-        setSummary('')
-        setComposing(null)
-        openPage(result.contributionId)
-      } else {
-        setContributionError('Your Contribution is still here. Review it, then declare it again when ready.')
-      }
-    } catch (e) {
-      setContributionError(e instanceof Error ? e.message : 'Could not declare this Contribution.')
-    }
-  }
-  const offer = async () => {
-    if (changesHeld || !tenantId || !text.trim() || !rationale.trim()) return
-    setOfferError(null)
-    try {
-      const outcome = await enqueueSocialProposalCreation({
-        tenantId,
-        request: { subject, delta: { kind: 'suggestion', text: text.trim() }, rationale: rationale.trim() },
-      })
-      if (outcome === 'applied') {
-        setText('')
-        setRationale('')
-        setComposing(null)
-      } else {
-        setOfferError('Your change offer is still here. Review it, then offer it again when ready.')
-      }
-    } catch (e) {
-      setOfferError(e instanceof Error ? e.message : 'Could not offer this change.')
-    }
-  }
-  const rows = [
-    ...contributionList.map((c) => ({
-      key: c.id,
-      band: c.status === 'open' ? 0 : 1,
-      order: c.status === 'open' ? c.openedAt : (c.landingNumber ?? 0),
-      c,
-      p: undefined,
-    })),
-    ...proposalList.map((p) => ({
-      key: p.id,
-      band: p.state === 'offered' ? 0 : p.state === 'landed' ? 1 : 2,
-      order: p.state === 'landed' ? (p.landingNumber ?? 0) : p.offeredAt,
-      c: undefined,
-      p,
-    })),
-  ].sort((a, b) => a.band - b.band || b.order - a.order)
-  return (
-    <FoldSection
-      title="Changes"
-      heldOpen={changesHeld}
-      summary={countOr(rows.length, 'entry', 'entries', 'Nothing yet')}
-      actions={
-        <>
-          <SectionAction
-            label="Declare work"
-            icon={<Plus size={14} />}
-            onClick={() => { if (!changesHeld) setComposing((v) => (v === 'contribution' ? null : 'contribution')) }}
-            expanded={composing === 'contribution'}
-            disabled={changesHeld || !tenantId}
-            disabledReason={changesHeld ? 'Finish the current Changes action first' : 'Waiting for your account'}
-          />
-          {canPropose && (
-            <SectionAction
-              label={proposalHeld ? 'Offering change' : 'Offer a change'}
-              icon={<Sparkles size={14} />}
-              onClick={() => { if (!changesHeld) setComposing((v) => (v === 'proposal' ? null : 'proposal')) }}
-              expanded={composing === 'proposal'}
-              disabled={changesHeld || !tenantId}
-              disabledReason={changesHeld ? 'Finish the current Changes action first' : 'Waiting for your account'}
-            />
-          )}
-        </>
-      }
-    >
-      {composing === 'proposal' && (
-        <div data-social-proposal-creation-form className="mb-3 space-y-1.5" aria-busy={changesHeld}>
-          <textarea
-            aria-label="The change you propose"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            disabled={changesHeld}
-            placeholder="The change — what should be different?"
-            rows={2}
-            className={`${FORM_INPUT_CLASS} resize-none`}
-          />
-          <input
-            aria-label="Why this change"
-            value={rationale}
-            onChange={(e) => setRationale(e.target.value)}
-            disabled={changesHeld}
-            placeholder="Why — opens the review thread"
-            className={FORM_INPUT_CLASS}
-          />
-          <button onClick={() => void offer()} disabled={changesHeld || !tenantId || !text.trim() || !rationale.trim()} className={INLINE_ACTION_CLASS}>
-            {proposalHeld ? 'Offering…' : 'Offer'}
-          </button>
-          {offerError && <p className="text-[11px] text-danger">{offerError}</p>}
-        </div>
-      )}
-      {composing === 'contribution' && (
-        <div data-contribution-creation-form className="mb-3 space-y-1.5" aria-busy={changesHeld}>
-          <p className="text-[11px] leading-relaxed text-ink-faint">
-            Name the intended change before work begins. This becomes its durable record for review and landing.
-          </p>
-          <input
-            autoFocus
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void declare()
-              if (e.key === 'Escape' && !changesHeld) setComposing(null)
-            }}
-            placeholder="What will change? (required)"
-            aria-label="Contribution title"
-            disabled={changesHeld}
-            className="w-full rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-          />
-          <div className="flex items-center gap-1.5">
-            <input
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void declare()
-                if (e.key === 'Escape' && !changesHeld) setComposing(null)
-              }}
-              placeholder="Why, scope, or constraints (optional)…"
-              aria-label="Contribution summary"
-              disabled={changesHeld}
-              className="min-w-0 flex-1 rounded-md border border-line bg-surface px-2 py-1 text-[12px] text-ink outline-none placeholder:text-ink-faint focus:border-line-strong"
-            />
-            <button
-              onClick={() => void declare()}
-              disabled={changesHeld || !tenantId || !title.trim()}
-              className={`shrink-0 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:opacity-45`}
-            >
-              {contributionHeld ? 'Declaring…' : 'Declare'}
-            </button>
-          </div>
-          {contributionError && <p className="text-[11px] text-danger">{contributionError}</p>}
-        </div>
-      )}
-      {rows.length === 0 && composing === null ? (
-        <p className="text-[12px] text-ink-faint">
-          Nothing yet. A contribution is declared before the work; a proposal is a typed change the owner
-          lands by consent. Both land as numbered entries — one history, L1 up.
-        </p>
-      ) : rows.length > 0 ? (
-        <CardList>
-          {rows.map((row) => {
-            const { c, p } = row
-            if (c)
-              return (
-                <div key={row.key} className="flex items-center gap-2.5 py-3">
-                  {/* The leading slot carries the entity's state in ONE form: a live
-                      pulse while open/offered, the ledger number once landed — same
-                      column across both row kinds, so the list reads as one ledger
-                      with its newest entries still in motion. */}
-                  <span className="flex w-8 shrink-0 items-center justify-end">
-                    {c.status === 'open' ? (
-                      <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="In flight" />
-                    ) : (
-                      <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{c.landingNumber}</span>
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <button
-                      onClick={() => openPage(c.id)}
-                      className={`block max-w-full truncate text-left text-[13px] text-ink ${DOOR_CLASS}`}
-                    >
-                      {c.title}
-                    </button>
-                    <div className="truncate text-[11px] text-ink-faint">
-                      by {c.contributor}
-                      {c.status === 'open'
-                        ? ` · opened ${relativeTime(c.openedAt)}`
-                        : c.landedAt
-                          ? ` · landed ${relativeTime(c.landedAt)}`
-                          : ''}
-                      {c.subGoal ? ` · ${c.subGoal}` : ''}
-                      {c.envelope
-                        ? ` · ${c.envelope.lines.length} act${c.envelope.lines.length === 1 ? '' : 's'} ${
-                            c.envelope.status === 'approved' ? '· approved' : '· awaiting approval'
-                          }`
-                        : ''}
-                    </div>
-                  </div>
-                  {c.status === 'open' && c.sessionId && c.mine === true && (
-                    <button
-                      onClick={() => onOpenSession(c.sessionId!)}
-                      className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-ink-soft transition hover:border-line-strong hover:text-ink"
-                      title="Open the conversation doing this work"
-                    >
-                      View the work
-                    </button>
-                  )}
-                </div>
-              )
-            if (p)
-              return (
-                <div key={row.key} className="flex items-start gap-2.5 py-3">
-                  <span className="flex w-8 shrink-0 items-center justify-end pt-0.5">
-                    {p.state === 'offered' ? (
-                      <span className="h-1.5 w-1.5 rounded-full bg-ok" aria-label="Offered" />
-                    ) : p.state === 'landed' ? (
-                      <span className="text-[12px] font-semibold tabular-nums text-ink-faint">L{p.landingNumber}</span>
-                    ) : (
-                      <span className="text-[11px] text-ink-faint">no</span>
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <ProposalDeltaView proposal={p} />
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-ink-faint">
-                      <span>
-                        by {p.offeredBy} {relativeTime(p.offeredAt)}
-                      </span>
-                      <button onClick={() => rel.navigate('discussions', p.discussionId)} className={INLINE_ACTION_CLASS}>
-                        Review thread
-                      </button>
-                      <ProposalVerdictActions proposal={p} subject={subject} own={own} />
-                    </div>
-                  </div>
-                </div>
-              )
-            return null
-          })}
-        </CardList>
-      ) : null}
-    </FoldSection>
-  )
-}
-
 /** A contribution's own page (`/projects/:id/changes/:cid`) — the PR-page
  *  analog and the work-item page's sibling (form follows function: same role,
  *  same look — header + status + provenance meta, then the timeline with the
@@ -6655,7 +6409,10 @@ function ContributionPage({
   backTo: NavLocation | null
   onOpenSession: (id: string) => void
 }) {
-  const list = useContributions(project.id).data ?? []
+  const contributionsQuery = useContributions(project.id)
+  const workItemsQuery = useOpenSubGoals(project.id)
+  const list = contributionsQuery.data ?? []
+  const workItems = workItemsQuery.data ?? []
   const c = list.find((x) => x.id === contributionId) ?? null
   // Hook order: read before any early return (the missing-contribution page).
   useDelegationRevocationStatus()
@@ -6699,12 +6456,19 @@ function ContributionPage({
   }, [heldComment])
 
   if (!c) {
+    const unavailable = contributionsQuery.status === 'error'
     return (
       <AtomicResourcePage>
         <div className="mb-4">
           <BackButton to={backTo} onBack={onBack} />
         </div>
-        <PageEmpty>This contribution no longer exists on “{project.name}”.</PageEmpty>
+        {unavailable ? (
+          <InlineOperationStatus tone="alert" message="Couldn’t read this Project’s Contributions. Its absence is not confirmed." action={{ label: 'Retry', onClick: () => invalidate(keys.contributions(project.id)) }} />
+        ) : contributionsQuery.status === 'success' ? (
+          <PageEmpty>This contribution no longer exists on “{project.name}”.</PageEmpty>
+        ) : (
+          <p role="status" className="text-[13px] text-ink-faint">Loading this Project’s Contributions…</p>
+        )}
       </AtomicResourcePage>
     )
   }
@@ -6714,10 +6478,28 @@ function ContributionPage({
   // or Tier 1 with the review covering the latest version). The server
   // enforces on raw tenant ids either way.
   const latestVersion = c.changeset?.length ?? 0
+  const linkedWorkItem = c.workItemId !== undefined
+  const linkedItem = linkedWorkItem ? workItems.find((item) => item.id === c.workItemId) : undefined
+  const linkedItemRead = workItemsQuery.status === 'success' && linkedItem !== undefined
   const contributorMayLand =
     c.mine === true &&
     (c.tier?.level === 0 || (c.tier?.level === 1 && c.reviewedVersion === latestVersion && latestVersion > 0))
-  const mayLand = c.status === 'open' && (project.own !== false || contributorMayLand)
+  const mayLand = c.status === 'open' && (linkedWorkItem || project.own !== false || contributorMayLand)
+  const linkedLandingReason = project.own !== true
+    ? 'Only the Project owner can land a linked Contribution and resolve its work item.'
+    : workItemsQuery.status === 'error'
+      ? 'Couldn’t refresh the linked work item. Retry that read before resolving it.'
+      : !linkedItemRead
+        ? 'Loading the linked work item before confirming its resolution state.'
+    : c.workItemResolution === 'needs-result'
+      ? 'A matching successful saved MCP result is required before this work item can be resolved.'
+      : c.workItemResolution === 'uncertain'
+        ? 'The MCP result is uncertain. Check or resolve its saved receipt before landing.'
+        : c.workItemResolution === 'closed'
+          ? 'The linked work item is already closed; this Contribution will not resolve it.'
+          : c.workItemResolution === 'ready'
+            ? 'The matching successful MCP result is saved. Landing resolves this work item.'
+            : 'The linked MCP result has not been confirmed as ready.'
   // Offered at Tier 0 AND Tier 1: trust is live arithmetic, so an open Tier-1
   // contribution can drift to Tier 0 as the contributor's other landings
   // accrue — the owner must be able to PIN the review before that happens
@@ -6742,7 +6524,7 @@ function ContributionPage({
     }
   }
   const land = () => {
-    if (contributionActionHeld || !me) return
+    if (contributionActionHeld || !me || (linkedWorkItem && (project.own !== true || !linkedItemRead || c.workItemResolution !== 'ready'))) return
     setError(null)
     void enqueueContributionLanding({
       tenantId: me.tenant.id,
@@ -6781,7 +6563,7 @@ function ContributionPage({
           <div className="flex min-w-0 items-start gap-3">
             <BackButton to={backTo} onBack={onBack} />
             <div className="min-w-0">
-              <h1 className={PAGE_TITLE_CLASS}>{c.title}</h1>
+              <h1 className={`${PAGE_TITLE_CLASS} break-words [overflow-wrap:anywhere]`}>{c.title}</h1>
               <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] text-ink-faint">
                 {badge}
                 {/* CW5 — the gate as VISIBLE arithmetic: the level and its basis in
@@ -6799,6 +6581,18 @@ function ContributionPage({
                   {relativeTime(c.openedAt)}
                 </span>
                 {c.subGoal && <span>· {c.subGoal}</span>}
+                {linkedWorkItem && (
+                  <span>
+                    · linked work:{' '}
+                    <button
+                      type="button"
+                      onClick={() => rel.navigate('projects', project.id, c.workItemId!)}
+                      className={`text-ink-soft ${DOOR_CLASS}`}
+                    >
+                      {linkedItem?.subGoal ?? 'Open work item'}
+                    </button>
+                  </span>
+                )}
                 <span>
                   · in{' '}
                   <button
@@ -6835,10 +6629,12 @@ function ContributionPage({
             {mayLand && (
               <button
                 onClick={() => void land()}
-                disabled={lifecycleHeld || mcpEffectPending}
+                disabled={lifecycleHeld || mcpEffectPending || !me || (linkedWorkItem && (project.own !== true || !linkedItemRead || c.workItemResolution !== 'ready'))}
                 title={mcpEffectPending
                   ? 'Resolve the pending MCP receipt before landing this Contribution'
-                  : `Land this contribution — it becomes L${
+                  : linkedWorkItem
+                    ? linkedLandingReason
+                    : `Land this contribution — it becomes L${
                     Math.max(
                       list.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
                       proposalLandings.reduce((m, x) => Math.max(m, x.landingNumber ?? 0), 0),
@@ -6846,11 +6642,25 @@ function ContributionPage({
                   } in ${project.name}’s history`}
                 className={`${SOFT_BUTTON_CLASS} px-3 py-1 text-[12px] disabled:opacity-45`}
               >
-                {landingHeld ? 'Landing…' : 'Land'}
+                {landingHeld ? 'Landing…' : linkedWorkItem ? 'Land and resolve work' : 'Land'}
               </button>
             )}
           </div>
         </header>
+
+        {linkedWorkItem && (
+          <p data-linked-work-item-resolution className="mb-4 text-[12px] leading-relaxed text-ink-faint">
+            {c.workItemResolution === 'closed'
+              ? workItemsQuery.status === 'error'
+                ? 'Couldn’t refresh the linked work item; its resolution by this Contribution is not confirmed.'
+                : workItemsQuery.status !== 'success'
+                  ? 'Loading the linked work item’s resolution…'
+                  : linkedItem?.contributionResolution?.contributionId === c.id
+                ? 'This Contribution landed and resolved the linked work item.'
+                : 'The linked work item is already closed; this Contribution did not resolve it.'
+              : `Only the Project owner can resolve this work item by landing this Contribution after its MCP effect has a successful saved result matching the exact tool name “${linkedItem?.target ?? 'shown on the work item'}”. ${linkedLandingReason}`}
+          </p>
+        )}
 
         {/* The changeset (CW3/CW4, Phase D) — the work's mergeable payload as
             before→after diffs, versioned append-only. */}

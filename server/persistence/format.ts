@@ -52,6 +52,7 @@ import { PROJECT_EFFECT_TYPES } from '../../contract/coordination.ts'
 import { CONTRIBUTION_FIELD_MAX, EFFECT_ENVELOPE_CARDINALITY_MAX, EFFECT_ENVELOPE_LINE_MAX, ENVELOPE_HARNESSES } from '../../contract/contributions.ts'
 import { validStoredDelegations, validDelegationRetirements } from '../delegationPolicy.ts'
 import { imageAssetRefMatches } from '../../contract/imageAssets.ts'
+import { validProjectWorkPersistence } from '../projectWorkPersistence.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
 import { isServedImageSnapshot } from '../../contract/servedImageSnapshot.ts'
 import { validWorkspaceFolders } from '../../contract/workspaceFolders.ts'
@@ -185,7 +186,7 @@ export interface StoredAgentProposal extends Omit<AgentChangeProposal, 'comments
  *  D23 lesson: display names are attacker-controlled, authorization compares
  *  tenant ids) and the acting principals. Server-private; `publicContribution`
  *  strips all of it and serves display names + principal KINDs only. */
-export interface StoredContribution extends Omit<Contribution, 'events' | 'reviews' | 'judgments' | 'effects' | 'envelope'> {
+export interface StoredContribution extends Omit<Contribution, 'events' | 'reviews' | 'judgments' | 'effects' | 'envelope' | 'workItemResolution'> {
   reviewAttempts?: StoredContributionReview[]
   judgmentAttempts?: StoredDelegatedJudgment[]
   effectAttempts?: StoredContributionEffectAttempt[]
@@ -901,6 +902,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       }
     }
   }
+  // Project-work joins consume already-parsed effect receipts and envelopes;
+  // reject malformed nested Contribution state before the projection reads it.
+  if (!validProjectWorkPersistence(state?.contributions, state?.openSubGoals)) return false
   // Authored rich bodies retain their exact shape through portable restores.
   // A revision is storage-owned metadata, not an author-supplied body field.
   if (state?.artifactBodies !== undefined) {

@@ -3242,7 +3242,8 @@ export function buildRouter(): Router {
     const who = store.identity(req.headers)
     sendJson(res, store.listContributions(params.id, who.tenant.id, who.user.id))
   })
-  r.post('/projects/:id/contributions', idempotent(async ({ req, res, params, body }) => {
+  const openContribution = idempotent(async ({ req, res, params, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
@@ -3257,7 +3258,13 @@ export function buildRouter(): Router {
     // cannot duplicate or rewrite work that was already declared.
     if (represented) return sendContribution(res, represented, who)
     const input = await body<OpenContributionRequest>()
-    if (!input?.title?.trim()) return sendError(res, 'bad_request', 'a non-empty title is required')
+    if (!accountTransitionSourceMatches(req, res)) return
+    if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
+    if (typeof input?.title !== 'string' || !input.title.trim()) return sendError(res, 'bad_request', 'a non-empty title is required')
+    if (['summary', 'subGoal', 'sessionId', 'workItemId'].some((field) =>
+      Object.hasOwn(input, field) && typeof input[field as keyof OpenContributionRequest] !== 'string')) {
+      return sendError(res, 'bad_request', 'Contribution text and optional work identity must be strings')
+    }
     const out = store.openContribution(
       params.id,
       { ...input, title: input.title.trim(), ...(typeof input.summary === 'string' ? { summary: input.summary.trim() } : {}) },
@@ -3267,8 +3274,14 @@ export function buildRouter(): Router {
     )
     if (out === 'capped') return sendError(res, 'conflict', 'This project’s ledger is at its open-contribution cap')
     if (out === 'invalid') return sendError(res, 'bad_request', 'This Contribution identity is not valid for this Project')
+    if (out === 'invalid-work') return sendError(res, 'bad_request', 'Select an exact MCP mutation work item in this Project; its sub-goal is fixed by the item')
+    if (out === 'closed-work') return sendError(res, 'conflict', 'This work item is no longer open')
     sendContribution(res, out, who)
-  }, undefined, replayContribution))
+  }, undefined, replayContribution)
+  r.post('/projects/:id/contributions', (ctx) => {
+    if (!accountTransitionSourceMatches(ctx.req, ctx.res)) return
+    return openContribution(ctx)
+  })
   r.post('/projects/:id/contributions/:cid/comments', async ({ req, res, params, body }) => {
     const input = await body<PostContributionNoteRequest>()
     if (typeof input?.body !== 'string' || !input.body.trim()) {
@@ -3657,6 +3670,7 @@ export function buildRouter(): Router {
     sendContribution(res, out, who)
   })
   r.post('/projects/:id/contributions/:cid/land', ({ req, res, params }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
     if (projectHiddenFrom(req, params.id)) return sendError(res, 'not_found', `No project '${params.id}'`)
     const who = store.identity(req.headers)
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
@@ -3683,6 +3697,8 @@ export function buildRouter(): Router {
     if (out === 'needs-owner') return sendError(res, 'forbidden', 'Tier 2 — irreversible effects land only by the project owner (the floor; no record buys past it)')
     if (out === 'needs-review') return sendError(res, 'conflict', 'Tier 1 — the adversarial review must pass over the latest crystallized version before landing')
     if (out === 'pending-effect') return sendError(res, 'conflict', 'Wait for the pending MCP call to settle before landing this Contribution')
+    if (out === 'closed-work') return sendError(res, 'conflict', 'The linked work item is no longer open; it cannot be resolved again')
+    if (out === 'needs-work-result') return sendError(res, 'conflict', 'Resolving work requires a matching successful MCP result under the current approved plan, with no pending or uncertain effects')
     sendContribution(res, out, who)
   })
   // The tier machinery (CW5, Phase E): the owner's tighten-only act, and the

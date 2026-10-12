@@ -36,6 +36,9 @@ export default defineConfig({
         manualChunks(id) {
           const path = id.split('\\').join('/')
           if (path.endsWith('/src/components/FormDialog.tsx')) return 'resource-form'
+          // A shared label formatter must not pull the full navigation pane
+          // into lazy resource panels through a parent-owned helper export.
+          if (path.endsWith('/src/lib/countLabel.ts')) return 'resource-presentation'
           // Shared pure policy must not make a lazy work draft import the
           // entire SectionPane through Rollup's parent-owned helper exports.
           // Graph budgets still count these bytes at every cold entry.
