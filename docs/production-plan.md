@@ -92,12 +92,31 @@ The browser suite uses an in-memory injected stdio peer, not a child process;
 it covers separate consent, private receipts and account walls. The local
 registry/store failure locks were watched fail when startup-failure protection
 was removed, then restored. The shared UI sweep passed all 135 cells with zero
-violations or skips. Full local verification remains mandatory before landing;
-packaged local Routine smoke has not yet been completed. Checkpoint 3 still
-requires real child-process reviewed execution, private durable results,
-cancellation/revoke, signed-in full relaunch, uncertainty without replay and
-explicit backup restore. Signed, Intel and real third-party acceptance remain
-separate release gates.
+violations or skips. A model integration defect was also caught: Routine model
+tool projection rejected stdio unconditionally, so an approved Routine
+received no tools. The host now passes literal `localPrograms: true` only for
+local Routine work, and model exposure requires the private frozen permission's
+`stdio` transport to match the inspected connection transport.
+
+The new `npm run desktop:smoke:routine-local` lane is integrated into
+`desktop:verify`. Its unsigned macOS arm64 run passed in an isolated profile,
+with evidence in `.data/desktop-routine-local-smoke/run-Lp9rPr`, against an
+authored child process in a disposable ASAR copy. The source ASAR hash remained
+`e1b94fe4ff6fff8b219dc94bf009fc3fe51d47abb6469d860598a66188e0eef9`. It covers
+rendered setup Cancel then fresh Allow, separate unchecked Routine consent reset
+on Back, scheduler → model → child execution and output, private SQLite receipt,
+OS-vault custody, signed-in full relaunch without replay, revoke, startup
+failure fenced before `tools/call`, pending-to-uncertain restart, and actual
+managed-backup restore with a safety copy and unfinished queued work
+terminalized without launch. Native OS-dialog answers and automatic relaunch
+spawning remain fixtures. Same-organization person walls remain in-memory
+browser evidence, not new native evidence. Feature-specific receipts do not
+substitute for mandatory full local and desktop verification before landing.
+A negative restore mutation in `.data/desktop-routine-local-smoke/run-INgziY`
+failed at the expected `active` versus `interrupted` phase. Authored-child
+browser coverage and active-call cancellation/revoke remain open; completed-
+result revoke is covered. Signed/Intel, actual-dialog, live third-party and
+paid-provider acceptance remain separate gates.
 
 The previous Commission acceptance checkpoint landed as `05640a35`: the complete
 desktop verifier passed, followed by all five local verifier lanes and all 673

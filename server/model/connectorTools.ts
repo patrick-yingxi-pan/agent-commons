@@ -52,7 +52,9 @@ interface ToolBinding {
 /** Explicit adapter for the durable Routine MCP ledger. Interactive sessions do
  * not receive this capability even when a context has standing approval. */
 export interface RoutineMcpRuntime {
-  tools: readonly RoutineMcpToolPermission[]
+  tools: readonly (RoutineMcpToolPermission & { transport?: 'stdio' })[]
+  /** Trusted host opt-in for local programs; ordinary model callers omit it. */
+  localPrograms?: true
   execute(call: McpBoundToolCall, key: string, signal?: AbortSignal): Promise<RoutineMcpCallReceipt>
 }
 
@@ -167,8 +169,11 @@ export function deriveConnectorTools(
       const context = contexts.find(row => row.type === 'mcp' && row.id === permission.connectionId)
       const connection = options.externalMcpConnections?.find(row => row.id === permission.connectionId)
       const matches = connection?.tools.filter(row => row.name === permission.toolName) ?? []
+      const connectionTransport = connection?.transport === 'stdio' ? 'stdio' : undefined
       if (!context || !isExternalMcpId(permission.connectionId) || !connection || connection.status !== 'connected' ||
-          connection.transport === 'stdio' ||
+          (connection.transport !== undefined && connection.transport !== 'http' && connection.transport !== 'stdio') ||
+          (connectionTransport === 'stdio' && (options.routineMcp.localPrograms !== true || permission.transport !== 'stdio')) ||
+          (connectionTransport !== permission.transport) ||
           connection.execution !== 'approval-required' || connection.revision !== permission.connectionRevision ||
           !connection.executableTools?.includes(permission.toolName) || matches.length !== 1 ||
           mcpToolSchemaHash(matches[0]!) !== permission.schemaHash) {

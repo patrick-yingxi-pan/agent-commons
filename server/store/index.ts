@@ -13704,7 +13704,12 @@ export const store = {
       task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
       agent, provider, providerConfig, modelId, contexts, approvedContextIds,
       ...(permission ? { externalMcpConnections, routineMcp: {
-        tools: permission.permission.policy.approval!.tools,
+        tools: permission.permission.policy.approval!.tools.map(tool =>
+          permission.permission.localAuthority?.connectionIds.includes(tool.connectionId)
+            ? { ...tool, transport: 'stdio' as const } : tool),
+        ...(permission.permission.policy.approval!.localPrograms === true &&
+          permission.permission.localAuthority?.connectionIds.length && mcpRuntimeCapabilities().localProcesses === true
+          ? { localPrograms: true as const } : {}),
         execute: (call: McpBoundToolCall, key: string, signal?: AbortSignal) => this.executeRoutineMcpCall(taskId, runId, call, key, signal),
       } } : {}),
       ...(blocked ? { blocked } : {}),

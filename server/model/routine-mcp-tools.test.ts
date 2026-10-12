@@ -63,6 +63,38 @@ test('stale, detached, wrong-status, non-executable, duplicate, or schema-change
   assert.equal(duplicate.routineUnavailable, true)
 })
 
+test('local Routine tools require literal host opt-in and matching frozen stdio provenance', async () => {
+  const localConnection = { ...connection, transport: 'stdio' as const }
+  const localPermission = { ...permission, transport: 'stdio' as const }
+  const localRuntime = (localPrograms: unknown): RoutineMcpRuntime => ({
+    tools: [localPermission] as RoutineMcpRuntime['tools'],
+    ...(localPrograms === undefined ? {} : { localPrograms } as object),
+    async execute(call) { return doneReceipt(call) },
+  } as RoutineMcpRuntime)
+  for (const localPrograms of [undefined, false, 'true']) {
+    const runtime = localRuntime(localPrograms)
+    const derived = deriveConnectorTools([context], { externalMcpConnections: [localConnection], routineMcp: runtime })
+    assert.equal(derived.routineUnavailable, true, `localPrograms=${String(localPrograms)} must not authorize stdio`)
+    assert.deepEqual(derived.definitions, [])
+  }
+  const runtime = localRuntime(true)
+  const derived = deriveConnectorTools([context], { externalMcpConnections: [localConnection], routineMcp: runtime })
+  assert.equal(derived.routineUnavailable, undefined)
+  assert.equal(derived.definitions.length, 1)
+  let calls = 0
+  runtime.execute = async call => { calls += 1; return { ...doneReceipt(call), transport: 'stdio' } }
+  const outcome = await runRoutineMcpTool(derived.definitions[0]!.name, derived.bindings,
+    { query: 'approved' }, runtime)
+  assert.equal(outcome?.isError, false)
+  assert.equal(calls, 1)
+  const mismatched = deriveConnectorTools([context], { externalMcpConnections: [localConnection],
+    routineMcp: { ...runtime, tools: [permission] } })
+  assert.equal(mismatched.routineUnavailable, true)
+  const reverseMismatch = deriveConnectorTools([context], { externalMcpConnections: [connection],
+    routineMcp: { ...runtime, tools: [localPermission] } })
+  assert.equal(reverseMismatch.routineUnavailable, true, 'stdio provenance cannot be paired with an HTTP connection')
+})
+
 test('interactive omission remains proposal-only even with standing context ids', async () => {
   let calls = 0
   const derived = deriveConnectorTools([context], { externalMcpConnections: [connection], standingApprovedContextIds: new Set([id]) })
@@ -70,6 +102,14 @@ test('interactive omission remains proposal-only even with standing context ids'
     mode: 'adapter', execute() { calls += 1; assert.fail('interactive external MCP never executes') },
   })
   assert.equal(activity?.status, 'proposed')
+  assert.equal(calls, 0)
+
+  const localConnection = { ...connection, transport: 'stdio' as const }
+  const localDerived = deriveConnectorTools([context], { externalMcpConnections: [localConnection], standingApprovedContextIds: new Set([id]) })
+  const localActivity = await runConnectorTool(localDerived.definitions[0]!.name, localDerived.bindings, 'provider-id', { query: 'approved' }, {
+    mode: 'adapter', execute() { calls += 1; assert.fail('interactive local MCP remains proposal-only') },
+  })
+  assert.equal(localActivity?.status, 'proposed')
   assert.equal(calls, 0)
 })
 

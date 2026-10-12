@@ -109,7 +109,7 @@ test('internal stdio protocol cannot acquire launch configuration or product exe
 test('local MCP launch custody stays confined to the authenticated native workflow', () => {
   const allowed = new Set(['desktop/mcpStdioGrantVault.mjs', 'desktop/mcpStdioLaunchAuthority.mjs',
     'desktop/mcpStdioLifecycle.mjs', 'desktop/mcpStdioSource.mjs', 'desktop/mcpStdioSetup.mjs',
-    'desktop/main.mjs', 'desktop/mcpStdioSmoke.mjs'].map(path => join(ROOT, path)))
+    'desktop/main.mjs', 'desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs'].map(path => join(ROOT, path)))
   const symbols = /\b(?:openMcpStdioGrantVault|createMcpStdioLaunchAuthority|snapshotMcpStdioGrantBinding)\b|mcpStdio(?:GrantVault|LaunchAuthority)\.mjs/
   const check = (source: string, path: string) => assert.doesNotMatch(source, symbols,
     `${path}: saved local launch authority requires the separate authenticated native product workflow`)
@@ -120,8 +120,13 @@ test('local MCP launch custody stays confined to the authenticated native workfl
     }
   }
   for (const path of allowed) assert.match(stripComments(read(path)), symbols, `${path}: expected native custody owner`)
-  assert.equal(ignoreFromPackage('/desktop/mcpStdioSmoke.mjs'), true,
-    'the local native acceptance driver must never ship as product authority')
+  for (const driver of ['desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs']) {
+    assert.equal(ignoreFromPackage(`/${driver}`), true,
+      `${driver}: the native acceptance driver must never ship as product authority`)
+    assert.doesNotMatch(stripComments(read(join(ROOT, driver))),
+      /\b(?:openMcpStdioGrantVault|createMcpStdioLaunchAuthority|snapshotMcpStdioGrantBinding)\b/,
+      `${driver}: acceptance may inspect saved custody but cannot create or open launch authority`)
+  }
   assert.throws(() => check("openMcpStdioGrantVault({ filePath: 'model-command' })", 'unexpected startup'), /authenticated native product workflow/)
 })
 

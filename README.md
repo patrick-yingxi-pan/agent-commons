@@ -216,6 +216,7 @@ npm run start:desktop:server # headless desktop profile (operations/debugging)
 npm run start:web    # hosted profile (required env below)
 npm run desktop:package # build an unpacked platform application in out/
 npm run desktop:smoke   # launch that package with isolated temporary user data
+npm run desktop:smoke:routine-local # isolated native local Routine stdio acceptance
 npm run desktop:verify  # package + native lifecycle + isolated Contribution/Routine/OAuth MCP acceptance
 npm run desktop:release:mac # signed/notarized host-architecture candidate (credential-gated)
 npm run desktop:release:mac:finalize # verify and publish Apple Silicon + Intel pair
@@ -292,7 +293,12 @@ boots use explicit profiles:
   resolution and interrupted Contribution recovery without redispatch. It uses
   only a repository-authored child and exact fixture-only native approval; local
   code runs with normal OS access and is not sandboxed. The source ASAR stays
-  unchanged and helpers never ship. These gates are local unsigned fixture evidence, separate from ordinary
+  unchanged and helpers never ship. The separate `desktop:smoke:routine-local`
+  gate covers independently approved local Routine execution, startup failure,
+  private receipts and signed-in relaunch, plus real managed restore of pending
+  and queued work without replay. Only its copied native dialog answers and
+  relaunch spawning are fixtures; no MCP network policy is widened.
+  These gates are local unsigned fixture evidence, separate from ordinary
   signed-candidate smoke, not public-service/TLS or signed two-architecture acceptance.
 - `npm run desktop:release:mac` is the fail-closed candidate lane for the chosen
   two-download macOS release. Run it once on Apple Silicon and once on Intel. It

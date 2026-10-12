@@ -203,7 +203,9 @@ test('local Routine approval requires a ready native host, literal opt-in and a 
   const run = store.runSchedule(f.task.id)!
   configureMcpRuntime({ deviceBearerAvailable: false, allowLoopback: false })
   assert.equal(f.review().active, false)
-  assert.equal(store.routineExecutionContext(f.task.id, run.id)?.blocked?.code, 'authority_denied')
+  const hostOffContext = store.routineExecutionContext(f.task.id, run.id)!
+  assert.equal(hostOffContext.blocked?.code, 'authority_denied')
+  assert.equal(hostOffContext.routineMcp?.localPrograms, undefined, 'native capability loss removes the model opt-in')
   await assert.rejects(store.executeRoutineMcpCall(f.task.id, run.id, f.call, nextId('host-off-call')), RoutineMcpPolicyError)
   assert.equal(native.seen.opens.length, 0, 'a formerly approved saved grant cannot restore host execution capability')
 })
@@ -217,6 +219,10 @@ test('local Routine execution uses its frozen member, commits before I/O and ret
   const context = store.routineExecutionContext(f.task.id, run.id)!
   assert.equal(context.blocked, undefined)
   assert.deepEqual(context.externalMcpConnections?.map(row => row.id), [f.connection.id])
+  assert.equal(context.routineMcp?.localPrograms, true)
+  assert.deepEqual(context.routineMcp?.tools.map(row => [row.connectionId, row.transport]), [[f.connection.id, 'stdio']])
+  assert.equal(Object.hasOwn(f.review().policy.approval!.tools[0]!, 'transport'), false,
+    'the host transport stamp does not mutate portable reviewed permission')
   assertPrivate(f)
   const key = nextId('frozen-owner-call')
   const receipt = await store.executeRoutineMcpCall(f.task.id, run.id, f.call, key)
