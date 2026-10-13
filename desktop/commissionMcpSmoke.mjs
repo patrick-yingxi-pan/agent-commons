@@ -1,17 +1,19 @@
 /** Separate packaged Commission acceptance, never signed-candidate validation.
- * Only the owned ASAR copy admits loopback. UI, worker, schema transport,
- * OS credential custody, SQLite and process recovery remain real. */
+ * Only the owned ASAR copy admits loopback and fixtures native dialog answers
+ * and relaunch spawning. UI, worker, transport, OS custody, SQLite, native
+ * restore/exit and independent relaunch remain real. */
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
 import { launchPackagedDesktop, closePackagedDesktop } from './smoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
-import { createMcpLoopbackSmokePackage } from './mcpLoopbackSmokePackage.mjs'
+import { createMcpFixturePackage } from './mcpLoopbackSmokePackage.mjs'
+import { routineMcpLocalRestorePatches } from './routineMcpLocalRestoreFixture.mjs'
 import { startContributionMcpSmokePeer } from './contributionMcpSmokeFixture.mjs'
 import { COMMISSION_MESSAGES_SMOKE_MODEL, startCommissionMessagesSmokeFixture } from './commissionMessagesSmokeFixture.mjs'
 import { MCP_CREDENTIAL_FILE } from './mcpCredentialVault.mjs'
@@ -137,15 +139,27 @@ async function approve(review, panel) {
   await expect(panel.locator('[data-commission-mcp-status]')).toHaveText('Approval active', { timeout: WAIT })
 }
 
-export async function smokePackagedCommissionMcp({ executable = packagedExecutable() } = {}) {
+async function waitForExit(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return { code: child.exitCode, signal: child.signalCode }
+  return new Promise((resolve, reject) => {
+    const finish = (error, value) => { clearTimeout(timer); child.off('error', failed); child.off('close', closed); error ? reject(error) : resolve(value) }
+    const failed = error => finish(error)
+    const closed = (code, signal) => finish(null, { code, signal })
+    const timer = setTimeout(() => finish(new Error('Native Commission restore did not exit within its bound')), WAIT)
+    child.once('error', failed); child.once('close', closed)
+  })
+}
+
+export async function smokePackagedCommissionMcp({ executable = packagedExecutable(), extraPatches = [] } = {}) {
   if (process.platform !== 'darwin') {
     console.log('[desktop-commission-mcp-smoke] not run: OS-backed package acceptance requires macOS')
     return
   }
-  const profile = await mkdtemp(join(tmpdir(), 'agent-commons-commission-mcp-'))
+  const profile = await realpath(await mkdtemp(join(tmpdir(), 'agent-commons-commission-mcp-')))
   const evidenceRoot = join(ROOT, '.data', 'desktop-commission-mcp-smoke')
   await mkdir(evidenceRoot, { recursive: true })
   const evidenceDirectory = await mkdtemp(join(evidenceRoot, 'run-'))
+  const restoreControl = join(profile, 'restore-control.json'), restoreTrace = join(profile, 'restore.jsonl')
   let run, fixturePackage, peer, model
   let stage = 'original-package-loopback-refusal'
   try {
@@ -162,7 +176,11 @@ export async function smokePackagedCommissionMcp({ executable = packagedExecutab
     await closePackagedDesktop(run); run = undefined
 
     stage = 'disposable-copy-and-real-OS-custody'
-    fixturePackage = await createMcpLoopbackSmokePackage(executable)
+    fixturePackage = await createMcpFixturePackage(executable, [
+      { path: 'scripts/start.mjs', before: 'allowLoopback: false,', after: 'allowLoopback: true,' },
+      ...routineMcpLocalRestorePatches({ controlPath: restoreControl, tracePath: restoreTrace }),
+      ...extraPatches,
+    ])
     run = await launchPackagedDesktop(fixturePackage.executable, profile)
     ;({ page, origin } = run)
     assert.equal((await api(page, '/me')).user.id, owner.user.id)
@@ -265,7 +283,7 @@ export async function smokePackagedCommissionMcp({ executable = packagedExecutab
     await assertQuiet(peer, model, 1, 1)
     assert.equal((await api(page, workPath)).find(row => row.id === second.id).status, 'open')
 
-    stage = 'pending-effect-before-process-exit'
+    stage = 'pending-effect-before-graceful-shutdown'
     peer.setMode('hold')
     await approve(await reviewApproval(panel, fixture), panel)
     await expect.poll(() => peer.calls.length, { timeout: WAIT }).toBe(2)
@@ -277,9 +295,10 @@ export async function smokePackagedCommissionMcp({ executable = packagedExecutab
     const exitOrigin = origin
     await closePackagedDesktop(run); run = undefined
     await assert.rejects(fetch(`${exitOrigin}/api/v1/me`, { signal: AbortSignal.timeout(1_000) }))
-    assert.equal(stored(profile, 'commissionMcp').claims.find(row => row.id === pending.id).attempt.status, 'pending', 'process exit leaves submitted work pending for startup recovery')
+    assert.equal(stored(profile, 'commissionMcp').claims.find(row => row.id === pending.id).attempt.status, 'uncertain',
+      'graceful shutdown durably records uncertainty before process exit')
 
-    stage = 'rendered-startup-uncertainty-without-replay'
+    stage = 'rendered-shutdown-uncertainty-after-relaunch-without-replay'
     peer.setMode('success')
     run = await launchPackagedDesktop(fixturePackage.executable, profile)
     ;({ page, origin } = run)
@@ -289,7 +308,7 @@ export async function smokePackagedCommissionMcp({ executable = packagedExecutab
     const recovered = await api(page, permissionPath)
     assert.equal(recovered.claims.find(row => row.id === pending.id).status, 'uncertain')
     assert.equal(stored(profile, 'commissionMcp').claims.find(row => row.id === pending.id).attempt.status, 'uncertain')
-    assert.equal(recovered.policy.approval, null, 'startup withdraws the interrupted grant')
+    assert.equal(recovered.policy.approval, null, 'shutdown withdraws the interrupted grant')
     assert.deepEqual(recovered.claims.find(row => row.id === completed.id), completed)
     assert.equal((await api(page, `/agents/${fixture.agent.id}`)).contributions, 1, 'uncertainty awards no completion credit')
     await panel.locator(`[data-commission-mcp-receipt="${pending.id}"]`).scrollIntoViewIfNeeded()
@@ -309,28 +328,124 @@ export async function smokePackagedCommissionMcp({ executable = packagedExecutab
     assert.ok(peer.authorizations.length > 0 && peer.authorizations.every(row => row.value === `Bearer ${BEARER}`))
     await assertSecretStorage(profile, reference)
 
-    stage = 'managed-backup-retains-private-history'
-    const final = stored(profile, 'commissionMcp')
-    assert.deepEqual(final.claims.map(row => row.attempt.status), ['done', 'uncertain', 'done'])
+    stage = 'managed-backup-with-pending-and-unclaimed-work'
+    const completedHistory = stored(profile, 'commissionMcp').claims
+    assert.deepEqual(completedHistory.map(row => row.attempt.status), ['done', 'uncertain', 'done'])
+    peer.setMode('hold')
+    await approve(await reviewApproval(panel, fixture), panel)
+    const fourth = await postWork('Native Commission pending work before restore')
+    await expect.poll(() => peer.calls.length, { timeout: WAIT }).toBe(4)
+    const restorePending = stored(profile, 'commissionMcp').claims.find(row => row.work.itemId === fourth.id)
+    assert.equal(restorePending.phase, 'effect')
+    assert.equal(restorePending.attempt.status, 'pending')
+    assert.equal(stored(profile, 'usageReservations').find(row => row.id === restorePending.id).status, 'settled')
+    // One Agent's live capacity keeps this item unclaimed, not merely pending.
+    const fifth = await postWork('Native Commission queued work before restore')
+    await assertQuiet(peer, model, 4, 4)
+    assert.equal(stored(profile, 'commissionMcp').claims.some(row => row.work.itemId === fifth.id), false,
+      'queued work has no claim before restore')
+    assert.equal((await api(page, workPath)).find(row => row.id === fifth.id).status, 'open')
     const backup = await page.evaluate(() => window.agentCommonsDesktop.data.createBackup())
     assert.match(backup.fileName, /^backup-[A-Za-z0-9.-]+\.json$/)
     const bytes = await readFile(join(profile, 'snapshots', backup.fileName))
     assert.equal(bytes.includes(Buffer.from(BEARER)), false)
     const portable = JSON.parse(bytes)
-    assert.deepEqual(portable.commissionMcp, final)
+    assert.deepEqual(portable.commissionMcp, stored(profile, 'commissionMcp'))
     assert.deepEqual(portable.usageReservations, stored(profile, 'usageReservations'))
+    assert.ok(portable.commissionMcp.policies.some(row => row.policy.approval !== null))
+    assert.equal(portable.commissionMcp.claims.find(row => row.id === restorePending.id).attempt.status, 'pending')
+    assert.equal(portable.commissionMcp.claims.some(row => row.work.itemId === fifth.id), false)
+    assert.equal(model.preparations.length, 4)
+    const custody = await readFile(join(profile, MCP_CREDENTIAL_FILE))
+    const { artifact: marker } = await api(page, '/artifacts', {
+      name: 'Post-backup Commission restoration marker', kind: 'doc', body: 'Only the fresh safety copy should retain this.',
+    }, { status: 201 })
+    const beforeRestore = new Set(await readdir(join(profile, 'snapshots')))
+    await writeFile(restoreControl, JSON.stringify({ selectedPath: join(profile, 'snapshots', backup.fileName) }), { mode: 0o600 })
+
+    stage = 'actual-native-managed-restore-and-safety-copy'
+    await page.goto(`${origin}/customize`)
+    const exiting = waitForExit(run.child)
+    void exiting.catch(() => {})
+    await page.getByRole('button', { name: 'Restore backup…', exact: true }).click()
+    assert.deepEqual(await exiting, { code: 0, signal: null }, 'real native Commission restore exits successfully')
+    await run.browser.close().catch(() => {})
+    run = undefined
+    const ceremony = (await readFile(restoreTrace, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+    assert.deepEqual(ceremony.map(row => row.event), ['picker', 'confirmation', 'relaunch', 'exit'])
+    assert.equal(ceremony[1].options.defaultId, 0)
+    await writeFile(join(evidenceDirectory, 'restore-trace.json'), JSON.stringify(ceremony, null, 2), { mode: 0o600 })
+    const safetyNames = (await readdir(join(profile, 'snapshots'))).filter(name => !beforeRestore.has(name))
+    assert.equal(safetyNames.length, 1, 'native restore makes exactly one fresh safety copy')
+    const safety = JSON.parse(await readFile(join(profile, 'snapshots', safetyNames[0]), 'utf8'))
+    assert.ok(safety.graph.extraArtifacts.some(row => row.id === marker.id), 'safety backup preserves post-backup work')
+    assert.equal(JSON.stringify(safety).includes(BEARER), false)
+
+    stage = 'restored-SQLite-without-pending-or-queued-replay'
+    peer.setMode('success')
+    run = await launchPackagedDesktop(fixturePackage.executable, profile)
+    ;({ page, origin } = run)
+    assert.equal((await api(page, '/me')).user.id, owner.user.id)
+    assert.equal((await api(page, '/artifacts')).some(row => row.id === marker.id), false,
+      'actual restore replaced SQLite with the chosen earlier state')
+    assert.deepEqual(await readFile(join(profile, AUTH_ROOT_FILE)), authRoot)
+    assert.deepEqual(await readFile(join(profile, MCP_CREDENTIAL_FILE)), custody)
+    const restored = await api(page, permissionPath)
+    assert.equal(restored.policy.approval, null)
+    assert.equal(restored.claims.find(row => row.id === restorePending.id).status, 'uncertain')
+    const restoredRegistry = stored(profile, 'commissionMcp')
+    const interruptedClaim = restoredRegistry.claims.find(row => row.id === restorePending.id)
+    assert.equal(interruptedClaim.phase, 'effect')
+    assert.ok(Number.isSafeInteger(interruptedClaim.attempt.finishedAt) && interruptedClaim.attempt.finishedAt >= restorePending.attempt.startedAt)
+    assert.deepEqual(interruptedClaim, { ...restorePending, attempt: {
+      ...restorePending.attempt, status: 'uncertain', finishedAt: interruptedClaim.attempt.finishedAt,
+    } }, 'restore retains every interrupted receipt field except its terminal status and finish time')
+    for (const claim of completedHistory) assert.deepEqual(restoredRegistry.claims.find(row => row.id === claim.id), claim)
+    assert.deepEqual(stored(profile, 'usageReservations'), portable.usageReservations, 'settled preparation usage remains exact')
+    for (const work of [second, fourth, fifth]) {
+      const workId = `commission-work-${createHash('sha256').update(JSON.stringify([fixture.project.id, work.id])).digest('hex')}`
+      assert.ok(restoredRegistry.blockedWork.includes(workId),
+        'restored open work is blocked even without an earlier claim')
+      assert.equal((await api(page, workPath)).find(row => row.id === work.id).status, 'open')
+    }
+    assert.equal(restoredRegistry.claims.some(row => row.work.itemId === fifth.id), false)
+    assert.equal((await api(page, `/agents/${fixture.agent.id}`)).contributions, 2)
+    panel = await openPanel(page, origin, fixture)
+    await expect(panel.locator(`[data-commission-mcp-receipt="${restorePending.id}"]`)).toContainText('Outcome uncertain')
+    await approve(await reviewApproval(panel, fixture), panel)
+    await assertQuiet(peer, model, 4, 4)
+    assert.equal(stored(profile, 'commissionMcp').claims.some(row => row.work.itemId === fifth.id), false,
+      'reapproval cannot admit restored queued work')
+    const sixth = await postWork('Native Commission new work after explicit restore')
+    await expect.poll(async () => (await api(page, permissionPath)).claims.find(row => row.work.itemId === sixth.id)?.status, { timeout: WAIT }).toBe('done')
+    assert.equal(peer.calls.length, 5)
+    assert.equal(model.preparations.length, 5)
+    assert.equal((await api(page, `/agents/${fixture.agent.id}`)).contributions, 3,
+      'only new work can earn another completion after restore')
+    await panel.getByRole('button', { name: 'Refresh review', exact: true }).click()
+    await panel.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: join(evidenceDirectory, 'explicit-restore.png'), fullPage: true })
+    await panel.getByRole('button', { name: 'Revoke approval', exact: true }).click()
+    await expect(panel.locator('[data-commission-mcp-status]')).toHaveText('No unattended approval')
+    await assertSecretStorage(profile, reference)
+    assert.ok(peer.authorizations.every(row => row.value === `Bearer ${BEARER}`))
+    const final = stored(profile, 'commissionMcp')
+    assert.deepEqual(final.claims.map(row => row.attempt.status), ['done', 'uncertain', 'done', 'uncertain', 'done'])
     await writeFile(join(evidenceDirectory, 'evidence.json'), `${JSON.stringify({
       checkedAt: new Date().toISOString(), sourceAsarSha256: fixturePackage.sourceAsarSha256,
       fixtureAsarSha256: fixturePackage.fixtureAsarSha256, toolCalls: peer.calls.length,
       modelPreparations: model.preparations.length, claimStatuses: final.claims.map(row => row.attempt.status),
       originalPackagePublicOnly: true, realOsVaultAndAuthentication: true,
       renderedApprovalAndRevoke: true, privateReceiptWithPublicProvenance: true,
-      pendingOnDiskBeforeRelaunch: true, renewedApprovalDoesNotReplay: true, durableBackup: true,
-      scope: 'Unsigned local macOS disposable ASAR copy; only startup loopback admission changed. Not public-service, paid-provider, signed/notarized, Intel or explicit-restore acceptance.',
+      pendingBeforeShutdown: true, uncertainOnDiskBeforeRelaunch: true, renewedApprovalDoesNotReplay: true, durableBackup: true,
+      actualNativeManagedRestore: true, freshSafetyCopy: true, restoredUnclaimedWorkDoesNotReplay: true,
+      scope: 'Unsigned local macOS disposable ASAR copy; startup loopback, native dialog answers and relaunch spawning are fixtures. Actual restore, SQLite replacement and exit are real. Not actual OS-dialog, public-service, paid-provider, signed/notarized or Intel acceptance.',
     }, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
-    console.log(`[desktop-commission-mcp-smoke] owner approval/revoke · real worker/model/MCP · OS vault · private SQLite claims and usage · public provenance · full signed-in relaunch · uncertain work never replays after renewal · backup · evidence ${evidenceDirectory}`)
+    console.log(`[desktop-commission-mcp-smoke] owner approval/revoke · real worker/model/MCP · OS vault · private SQLite claims and usage · public provenance · signed-in relaunch · native managed restore and safety copy · pending and unclaimed work never replay · evidence ${evidenceDirectory}`)
   } catch (error) {
     if (run?.page) await run.page.screenshot({ path: join(evidenceDirectory, 'failure.png'), fullPage: true }).catch(() => {})
+    const trace = await readFile(restoreTrace, 'utf8').catch(() => '')
+    await writeFile(join(evidenceDirectory, 'restore-failure-trace.jsonl'), trace, { mode: 0o600 }).catch(() => {})
     throw new Error(`Packaged Commission MCP failed during ${stage}: ${String(error.message).replaceAll(BEARER, '<redacted>')} (evidence: ${evidenceDirectory})`, { cause: error })
   } finally {
     try { await closePackagedDesktop(run) }

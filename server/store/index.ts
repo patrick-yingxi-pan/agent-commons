@@ -2469,7 +2469,7 @@ const commissionMcpExecution = new CommissionMcpExecution({
   budgetAvailable: (source, id) => usageRegistry.reservationWithinLimits(id, source.scope.tenantId,
     [source.commission.grant, source.agent.budget, source.parentProvider?.plan, source.provider?.plan]),
   providerConfig: id => store.providerConfig(id), generate: generateCommissionMcpArguments,
-  execute: (tenant, call, allowed, person) => executeBoundMcpCall(store, tenant, call, allowed, person),
+  execute: (tenant, call, allowed, person, signal) => executeBoundMcpCall(store, tenant, call, allowed, person, signal),
   lease: (source, work) => {
     if (!source.project.guardianId) return { valid: () => true, release: () => {} }
     const resource = subGoalKey(source.project.guardianId, work.subGoal)

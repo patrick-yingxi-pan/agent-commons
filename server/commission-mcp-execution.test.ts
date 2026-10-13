@@ -83,7 +83,7 @@ function fixture(overrides: Partial<CommissionMcpExecutionPort> = {}, initialExt
       reviewHash: facts.reviewHash, execution, expiresAt: now + 60_000, maxWorkItems: 3, tools: [toolPermission] },
     { configurationRevision: current.policy.approval?.configurationRevision ?? 4, reviewHash: facts.reviewHash, now, connection: () => connection })
   }
-  return { port, registry, usage, run: (itemId = work.itemId, timeout = 60_000) => new CommissionMcpExecution(port, timeout).run(commissionId, tenantId, ownerUserId, itemId),
+  return { port, registry, usage, run: (itemId = work.itemId, timeout = 60_000, signal?: AbortSignal) => new CommissionMcpExecution(port, timeout).run(commissionId, tenantId, ownerUserId, itemId, signal),
     allowanceTokens: prepareCommissionMcpInput({ agent, project, work, tool: definition, permission: toolPermission }).allowanceTokens,
     setWork: (next: CommissionMcpWork | undefined) => { currentWork = next }, setAgent: (next: Agent) => { currentAgent = next },
     setProject: (next: Project) => { currentProject = next }, setCommission: (next: Commission) => { currentCommission = next },
@@ -235,6 +235,130 @@ test('authority callback becomes false after an await and prevents the external 
   assert.equal(result.phase, 'effect')
   assert.equal(result.phase === 'effect' && result.attempt.status, 'done')
   assert.equal(completed, false)
+})
+
+test('caller shutdown signal reaches MCP execution after a durable pending receipt is committed', async () => {
+  const controller = new AbortController()
+  let observedSignal: AbortSignal | undefined
+  let leaseHeld = false
+  let completed = false
+  const f = fixture({
+    lease: () => {
+      leaseHeld = true
+      return { valid: () => true, release: () => { leaseHeld = false } }
+    },
+    execute: async (_tenant, _call, allowed, _user, signal) => {
+      observedSignal = signal
+      assert.equal(leaseHeld, true)
+      const claim = f.registry.claim(projectId, work.itemId)!
+      assert.equal(claim.phase, 'effect')
+      if (claim.phase === 'effect') assert.equal(claim.attempt.status, 'pending')
+      assert.equal(allowed(), true)
+      return { status: 'done', summary: 'complete', result: { resultType: 'complete', content: [{ type: 'text', text: 'found' }], isError: false } }
+    },
+    complete: () => { completed = true },
+  })
+  await f.run(work.itemId, 60_000, controller.signal)
+  assert.equal(observedSignal, controller.signal)
+  assert.equal(completed, true)
+  assert.equal(leaseHeld, false)
+})
+
+test('abort keeps the Guardian lease until ignored MCP work settles and records uncertainty without replay', { timeout: 5_000 }, async () => {
+  const controller = new AbortController()
+  const gate = deferred<void>()
+  const started = deferred<void>()
+  let f!: ReturnType<typeof fixture>
+  let released = false
+  let allowedAfterAbort: boolean | undefined
+  let completed = false
+  let executions = 0
+  let generations = 0
+  f = fixture({
+    lease: () => ({ valid: () => true, release: () => { released = true } }),
+    generate: async (_input, _provider, _signal, report) => {
+      generations++
+      report({ inputTokens: 12, outputTokens: 4 })
+      return structuredClone(call)
+    },
+    execute: async (_tenant, _call, allowed, _user, signal) => {
+      executions++
+      assert.equal(signal, controller.signal)
+      const claim = f.registry.claim(projectId, work.itemId)!
+      assert.equal(claim.phase, 'effect')
+      if (claim.phase === 'effect') assert.equal(claim.attempt.status, 'pending')
+      assert.equal(f.usage.snapshotReservations()[0]?.status, 'settled')
+      started.resolve()
+      await gate.promise
+      allowedAfterAbort = allowed()
+      return { status: 'uncertain', summary: 'remote outcome unknown' }
+    },
+    complete: () => { completed = true },
+  })
+  const running = f.run(work.itemId, 60_000, controller.signal)
+  try {
+    await started.promise
+    controller.abort()
+    assert.equal(released, false)
+    const pending = f.registry.claim(projectId, work.itemId)!
+    assert.equal(pending.phase, 'effect')
+    if (pending.phase === 'effect') assert.equal(pending.attempt.status, 'pending')
+  } finally {
+    gate.resolve()
+  }
+  const result = await running
+  assert.equal(allowedAfterAbort, false)
+  assert.equal(released, true)
+  assert.equal(result.phase, 'effect')
+  assert.equal(result.phase === 'effect' && result.attempt.status, 'uncertain')
+  assert.equal(f.usage.snapshotReservations()[0]?.status, 'settled')
+  assert.equal(completed, false)
+  assert.equal(f.registry.policy({ tenantId, ownerUserId, projectId, commissionId, agentId })?.policy.approval, null)
+  assert.deepEqual(await f.run(work.itemId), result)
+  assert.equal(generations, 1)
+  assert.equal(executions, 1)
+})
+
+test('verified MCP completion arriving after abort remains a known receipt without completing or replaying work', { timeout: 5_000 }, async () => {
+  const controller = new AbortController()
+  const gate = deferred<void>()
+  const started = deferred<void>()
+  let f!: ReturnType<typeof fixture>
+  let executions = 0
+  let generations = 0
+  let completed = false
+  f = fixture({
+    generate: async (_input, _provider, _signal, report) => {
+      generations++
+      report({ inputTokens: 12, outputTokens: 4 })
+      return structuredClone(call)
+    },
+    execute: async (_tenant, _call, allowed, _user, signal) => {
+      executions++
+      assert.equal(signal, controller.signal)
+      assert.equal(allowed(), true)
+      started.resolve()
+      await gate.promise
+      assert.equal(allowed(), false)
+      return { status: 'done', summary: 'remote completion verified', result: { resultType: 'complete', content: [{ type: 'text', text: 'done' }], isError: false } }
+    },
+    complete: () => { completed = true },
+  })
+  const running = f.run(work.itemId, 60_000, controller.signal)
+  try {
+    await started.promise
+    controller.abort()
+  } finally {
+    gate.resolve()
+  }
+  const result = await running
+  assert.equal(result.phase, 'effect')
+  assert.equal(result.phase === 'effect' && result.attempt.status, 'done')
+  assert.equal(completed, false)
+  assert.equal(f.usage.snapshotReservations()[0]?.status, 'settled')
+  assert.deepEqual(await f.run(work.itemId), result)
+  assert.equal(generations, 1)
+  assert.equal(executions, 1)
 })
 
 test('model transport ambiguity keeps an uncertain usage hold and closes without MCP I/O', async () => {

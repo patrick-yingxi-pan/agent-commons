@@ -90,7 +90,7 @@ export function createCommissionMcpRunner(
       ;(timer as unknown as { unref?: () => void }).unref?.()
       drain()
     },
-    /** Stop admission, abort preparation, and keep every active slot occupied
+    /** Stop admission, abort preparation/effects, and keep every active slot occupied
      * until the executor promise settles, even when the executor ignores abort. */
     async stop(): Promise<void> {
       if (!stopped) {

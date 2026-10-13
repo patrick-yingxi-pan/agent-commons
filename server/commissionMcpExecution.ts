@@ -26,7 +26,7 @@ export interface CommissionMcpExecutionPort extends CommissionMcpHostPort {
   /** Held across both asynchronous phases, under an execution-specific holder. */
   lease(source: CommissionMcpLiveSource, work: CommissionMcpWork): CommissionMcpLease
   generate(input: PreparedCommissionMcpInput, provider: ProviderConfig, signal: AbortSignal, usage: ModelUsageHandler): Promise<McpBoundToolCall>
-  execute(tenantId: string, call: McpBoundToolCall, allowed: () => boolean, userId: string): Promise<McpBoundExecutionOutcome>
+  execute(tenantId: string, call: McpBoundToolCall, allowed: () => boolean, userId: string, signal?: AbortSignal): Promise<McpBoundExecutionOutcome>
   /** Called inside the same durable transition as a successful receipt, and
    * only when the exact work and live authority still match. */
   complete(claim: StoredCommissionMcpClaim): void
@@ -139,7 +139,7 @@ export class CommissionMcpExecution {
       let outcome: McpBoundExecutionOutcome
       try {
         outcome = await p.execute(claim.permission.tenantId, call,
-          () => !signal?.aborted && lease.valid() && this.current(claim, call), userId)
+          () => !signal?.aborted && lease.valid() && this.current(claim, call), userId, signal)
       } catch (error) {
         if (!p.ready()) throw error
         outcome = { status: 'uncertain', summary: 'The external call did not return a verified result.' }

@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-12. The standing goal remains production readiness for Agent
+Reviewed 2026-10-13. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -46,7 +46,46 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: explicit Routine Stop
+## Current checkpoint: Commission native restore and shutdown
+
+Autonomous direction (2026-10-13): prove Commission MCP's existing explicit
+restore boundary through the actual native lifecycle, not only a backup read.
+The isolated unsigned-arm64 walk must select the chosen managed backup, retain
+a fresh safety copy, exit and independently relaunch signed in. Exact known
+claims and settled model usage survive; pending effects become uncertain and
+restored open work remains blocked after reapproval, including work with no
+claim before backup. New distinct work must still execute. Only native dialog
+answers and relaunch spawning are fixtures, alongside existing loopback admission.
+
+Review also found that the Commission executor dropped its caller AbortSignal
+at the MCP effect boundary. Link it to the existing bound executor so shutdown
+can cancel an outstanding HTTP request promptly. This is not a new Commission
+Stop UI or a promise to undo external effects. Retain the Guardian lease and
+worker slot until settlement; preserve known late results without completion
+credit, and keep unknown effects uncertain and non-replayable. Unit and actual
+loopback HTTP regression checks were watched fail before the fix.
+
+Native positive acceptance passes at
+`.data/desktop-commission-mcp-smoke/run-LVOW2U` on source ASAR
+`b6641246b5a1ac31b8d654f5dba7dec01fca9dca6b3425e7cf426e7fcc64c36a`.
+Five preparations and five calls produce three known completions and two
+uncertain receipts; restored queued work has no claim and never executes.
+The first run correctly exposed the old expectation that graceful shutdown
+would leave a pending row; it now asserts durable uncertainty before exit.
+The next run refused the fixture's noncanonical temporary path without changing
+data; canonicalizing only the fixture path passed the unchanged product guard.
+Review strengthened exact interrupted-receipt comparison and observation of
+the unclaimed queue across a full worker cadence before backup.
+
+Disabling just the registry guard in a disposable copy did not defeat the
+independent queue/admission checks. With all three restored-work guards disabled,
+the native negative control failed at the actual fifth call where four were
+expected (`.data/desktop-commission-mcp-smoke/run-Wzicsh`). No product guard was
+removed. The final full local and desktop verifiers remain pre-landing gates;
+their outcomes are recorded in the checkpoint handoff. Signed/Intel, actual
+OS-dialog, public-service and paid-provider acceptance remain separate.
+
+## Completed checkpoint: explicit Routine Stop
 
 Autonomous direction (2026-10-12): expose Stop for one exact queued or active
 Routine run, separate from Pause (future cadence) and Revoke (tool authority).
@@ -106,13 +145,12 @@ non-template conditional or aliased uses of the forwarded button face could
 escape sizing checks. Complete recipient-use accounting now rejects those
 forms as well. Interrupted full runs remain failed gates, not partial acceptance.
 Landing requires complete `E2E_TRACE=1 npm run verify` on the frozen revision,
-followed by diff review; the checkpoint handoff records that final outcome.
+followed by diff review. The exact staged revision subsequently passed all five
+local lanes and 682 browser tests in 735.2 seconds; final diff review passed and
+`db24037f` was committed and pushed to `main`. The working tree was clean.
 
-The next independent local checkpoint is packaged Commission MCP explicit
-restore. Existing native evidence reads a backup but never restores it; the
-follow-up must prove the actual selection/confirmation, safety copy, process
-exit, signed-in relaunch, exact restored private claims/usage and restored-work
-execution fencing. Routine restore evidence does not close that Commission gate.
+The independent Commission checkpoint above now extends the earlier backup-only
+evidence through native restore. Routine evidence alone did not close that gate.
 
 ## Current milestone: person-approved local Routine MCP
 
@@ -189,9 +227,9 @@ paid-provider acceptance remain separate gates.
 
 The previous Commission acceptance checkpoint landed as `05640a35`: the complete
 desktop verifier passed, followed by all five local verifier lanes and all 673
-browser tests in 725.1 seconds. Packaged Commission explicit-restore acceptance
-remains required, alongside the new local Routine path; it is not closed by the
-restart-only result. Apple residence/account-region input remains pending, and
+browser tests in 725.1 seconds. That restart-only result did not close packaged
+Commission explicit restore; the current checkpoint above adds that evidence.
+Apple residence/account-region input remains pending, and
 release/live-service prerequisites above are unchanged.
 
 ## Completed implementation milestone: explicit Commission MCP execution
@@ -275,9 +313,10 @@ The [acceptance record](acceptance/commission-mcp-2026-10-12.md) identifies the
 artifact, evidence and limits. Same-workspace person isolation remains covered
 by the browser test's explicit identity fixture, not this native walk: the
 production account switch deliberately has no arbitrary tenant re-mint.
-Explicit restore, public TLS/services, paid providers, signing and native Intel
-are not accepted by this local-peer result. Final local and desktop verifiers
-remain mandatory before landing this acceptance checkpoint.
+The current checkpoint above adds explicit native restore and linked shutdown
+abort to this earlier acceptance. Public TLS/services, paid providers, signing,
+native Intel and actual restore-dialog acceptance remain separate. Final local
+and desktop verifiers remain mandatory before landing each checkpoint.
 
 ### Earlier account-change verifier checkpoint
 

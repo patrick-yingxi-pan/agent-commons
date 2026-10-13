@@ -34,9 +34,9 @@ function reply(response: ServerResponse, id: unknown, result: unknown) {
   response.end(JSON.stringify({ jsonrpc: '2.0', id, result }))
 }
 
-function modelReply(text: string) {
+function modelReply(text: string, usage = { input_tokens: 17, output_tokens: 9 }) {
   return { id: 'msg_fixture', type: 'message', role: 'assistant', model: 'fixture-model', content: [{ type: 'text', text }],
-    stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 17, output_tokens: 9 } }
+    stop_reason: 'end_turn', stop_sequence: null, usage }
 }
 
 function modelPeer(onMessage: (request: Record<string, unknown>) => Promise<unknown> | unknown) {
@@ -76,6 +76,39 @@ function mcpPeer(onCall: () => unknown = () => ({ resultType: 'complete', conten
       }
     })
   }).then(row => ({ ...row, methods }))
+}
+
+function hangingCallMcpPeer() {
+  const methods: string[] = []
+  const callStarted = deferred<void>()
+  const responseClosed = deferred<void>()
+  return peer((request, response) => {
+    const chunks: Buffer[] = []
+    request.on('data', chunk => chunks.push(Buffer.from(chunk)))
+    request.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, any>
+      methods.push(String(body.method))
+      if (body.method === 'server/discover') {
+        reply(response, body.id, { supportedVersions: [MCP_MODERN_VERSION], capabilities: { tools: {} } })
+      } else if (body.method === 'tools/call') {
+        response.on('close', () => responseClosed.resolve())
+        callStarted.resolve()
+        // Hold this response open until the client aborts its in-flight request.
+      } else {
+        response.writeHead(400)
+        response.end()
+      }
+    })
+  }).then(row => ({ ...row, methods, callStarted: callStarted.promise, responseClosed: responseClosed.promise }))
+}
+
+async function within<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([promise, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), timeoutMs)
+    })])
+  } finally { if (timer !== undefined) clearTimeout(timer) }
 }
 
 function fixture(modelURL: string, mcpURL: string, opts: { tenantId?: string; ownerUserId?: string; sharedProject?: boolean;
@@ -255,6 +288,56 @@ test('store host runner generates once, executes one admitted tool, records a pr
     model.server.closeAllConnections?.(); mcp.server.closeAllConnections?.()
     await Promise.all([model.server, mcp.server].map(server => new Promise<void>(resolve => server.close(() => resolve()))))
     configureMcpRuntime(oldRuntime)
+  }
+})
+
+test('Commission shutdown aborts the live HTTP MCP call, records uncertainty, and never replays it', { timeout: 10_000 }, async () => {
+  const oldRuntime = mcpRuntimeConfiguration()
+  configureMcpRuntime({ ...oldRuntime, allowLoopback: true })
+  let modelCalls = 0
+  const model = await modelPeer(() => { modelCalls++; return modelReply(textArguments, { input_tokens: 17_000, output_tokens: 9_000 }) })
+  const mcp = await hangingCallMcpPeer()
+  let running: Promise<Awaited<ReturnType<typeof store.runCommissionMcpWork>>> | undefined
+  try {
+    const f = fixture(model.url, mcp.url)
+    const beforeCredit = store.getAgent(f.agent.id)!.contributions ?? 0
+    const beforeUsage = store.usage(undefined, f.tenantId).limits.find(row => row.label === '5-hour limit')!.pct
+    const controller = new AbortController()
+    running = store.runCommissionMcpWork(f.commission.id, f.tenantId, f.ownerUserId, f.item.id, controller.signal)
+    await within(mcp.callStarted, 5_000, 'the real tools/call request never reached the local MCP peer')
+
+    const abortedAt = Date.now()
+    controller.abort()
+    await within(mcp.responseClosed, 2_000, 'aborting Commission work did not close the outstanding HTTP response')
+    assert.ok(Date.now() - abortedAt < 2_000, 'the HTTP response closes promptly after shutdown abort')
+    const result = await within(running, 2_000, 'the interrupted Commission execution did not settle promptly')
+    assert.equal(result.phase, 'effect')
+    assert.equal(result.phase === 'effect' && result.attempt.status, 'uncertain', 'a submitted call without a response has an unknown result')
+    assert.equal(modelCalls, 1)
+    assert.equal(mcp.methods.filter(method => method === 'tools/call').length, 1)
+
+    const review = store.commissionMcpReview(f.commission.id, f.tenantId, f.ownerUserId)!
+    assert.equal(review.policy.approval, null, 'uncertainty withdraws this exact approval')
+    const receipt = review.claims.find(row => row.work.itemId === f.item.id)!
+    assert.equal(receipt.status, 'uncertain')
+    const work = store.listOpenSubGoals(f.projectId, f.tenantId).find(row => row.id === f.item.id)!
+    assert.equal(work.status, 'open')
+    assert.equal(work.commissionResolution, undefined)
+    assert.equal(store.getAgent(f.agent.id)!.contributions ?? 0, beforeCredit)
+    const afterUsage = store.usage(undefined, f.tenantId).limits.find(row => row.label === '5-hour limit')!.pct
+    assert.ok(afterUsage > beforeUsage, 'settled model usage remains metered after the MCP call is interrupted')
+
+    const replay = await store.runCommissionMcpWork(f.commission.id, f.tenantId, f.ownerUserId, f.item.id)
+    assert.equal(replay.phase, 'effect')
+    assert.equal(replay.phase === 'effect' && replay.attempt.status, 'uncertain')
+    assert.equal(modelCalls, 1, 'represented uncertain work does not prepare again')
+    assert.equal(mcp.methods.filter(method => method === 'tools/call').length, 1, 'represented uncertain work does not call MCP again')
+  } finally {
+    try {
+      model.server.closeAllConnections?.(); mcp.server.closeAllConnections?.()
+      await Promise.all([model.server, mcp.server].map(server => new Promise<void>(resolve => server.close(() => resolve()))))
+      if (running) await within(running.catch(() => undefined), 2_000, 'cleanup did not settle the interrupted Commission execution').catch(() => {})
+    } finally { configureMcpRuntime(oldRuntime) }
   }
 })
 
