@@ -1,5 +1,6 @@
 import type { Identity } from '../../contract/identity.ts'
 import type { FolderSnapshotFile } from '../../contract/localFolderSnapshot.mjs'
+import { isLocalFolderFileSelection, parseLocalFolderFileListing, parseLocalFolderFilePreview, type LocalFolderFileSelection } from '../../contract/localFolderBrowse.mjs'
 import { isLocalConnectionId, isLocalFolderCapture, type LocalFolderCapture, type LocalFolderConnection, type NativeLocalFolderBridge } from '../../contract/localFolderCapture.ts'
 import { accountGeneration, activeAccount } from './account.ts'
 import { AccountSwitchedError } from './client.ts'
@@ -101,4 +102,34 @@ export async function captureLocalFolder(
     : { version: 1, snapshotId, capturedAt: new Date().toISOString(), connectionId: id, files: result.files }
   if (!isLocalFolderCapture(snapshot)) throw new Error('The selected folder did not return a complete supported snapshot.')
   return structuredClone(snapshot)
+}
+
+/** List bounded visible path metadata only; the native recursive-tree reader
+ * applies its own traversal limits and excludes hidden paths. */
+export async function readLocalFolderFiles(id: string, scope: DesktopBridgeScope = window) {
+  const identity = captureLocalFolderSource()
+  if (!isLocalConnectionId(id)) throw new Error('This local folder connection is unavailable.')
+  const port = bridge(scope)
+  if (typeof port.files !== 'function') throw new Error('Path browsing is unavailable on this device. Choose a folder again or use its saved snapshot.')
+  const result = await port.files(id, identity.source)
+  identity.assertCurrent()
+  const listing = parseLocalFolderFileListing(result)
+  if (!listing) throw new Error('The device returned an invalid folder path listing.')
+  return structuredClone(listing)
+}
+
+/** Read one explicit, previously listed relative path as a bounded whole-text
+ * preview. Device and contract validation are both required before display. */
+export async function readLocalFolderFile(id: string, path: string, scope: DesktopBridgeScope = window) {
+  const identity = captureLocalFolderSource()
+  if (!isLocalConnectionId(id)) throw new Error('This local folder connection is unavailable.')
+  const selection: LocalFolderFileSelection = { path }
+  if (!isLocalFolderFileSelection(selection)) throw new Error('Choose a valid folder path.')
+  const port = bridge(scope)
+  if (typeof port.file !== 'function') throw new Error('File preview is unavailable on this device. Choose a folder again or use its saved snapshot.')
+  const result = await port.file(id, selection, identity.source)
+  identity.assertCurrent()
+  const preview = parseLocalFolderFilePreview(result)
+  if (!preview || preview.path !== path) throw new Error('The device returned an invalid folder file preview.')
+  return structuredClone(preview)
 }

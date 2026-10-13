@@ -83,6 +83,31 @@ test('draft identity adopts into the materialized session only when its exact ID
   assert.deepEqual(core.adoptAttachments(unrelatedSession, ['another-file-id']), [])
 })
 
+test('acknowledged saved-copy projection counts only known IDs present in actual attachments', () => {
+  const core = createLocalGitSavedCopiesCore()
+  const target = scope(9, 'session')
+  const id = core.submit(target, 'connection', 4, () => 'saved-copy-id', () => undefined).id
+  const unrelated = core.submit(target, 'connection', 5, () => 'pending-copy-id', () => undefined).id
+  assert.deepEqual(core.acknowledgedIds(target, ['other-context-id']), [])
+  assert.deepEqual(core.acknowledgedIds(target, [id, 'other-context-id']), [id])
+  assert.equal(core.acknowledgedIds(target, [id, unrelated]).length, 2,
+    'each recognized receipt contributes only when its exact attachment ID is authoritative')
+})
+
+test('acknowledged saved-copy counts stay isolated by source kind', () => {
+  const core = createLocalGitSavedCopiesCore()
+  const target = scope(9, 'session')
+  const create = (source: 'git' | 'folder') => core.submit(
+    target, 'same-connection', 4, () => `${source}-copy-id`, () => undefined, source,
+  ).id
+  const gitId = create('git')
+  const folderId = create('folder')
+
+  assert.notEqual(gitId, folderId, 'identical receipt coordinates from distinct sources remain distinct intents')
+  assert.deepEqual(core.acknowledgedIds(target, [gitId, folderId], 'git'), [gitId])
+  assert.deepEqual(core.acknowledgedIds(target, [gitId, folderId], 'folder'), [folderId])
+})
+
 test('adoption retains account fencing even when another account presents the same attachment ID', () => {
   const core = createLocalGitSavedCopiesCore()
   const draft = scope(7, 'draft')

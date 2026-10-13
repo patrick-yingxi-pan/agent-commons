@@ -2,6 +2,7 @@ import type { FolderSnapshotFile } from './localFolderSnapshot.mjs'
 import { isClosedRecord } from './closedRecord.mjs'
 import { isFolderSnapshotFiles } from './localFolderSnapshot.mjs'
 import { isFolderTreeFiles } from './localFolderTree.mjs'
+import type { LocalFolderFileListing, LocalFolderFilePreview, LocalFolderFileSelection } from './localFolderBrowse.mjs'
 import { isServedCaptureTime, isSnapshotId } from './servedTextSnapshot.ts'
 
 /** Opaque correlation identity only; it is never a server-side filesystem key. */
@@ -40,7 +41,8 @@ export interface LocalFolderAccountSource {
   namespace: string
 }
 
-/** Renderer-safe native bridge projections: no filesystem path crosses IPC. */
+/** Renderer-safe native bridge projections: absolute native paths never cross IPC;
+ * selective browsing uses only bounded visible root-relative names. */
 export interface LocalFolderConnection {
   id: LocalFolderConnectionId
   name: string
@@ -55,6 +57,8 @@ export interface NativeLocalFolderBridge {
   ): Promise<{ status: 'cancelled' } | { status: 'connected'; connection: LocalFolderConnection }>
   snapshot(id: LocalFolderConnectionId, source: LocalFolderAccountSource): Promise<{ name: string; files: FolderSnapshotFile[] }>
   snapshotTree?(id: LocalFolderConnectionId, source: LocalFolderAccountSource): Promise<{ name: string; files: FolderSnapshotFile[] }>
+  files?(id: LocalFolderConnectionId, source: LocalFolderAccountSource): Promise<LocalFolderFileListing>
+  file?(id: LocalFolderConnectionId, selection: LocalFolderFileSelection, source: LocalFolderAccountSource): Promise<LocalFolderFilePreview>
   disconnect(id: LocalFolderConnectionId, source: LocalFolderAccountSource): Promise<void>
 }
 

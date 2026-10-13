@@ -14,6 +14,8 @@ import {
   localFolderTreeAvailable,
   localFoldersAvailable,
   readLocalFolders,
+  readLocalFolderFile,
+  readLocalFolderFiles,
 } from './localFolders.ts'
 
 const ada: Identity = { user: { id: 'ada', name: 'Ada' }, tenant: { id: 'tenant-a', name: 'A', kind: 'org' }, role: 'member', local: false, via: 'session' }
@@ -51,6 +53,8 @@ function bridge(overrides: Partial<NativeLocalFolderBridge> = {}, calls: unknown
     async connect(input, source) { calls.push(['connect', input, source]); return { status: 'connected', connection: { ...row, remembered: input.remember } } },
     async snapshot(connectionId, source) { calls.push(['snapshot', connectionId, source]); return { name: '/private/native/path', files: [file] } },
     async snapshotTree(connectionId, source) { calls.push(['snapshotTree', connectionId, source]); return { name: 'Research', files: [{ ...file, name: 'src/notes.txt' }] } },
+    async files(connectionId, source) { calls.push(['files', connectionId, source]); return { version: 1, visited: 2, hiddenCount: 0, directoryCount: 1, files: [{ path: 'notes.txt', kind: 'file' }] } },
+    async file(connectionId, selection, source) { calls.push(['file', connectionId, selection, source]); return { version: 1, path: selection.path, sizeBytes: 0, snapshot: { text: '' } } },
     async disconnect(connectionId, source) { calls.push(['disconnect', connectionId, source]) },
     ...overrides,
   }
@@ -153,6 +157,35 @@ test('recursive capture is explicit, validates root-relative files, and refuses 
   } finally { cleanup() }
 })
 
+test('local file browsing is a separate explicit bounded listing and exact preview capability', async () => {
+  try {
+    select(ada)
+    const calls: unknown[][] = []
+    const scope = scopeFor(bridge({}, calls))
+    assert.deepEqual(await readLocalFolderFiles(id, scope), {
+      version: 1, visited: 2, hiddenCount: 0, directoryCount: 1, files: [{ path: 'notes.txt', kind: 'file' }],
+    })
+    assert.deepEqual(calls, [['files', id, { userId: 'ada', namespace: 'tenant-a' }]], 'listing never reads file content or captures a snapshot')
+    assert.deepEqual(await readLocalFolderFile(id, 'notes.txt', scope), { version: 1, path: 'notes.txt', sizeBytes: 0, snapshot: { text: '' } })
+    assert.deepEqual(calls[1], ['file', id, { path: 'notes.txt' }, { userId: 'ada', namespace: 'tenant-a' }])
+    await assert.rejects(readLocalFolderFile(id, '../outside.txt', scope), /valid folder path/)
+    assert.equal(calls.length, 2, 'an invalid path never reaches the native bridge')
+  } finally { cleanup() }
+})
+
+test('folder browse fails closed when optional native file methods are absent or return malformed data', async () => {
+  try {
+    select(ada)
+    const noBrowser = scopeFor(bridge({ files: undefined, file: undefined }))
+    await assert.rejects(readLocalFolderFiles(id, noBrowser), /Path browsing is unavailable/)
+    await assert.rejects(readLocalFolderFile(id, 'notes.txt', noBrowser), /File preview is unavailable/)
+    const badListing = scopeFor(bridge({ files: async () => ({ version: 1, visited: 1, hiddenCount: 0, directoryCount: 0, files: [] }) }))
+    await assert.rejects(readLocalFolderFiles(id, badListing), /invalid folder path listing/)
+    const mismatchedPreview = scopeFor(bridge({ file: async () => ({ version: 1, path: 'other.txt', sizeBytes: 0, snapshot: { text: '' } }) }))
+    await assert.rejects(readLocalFolderFile(id, 'notes.txt', mismatchedPreview), /invalid folder file preview/)
+  } finally { cleanup() }
+})
+
 test('late native list, connect, disconnect, and capture results are fenced after account change', async () => {
   try {
     select(ada)
@@ -160,15 +193,21 @@ test('late native list, connect, disconnect, and capture results are fenced afte
     const connectPending = deferred<{ status: 'connected'; connection: LocalFolderConnection }>()
     const disconnectPending = deferred<void>()
     const capturePending = deferred<{ name: string; files: Array<typeof file> }>()
+    const browseListingPending = deferred<{ version: 1; visited: number; hiddenCount: number; directoryCount: number; files: Array<{ path: string; kind: 'file' | 'unsupported' }> }>()
+    const browsePreviewPending = deferred<{ version: 1; path: string; sizeBytes: number; snapshot: { text: string } | { omitted: 'too-large' | 'unsupported' | 'unreadable' } }>()
     let listMode = false
     let connectMode = false
     let disconnectMode = false
     let captureMode = false
+    let browseListingMode = false
+    let browsePreviewMode = false
     const port = bridge({
       list: () => listMode ? listPending.promise : Promise.resolve([row]),
       connect: () => connectMode ? connectPending.promise : Promise.resolve({ status: 'connected', connection: row }),
       disconnect: () => disconnectMode ? disconnectPending.promise : Promise.resolve(),
       snapshot: () => captureMode ? capturePending.promise : Promise.resolve({ name: 'Research', files: [file] }),
+      files: () => browseListingMode ? browseListingPending.promise : Promise.resolve({ version: 1, visited: 1, hiddenCount: 0, directoryCount: 0, files: [{ path: 'notes.txt', kind: 'file' as const }] }),
+      file: (_connection, selection) => browsePreviewMode ? browsePreviewPending.promise : Promise.resolve({ version: 1, path: selection.path, sizeBytes: 0, snapshot: { text: '' } }),
     })
     const scope = scopeFor(port)
     const losesIdentity = () => { refreshAccount({ userId: 'grace', tenantId: 'tenant-b' }); setData(keys.me, grace) }
@@ -199,5 +238,21 @@ test('late native list, connect, disconnect, and capture results are fenced afte
     losesIdentity()
     capturePending.resolve({ name: 'Research', files: [file] })
     await assert.rejects(capture, AccountSwitchedError)
+
+    select(ada)
+    browseListingMode = true
+    const browseListing = readLocalFolderFiles(id, scope)
+    losesIdentity()
+    browseListingPending.resolve({ version: 1, visited: 1, hiddenCount: 0, directoryCount: 0, files: [{ path: 'notes.txt', kind: 'file' }] })
+    await assert.rejects(browseListing, AccountSwitchedError)
+
+    select(ada)
+    browseListingMode = false
+    await readLocalFolderFiles(id, scope)
+    browsePreviewMode = true
+    const browsePreview = readLocalFolderFile(id, 'notes.txt', scope)
+    losesIdentity()
+    browsePreviewPending.resolve({ version: 1, path: 'notes.txt', sizeBytes: 0, snapshot: { text: '' } })
+    await assert.rejects(browsePreview, AccountSwitchedError)
   } finally { cleanup() }
 })

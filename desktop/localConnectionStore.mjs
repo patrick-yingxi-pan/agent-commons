@@ -4,6 +4,7 @@ import { secureStorageAvailable } from './credentialVault.mjs'
 import { inspectLocalFolderRoot, readLocalFolderSnapshot } from './localFolderReader.mjs'
 import { openPrivateTextFile } from './privateTextFile.mjs'
 import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview } from '../contract/localGitBrowse.mjs'
+import { isLocalFolderFileSelection, parseLocalFolderFileListing, parseLocalFolderFilePreview } from '../contract/localFolderBrowse.mjs'
 
 export const LOCAL_CONNECTION_FILE = 'local-connections.v1.json'
 export const LOCAL_GIT_CONNECTION_FILE = 'git-connections.v1.json'
@@ -67,7 +68,7 @@ function assertStorage(storage, platform) {
 export async function openLocalConnectionStore({
   filePath, storage, platform = process.platform,
   inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, captureTree, review: reviewGit,
-  browse: browseGit, preview: previewGit, fsApi,
+  browse: browseGit, preview: previewGit, browseFiles: browseFolder, previewFile: previewFolder, fsApi,
   connectionKind = 'folder', validateRoot = validRoot,
 } = {}) {
   try {
@@ -183,10 +184,19 @@ export async function openLocalConnectionStore({
         return read(owner, id, reviewGit)
       },
       async files(owner, id) {
-        if (connectionKind !== 'git' || typeof browseGit !== 'function') fail()
+        if (connectionKind === 'git') {
+          if (typeof browseGit !== 'function') fail()
+          return read(owner, id, async (root, context) => {
+            const result = await browseGit(root, context)
+            const parsed = parseLocalGitFileListing(result)
+            if (!parsed) fail()
+            return parsed
+          })
+        }
+        if (typeof browseFolder !== 'function') fail()
         return read(owner, id, async (root, context) => {
-          const result = await browseGit(root, context)
-          const parsed = parseLocalGitFileListing(result)
+          const result = await browseFolder(root, context)
+          const parsed = parseLocalFolderFileListing(result)
           if (!parsed) fail()
           return parsed
         })
@@ -194,11 +204,15 @@ export async function openLocalConnectionStore({
       async file(owner, id, selection) {
         // Freeze a validated detached selection before it can wait for the
         // serial admission queue or compete for a read slot.
-        if (connectionKind !== 'git' || typeof previewGit !== 'function' || !isLocalGitFileSelection(selection)) fail()
+        const isGit = connectionKind === 'git'
+        if ((isGit ? typeof previewGit !== 'function' || !isLocalGitFileSelection(selection)
+          : typeof previewFolder !== 'function' || !isLocalFolderFileSelection(selection))) fail()
         const detached = { path: selection.path }
         return read(owner, id, async (root, context) => {
-          const result = await previewGit(root, { ...context, selection: detached })
-          const parsed = parseLocalGitFilePreview(result)
+          const result = isGit
+            ? await previewGit(root, { ...context, selection: detached })
+            : await previewFolder(root, detached, context)
+          const parsed = isGit ? parseLocalGitFilePreview(result) : parseLocalFolderFilePreview(result)
           if (!parsed || parsed.path !== detached.path) fail()
           return parsed
         })

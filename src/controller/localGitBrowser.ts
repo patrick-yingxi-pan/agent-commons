@@ -18,6 +18,7 @@ export const localGitBrowser = createLocalGitBrowserCore({
 })
 
 onAccountSwitch(() => localGitBrowser.clear())
+localGitConnections.subscribeDisconnect(id => localGitBrowser.dismiss(id))
 localGitConnections.subscribe(() => {
   const connections = localGitConnections.get()
   if (connections.status === 'ready') localGitBrowser.retain(connections.rows.map(row => row.id))

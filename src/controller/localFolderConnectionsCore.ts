@@ -19,6 +19,7 @@ export function createLocalFolderConnections(deps: {
   let epoch = 0
   let read: Promise<void> | undefined
   const listeners = new Set<() => void>()
+  const disconnectListeners = new Set<(id: string) => void>()
   const publish = (next: LocalFolderConnectionState) => { state = next; for (const listener of listeners) listener() }
   const reload = (): Promise<void> => {
     if (state.busy) return Promise.resolve()
@@ -37,6 +38,7 @@ export function createLocalFolderConnections(deps: {
     const issued = ++epoch
     publish({ ...state, busy: true, error: null })
     try {
+      if (removing) for (const listener of disconnectListeners) listener(removing)
       const added = await act()
       if (issued !== epoch) return null
       publish({ status: 'ready', busy: false, error: null,
@@ -51,6 +53,10 @@ export function createLocalFolderConnections(deps: {
   return {
     get: () => state,
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } },
+    subscribeDisconnect: (listener: (id: string) => void) => {
+      disconnectListeners.add(listener)
+      return () => { disconnectListeners.delete(listener) }
+    },
     reload,
     connect: (remember: boolean) => change(() => deps.connect(remember)),
     disconnect: (id: string) => change(() => deps.disconnect(id), id),

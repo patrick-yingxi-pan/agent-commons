@@ -6,6 +6,11 @@ import {
   MAX_FOLDER_SNAPSHOT_FILE_BYTES,
 } from '../contract/localFolderSnapshot.mjs'
 import { snapshotFolderFiles } from '../contract/localFolderSnapshotBuilder.mjs'
+import { MAX_FOLDER_TREE_ENTRIES } from '../contract/localFolderTree.mjs'
+import { MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES, parseLocalFolderFileListing, parseLocalFolderFilePreview,
+  isLocalFolderFileSelection } from '../contract/localFolderBrowse.mjs'
+import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
+import { listLocalFolderTree, readGitFile } from './gitFileRead.mjs'
 
 const ROOT_ERROR = 'The selected folder is unavailable or has changed.'
 const ABORT_ERROR = 'The folder capture was cancelled.'
@@ -150,7 +155,7 @@ async function readEntry(filesystem, root, expectedRootVersion, file, signal) {
   }
 }
 
-function createLocalFolderReader({ filesystem = defaultFilesystem } = {}) {
+function createLocalFolderReader({ filesystem = defaultFilesystem, listTree = listLocalFolderTree, readFile = readGitFile } = {}) {
   return {
     /** Pin a user-selected real directory without returning its path to the renderer. */
     async inspectLocalFolderRoot(selectedPath) {
@@ -201,6 +206,70 @@ function createLocalFolderReader({ filesystem = defaultFilesystem } = {}) {
         throw new Error(ROOT_ERROR)
       }
     },
+
+    /** List bounded visible metadata only; root versions remain native-private. */
+    async readLocalFolderFiles(root, { signal, executable } = {}) {
+      const options = { signal, ...(executable ? { executable } : {}) }
+      try {
+        throwIfAborted(signal)
+        const before = await listTree(root, options)
+        const files = before.entries.filter((entry) => entry.kind !== 'D').map((entry) => ({
+          path: entry.name,
+          kind: entry.kind === 'F' && isLocalTextFileName(entry.name.slice(entry.name.lastIndexOf('/') + 1)) ? 'file' : 'unsupported',
+        }))
+        if (before.entries.length > MAX_FOLDER_TREE_ENTRIES) throw new ChangedDuringCapture(ROOT_ERROR)
+        const result = parseLocalFolderFileListing({ version: 1, visited: before.visited,
+          hiddenCount: before.visited - before.entries.length, directoryCount: before.directoryCount, files })
+        if (!result) throw new ChangedDuringCapture(ROOT_ERROR)
+        throwIfAborted(signal)
+        const after = await listTree(root, options)
+        if (JSON.stringify(before) !== JSON.stringify(after)) throw new ChangedDuringCapture(ROOT_ERROR)
+        return result
+      } catch (error) {
+        if (error instanceof AbortedCapture || signal?.aborted) throw new Error(ABORT_ERROR)
+        throw new Error(ROOT_ERROR)
+      }
+    },
+
+    /** Re-admit one selected path against the current bounded tree before any body read. */
+    async readLocalFolderFile(root, selection, { signal, executable } = {}) {
+      if (!isLocalFolderFileSelection(selection)) throw new Error(ROOT_ERROR)
+      const detached = { path: selection.path }
+      const options = { signal, ...(executable ? { executable } : {}) }
+      try {
+        throwIfAborted(signal)
+        const before = await listTree(root, options)
+        const entry = before.entries.find((candidate) => candidate.name === detached.path)
+        if (!entry) throw new ChangedDuringCapture(ROOT_ERROR)
+        const supportedName = isLocalTextFileName(entry.name.slice(entry.name.lastIndexOf('/') + 1))
+        let snapshot
+        let sizeBytes = entry.sizeBytes
+        if (entry.kind !== 'F' || !supportedName) {
+          snapshot = { omitted: 'unsupported' }
+        } else if (entry.sizeBytes > MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES) {
+          snapshot = { omitted: 'too-large' }
+        } else {
+          const read = await readFile(root, detached.path, { ...options, maxBytes: MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES })
+          if (read.status === 'file' && read.version === entry.version && read.sizeBytes === entry.sizeBytes) {
+            const text = decodeLocalTextPreview(read.bytes)
+            snapshot = text === undefined ? { omitted: 'unsupported' } : { text }
+          } else if (read.status === 'unreadable') {
+            snapshot = { omitted: 'unreadable' }
+          } else {
+            throw new ChangedDuringCapture(ROOT_ERROR)
+          }
+        }
+        throwIfAborted(signal)
+        const after = await listTree(root, options)
+        if (JSON.stringify(before) !== JSON.stringify(after)) throw new ChangedDuringCapture(ROOT_ERROR)
+        const result = parseLocalFolderFilePreview({ version: 1, path: detached.path, sizeBytes, snapshot })
+        if (!result) throw new ChangedDuringCapture(ROOT_ERROR)
+        return result
+      } catch (error) {
+        if (error instanceof AbortedCapture || signal?.aborted) throw new Error(ABORT_ERROR)
+        throw new Error(ROOT_ERROR)
+      }
+    },
   }
 }
 
@@ -212,6 +281,14 @@ export function inspectLocalFolderRoot(selectedPath) {
 
 export function readLocalFolderSnapshot(root, options) {
   return defaultReader.readLocalFolderSnapshot(root, options)
+}
+
+export function readLocalFolderFiles(root, options) {
+  return defaultReader.readLocalFolderFiles(root, options)
+}
+
+export function readLocalFolderFile(root, selection, options) {
+  return defaultReader.readLocalFolderFile(root, selection, options)
 }
 
 /** Build an equivalent reader around a filesystem adapter, primarily for deterministic race tests. */

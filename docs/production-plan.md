@@ -23,8 +23,8 @@ covers clean onboarding, encrypted provider-key custody and signed-in relaunch.
 These are implemented-boundary checks against a local model peer, not evidence
 of a successful paid-provider call.
 
-The previous corrected frozen-tree verifier completed successfully: all five
-lanes and 671 browser tests passed in 725.0 seconds before `863628b1` landed.
+The latest corrected frozen-tree verifier completed successfully: all five
+lanes and 689 browser tests passed in 750.3 seconds before `db44a107` landed.
 The earlier interrupted attempt remains failure evidence only. Actual native
 local-MCP Cancel/Allow and the complete authored-peer workflow are separately
 accepted on the artifact named in the [native review](acceptance/native-mcp-stdio-2026-10-12.md).
@@ -46,7 +46,69 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: explicit local Git tracked-file browsing
+## Current checkpoint: select files from a connected local folder
+
+Autonomous direction (2026-10-13): complete the local-folder intake workflow
+with explicit path listing, one-file preview and a separate Attach saved copy.
+The current picker only offers all-folder flat or recursive captures, despite
+the native boundary already supporting bounded descriptor-relative enumeration.
+Selective intake lets a person review the actual text and add only the file
+needed for a conversation. No new service, credential, write or standing model
+authority is required.
+
+The macOS listing uses the existing visible-tree bounds (16 levels, 64
+directories, 500 raw entries) without reading file bodies. The native reader
+re-admits a selected relative path against the current pinned tree before a
+whole supported-text preview up to 64 KiB; hidden paths and links grant no body
+reads. Native identities stay private. Listing and preview share the existing
+owner, account, disconnect and shutdown fences and remain transient. A shared
+browser/state funnel preserves the Git workflow while keeping folder scope and
+privacy copy truthful. The selected saved copy reuses ordinary file context and
+exact receipt identity; Attach never rereads the source or calls a model.
+Project context remains descriptive and offers no byte-discarding Attach.
+Existing whole-folder capture and explicit Refresh remain unchanged.
+
+Acceptance must cover contract and native refusal/bounds, metadata-only listing,
+exact selected reads, account/dismiss/disconnect lifetimes, pending attachment
+identity, five-viewport detail/picker/Project rendering and packaged source-edit
+then source-absent relaunch. New locks must be watched fail. The complete local
+verifier, UI sweep, packaged desktop gate and final diff review remain required
+before landing. Signed/Intel/live-service evidence is still separate.
+
+The first focused browser and packaged desktop runs both failed on a real
+integration defect: the exact file copy was acknowledged and marked Added, but
+the Folder picker footer counted only whole-folder snapshots. The shared-view
+extraction also drifted Git loading/refresh labels and hid its next-send
+disclosure inside collapsed details. These failed runs are diagnostic evidence,
+not acceptance. Repair uses the shared receipt projection and browser view,
+with source-specific counts and visible attachment consequences (UI-228).
+The packaged import-closure lock also failed until the new folder contract was
+included in both the source expectation and real ASAR verification.
+
+Final review found that a failed Disconnect retained its disabled transient
+preview. Both Folder and Git registries now announce an accepted disconnect
+before awaiting native work; the shared browser dismisses only that source and
+fences late reads. Saved attachments and uncertain connection recovery remain
+unchanged. The focused controller regression failed before repair and passes
+24/24 afterward. The rendered held/failing-disconnect walk also caught an early
+return in its test fixture; successful simulated acknowledgement now removes
+the fixture row before returning, without weakening any assertion.
+
+Acceptance on the corrected product revision: all 15 focused Folder/Git browser
+tests pass; the complete UI sweep passes 135/135 cells with zero violations or
+skips; and the complete unsigned arm64 `npm run desktop:verify` exits 0. Review
+of 15 folder, five Git, five packaged saved-copy and 20 affected general-sweep
+screenshots found no confirmed visual blocker. A suspected 375px popover-margin
+issue was not confirmed by the added five-viewport geometry checks.
+The real packaged folder walk proves metadata-only listing, exact selected
+preview, no attachment/model call from browsing, saving the shown bytes after
+the original changes, saved-only model input, and exact state after relaunch
+with the original source removed. Native chooser answers remain test fixtures;
+this is not signed/Intel, actual OS-dialog, paid-provider or public-service
+acceptance. The final complete local verifier and post-test diff review remain
+mandatory before main delivery; no GitHub CI is used.
+
+## Completed checkpoint: explicit local Git tracked-file browsing
 
 Add a read-only browse step to the existing local Git repository page. On macOS,
 the person explicitly lists tracked paths and chooses one supported text file to
@@ -109,8 +171,10 @@ than the rightmost column. The dependency expectation is repaired. The Sheet
 walk now selects the explicit column heading and asserts its table-header
 precondition; that assertion was watched fail against the old selector. Scroll
 containment and timeouts are unchanged. The interrupted verifier and diagnostic
-runs do not count as acceptance; the final frozen revision requires a complete
-trace-enabled local verifier before landing.
+runs do not count as acceptance. The final frozen revision passed the complete
+trace-enabled local verifier: all five lanes and 689 browser tests in 750.3
+seconds. Post-verifier diff review found no confirmed blocker; `db44a107` was
+committed and pushed to main with a clean worktree.
 
 ## Completed checkpoint: person-approved local Commission programs
 

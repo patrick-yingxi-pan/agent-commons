@@ -20,6 +20,7 @@ import { readLocalGitReview } from './localGitReview.mjs'
 import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs'
 import { gitFileExecutable } from './gitFileRead.mjs'
 import { readLocalFolderTree } from './localFolderTree.mjs'
+import { readLocalFolderFiles, readLocalFolderFile } from './localFolderReader.mjs'
 import { createImageOcrHost } from './imageOcrHost.mjs'
 import { imageOcrExecutable } from './imageOcr.mjs'
 import { createPdfOcrHost } from './pdfOcrHost.mjs'
@@ -170,6 +171,12 @@ async function startDesktop() {
       storage: safeStorage,
       ...(process.platform === 'darwin' ? {
         captureTree: (root, options) => readLocalFolderTree(root, {
+          ...options, executable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
+        }),
+        browseFiles: (root, options) => readLocalFolderFiles(root, {
+          ...options, executable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
+        }),
+        previewFile: (root, selection, options) => readLocalFolderFile(root, selection, {
           ...options, executable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }),
         }),
       } : {}),

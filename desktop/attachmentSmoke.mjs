@@ -18,6 +18,7 @@ import { runArtifactPdfOcrSmoke } from './artifactPdfOcrSmoke.mjs'
 import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
 import { smokePackagedLocalGit } from './localGitSmoke.mjs'
+import { smokeLocalFolderBrowse, verifyLocalFolderBrowseRelaunch } from './localFolderBrowseSmoke.mjs'
 import { settledAttachmentPreview } from '../e2e/accessibility-helpers.ts'
 import { docBlockId } from '../server/documentIdentity.ts'
 
@@ -1306,6 +1307,11 @@ export async function smokePackagedAttachments({ executable }) {
     assert.equal(JSON.stringify(endpoint.requests).includes('NESTED_HIDDEN_SECRET'), false)
     assert.equal(JSON.stringify(endpoint.requests).includes('SYMLINK_MUST_NOT_BE_READ'), false)
 
+    const folderBrowseReceipt = treeCapture ? await smokeLocalFolderBrowse({
+      run, root: ephemeralFolder, connectionId: ephemeralConnectionId,
+      providerId: session.providerId, endpoint, openPicker: openNativeLocalFolderPicker,
+    }) : null
+    await page.goto(`${origin}${localSessionPath}`)
     await chooseNativeConnectionFolder(run.app, rememberedFolder)
     localPicker = await openNativeLocalFolderPicker(page)
     const rememberedCheckbox = localPicker.native.getByRole('checkbox', { name: /Remember this connection/ })
@@ -1486,6 +1492,7 @@ export async function smokePackagedAttachments({ executable }) {
     await rm(pptxPath)
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
+    if (folderBrowseReceipt) await verifyLocalFolderBrowseRelaunch(page, folderBrowseReceipt)
     await page.goto(`${origin}${localSessionPath}`)
     nativeConnections = await readNativeConnections(page)
     assert.deepEqual(nativeConnections.map(({ name, remembered }) => [name, remembered]), [

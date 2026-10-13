@@ -9,6 +9,8 @@ const channels = {
   connect: 'agent-commons:local-folders:connect',
   snapshot: 'agent-commons:local-folders:snapshot',
   snapshotTree: 'agent-commons:local-folders:snapshot-tree',
+  files: 'agent-commons:local-folders:files',
+  file: 'agent-commons:local-folders:file',
   disconnect: 'agent-commons:local-folders:disconnect',
 }
 const gitChannels = {
@@ -58,20 +60,27 @@ test('local folder preload methods unwrap successful replies and preserve exact 
     [{ id: 'LOCAL_A', name: 'Project', remembered: true }],
     { status: 'cancelled' },
     { name: 'Project', files: [{ name: 'note.txt', sizeBytes: 4, snapshot: { text: 'body' } }] },
+    { version: 1, visited: 1, hiddenCount: 0, directoryCount: 0, files: [{ path: 'note.txt', kind: 'file' }] },
+    { version: 1, path: 'note.txt', sizeBytes: 4, snapshot: { text: 'body' } },
     undefined,
   ]
-  const { bridge, calls } = loadPreload(values.map((value) => ({ value: { ok: true, value } })))
+  const { bridge, calls } = loadPreload(values.map((value) => ({ value: { ok: true, value } })), 'darwin')
   const folders = bridge.context.localFolders
 
   assert.deepEqual(await folders.list(sourceIdentity), values[0])
   const options = { remember: false }
   assert.deepEqual(await folders.connect(options, sourceIdentity), values[1])
   assert.deepEqual(await folders.snapshot('LOCAL_A', sourceIdentity), values[2])
+  assert.deepEqual(await folders.files('LOCAL_A', sourceIdentity), values[3])
+  const selection = { path: 'note.txt' }
+  assert.deepEqual(await folders.file('LOCAL_A', selection, sourceIdentity), values[4])
   assert.equal(await folders.disconnect('LOCAL_A', sourceIdentity), undefined)
   assert.deepEqual(calls, [
     [channels.list, sourceIdentity],
     [channels.connect, options, sourceIdentity],
     [channels.snapshot, 'LOCAL_A', sourceIdentity],
+    [channels.files, 'LOCAL_A', sourceIdentity],
+    [channels.file, 'LOCAL_A', selection, sourceIdentity],
     [channels.disconnect, 'LOCAL_A', sourceIdentity],
   ])
 })
@@ -81,6 +90,8 @@ test('all local folder methods map safe failure codes to fixed user guidance', a
     ['list', () => [sourceIdentity]],
     ['connect', () => [{ remember: true }, sourceIdentity]],
     ['snapshot', () => ['LOCAL_A', sourceIdentity]],
+    ['files', () => ['LOCAL_A', sourceIdentity]],
+    ['file', () => ['LOCAL_A', { path: 'note.txt' }, sourceIdentity]],
     ['disconnect', () => ['LOCAL_A', sourceIdentity]],
   ]
   const cases = [
@@ -91,7 +102,7 @@ test('all local folder methods map safe failure codes to fixed user guidance', a
 
   for (const [method, args] of methods) {
     for (const [code, expectedMessage] of cases) {
-      const { bridge, calls } = loadPreload([{ value: { ok: false, error: code } }])
+      const { bridge, calls } = loadPreload([{ value: { ok: false, error: code } }], 'darwin')
       await assert.rejects(bridge.context.localFolders[method](...args()), (error) => {
         assert.equal(error.message, expectedMessage)
         assert.equal(error.cause, undefined)
@@ -107,6 +118,8 @@ test('all local folder methods map safe failure codes to fixed user guidance', a
 test('recursive folder capture is exposed only on macOS and keeps the old snapshot signature intact', async () => {
   const linux = loadPreload([], 'linux')
   assert.equal(Object.hasOwn(linux.bridge.context.localFolders, 'snapshotTree'), false)
+  assert.equal(Object.hasOwn(linux.bridge.context.localFolders, 'files'), false)
+  assert.equal(Object.hasOwn(linux.bridge.context.localFolders, 'file'), false)
 
   const tree = { name: 'Project', files: [{ name: 'nested/note.txt', sizeBytes: 4, snapshot: { text: 'body' } }] }
   const { bridge, calls } = loadPreload([{ value: { ok: true, value: tree } }], 'darwin')
@@ -121,6 +134,21 @@ test('recursive folder capture is exposed only on macOS and keeps the old snapsh
     return true
   })
   assert.deepEqual(denied.calls, [[channels.snapshotTree, 'LOCAL_A', sourceIdentity]])
+})
+
+test('selective folder browse methods are macOS-only and pass only exact relative selections on fixed channels', async () => {
+  const linux = loadPreload([], 'linux')
+  assert.equal(Object.hasOwn(linux.bridge.context.localFolders, 'files'), false)
+  assert.equal(Object.hasOwn(linux.bridge.context.localFolders, 'file'), false)
+  const listing = { version: 1, visited: 1, hiddenCount: 0, directoryCount: 0, files: [{ path: 'note.txt', kind: 'file' }] }
+  const preview = { version: 1, path: 'note.txt', sizeBytes: 4, snapshot: { text: 'body' } }
+  const { bridge, calls } = loadPreload([
+    { value: { ok: true, value: listing } }, { value: { ok: true, value: preview } },
+  ], 'darwin')
+  assert.deepEqual(await bridge.context.localFolders.files('LOCAL_A', sourceIdentity), listing)
+  const selection = { path: 'note.txt' }
+  assert.deepEqual(await bridge.context.localFolders.file('LOCAL_A', selection, sourceIdentity), preview)
+  assert.deepEqual(calls, [[channels.files, 'LOCAL_A', sourceIdentity], [channels.file, 'LOCAL_A', selection, sourceIdentity]])
 })
 
 test('raw IPC rejection and malformed or prototype-shaped replies become path-free unavailable errors', async () => {

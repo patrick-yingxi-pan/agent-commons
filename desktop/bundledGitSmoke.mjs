@@ -31,6 +31,7 @@ const BASELINE_MODULES = [
   'desktop/bundledGit.mjs',
   'contract/localGitSnapshot.mjs',
   'contract/localGitBrowse.mjs',
+  'contract/localFolderBrowse.mjs',
   'contract/localFolderSnapshot.mjs',
   'contract/localFolderTree.mjs',
   'contract/localFolderSnapshotBuilder.mjs',

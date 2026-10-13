@@ -36,6 +36,7 @@ import type { TypeId } from './AddContextButton.tsx'
 import { CheckboxRow } from './Checkbox.tsx'
 import type { ServedFolderScope } from '../../contract/servedFolderSnapshot.ts'
 import { servedFolderFileCount } from '../lib/folderPresentation.ts'
+import { localGitSavedCopies, localGitSavedCopyScope } from '../controller/localGitSavedCopies.ts'
 
 export function WorkflowBody({
   type,
@@ -82,7 +83,7 @@ export function WorkflowBody({
   const catalog = useContextCatalog(type === 'connector')
 
   if (type === 'folder') {
-    return <FolderPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFolderIds} />
+    return <FolderPicker maxRows={maxRows} onAdd={onAttach} onClose={onClose} addedIds={addedFolderIds} attachments={attachments} sessionId={sessionId} referenceCopiesEnabled={referenceCopiesEnabled} />
   }
   if (type === 'repo') {
     return (
@@ -554,30 +555,40 @@ function FolderPicker({
   onAdd,
   onClose,
   addedIds,
+  attachments,
+  sessionId,
+  referenceCopiesEnabled,
 }: {
   maxRows: number
   onAdd: (ctx: AddedContext) => void
   onClose: () => void
   /** Folder source-keys already in the shared workspace — rows for these read ✓ Added. */
   addedIds: readonly string[]
+  attachments: Attachment[]
+  sessionId?: string
+  referenceCopiesEnabled: boolean
 }) {
   const selection = useFsPickerSource()
   const { active } = selection
   const hostFs = useUiHostFs(active?.kind === 'ui-host')
+  const intentScope = localGitSavedCopyScope(sessionId)
+  const acknowledgedSavedCopyCount = referenceCopiesEnabled
+    ? localGitSavedCopies.acknowledgedIds(intentScope, attachments.map(item => item.id), 'folder').length
+    : 0
 
   return (
     <div className="pb-1">
       <FsSourcePanel selection={selection}>
         {active?.kind === 'ui-host' ? (
           hostFs.module ? window.agentCommonsDesktop?.context?.localFolders
-        ? <hostFs.module.NativeLocalFolderPicker onAdd={onAdd} addedIds={addedIds} onClose={onClose} />
+        ? <hostFs.module.NativeLocalFolderPicker onAdd={onAdd} addedIds={addedIds} attachments={attachments} intentScope={intentScope} allowSavedCopies={referenceCopiesEnabled} onClose={onClose} />
             : <UiHostFolderPicker hostFs={hostFs.module} onAdd={onAdd} />
             : <UiHostLoadNotice state={hostFs} label="folder access" />
         ) : active ? (
           <ServedFolderPicker key={active.id} source={active} maxRows={Math.max(2, maxRows - 1)} addedIds={addedIds} onAdd={onAdd} />
         ) : null}
       </FsSourcePanel>
-      <MultiAddFooter count={addedIds.length} onDone={onClose} />
+      <MultiAddFooter count={addedIds.length + acknowledgedSavedCopyCount} onDone={onClose} />
     </div>
   )
 }

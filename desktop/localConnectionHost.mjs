@@ -3,6 +3,7 @@ import { LocalConnectionError } from './localConnectionStore.mjs'
 import { parseLocalGitReview } from '../contract/localGitReview.mjs'
 import { isFolderTreeFiles } from '../contract/localFolderTree.mjs'
 import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview } from '../contract/localGitBrowse.mjs'
+import { isLocalFolderFileSelection, parseLocalFolderFileListing, parseLocalFolderFilePreview } from '../contract/localFolderBrowse.mjs'
 
 const ID = /^LOCAL_[A-F0-9]{32}$/
 const fail = () => { throw new LocalConnectionError() }
@@ -159,13 +160,13 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
     },
     files(event, id, expectedSource, ...extra) {
       return invoke(event, async () => {
-        if (extra.length || connectionKind !== 'git') fail()
-        if (typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id)) fail()
+        if (extra.length) fail()
+        if (typeof id !== 'string' || !idPattern.test(id)) fail()
         const before = await source()
         assertExpectedSource(before, expectedSource)
         const value = await store.files(before.owner, id)
         await unchanged(before)
-        const parsed = parseLocalGitFileListing(value)
+        const parsed = connectionKind === 'git' ? parseLocalGitFileListing(value) : parseLocalFolderFileListing(value)
         if (!parsed) fail()
         return parsed
       })
@@ -174,14 +175,15 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
       return invoke(event, async () => {
         // Reject mutable, accessor-bearing, or malformed selections before
         // source lookup and before the store can wait for read admission.
-        if (extra.length || connectionKind !== 'git' || !isLocalGitFileSelection(selection)) fail()
-        if (typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id)) fail()
+        const isGit = connectionKind === 'git'
+        if (extra.length || (isGit ? !isLocalGitFileSelection(selection) : !isLocalFolderFileSelection(selection))) fail()
+        if (typeof id !== 'string' || !idPattern.test(id)) fail()
         const detached = { path: selection.path }
         const before = await source()
         assertExpectedSource(before, expectedSource)
         const value = await store.file(before.owner, id, detached)
         await unchanged(before)
-        const parsed = parseLocalGitFilePreview(value)
+        const parsed = isGit ? parseLocalGitFilePreview(value) : parseLocalFolderFilePreview(value)
         if (!parsed || parsed.path !== detached.path) fail()
         return parsed
       })

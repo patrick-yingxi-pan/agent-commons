@@ -320,7 +320,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   for (const channel of Object.values(dataChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const verb of ['pickFiles', 'pickFolder']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(contextChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
-  for (const verb of ['list', 'connect', 'snapshot', 'snapshotTree', 'disconnect']) assert.match(preload, new RegExp(`${verb}:`))
+  for (const verb of ['list', 'connect', 'snapshot', 'snapshotTree', 'files', 'file', 'disconnect']) assert.match(preload, new RegExp(`${verb}:`))
   for (const channel of Object.values(localFolderChannels)) assert.ok(preload.includes(channel), `preload must invoke ${channel}`)
   for (const channel of Object.values(localGitChannels)) assert.ok(preload.includes(channel), `macOS preload must invoke ${channel}`)
   const contextBridge = preload.slice(preload.indexOf('context: Object.freeze('), preload.indexOf('data: Object.freeze('))
@@ -328,6 +328,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.ok(contextBridge.includes('localFolders: Object.freeze('), 'native local connections stay under the context capability')
   assert.doesNotMatch(localFolderBridge, /owner|path|ipcRenderer\.(send|on)/i,
     'the renderer can select a connection id but cannot claim a tenant or filesystem path')
+  assert.match(localFolderBridge, /\.\.\.\(process\.platform === 'darwin' \? \{\s*files: \(id, source\) => invokeLocalFolder\(localFolderChannels\.files, id, source\),\s*file: \(id, selection, source\) => invokeLocalFolder\(localFolderChannels\.file, id, selection, source\)/,
+    'selective folder browse methods are fixed-channel and macOS-only')
   assert.match(contextBridge, /\.\.\.\(process\.platform === 'darwin' \? \{ localGit: Object\.freeze\(/,
     'the Git access bridge exists only on macOS')
   const localGitBridge = contextBridge.slice(contextBridge.indexOf('localGit: Object.freeze('))
@@ -349,7 +351,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal((main.match(/^\s+beginShutdown\(\)$/gm) ?? []).length, 4, 'update, restore, and both before-quit paths cancel local work')
   const packagedSmokeSource = readFileSync(new URL('./smoke.mjs', import.meta.url), 'utf8')
   assert.ok(packagedSmokeSource.includes("'localFolders,localGit,pickFiles,pickFolder'"), 'macOS packaged smoke locks the exact context bridge surface')
-  assert.ok(packagedSmokeSource.includes("'connect,disconnect,list,snapshot,snapshotTree'"), 'macOS packaged smoke locks all five local-folder methods')
+  assert.ok(packagedSmokeSource.includes("'connect,disconnect,file,files,list,snapshot,snapshotTree'"), 'macOS packaged smoke locks all seven local-folder methods')
   assert.ok(packagedSmokeSource.includes("typeof window.agentCommonsDesktop?.context?.localFolders?.snapshotTree === 'function'"),
     'packaged smoke requires the explicit recursive folder method')
   assert.ok(packagedSmokeSource.includes("typeof window.agentCommonsDesktop?.context?.localGit?.review === 'function'"),

@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { createLocalGitConnections } from './localGitConnectionsCore.ts'
+import { createLocalGitBrowserCore } from './localGitBrowserCore.ts'
+import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 import type { LocalGitConnection } from '../../contract/localGitCapture.ts'
 
 const connection = (suffix: string, remembered = false): LocalGitConnection => ({ id: `GIT_${suffix.repeat(32)}` as LocalGitConnection['id'], name: `Repo ${suffix}`, remembered })
@@ -37,6 +40,53 @@ test('lost Git disconnect acknowledgement retains the row and requires authorita
   await core.reload()
   assert.deepEqual(core.get().rows, [])
   assert.equal(core.get().status, 'ready')
+})
+
+test('accepted Git disconnect clears only that browser immediately, even if acknowledgement is lost', async () => {
+  const existing = connection('J')
+  const gate = deferred<void>()
+  const browser = createLocalGitBrowserCore({
+    list: async () => ({ version: 1, excludedCount: 0, files: [{ path: 'secret.txt', kind: 'file' }] }),
+    preview: async () => ({ version: 1, path: 'secret.txt', sizeBytes: 6, snapshot: { text: 'secret' } }),
+    now: () => 1,
+  })
+  const core = createLocalGitConnections({ list: async () => [existing], connect: async () => null, disconnect: () => gate.promise })
+  const events: string[] = []
+  const unsubscribe = core.subscribeDisconnect(id => { events.push(id); browser.dismiss(id) })
+  await core.reload()
+  await browser.readListing(existing.id)
+  await browser.readPreview(existing.id, 'secret.txt')
+  await browser.readListing(connection('K').id)
+
+  const operation = core.disconnect(existing.id)
+  assert.deepEqual(events, [existing.id], 'accepted disconnect notifies synchronously before its acknowledgement')
+  assert.equal(browser.get(existing.id).preview, null)
+  assert.equal(browser.get(existing.id).listing, null)
+  assert.ok(browser.get(connection('K').id).listing, 'another connection keeps its transient listing')
+  gate.reject(new Error('response lost'))
+  await operation
+  assert.deepEqual(core.get().rows, [existing], 'failed disconnect retains authoritative connection metadata')
+  assert.equal(browser.get(existing.id).preview, null, 'failure never restores old source bytes')
+  unsubscribe()
+})
+
+test('Git disconnect notifications are absent for rejected mutations and can be unsubscribed', async () => {
+  const existing = connection('L')
+  const core = createLocalGitConnections({ list: async () => [existing], connect: async () => null, disconnect: async () => {} })
+  const events: string[] = []
+  const unsubscribe = core.subscribeDisconnect(id => events.push(id))
+  assert.equal(await core.disconnect(existing.id), null, 'a not-ready disconnect is rejected')
+  await core.reload()
+  unsubscribe()
+  await core.disconnect(existing.id)
+  assert.deepEqual(events, [], 'no event is emitted outside accepted subscribed disconnects')
+})
+
+test('both production browser controllers dismiss the exact accepted-disconnect target', () => {
+  const git = stripComments(read(join(ROOT, 'src/controller/localGitBrowser.ts')))
+  const folder = stripComments(read(join(ROOT, 'src/controller/localFolderBrowser.ts')))
+  assert.ok(git.includes('localGitConnections.subscribeDisconnect(id => localGitBrowser.dismiss(id))'))
+  assert.ok(folder.includes('localFolderConnections.subscribeDisconnect(id => localFolderBrowser.dismiss(id))'))
 })
 
 test('account clear fences late Git list and mutation completions', async () => {

@@ -411,7 +411,7 @@ test('recursive folder capture stays explicit and confined to the packaged macOS
   const compact = (source: string) => stripComments(source).replace(/\s+/g, ' ')
   const main = compact(read(join(ROOT, 'desktop/main.mjs')))
   const checkInjection = (source: string) => assert.ok(source.includes(
-    "...(process.platform === 'darwin' ? { captureTree: (root, options) => readLocalFolderTree(root, { ...options, executable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }), }), } : {}),",
+    "...(process.platform === 'darwin' ? { captureTree: (root, options) => readLocalFolderTree(root, { ...options, executable: gitFileExecutable({ packaged: app.isPackaged, resourcesPath: process.resourcesPath }), }),",
   ), 'recursive folder injection must be macOS-only and use the bundled packaged helper')
   checkInjection(main)
   const removedLink = main.replace('captureTree: (root, options) => readLocalFolderTree(root, {', 'captureTree: (root, options) => readLocalFolderSnapshot(root, {')
@@ -472,6 +472,36 @@ test('Git browse shares a portable parser contract while native listing and read
   assert.match(installer, /localGitHost\[name\]\(event, \.\.\.args\)/)
   const checkPlatformGuard = (source: string) => assert.match(source, /if \(process\.platform !== 'darwin'\) return/)
   assert.throws(() => checkPlatformGuard(installer.replace('if (process.platform !== \'darwin\') return', '')), assert.AssertionError)
+})
+
+test('selective folder browse shares its portable contract while descriptor listing/read IPC stays macOS-only', () => {
+  const portable = concatSource('contract') + '\n' + concatSource('server') + '\n' + concatSource('src')
+  assert.doesNotMatch(portable, /from\s+['"][^'"]*(?:desktop\/(?:localFolderReader|gitFileRead|localFolderTree)|localFolderReader\.mjs)['"]|\blistLocalFolderTree\s*\(/,
+    'portable UI/server code cannot import or invoke the native descriptor reader')
+
+  const parserModule = stripComments(read(join(ROOT, 'contract/localFolderBrowse.mjs')))
+  for (const parser of ['isLocalFolderFileSelection', 'parseLocalFolderFileListing', 'parseLocalFolderFilePreview']) {
+    assert.match(parserModule, new RegExp(`export function ${parser}\\b`), `${parser} belongs to the portable contract`)
+  }
+  for (const path of ['src/api/localFolders.ts', 'desktop/localConnectionStore.mjs', 'desktop/localConnectionHost.mjs']) {
+    const source = stripComments(read(join(ROOT, path)))
+    assert.match(source, /from ['"][^'"]*contract\/localFolderBrowse\.mjs['"]/, `${path} uses the shared parser module`)
+    for (const parser of ['parseLocalFolderFileListing', 'parseLocalFolderFilePreview']) {
+      assert.match(source, new RegExp(`\\b${parser}\\(`), `${path} validates with ${parser}`)
+    }
+  }
+
+  const main = stripComments(read(join(ROOT, 'desktop/main.mjs')))
+  assert.match(main, /browseFiles: \(root, options\) => readLocalFolderFiles\(root/)
+  assert.match(main, /previewFile: \(root, selection, options\) => readLocalFolderFile\(root, selection/)
+  const preload = stripComments(read(join(ROOT, 'desktop/preload.cjs')))
+  const checkMacOnly = (source: string) => assert.match(source,
+    /\.\.\.\(process\.platform === 'darwin' \? \{\s*files: \(id, source\) => invokeLocalFolder\(localFolderChannels\.files, id, source\),\s*file: \(id, selection, source\) => invokeLocalFolder\(localFolderChannels\.file, id, selection, source\)/,
+    'native browse methods exist only in the fixed macOS bridge surface')
+  checkMacOnly(preload)
+  const removedPlatformGuard = preload.replace("...(process.platform === 'darwin' ? {\n        files:", "...(true ? {\n        files:")
+  assert.notEqual(removedPlatformGuard, preload)
+  assert.throws(() => checkMacOnly(removedPlatformGuard), /fixed macOS bridge surface/)
 })
 
 test('browser and native selected-file intake share one portable text policy', () => {
