@@ -270,6 +270,45 @@ test('the queue enforces global, tenant, and frozen-agent caps without head-of-l
   }
 })
 
+test('per-run cancellation keeps a nonconforming provider in its slot and suppresses its late result', async () => {
+  const contexts = [routineContext('cancelled'), routineContext('waiting')]
+  const state = harness(contexts)
+  const activeGate = deferred()
+  const waitingStarted = deferred()
+  let activeSignal: AbortSignal | undefined
+  const started: string[] = []
+  const runner = createRoutineRunner(state.store, (async (...args: Parameters<RoutineGenerate>) => {
+    const id = routineId(args)
+    started.push(id)
+    if (id === 'cancelled') {
+      activeSignal = args[4]
+      await activeGate.promise // ignores AbortSignal on purpose
+    } else waitingStarted.resolve()
+    return result()
+  }) as RoutineGenerate, { concurrency: { global: 1, perTenant: 1, perAgent: 1 } })
+
+  try {
+    runner.start()
+    await eventually(() => activeSignal !== undefined, 'first run enters generation')
+    const cancelled = contexts[0]!
+    cancelled.run.status = 'cancelled'
+    runner.cancel(cancelled.task.id, cancelled.run.id)
+    assert.equal(activeSignal?.aborted, true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.deepEqual(started, ['cancelled'], 'aborting does not release physical worker capacity')
+    assert.deepEqual(state.completions, [], 'cancelled provider response has not been published')
+
+    activeGate.resolve()
+    await within(waitingStarted.promise, 'queued run did not use the slot after actual settlement')
+    await eventually(() => contexts[1]!.run.status === 'ok', 'the queued run completes after the slot is released')
+    assert.deepEqual(started, ['cancelled', 'waiting'])
+    assert.deepEqual(state.completions.map((message) => message.content), ['Done.'])
+  } finally {
+    activeGate.resolve()
+    runner.stop()
+  }
+})
+
 test('durability failure closes admission without treating a failed state commit as a model retry', async () => {
   for (const edge of ['admission', 'completion'] as const) {
     const contexts = [routineContext(`first-${edge}`), routineContext(`queued-${edge}`)]

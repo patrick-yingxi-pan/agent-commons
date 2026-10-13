@@ -148,6 +148,18 @@ export function createRoutineRunner(
     for (const call of active.values()) call.controller.abort()
   }
 
+  /** Cancel one durable run after its owner has committed the terminal state.
+   * Keep active capacity reserved until the provider/MCP promise actually
+   * settles; cancellation is best-effort and never releases a live call. */
+  const cancel = (taskId: string, runId: string): void => {
+    const k = key(taskId, runId)
+    const timer = timers.get(k)
+    if (timer !== undefined) clearTimeout(timer)
+    timers.delete(k)
+    ready.delete(k)
+    active.get(k)?.controller.abort()
+  }
+
   const fatal = (): void => {
     if (faulted) return
     faulted = true
@@ -355,6 +367,8 @@ export function createRoutineRunner(
     if (stopped) return
     const k = key(taskId, runId)
     const running = active.get(k)
+    // A restart may queue a still-running durable row behind an abort-ignoring
+    // old request; drain will wait for that exact promise before re-admission.
     if (timers.has(k) || ready.has(k) || (running && !running.controller.signal.aborted)) return
     const ctx = runStore.routineExecutionContext(taskId, runId)
     if (ctx) schedule(taskId, runId, ctx.run.nextAttemptAt ?? now())
@@ -363,6 +377,8 @@ export function createRoutineRunner(
   return {
     /** Called by the store after it durably mints a run. */
     enqueue,
+    /** The store calls after the stopped state is durable. */
+    cancel,
     /** Recover every execution-aware running row after persistence rehydrate. */
     start(): void {
       if (faulted) return

@@ -179,7 +179,57 @@ function faceExpressions(src: string): string[] {
   return out
 }
 
+/** One explicit face-forwarding seam: the deferred wrapper supplies the shared
+ *  face to the lazy editor, whose size still belongs to the rendered button.
+ *  Keep both ends named; arbitrary forwarding is not an exemption. */
+const FACE_FORWARDINGS = [
+  {
+    sender: 'src/components/DeferredCadenceEditor.tsx',
+    receiver: 'src/components/CadenceEditor.tsx',
+    binding: 'softButtonClass={SOFT_BUTTON_CLASS}',
+    lazyImport: "import('./CadenceEditor')",
+    moduleExport: 'module.CadenceEditor',
+    forwardedComponent: '<Editor {...props}',
+    exportedComponent: 'export function CadenceEditor(',
+    recipient: 'softButtonClass',
+    face: 'SOFT_BUTTON_CLASS',
+  },
+] as const
+
+function assertFaceForwarding(sender: string, receiver: string, forwarding: typeof FACE_FORWARDINGS[number]): void {
+  assert.equal(sender.split(forwarding.binding).length - 1, 1,
+    `${forwarding.sender} forwards exactly the declared face and prop`)
+  assert.ok(sender.includes(forwarding.lazyImport), `${forwarding.sender} lazily imports its declared receiver`)
+  assert.ok(sender.includes(forwarding.moduleExport), `${forwarding.sender} selects the declared receiver export`)
+  assert.ok(sender.includes(`${forwarding.forwardedComponent} ${forwarding.binding}`),
+    `${forwarding.sender} passes the declared prop to its lazy component`)
+  assert.ok(receiver.includes(forwarding.exportedComponent), `${forwarding.receiver} exports the declared component`)
+
+  const recipientMentions = (source: string): number =>
+    (source.match(new RegExp(`\\b${forwarding.recipient}\\b`, 'g')) ?? []).length
+  assert.ok(receiver.includes(`  ${forwarding.recipient},`),
+    `${forwarding.receiver} destructures the declared forwarded prop`)
+  assert.ok(receiver.includes(`  ${forwarding.recipient}: string`),
+    `${forwarding.receiver} declares the forwarded prop type`)
+  const classNameTemplates = [...receiver.matchAll(/className=\{(`[^`]*`)\}/g)].map((match) => match[1])
+  const wearingTemplates = classNameTemplates.filter((expression) => recipientMentions(expression) > 0)
+  assert.ok(wearingTemplates.length > 0, `${forwarding.receiver} has a real className expression wearing ${forwarding.recipient}`)
+  const classNameMentions = classNameTemplates.reduce((count, expression) => count + recipientMentions(expression), 0)
+  assert.equal(recipientMentions(receiver), 2 + classNameMentions,
+    `${forwarding.receiver} uses the recipient only for its declaration and rendered className templates`)
+  for (const expression of wearingTemplates) {
+    assert.ok(HAS_PAD.test(expression) && HAS_TEXT.test(expression),
+      `${forwarding.receiver} wears forwarded ${forwarding.face} in a padded, typed className expression`)
+  }
+}
+
 test('every call site sizes the face it wears (the other half of the split)', () => {
+  for (const forwarding of FACE_FORWARDINGS) {
+    const sender = stripComments(read(join(ROOT, ...forwarding.sender.split('/'))))
+    const receiver = stripComments(read(join(ROOT, ...forwarding.receiver.split('/'))))
+    assertFaceForwarding(sender, receiver, forwarding)
+  }
+
   const offenders: string[] = []
   let sized = 0
   for (const file of filesUnder('src')) {
@@ -193,7 +243,16 @@ test('every call site sizes the face it wears (the other half of the split)', ()
       .split('\n')
       .filter((l) => !/^\s*import\b|from '(\.\.\/)+lib\/button'/.test(l))
       .join('\n')
-    const total = FACES.reduce((n, f) => n + (mentions.match(new RegExp(`\\b${f}\\b`, 'g')) ?? []).length, 0)
+    const totalMentions = FACES.reduce((n, f) => n + (mentions.match(new RegExp(`\\b${f}\\b`, 'g')) ?? []).length, 0)
+    const delegated = FACE_FORWARDINGS.filter((forwarding) => forwarding.sender === rel)
+    for (const forwarding of delegated) {
+      const countedInClass = exprs.reduce((count, expression) =>
+        count + (expression.match(new RegExp(`\\b${forwarding.face}\\b`, 'g'))?.length ?? 0), 0)
+      assert.equal(mentions.match(new RegExp(`\\b${forwarding.face}\\b`, 'g'))?.length ?? 0, 1 + countedInClass,
+        `${rel} has no undeclared extra forwarding of ${forwarding.face}`)
+    }
+    const delegatedMentions = delegated.length
+    const total = totalMentions - delegatedMentions
     const seen = FACES.reduce(
       (n, f) => n + exprs.reduce((k, e) => k + (e.match(new RegExp(`\\b${f}\\b`, 'g')) ?? []).length, 0),
       0,
@@ -211,6 +270,37 @@ test('every call site sizes the face it wears (the other half of the split)', ()
     [],
     'a button face was worn without a size — lib/button.ts leaves padding + text to the caller, so pass them (e.g. `px-3 py-1.5 text-[13px]`)',
   )
+})
+
+test('face forwarding lock rejects unused templates, unsized recipient buttons, and stale receiver wiring', () => {
+  const forwarding = FACE_FORWARDINGS[0]!
+  const sender = stripComments(read(join(ROOT, ...forwarding.sender.split('/'))))
+  const receiver = stripComments(read(join(ROOT, ...forwarding.receiver.split('/'))))
+  assertFaceForwarding(sender, receiver, forwarding)
+
+  assert.throws(() => assertFaceForwarding(sender,
+    `${receiver}\nconst unused = \`${'${softButtonClass}'} px-2 text-[12px]\``, forwarding),
+  /only for its declaration and rendered className templates/, 'an unused sized template cannot mask the real recipient')
+  assert.throws(() => assertFaceForwarding(sender,
+    `${receiver}\n<button className={\`${'${softButtonClass}'}\`} />`, forwarding),
+  /padded, typed className/, 'every recipient-bearing button class expression must carry size')
+  assert.throws(() => assertFaceForwarding(sender,
+    `${receiver}\n<button className={softButtonClass} />`, forwarding),
+  /only for its declaration and rendered className templates/, 'a bare forwarded face cannot bypass the template scanner')
+  assert.throws(() => assertFaceForwarding(sender,
+    `${receiver}\n<button className={\`${'${ready ? softButtonClass : ""}'}\`} />`, forwarding),
+  /padded, typed className/, 'conditional forwarded faces also need padding and text size')
+  assert.throws(() => assertFaceForwarding(sender,
+    `${receiver}\n<button className={ready ? softButtonClass : ''} />`, forwarding),
+  /only for its declaration and rendered className templates/, 'a non-template conditional cannot bypass recipient accounting')
+  assert.throws(() => assertFaceForwarding(sender,
+    `${receiver}\n<button className={softButtonClass + ' px-2 text-[12px]'} />`, forwarding),
+  /only for its declaration and rendered className templates/, 'string concatenation cannot bypass recipient accounting')
+  assert.throws(() => assertFaceForwarding(sender,
+    `${receiver}\nconst faceAlias = softButtonClass`, forwarding),
+  /only for its declaration and rendered className templates/, 'an aliased face cannot bypass recipient accounting')
+  assert.throws(() => assertFaceForwarding(sender.replace(forwarding.forwardedComponent, '<OtherEditor {...props}'), receiver, forwarding),
+    /passes the declared prop/, 'the declared face cannot be sent to a different component')
 })
 
 test('the consumers source the face from the module', () => {

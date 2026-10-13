@@ -21,7 +21,16 @@ export function routineMcpTransportLabel(transport?: 'stdio'): string {
   return transport === 'stdio' ? 'Local program' : 'External server'
 }
 
-/** The receipt phase describes ledger recovery, not the owning RoutineRun. */
+const ROUTINE_RUN_LABELS: Record<ScheduledRun['status'], string> = {
+  running: 'Run in progress',
+  ok: 'Run completed',
+  skipped: 'Run skipped',
+  failed: 'Run failed',
+  cancelled: 'Run stopped',
+}
+
+/** The receipt phase describes ledger recovery, not the owning RoutineRun.
+ * An exhaustive map prevents newly added outcomes from inheriting failure. */
 export function routineMcpRunLabel(status: ScheduledRun['status']): string {
-  return status === 'running' ? 'Run in progress' : status === 'ok' ? 'Run completed' : status === 'skipped' ? 'Run skipped' : 'Run failed'
+  return ROUTINE_RUN_LABELS[status]
 }

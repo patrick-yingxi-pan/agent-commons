@@ -96,6 +96,7 @@ const ANCHORED = [
   'src/components/RunHistoryMenu.tsx',
   'src/components/SessionShareButton.tsx',
   'src/components/MessageButton.tsx',
+  'src/components/DeferredCadenceEditor.tsx',
 ]
 
 /** Portal-fixed menus: position themselves, so they clamp via clampLeft. */

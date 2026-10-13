@@ -59,6 +59,44 @@ test('usage gauge remains eager while the details body loads only on first open'
     'the lazy content retains the existing estimate and limits explanation')
 })
 
+test('routine cadence editor and its option catalog load only after opening Schedule edit', () => {
+  const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredCadenceEditor.tsx')))
+  const loadState = deferred.slice(deferred.indexOf('function CadenceEditorLoadState('), deferred.indexOf('export function DeferredCadenceEditor('))
+  const editor = stripComments(read(join(ROOT, 'src/components/CadenceEditor.tsx')))
+  const hook = stripComments(read(join(ROOT, 'src/controller/useScheduleDraftCommit.ts')))
+  assert.match(section, /import \{ DeferredCadenceEditor \} from '\.\/DeferredCadenceEditor\.tsx'/)
+  assert.match(section, /editing && <DeferredCadenceEditor[\s\S]*task=\{task\}[\s\S]*commit=\{commit\}/)
+  assert.doesNotMatch(section, /import \{\s*CadenceEditor\s*\} from/)
+  assert.doesNotMatch(section, /const FREQ_OPTIONS|const TIMEZONES|function CadenceEditor\(/)
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/CadenceEditor'\)/)
+  assert.match(deferred, /DeferredLoadBoundary[\s\S]*Suspense[\s\S]*<Editor \{\.\.\.props\}/)
+  assert.match(deferred, /useDismissable<HTMLDivElement>\(true, props\.onClose\)[\s\S]*usePopoverShift<HTMLDivElement>\(true\)[\s\S]*<div ref=\{panelRef\} role="dialog"[\s\S]*<DeferredLoadBoundary[\s\S]*<Suspense/,
+    'dismissal and viewport geometry stay attached to one stable shell across fallback/body replacement')
+  assert.equal((deferred.match(/role="dialog"/g) ?? []).length, 1,
+    'only the stable deferred shell owns the dialog and geometry ref')
+  assert.doesNotMatch(loadState, /ref=\{panelRef\}/,
+    'a Suspense/error fallback cannot steal the open-only viewport observer')
+  assert.match(deferred, /data-cadence-editor-load=\{failed \? 'error' : 'loading'\}/)
+  assert.match(deferred, /role=\{failed \? 'alert' : 'status'\}/)
+  assert.match(deferred, /Copy any unsent workspace text before reloading[\s\S]*Reload app[\s\S]*Close/)
+  assert.match(editor, /export function CadenceEditor/)
+  assert.match(editor, /FREQ_OPTIONS[\s\S]*TIMEZONES[\s\S]*await commit\(/)
+  assert.doesNotMatch(editor, /panelRef|popoverClassName/,
+    'the lazy leaf no longer receives shell refs or duplicated visual primitives')
+  assert.match(deferred, /Editor \{\.\.\.props\} softButtonClass=\{SOFT_BUTTON_CLASS\}/,
+    'the shared button recipe remains owned by the shell')
+  assert.doesNotMatch(editor, /role="dialog"|data-cadence-editor-shell/,
+    'the loaded editor body cannot replace or nest the stable dialog shell')
+  assert.match(section, /function SchedulePanel[\s\S]*useScheduleDraftCommit\([\s\S]*'schedule'[\s\S]*<DeferredCadenceEditor[\s\S]*task=\{task\}[\s\S]*busy=\{busy\}[\s\S]*commit=\{commit\}/)
+  assert.match(hook, /export function useScheduleDraftCommit\([\s\S]*update\(scheduleId, patch, expectedRevision\)/)
+  assert.doesNotMatch(editor, /from ['"]\.\/SectionView/)
+  assert.doesNotMatch(editor, /from ['"]\.\.\/controller\/scheduleMutations/,
+    'the async leaf receives its acknowledged command instead of importing through its parent chunk')
+  assert.doesNotMatch(editor, /from ['"]\.\.\/lib\/(?:popover|useDismissable|usePopoverShift)|from ['"]\.\/SectionView/,
+    'the async leaf has no runtime edge back into the large SectionPane graph')
+})
+
 test('account menu content loads only after opening the always-visible chip', () => {
   const sidebar = stripComments(read(join(ROOT, 'src/components/Sidebar.tsx')))
   const chip = stripComments(read(join(ROOT, 'src/components/AccountChip.tsx')))

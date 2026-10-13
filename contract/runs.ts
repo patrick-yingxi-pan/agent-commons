@@ -54,6 +54,9 @@ export function runRecap(task: ScheduledTask, run: ScheduledRun): string {
   if (run.status === 'skipped') {
     return `${run.summary} (${stamp}).` + (run.detail ? `\n\n${run.detail}` : '\n\nThe trigger condition wasn’t met, so I left everything as it was.')
   }
+  if (run.status === 'cancelled') {
+    return `Stopped — this run was stopped (${stamp}).\n\nStopping does not undo completed effects. External actions may already have taken effect; check the Routine’s current status and private call receipts before restarting.`
+  }
   const body = run.detail ?? task.steps.map((s, i) => `${i + 1}. ${s.action}`).join('\n')
   return `Done — ${run.summary} (${stamp}).\n\n${body}\n\nDelivered to ${task.delivery.target}.`
 }

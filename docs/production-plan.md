@@ -46,6 +46,74 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
+## Current checkpoint: explicit Routine Stop
+
+Autonomous direction (2026-10-12): expose Stop for one exact queued or active
+Routine run, separate from Pause (future cadence) and Revoke (tool authority).
+The missing control was verified across route, worker and UI surfaces. Stop
+persists a distinct `cancelled` outcome, presented as Stopped, before best-effort
+worker interruption. It preserves history and known external receipts; pending
+calls become uncertain and trigger the existing pause/review policy. It does
+not promise to undo external effects or erase already incurred model usage.
+Exact run identity survives retries, so a delayed Stop cannot target a newer
+run. Completion that wins the race remains completed. All access doors retain
+the route-owned ownership policy.
+
+Required acceptance: queued/active worker races, owner/shared-reader walls,
+failed-commit ordering, JSON/SQLite restart, rendered held/lost-acknowledgement
+flows and five-size review, plus real packaged authored-child Stop and relaunch.
+The full local verifier, UI sweep and desktop verifier remain pre-landing gates.
+This checkpoint does not close signing, Intel, live-provider, public-service or
+remaining product-scope gates.
+
+Checkpoint review caught three frontend gaps: absent ownership exposed Stop,
+private MCP history treated cancellation as failure, and consequence prose
+clipped inside a hover-only icon cluster. Literal ownership, exhaustive outcome
+labels and wrapping in-flow disclosure now have regression locks. The full
+135-cell sweep passed before these leaf corrections; final focused screenshots
+and seven browser walks pass. Packaging then correctly refused a 501,466-byte
+section-page graph against the unchanged 500,000-byte limit. The cadence editor
+is extracted into an on-demand leaf with explicit loading/failure recovery.
+Follow-up review retains one measured popover shell across lazy body swaps and
+makes failed Stop-controller loads visibly recoverable without losing exact
+intent. Negative regression locks cover discarded load-failure intent; new
+browser walks cover real chunk refusal and five-size loading/loaded geometry.
+The current product revision passes typecheck, the unchanged production build
+budget, 17 focused browser walks, and the complete 135/135-cell UI sweep with
+zero violations or skips. Native Stop itself proves real child exit and durable
+stopped history across relaunch. The desktop verifier found two acceptance
+harness gaps after that stage: an ambiguous uncertain-receipt selector and a
+queued-history read before the Run response. Both now name the exact run and
+wait for durable acknowledgement. The corrected local-native walk passes at
+`.data/desktop-routine-local-smoke/run-RoECQf`, including real managed restore and
+its safety copy. Short-landscape footer scrolling and final unobstructed mobile
+error screenshots pass; the latter wait for the closing drawer's rendered width,
+not just its logical inert state. Complete `desktop:verify` now passes, including
+the local Routine walk at `.data/desktop-routine-local-smoke/run-8deyIb`. The first
+full local verifier rejected the extracted shell's missing popover enumeration
+and a button-face forwarding shape the size scanner could not follow; its
+remaining browser shards were gracefully interrupted, not counted as passing.
+The primitive locks now account for both the stable shell and every lazy-body
+button using the forwarded face. Negative cases reject unsized bare/conditional
+uses, unused sized templates and stale receiver wiring; 62 focused primitive,
+component and repository locks pass with no product-source changes. The second
+full verifier isolated one remaining stale deletion-menu assertion: it expected
+only the prior edit/delete holds instead of also retaining exact-run Stop
+recovery. The corrected lock was watched fail with that Stop hold removed, then
+the production source was restored. The complete checks lane then passed,
+including within a full run. Adversarial review found a further test-only gap:
+non-template conditional or aliased uses of the forwarded button face could
+escape sizing checks. Complete recipient-use accounting now rejects those
+forms as well. Interrupted full runs remain failed gates, not partial acceptance.
+Landing requires complete `E2E_TRACE=1 npm run verify` on the frozen revision,
+followed by diff review; the checkpoint handoff records that final outcome.
+
+The next independent local checkpoint is packaged Commission MCP explicit
+restore. Existing native evidence reads a backup but never restores it; the
+follow-up must prove the actual selection/confirmation, safety copy, process
+exit, signed-in relaunch, exact restored private claims/usage and restored-work
+execution fencing. Routine restore evidence does not close that Commission gate.
+
 ## Current milestone: person-approved local Routine MCP
 
 Autonomous direction (2026-10-12): let a person run an existing configured local
@@ -114,8 +182,9 @@ browser evidence, not new native evidence. Feature-specific receipts do not
 substitute for mandatory full local and desktop verification before landing.
 A negative restore mutation in `.data/desktop-routine-local-smoke/run-INgziY`
 failed at the expected `active` versus `interrupted` phase. Authored-child
-browser coverage and active-call cancellation/revoke remain open; completed-
-result revoke is covered. Signed/Intel, actual-dialog, live third-party and
+browser coverage and revoke during an active call remain open; completed-result
+revoke is covered, and the Routine Stop checkpoint above now proves active-call
+cancellation. Signed/Intel, actual-dialog, live third-party and
 paid-provider acceptance remain separate gates.
 
 The previous Commission acceptance checkpoint landed as `05640a35`: the complete
@@ -4533,7 +4602,7 @@ stacked; isolated browser and packaged tests provide creation/relaunch evidence.
 | --- | --- |
 | Trustworthy local host | Sandboxed Electron, clean first run, SQLite, managed backups/restore, provider-key lifecycle, and native recovery are built. The signing root now persists separately from product data; packaged acceptance covers sign-in, token recovery, and a completed conversation across a full restart. |
 | Useful first conversation | Provider onboarding and the Messages transport are built. Local text reaches both endpoint and Session transports as whole files (64 KiB per file, 128 KiB total, first 24 items), with shared-plan UI and one input snapshot reused through the tool loop. Browser/native intake shares source/configuration recognition and strict whole UTF-8 decoding. Bounded top-level folder snapshots (CTX-FS-11), direct-file PDF text extraction (CTX-FS-12), bounded DOCX text extraction (CTX-FS-14), bounded XLSX visible-value extraction (CTX-FS-15), bounded PPTX slide-text extraction (CTX-FS-16), and the bounded image path now extend the same input plan. DOCX is limited to 8 MiB/file, 24 MiB/selection, 512 entries, 4 MiB parts, 16 MiB expanded content, 128 XML depth, 128 attributes/tag, 100,000 nodes and 64 KiB body text; it excludes images/layout and legacy or macro-enabled Word files. Images accept PNG/JPEG/GIF/WebP up to 8 MiB raw, normalize the first frame to PNG at a 2,000 px maximum edge and ≤3 MiB, retain durable tenant-scoped asset references, and deliver at most 8 images/8 MiB per turn alongside the shared 24-item plan. Native folder/Git and served cloud/mapped-runner text, folder, document and image snapshots now provide explicit saved model input; CTX-FS-26 retains exact image originals privately. Bounded macOS local-image OCR (PORT-26) is implemented and accepted for the stated macOS path. Discussion-as-Context (CTX-DISC-1) adds confirmed saved copies under its bounded checkpoint; PORT-28 separately adds explicit macOS scanned-PDF-to-Document review; non-macOS and automatic PDF-attachment OCR, broader PDF recognition accuracy/language acceptance, unsupported document formats, rich Office fidelity, live/recursive source browsing, richer Git tooling and paid-provider acceptance remain future work. Targeted text/PDF/DOCX/image tests and XLSX acceptance, packaged executable smoke and the 135/135-cell responsive sweep cover this bounded path. Shared interactive preview handoff is restored as recorded above. Provider proof is deterministic protocol evidence, not paid-model acceptance. |
-| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. The [2026-10-12 native review](acceptance/native-mcp-stdio-2026-10-12.md) additionally proves actual Cancel/Allow and the complete authored-peer workflow; third-party-server acceptance remains open. COMMONS-42 now adds person-owned local Contribution execution with separate Project approval and explicit Run, durable receipts and owner-reviewed linked-work resolution. COMMONS-43 adds budgeted tool-free argument drafting with explicit review/copy; a draft confers no execution authority. [MODEL-45](spec/06-model-and-tools.md) adds person-approved local Routine stdio execution through the native runtime; store and JSON/SQLite persistence locks plus the injected in-memory-peer browser scenario (2/2) cover person boundaries, separate consent and success/failure receipts. Real-child packaged Routine acceptance remains pending. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
+| Useful external work | Tenant-owned HTTPS MCP lifecycle, inspection receipts, Contexts setup and OS-encrypted desktop credentials now compose with isolated schema admission, exact attachment and per-call owner approval on both model transports. The running receipt precedes one outbound attempt; bounded inert results, known failures and restart-safe uncertainty retain honest history without automatic replay. Deterministic browser protocol fixtures and JSON/SQLite tests prove the portable workflow; packaged OS-storage and schema-worker checks are separate from combined real-service/native acceptance. Legacy development connectors remain mocked and other release adapters remain unconfigured. Person-owned OAuth and private interactive form rounds now have local browser/unsigned-arm64 acceptance. PORT-33 completes person-owned local stdio setup, encrypted native launch custody, negotiated inspection and separately approved interactive calls with five-viewport and unsigned arm64 authored-child acceptance, including owner-bound restart and Disconnect/removal without replay. The [2026-10-12 native review](acceptance/native-mcp-stdio-2026-10-12.md) additionally proves actual Cancel/Allow and the complete authored-peer workflow; third-party-server acceptance remains open. COMMONS-42 now adds person-owned local Contribution execution with separate Project approval and explicit Run, durable receipts and owner-reviewed linked-work resolution. COMMONS-43 adds budgeted tool-free argument drafting with explicit review/copy; a draft confers no execution authority. [MODEL-45](spec/06-model-and-tools.md) adds person-approved local Routine stdio execution through the native runtime; store and JSON/SQLite persistence locks plus the injected in-memory-peer browser scenario (2/2) cover person boundaries, separate consent and success/failure receipts. Unsigned-arm64 authored-child Routine acceptance now covers native custody, exact-run Stop/child exit, restart history and explicit managed restore; see the current Routine checkpoint above. Public-service/signed/Intel acceptance, broader input modes and standing-trust policy remain separate work. Native saved Git snapshots are real; legacy development repository panels remain fixtures. |
 | Distributable preview | The paired release verifier is built; both architecture candidates still need actual signing/notarization credentials, native execution evidence, and an authenticated download destination. A green browser CI run does not prove a signed release exists. |
 | Hosted service | Preserve the boundary now; defer anonymous indexing, broad cross-device polish, and deployment-specific tenancy operations until the desktop preview's core workflows pass. |
 

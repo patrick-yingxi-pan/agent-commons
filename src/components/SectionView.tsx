@@ -2,14 +2,17 @@ import { Component, lazy, Suspense, useCallback, useContext, useEffect, useId, u
 import { createPortal } from 'react-dom'
 import { isExternalMcpId } from '../../contract/mcpConnections.ts'
 import { DeferredMcpConnectionDetail } from './DeferredMcpConnectionPanel.tsx'
+import { DeferredCadenceEditor } from './DeferredCadenceEditor.tsx'
 import { DeferredMcpConnectionCreateDialog } from './DeferredMcpConnectionCreate.tsx'
 import { DeferredProjectWorkDraftPanel } from './DeferredProjectWorkDraftPanel.tsx'
 import { DeferredWorkItemContributionPanel } from './DeferredWorkItemContributionPanel.tsx'
 import { DeferredWorkItemMcpProposalPanel } from './DeferredWorkItemMcpProposalPanel.tsx'
 import { DeferredChangesPanel } from './DeferredChangesPanel.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
+import { useScheduleDraftCommit } from '../controller/useScheduleDraftCommit.ts'
 import { automationPresentation, AUTOMATION_NOTICE_CLASS } from '../lib/automationPresentation.ts'
 import { namedIconProps } from '../lib/namedIcon.ts'
+import { canStopScheduleRun, SCHEDULE_RUN_STOP_LABEL, SCHEDULE_RUN_STOP_PENDING_LABEL, SCHEDULE_RUN_STOP_SCOPE } from '../lib/scheduleRunStopPresentation.ts'
 import { dispatchPresentation, dispatchStatusLabel } from '../lib/dispatchPresentation.ts'
 import {
   AlertCircle,
@@ -55,6 +58,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Square,
   SendHorizontal,
   Server,
   Share2,
@@ -80,15 +84,7 @@ import { connectorIconFor } from '../lib/connectors'
 import { CHIP_TONES, type ChipTone } from '../lib/capabilities'
 import { addedToProjectContexts, contextsToConnectors, projectContextTone } from '../lib/projectContext'
 import { resolveSavedContext } from '../lib/savedContextIdentity.ts'
-import {
-  type CadenceSpec,
-  type Frequency,
-  TIMED_FREQS,
-  WEEKDAY_NAMES,
-  describeCadence,
-  nextRunLabel,
-  parseCadence,
-} from '../lib/cadence'
+import { type CadenceSpec, type Frequency, TIMED_FREQS, WEEKDAY_NAMES, describeCadence, nextRunLabel, parseCadence } from '../lib/cadence'
 import {
   displayModelLabel,
   effortLevelsFor,
@@ -354,9 +350,9 @@ import {
 import {
   enqueueScheduleRun,
   isScheduleRunHeld,
-  ROUTINE_RUN_ACTIVE,
   useScheduleRunStatus,
 } from '../controller/scheduleRunMutations'
+import { enqueueScheduleRunStop, isScheduleRunStopHeldForTask, useScheduleRunStopStatus } from '../controller/scheduleRunStopMutations'
 import {
   enqueueScheduleCreation,
 } from '../controller/scheduleCreationMutations'
@@ -1388,6 +1384,7 @@ function ProjectDetail({
   useScheduleMutationStatus()
   useScheduleDeletionStatus()
   useScheduleRunStatus()
+  useScheduleRunStopStatus()
   const convs = rel.sessionsForProject(project.id)
   const artifacts = rel.artifactsForProject(project.id)
   const contexts = rel.contextsForProject(project.id)
@@ -1401,7 +1398,7 @@ function ProjectDetail({
   const hasSchedules = realSchedules.length > 0 || staticSchedules.length > 0
 
   const scheduleMutationHeld = (id: string) =>
-    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id) || isScheduleRunHeld(id)
+    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id) || isScheduleRunHeld(id) || isScheduleRunStopHeldForTask(id)
   const toggleEnabled = (id: string, enabled: boolean) => {
     if (!scheduleMutationHeld(id)) void toggleScheduleEnabled(id, !enabled)
   }
@@ -1409,6 +1406,10 @@ function ProjectDetail({
     const task = realSchedules.find((schedule) => schedule.id === id)
     if (!task || scheduleMutationHeld(id) || task.runs.some((run) => run.status === 'running')) return
     void enqueueScheduleRun(id)
+  }
+  const stopRun = (scheduleId: string, runId: string) => {
+    if (scheduleMutationHeld(scheduleId)) return
+    void enqueueScheduleRunStop({ scheduleId, runId })
   }
 
   // ── Scheduled-run CRUD — all on existing primitives, no new backend op ──
@@ -1812,6 +1813,7 @@ function ProjectDetail({
                     mutationHeld={scheduleMutationHeld(t.id)}
                     onToggle={() => toggleEnabled(t.id, t.enabled)}
                     onRun={() => runNow(t.id)}
+                    onStop={() => { const run = t.runs.find((item) => item.status === 'running'); if (run) stopRun(t.id, run.id) }}
                     onOpen={() => rel.navigate('scheduled', t.id)}
                     onUnlink={() => unlinkSchedule(t)}
                     onDelete={() => deleteSchedule(t)}
@@ -2150,6 +2152,7 @@ function ProjectScheduleRow({
   mutationHeld,
   onToggle,
   onRun,
+  onStop,
   onOpen,
   onUnlink,
   onDelete,
@@ -2159,6 +2162,7 @@ function ProjectScheduleRow({
   mutationHeld: boolean
   onToggle: () => void
   onRun: () => void
+  onStop: () => void
   onOpen: () => void
   onUnlink: () => void
   onDelete: () => void
@@ -2194,16 +2198,22 @@ function ProjectScheduleRow({
         </div>
       </button>
       <div className="flex shrink-0 items-center gap-0.5">
-        <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : running ? ROUTINE_RUN_ACTIVE : 'Run now'}>
+        {running ? (canStopScheduleRun(task.own) ? (
+        <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : SCHEDULE_RUN_STOP_SCOPE}>
+          <button onClick={onStop} disabled={mutationHeld} aria-label={SCHEDULE_RUN_STOP_LABEL} title={SCHEDULE_RUN_STOP_SCOPE} className={`flex h-6 w-6 items-center justify-center rounded-md text-danger hover:bg-panel-2 disabled:opacity-40 ${HOVER_REVEAL}`}>
+            <Square size={13} />
+          </button>
+        </Tooltip>
+        ) : <span className="px-1 text-[11px] text-ink-faint">Running</span>) : <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Run now'}>
           <button
             onClick={onRun}
-            disabled={running || mutationHeld}
+            disabled={mutationHeld}
             aria-label={`Run ${task.name} now`}
             className={`flex h-6 w-6 items-center justify-center rounded-md text-ink-faint hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 ${HOVER_REVEAL}`}
           >
-            {running ? <Spinner size={13} /> : <Play size={13} />}
+            <Play size={13} />
           </button>
-        </Tooltip>
+        </Tooltip>}
         <RowMenu ariaLabel={`Actions for ${task.name}`} items={menu} disabled={mutationHeld} />
         <Toggle on={task.enabled} onToggle={onToggle} ariaLabel={`${task.name} enabled`} disabled={mutationHeld} />
       </div>
@@ -12629,6 +12639,7 @@ function ToolChip({ tool }: { tool: StepTool }) {
 function taskPill(task: ScheduledTask): { tone: 'ok' | 'warn' | 'bad' | 'neutral'; label: string } {
   if (!task.enabled) return { tone: 'neutral', label: 'Paused' }
   if (task.lastStatus === 'failed') return { tone: 'bad', label: 'Failed' }
+  if (task.lastStatus === 'cancelled') return { tone: 'ok', label: 'Active' }
   const last = task.runs[0]
   return { tone: 'ok', label: last ? `Ran ${relativeTime(last.at)}` : 'Active' }
 }
@@ -12661,6 +12672,7 @@ function ScheduledSection({
   useScheduleMutationStatus()
   useScheduleDeletionStatus()
   useScheduleRunStatus()
+  useScheduleRunStopStatus()
   const items = schedulesQ.data ?? []
   const rel = useRelations()
   const projects = rel.allProjects()
@@ -12677,7 +12689,7 @@ function ScheduledSection({
     return () => { scheduledSectionMountedRef.current = false }
   }, [])
   const scheduleMutationHeld = (id: string) =>
-    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id) || isScheduleRunHeld(id)
+    isScheduleMutationHeld(id) || isScheduleDeletionHeld(id) || isScheduleRunHeld(id) || isScheduleRunStopHeldForTask(id)
   const toggleEnabled = (id: string) => {
     const t = items.find((x) => x.id === id)
     // The toggle is always rendered from `items`, so `t` is present; guard rather
@@ -12710,6 +12722,9 @@ function ScheduledSection({
     if (!task || scheduleMutationHeld(id) || task.runs.some((run) => run.status === 'running')) return
     void enqueueScheduleRun(id)
   }
+  const stopRun = (scheduleId: string, runId: string) => {
+    if (!scheduleMutationHeld(scheduleId)) void enqueueScheduleRunStop({ scheduleId, runId })
+  }
 
   const addFromTemplate = async (tpl: ScheduleTemplate): Promise<RevisionedMutationOutcome> => {
     if (!tenantId) return 'discarded'
@@ -12738,6 +12753,7 @@ function ScheduledSection({
           backTo={backTo}
           onToggleEnabled={() => toggleEnabled(open.id)}
           onRunNow={() => runNow(open.id)}
+          onStopRun={(runId) => stopRun(open.id, runId)}
           onOpenSession={onOpenSession}
           onRemove={() => requestDelete(open)}
         />
@@ -12826,6 +12842,7 @@ function ScheduledSection({
             onOpen={() => onOpenSchedule(item.value.id)}
             onToggle={() => toggleEnabled(item.value.id)}
             onRunNow={() => runNow(item.value.id)}
+            onStopRun={(runId) => stopRun(item.value.id, runId)}
             onRemove={() => requestDelete(item.value)}
           />
         )}
@@ -12843,6 +12860,7 @@ function ScheduledRow({
   onOpen,
   onToggle,
   onRunNow,
+  onStopRun,
   onRemove,
 }: {
   task: ScheduledTask
@@ -12851,6 +12869,7 @@ function ScheduledRow({
   onOpen: () => void
   onToggle: () => void
   onRunNow: () => void
+  onStopRun: (runId: string) => void
   onRemove: () => void
 }) {
   const lead = task.steps[0]?.tool ?? task.delivery.tool
@@ -12903,16 +12922,18 @@ function ScheduledRow({
         </span>
 
         <div className={`flex items-center gap-1 focus-within:opacity-100 ${HOVER_REVEAL}`}>
-          <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : running ? ROUTINE_RUN_ACTIVE : 'Run now'}>
+          {running ? (canStopScheduleRun(task.own) ? <Tooltip label={SCHEDULE_RUN_STOP_SCOPE}>
+            <button onClick={() => { const active = task.runs.find((run) => run.status === 'running'); if (active) onStopRun(active.id) }} disabled={mutationHeld} aria-label={SCHEDULE_RUN_STOP_LABEL} title={SCHEDULE_RUN_STOP_SCOPE} className="flex h-7 w-7 items-center justify-center rounded-md text-danger hover:bg-panel-2 disabled:opacity-40"><Square size={14} /></button>
+          </Tooltip> : <span className="text-[11px] text-ink-faint">Running</span>) : <Tooltip label={mutationHeld ? ROUTINE_MUTATION_WAIT : 'Run now'}>
             <button
               onClick={onRunNow}
-              disabled={running || mutationHeld}
+              disabled={mutationHeld}
               aria-label={`Run ${task.name} now`}
               className="flex h-7 w-7 items-center justify-center rounded-md text-ink-faint transition hover:bg-panel-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
             >
-              {running ? <Spinner size={14} /> : <Play size={14} />}
+              <Play size={14} />
             </button>
-          </Tooltip>
+          </Tooltip>}
           <button
             onClick={onRemove}
             disabled={mutationHeld}
@@ -13114,43 +13135,6 @@ function NewScheduleRow({
   )
 }
 
-/** One routine draft has one settlement grammar regardless of which field owns
- * it. The shared revision controller retains the logical key and patch through
- * Retry; this hook retains the editor, its frozen controls, and the person's
- * exact authored values until that controller reports applied or discarded. */
-function useScheduleDraftCommit(
-  scheduleId: string,
-  draftLabel: string,
-  onApplied: () => void,
-  onHeldChange?: (held: boolean) => void,
-) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const busyRef = useRef(false)
-
-  const commit = async (
-    patch: Parameters<typeof updateSchedule>[1],
-    expectedRevision: number,
-  ) => {
-    if (busyRef.current) return
-    busyRef.current = true
-    setBusy(true)
-    setError(null)
-    onHeldChange?.(true)
-    const outcome = await updateSchedule(scheduleId, patch, expectedRevision)
-    busyRef.current = false
-    setBusy(false)
-    onHeldChange?.(false)
-    if (outcome === 'applied') {
-      onApplied()
-      return
-    }
-    setError(`Your ${draftLabel} draft was not saved. Review the latest routine, then apply what you still want.`)
-  }
-
-  return { busy, error, clearError: () => setError(null), commit }
-}
-
 /** Drill-down for one scheduled task: the instruction, the workflow rail (lit by
  *  whichever run is selected), recent runs, and the schedule / delivery / tools /
  *  model side panels. */
@@ -13163,6 +13147,7 @@ function ScheduledDetail({
   backTo,
   onToggleEnabled,
   onRunNow,
+  onStopRun,
   onOpenSession,
   onRemove,
 }: {
@@ -13174,6 +13159,7 @@ function ScheduledDetail({
   backTo: NavLocation | null
   onToggleEnabled: () => void
   onRunNow: () => void
+  onStopRun: (runId: string) => void
   /** Open a run's session — the run-history rows link here, same destination as
    *  clicking the routine in the left rail. */
   onOpenSession: (id: string) => void
@@ -13191,7 +13177,7 @@ function ScheduledDetail({
     error: nameError,
     clearError: clearNameError,
     commit,
-  } = useScheduleDraftCommit(task.id, 'name', () => setEditingName(false))
+  } = useScheduleDraftCommit(updateSchedule, task.id, 'name', () => setEditingName(false))
   const cancelName = () => {
     if (nameBusy) return
     setNameDraft(task.name)
@@ -13329,13 +13315,16 @@ function ScheduledDetail({
             they never see a control that would 404. */}
         {task.own !== false && (
           <SectionActions>
-            <SectionAction
-              label={running ? 'Running now' : 'Run now'}
-              icon={running ? <Spinner size={14} /> : <Play size={14} />}
+          {canStopScheduleRun(task.own) && task.runs.filter((run) => run.status === 'running').map((run) => (
+            <SectionAction key={`stop-${run.id}`} label={isScheduleRunStopHeldForTask(task.id) ? SCHEDULE_RUN_STOP_PENDING_LABEL : SCHEDULE_RUN_STOP_LABEL} icon={<Square size={14} />} onClick={() => onStopRun(run.id)} disabled={mutationHeld} disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : SCHEDULE_RUN_STOP_SCOPE} />
+          ))}
+            {!running && <SectionAction
+              label="Run now"
+              icon={<Play size={14} />}
               onClick={onRunNow}
-              disabled={running || mutationHeld}
-              disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : running ? ROUTINE_RUN_ACTIVE : undefined}
-            />
+              disabled={mutationHeld}
+              disabledReason={mutationHeld ? ROUTINE_MUTATION_WAIT : undefined}
+            />}
             <SectionAction
               label={task.enabled ? 'Pause routine' : 'Resume routine'}
               icon={task.enabled ? <PauseCircle size={14} /> : <PlayCircle size={14} />}
@@ -13347,6 +13336,8 @@ function ScheduledDetail({
           </SectionActions>
         )}
       </header>
+
+      {canStopScheduleRun(task.own) && running && <p data-routine-stop-scope className={AUTOMATION_NOTICE_CLASS}>{SCHEDULE_RUN_STOP_SCOPE}</p>}
 
       {!selectedSection && <CompositePageControls section="scheduled" />}
         <div>
@@ -13452,6 +13443,7 @@ function PromptCard({ task, editable }: { task: ScheduledTask; editable: boolean
   const baseRevision = useRef(task.revision ?? 0)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const { busy, error, clearError, commit } = useScheduleDraftCommit(
+    updateSchedule,
     task.id,
     'instruction',
     () => setEditing(false),
@@ -13700,7 +13692,7 @@ function StepsEditor({
   const [steps, setSteps] = useState<WorkflowStep[]>(() => task.steps.map((s) => ({ ...s })))
   const [picking, setPicking] = useState<string | null>(null)
   const baseRevision = useRef(task.revision ?? 0)
-  const { busy, error, commit } = useScheduleDraftCommit(task.id, 'workflow', onClose, onHeldChange)
+  const { busy, error, commit } = useScheduleDraftCommit(updateSchedule, task.id, 'workflow', onClose, onHeldChange)
 
   const setAction = (i: number, action: string) =>
     setSteps((s) => s.map((x, j) => (j === i ? { ...x, action } : x)))
@@ -13866,6 +13858,7 @@ function StepToolPicker({
 function RunStatusIcon({ status }: { status: ScheduledRun['status'] }) {
   if (status === 'running') return <Spinner size={16} className="mt-0.5 shrink-0 text-accent" />
   if (status === 'failed') return <AlertCircle size={16} className="mt-0.5 shrink-0 text-danger" />
+  if (status === 'cancelled') return <Square size={16} className="mt-0.5 shrink-0 text-ink-faint" />
   if (status === 'skipped') return <MinusCircle size={16} className="mt-0.5 shrink-0 text-ink-faint" />
   return <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-ok" />
 }
@@ -13889,7 +13882,7 @@ function WeekStrip({ runs }: { runs: ScheduledRun[] }) {
                   ? 'bg-accent'
                   : s === 'skipped'
                     ? 'bg-line-strong'
-                    : 'bg-line'
+                    : s === 'cancelled' ? 'bg-ink-faint' : 'bg-line'
           }`}
         />
       ))}
@@ -14012,6 +14005,7 @@ function DeliveryPanel({ task }: { task: ScheduledTask }) {
   const [picking, setPicking] = useState(false)
   const baseRevision = useRef(task.revision ?? 0)
   const { busy, error, clearError, commit } = useScheduleDraftCommit(
+    updateSchedule,
     task.id,
     'delivery',
     () => setEditing(false),
@@ -14249,35 +14243,15 @@ function ContextToolsPanel({ task }: { task: ScheduledTask }) {
   )
 }
 
-/** The frequencies offered by the cadence editor, and a small timezone set. */
-const FREQ_OPTIONS: { id: Frequency; label: string }[] = [
-  { id: 'every-30m', label: 'Every 30 min' },
-  { id: 'hourly', label: 'Hourly' },
-  { id: 'every-2h', label: 'Every 2 hours' },
-  { id: 'weekdays', label: 'Weekdays' },
-  { id: 'daily', label: 'Daily' },
-  { id: 'weekly', label: 'Weekly' },
-]
-const TIMEZONES = [
-  'America/Los_Angeles',
-  'America/Denver',
-  'America/Chicago',
-  'America/New_York',
-  'UTC',
-  'Europe/London',
-  'Europe/Berlin',
-  'Asia/Tokyo',
-  'Asia/Shanghai',
-  'Australia/Sydney',
-]
-
 /** The Schedule side panel — cadence / next-run / timezone, now editable. The
  *  cadence chip, the WHEN sentence (task.trigger), and the next-run estimate are
  *  all DERIVED from one structured pick (lib/cadence), so editing the frequency
  *  keeps the three coherent. These are entity fields → a per-action updateSchedule. */
 function SchedulePanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
-  const [draftHeld, setDraftHeld] = useState(false)
+  const { busy, error, clearError, commit } = useScheduleDraftCommit(
+    updateSchedule, task.id, 'schedule', () => setEditing(false),
+  )
   const [now, setNow] = useState(Date.now)
   useEffect(() => {
     let handle: ReturnType<typeof setTimeout>
@@ -14289,6 +14263,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
     return () => clearTimeout(handle)
   }, [])
   const parsedCadence = parseCadence(task.cadence)
+  const initialSpec: CadenceSpec = parsedCadence ?? { freq: 'daily', time: '09:00' }
   const nextLabel = !task.enabled
     ? 'Paused'
     : Number.isFinite(task.nextFireAt) && (task.nextFireAt as number) <= now
@@ -14299,7 +14274,7 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
   return (
     <FoldSection
       title="Schedule"
-      heldOpen={draftHeld}
+      heldOpen={busy}
       defaultFolded
       summary={task.cadence}
       actions={
@@ -14307,34 +14282,40 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
           <SectionAction
             label="Edit schedule"
             icon={<Pencil size={13} />}
-            onClick={() => setEditing((v) => !v)}
+            onClick={() => { if (!editing) clearError(); setEditing((v) => !v) }}
             open={editing}
-            disabled={draftHeld}
-            disabledReason={draftHeld ? ROUTINE_MUTATION_WAIT : undefined}
+            disabled={busy}
+            disabledReason={busy ? ROUTINE_MUTATION_WAIT : undefined}
           />
-          {editing && <CadenceEditor task={task} onHeldChange={setDraftHeld} onClose={() => setEditing(false)} />}
+          {editing && <DeferredCadenceEditor
+            task={task}
+            busy={busy}
+            error={error}
+            commit={commit}
+            initialSpec={initialSpec}
+            timedFreqs={TIMED_FREQS}
+            weekdayNames={WEEKDAY_NAMES}
+            describe={describeCadence}
+            nextLabel={nextRunLabel}
+            busyIndicator={<Spinner size={13} />}
+            doneIndicator={<Check size={13} />}
+            onClose={busy ? () => {} : () => setEditing(false)}
+          />}
         </div>
       }
     >
       <div className="space-y-2 text-[13px] text-ink">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-ink-soft">Cadence</span>
-          <span className="text-right font-medium">{task.cadence}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-ink-soft">Next run</span>
-          <span className="text-right font-medium">{nextLabel}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-ink-soft">Timezone</span>
-          <span className="text-right font-medium">{task.timezone ?? 'UTC'}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-ink-soft">After downtime</span>
-          <span className="text-right font-medium">
-            {(task.missedFirePolicy ?? 'skip') === 'skip' ? 'Skip missed run' : 'Run once when back'}
-          </span>
-        </div>
+        {[
+          ['Cadence', task.cadence],
+          ['Next run', nextLabel],
+          ['Timezone', task.timezone ?? 'UTC'],
+          ['After downtime', (task.missedFirePolicy ?? 'skip') === 'skip' ? 'Skip missed run' : 'Run once when back'],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-2">
+            <span className="text-ink-soft">{label}</span>
+            <span className="text-right font-medium">{value}</span>
+          </div>
+        ))}
       </div>
       {task.startedLabel && (
         <div className="mt-2.5 truncate border-t border-line pt-2.5 text-[11px] text-ink-faint">
@@ -14342,155 +14323,6 @@ function SchedulePanel({ task }: { task: ScheduledTask }) {
         </div>
       )}
     </FoldSection>
-  )
-}
-
-/** The cadence editor popover — a frequency picker (+ time / weekday / timezone),
- *  with a live preview of the derived cadence + next-run. The server owns the
- *  durable next-fire cursor; Apply sends only authored recurrence intent. */
-function CadenceEditor({
-  task,
-  onHeldChange,
-  onClose,
-}: {
-  task: ScheduledTask
-  onHeldChange: (held: boolean) => void
-  onClose: () => void
-}) {
-  const baseRevision = useRef(task.revision ?? 0)
-  const { busy, error, commit } = useScheduleDraftCommit(task.id, 'schedule', onClose, onHeldChange)
-  const close = busy ? () => {} : onClose
-  // Mounted only while open, so dismiss listeners live for its whole lifetime.
-  const ref = useDismissable<HTMLDivElement>(true, close)
-  const popRef = usePopoverShift<HTMLDivElement>(true)
-  const [spec, setSpec] = useState<CadenceSpec>(() => parseCadence(task.cadence) ?? { freq: 'daily', time: '09:00' })
-  const [tz, setTz] = useState(task.timezone ?? 'UTC')
-  const [missedFirePolicy, setMissedFirePolicy] = useState(task.missedFirePolicy ?? 'skip')
-
-  const timed = TIMED_FREQS.includes(spec.freq)
-  const preview = describeCadence(spec)
-  const next = nextRunLabel(spec, new Date(), tz)
-
-  const apply = async () => {
-    const derived = describeCadence(spec)
-    await commit(
-      {
-        cadence: derived.cadence,
-        timezone: tz,
-        missedFirePolicy,
-      },
-      baseRevision.current,
-    )
-  }
-
-  return (
-    <div
-      ref={(el) => {
-        ref.current = el
-        popRef.current = el
-      }}
-      role="dialog"
-      aria-label="Edit schedule"
-      aria-busy={busy}
-      className={`absolute right-0 top-full z-30 mt-1.5 w-[280px] p-3 ${POPOVER_SURFACE}`}
-    >
-      <fieldset disabled={busy} className="contents">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">Frequency</div>
-        <div className="mt-1.5 grid grid-cols-2 gap-1">
-          {FREQ_OPTIONS.map((f) => {
-            const on = spec.freq === f.id
-            return (
-              <button
-                key={f.id}
-                onClick={() => setSpec((s) => ({ ...s, freq: f.id, time: s.time ?? '09:00', weekday: s.weekday ?? 1 }))}
-                aria-pressed={on}
-                className={`rounded-md border px-2 py-1 text-[12px] font-medium transition ${
-                  on ? 'border-accent bg-accent-tint text-accent-strong' : 'border-line bg-surface text-ink-soft hover:border-line-strong'
-                }`}
-              >
-                {f.label}
-              </button>
-            )
-          })}
-        </div>
-
-        {spec.freq === 'weekly' && (
-        <label className="mt-2.5 block">
-          <span className="text-[11px] font-medium text-ink-soft">Day</span>
-          <select
-            value={spec.weekday ?? 1}
-            onChange={(e) => setSpec((s) => ({ ...s, weekday: Number(e.target.value) }))}
-            className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-co"
-          >
-            {WEEKDAY_NAMES.map((n, i) => (
-              <option key={i} value={i}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </label>
-        )}
-
-        {timed && (
-        <label className="mt-2.5 block">
-          <span className="text-[11px] font-medium text-ink-soft">Time</span>
-          <input
-            type="time"
-            value={spec.time ?? '09:00'}
-            onChange={(e) => setSpec((s) => ({ ...s, time: e.target.value }))}
-            className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-co"
-          />
-        </label>
-        )}
-
-        <label className="mt-2.5 block">
-        <span className="text-[11px] font-medium text-ink-soft">Timezone</span>
-        <select
-          value={tz}
-          onChange={(e) => setTz(e.target.value)}
-          className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-co"
-        >
-          {TIMEZONES.map((z) => (
-            <option key={z} value={z}>
-              {z}
-            </option>
-          ))}
-        </select>
-        </label>
-
-        <label className="mt-2.5 block">
-        <span className="text-[11px] font-medium text-ink-soft">After downtime</span>
-        <select
-          value={missedFirePolicy}
-          onChange={(e) => setMissedFirePolicy(e.target.value as 'skip' | 'catch-up-once')}
-          className="mt-1 w-full rounded-md border border-line bg-surface px-2 py-1.5 text-[13px] text-ink outline-none transition focus:border-co"
-        >
-          <option value="skip">Skip missed run</option>
-          <option value="catch-up-once">Run once when back</option>
-        </select>
-        </label>
-
-        <div className="mt-3 rounded-lg bg-panel-2/50 px-2.5 py-2 text-[12px] text-ink-soft">
-          <span className="font-medium text-ink">{preview.cadence}</span> · next {next}
-        </div>
-
-        {error && <p role="status" className="mt-2 text-[12px] text-removed">{error}</p>}
-
-        <div className="mt-2.5 flex items-center justify-end gap-2">
-          <button onClick={close} disabled={busy} className="rounded-md px-2 py-1 text-[12px] font-medium text-ink-soft transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50">
-            Cancel
-          </button>
-          <button
-            onClick={apply}
-            disabled={busy}
-            className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
-          >
-            {busy ? <Spinner size={13} /> : <Check size={13} />}
-            {busy ? 'Applying…' : 'Apply'}
-          </button>
-        </div>
-      </fieldset>
-    </div>
   )
 }
 
@@ -14570,6 +14402,7 @@ function ScheduleModelPicker({
     if (!agentId && agent?.id) setAgentId(agent.id)
   }, [agent?.id, agentId])
   const { busy, error, commit } = useScheduleDraftCommit(
+    updateSchedule,
     task.id,
     'Agent and model',
     onClose,

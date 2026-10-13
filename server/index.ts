@@ -55,7 +55,10 @@ process.on('exit', closePersistence)
 
 const router = buildRouter()
 const routineRunner = createRoutineRunner(store)
-configureScheduleExecutor((taskId, runId) => routineRunner.enqueue(taskId, runId))
+configureScheduleExecutor(
+  (taskId, runId) => routineRunner.enqueue(taskId, runId),
+  (taskId, runId) => routineRunner.cancel(taskId, runId),
+)
 const commissionMcpRunner = createCommissionMcpRunner({
   candidates: () => store.commissionMcpWorkCandidates(),
   run: (candidate, signal) => store.runCommissionMcpWork(

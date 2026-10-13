@@ -16,6 +16,7 @@ import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { useDismissable } from '../lib/useDismissable'
 import type { ScheduledRun } from '../types'
+import { scheduleRunStatusLabel } from '../lib/scheduleRunStopPresentation'
 
 export function RunHistoryMenu({
   taskId,
@@ -117,6 +118,6 @@ function RunDot({ status }: { status: ScheduledRun['status'] }) {
         ? 'bg-line-strong'
         : status === 'running'
           ? 'bg-accent'
-          : 'bg-ok'
-  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={status} />
+          : status === 'cancelled' ? 'bg-ink-faint' : 'bg-ok'
+  return <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} title={scheduleRunStatusLabel(status)} />
 }

@@ -410,6 +410,7 @@ export const paths = {
   schedules: '/schedules',
   schedule: (id: string) => `/schedules/${encodePathSegment(id)}`,
   scheduleRun: (id: string) => `/schedules/${encodePathSegment(id)}/run`,
+  scheduleRunStop: (id: string, runId: string) => `/schedules/${encodePathSegment(id)}/runs/${encodePathSegment(runId)}/stop`,
   scheduleMcpPermission: (id: string) => `/schedules/${encodePathSegment(id)}/mcp-permission`,
   commissionMcpPermission: (id: string, selection?: { providerId: string; modelId: string }) => {
     const path = `/commissions/${encodePathSegment(id)}/mcp-permission`

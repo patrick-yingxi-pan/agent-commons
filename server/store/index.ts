@@ -499,8 +499,10 @@ let scheduleSeq = 0
  *  can begin/settle runs explicitly without accidentally dialing an endpoint. */
 type ScheduleExecutor = (taskId: string, runId: string) => void
 let scheduleExecutor: ScheduleExecutor | undefined
-export function configureScheduleExecutor(executor: ScheduleExecutor | undefined): void {
+let scheduleRunCanceller: ScheduleExecutor | undefined
+export function configureScheduleExecutor(executor: ScheduleExecutor | undefined, cancel?: ScheduleExecutor): void {
   scheduleExecutor = executor
+  scheduleRunCanceller = cancel
 }
 
 export interface RoutineExecutionContext {
@@ -13470,7 +13472,7 @@ export const store = {
             routineMcpCallPermitted(current.permission, routineMcpRegistry.policy(owner, taskId), task.revision ?? 0,
               reserved.receipt.call, Date.now(), (id, tenant, person) => this.mcpConnection(id, tenant, person), routineMcpFacts(task).reviewHash,
               mcpRuntimeCapabilities().localProcesses === true)
-        }, routineMcpPermissionOwner(ledger.permission))
+        }, routineMcpPermissionOwner(ledger.permission), signal)
       } catch { outcome = { status: 'uncertain', summary: '' } }
       return settle(outcome)
     } finally { signal?.removeEventListener('abort', onAbort) }
@@ -13566,6 +13568,39 @@ export const store = {
     return schedules.flatMap((task) => task.runs
       .filter((run) => run.status === 'running' && run.maxAttempts !== undefined)
       .map((run) => ({ taskId: task.id, runId: run.id, nextAttemptAt: run.nextAttemptAt ?? Date.now() })))
+  },
+  /** Stop is a durable exact-run decision, not a change to future cadence or
+   * an undo of external effects. Close admission/publication before asking the
+   * worker to abort; a crash between those steps still cannot replay this run. */
+  stopScheduleRun(taskId: string, runId: string, actorTenantId: string, finishedAt = Date.now()): ScheduledRun | undefined {
+    const stopped = commitMutationBatch(() => {
+      const task = schedules.find(candidate => candidate.id === taskId)
+      if (!actorTenantId || !task || !this.scheduleOwnedBy(task, actorTenantId)) return undefined
+      const run = task.runs.find(candidate => candidate.id === runId)
+      if (!run || run.status !== 'running') return run
+      const ledger = routineMcpRegistry.run(task.tenantId ?? defaultTenantId(), taskId, runId)
+      const needsReview = ledger?.calls.some(call => call.status === 'pending' || routineMcpReceiptNeedsReview(call)) === true
+      if (ledger && ledger.phase !== 'interrupted') routineMcpRegistry.setRun({ ...interruptRoutineMcpRun(ledger, finishedAt), phase: 'interrupted' })
+      if (needsReview) pauseRoutineMcp(task)
+      run.status = 'cancelled'
+      run.duration = `${Math.max(0, Math.ceil((finishedAt - run.at) / 1000))}s`
+      run.summary = 'Stopped by request'
+      run.detail = needsReview
+        ? 'Stopped by request. External MCP work may already have taken effect. This Routine is paused. Review its call receipts before enabling it and renewing permission.'
+        : 'Stopped by request. No further output will be published for this run. Stopping does not undo external actions or change the Routine’s schedule.'
+      delete run.nextAttemptAt
+      delete run.failureCode
+      task.lastStatus = 'cancelled'
+      const session = ensureRunSession(task, run)
+      settleRunSession(task, run)
+      emit({ type: 'run.finished', taskId: task.id, taskName: task.name, sessionId: session.id, run })
+      persist()
+      return run
+    })
+    // This is outside the commit boundary: no interruption can precede durable
+    // terminal state, even if abort listeners settle private call receipts.
+    if (stopped?.status === 'cancelled') scheduleRunCanceller?.(taskId, runId)
+    return stopped
   },
   /** Resolve the immutable facts one attempt runs under. Every failure is a
    *  typed, user-facing terminal condition rather than a hidden fallback. */

@@ -174,7 +174,7 @@ export interface ScheduledRun {
   /** Opaque durable identity. A keyed manual request derives the same id across
    * response loss or server restart; callers must not parse its representation. */
   id: string
-  status: 'ok' | 'failed' | 'running' | 'skipped'
+  status: 'ok' | 'failed' | 'running' | 'skipped' | 'cancelled'
   duration: string
   reachedStep: number
   summary: string
@@ -236,7 +236,7 @@ export interface ScheduledTask {
   nextFireAt?: number
   next: string
   enabled: boolean
-  lastStatus: 'ok' | 'failed' | 'pending'
+  lastStatus: 'ok' | 'failed' | 'pending' | 'cancelled'
   /** Plain-language one-liner for the row + detail header sub-line. */
   subtitle: string
   /** The human "when" sentence for the workflow's WHEN band (no cron syntax). */

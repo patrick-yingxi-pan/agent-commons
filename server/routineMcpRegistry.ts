@@ -374,7 +374,9 @@ export class RoutineMcpRegistry {
 
   private validRunAdvance(previous: StoredRoutineMcpRun, next: StoredRoutineMcpRun): boolean {
     if (previous.phase === 'interrupted') return sameRoutineMcpJson(previous, next)
-    if (!previous.calls.length && next.phase === 'interrupted') return false
+    // Explicit Stop can terminalize a queued permission before the first call.
+    // The interrupted branch below still forbids adding or rewriting receipts,
+    // and an interrupted ledger can never return to active.
     if (next.phase !== 'active' && next.phase !== 'interrupted') return false
     const oldCalls = previous.calls
     const nextCalls = next.calls

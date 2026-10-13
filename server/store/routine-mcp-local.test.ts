@@ -13,7 +13,7 @@ import { MCP_SCHEMA_ADMISSION_VERSION, mcpToolSchemaHash } from '../mcpToolAdmis
 import { configureMcpRuntime, initializeMcpRuntime, mcpRuntimeConfiguration, type McpStdioBinding } from '../mcpRuntime.ts'
 import type { McpStdioConnection } from '../mcpStdioClient.ts'
 import { RoutineMcpPolicyError } from '../routineMcpPolicy.ts'
-import { store } from './index.ts'
+import { configureScheduleExecutor, store } from './index.ts'
 
 let sequence = 0
 const nextId = (prefix: string) => `${prefix}-${++sequence}`
@@ -170,6 +170,76 @@ function finish(f: Fixture, runId: string, content = 'Done.') {
   return store.completeScheduleRun(f.task.id, runId, { id: nextId('finish'), role: 'assistant', content },
     { agentId: context.agent.id, providerId: context.provider.id })
 }
+
+for (const phase of ['discovery', 'call'] as const) {
+  test(`Stop during local ${phase} preserves uncertainty, aborts the exact worker and never publishes a late result`, { timeout: 30_000 }, async t => {
+    const f = await fixture(t)
+    const entered = deferred()
+    const release = deferred()
+    const hold = async () => { entered.resolve(); await release.promise }
+    const native = nativePeer(f, phase === 'discovery' ? { discover: hold } : { dispatched: hold })
+    t.after(() => { release.resolve(); configureScheduleExecutor(undefined) })
+    await native.ready()
+    store.updateSchedule(f.task.id, { enabled: true })
+    f.approve()
+    const run = store.runSchedule(f.task.id)!
+    const controller = new AbortController()
+    configureScheduleExecutor(undefined, (taskId, runId) => {
+      assert.equal(taskId, f.task.id)
+      assert.equal(runId, run.id)
+      assert.equal(run.status, 'cancelled')
+      assert.equal(f.review().runs[0]!.calls[0]!.status, 'uncertain', 'uncertainty commits before worker abort')
+      controller.abort()
+    })
+    const pending = store.executeRoutineMcpCall(f.task.id, run.id, f.call, nextId('stop-call'), controller.signal)
+    await entered.promise
+    assert.equal(f.review().runs[0]!.calls[0]!.status, 'pending')
+    store.stopScheduleRun(f.task.id, run.id, f.tenantId)
+    assert.equal(controller.signal.aborted, true)
+    assert.equal(run.status, 'cancelled')
+    assert.equal(f.task.enabled, false)
+    assert.equal(f.review().policy.approval, null)
+    assert.equal(f.review().runs[0]!.phase, 'interrupted')
+    const receipt = structuredClone(f.review().runs[0]!.calls[0])
+    assert.equal(receipt.status, 'uncertain')
+    assert.equal(store.routineMcpRunMayRetry(f.task.id, run.id), false)
+    release.resolve()
+    assert.equal((await pending).status, 'uncertain')
+    assert.deepEqual(f.review().runs[0]!.calls[0], receipt, 'late success cannot rewrite uncertainty or stopped state')
+    assert.equal(native.seen.calls, phase === 'call' ? 1 : 0)
+    assert.equal(native.seen.closes, 1)
+    await assert.rejects(store.executeRoutineMcpCall(f.task.id, run.id, f.call, nextId('never-replay')), RoutineMcpPolicyError)
+    assert.equal(native.seen.opens.length, 1)
+    assertPrivate(f)
+  })
+}
+
+test('Stop before local admission or after a known result retains current permission and exact private history', { timeout: 30_000 }, async t => {
+  const f = await fixture(t)
+  const native = nativePeer(f)
+  await native.ready()
+  store.updateSchedule(f.task.id, { enabled: true })
+  f.approve()
+  const grant = structuredClone(f.review().policy)
+  const queued = store.runSchedule(f.task.id)!
+  store.stopScheduleRun(f.task.id, queued.id, f.tenantId)
+  assert.equal(f.review().runs[0]!.phase, 'interrupted')
+  assert.equal(store.routineMcpRunMayRetry(f.task.id, queued.id), false)
+  assert.equal(f.task.enabled, true)
+  assert.deepEqual(f.review().policy, grant)
+  assert.equal(native.seen.opens.length, 0)
+  const run = store.runSchedule(f.task.id)!
+  const known = await store.executeRoutineMcpCall(f.task.id, run.id, f.call, nextId('known-before-stop'))
+  assert.equal(known.status, 'done')
+  store.stopScheduleRun(f.task.id, run.id, f.tenantId)
+  assert.equal(run.status, 'cancelled')
+  assert.equal(f.task.enabled, true)
+  assert.deepEqual(f.review().policy, grant)
+  const ledger = f.review().runs.find(row => row.runId === run.id)!
+  assert.deepEqual(ledger.calls[0], known)
+  assert.equal(ledger.phase, 'interrupted')
+  assertPrivate(f)
+})
 
 test('local Routine approval requires a ready native host, literal opt-in and a fresh person-specific review', { timeout: 30_000 }, async t => {
   const f = await fixture(t)

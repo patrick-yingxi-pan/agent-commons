@@ -74,7 +74,7 @@ test('manual execution holds every routine action and Retry preserves one logica
 
   const failed = page.locator('[data-schedule-run="failed"]')
   await expect(failed).toContainText('Couldn’t confirm whether the run started')
-  await expect(page.getByRole('button', { name: 'Running now', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Stop this run', exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: /^(Pause|Resume) routine$/ })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Delete routine', exact: true })).toBeDisabled()
   expect(attempts).toBe(1)

@@ -27,7 +27,7 @@ test('every routine projection enters one revision-pinned, acknowledgement-gated
   assert.match(view, /<RowMenu[^>]*disabled=\{mutationHeld\}/, 'the Project menu stays held through acknowledgement or recovery')
   assert.match(sidebar, /enqueueScheduleDeletion\(task\.id, task\.revision \?\? 0\)/, 'the rail enters the same controller with its reviewed revision')
   assert.match(sidebar, /activeSeedRef\.current\?\.scheduleId === task\.id/, 'a late rail acknowledgement cannot eject a newer destination')
-  assert.match(routineMenu, /disabled=\{mutationHeld \|\| requestHeld\}/, 'the rail row stays held')
+  assert.match(routineMenu, /disabled=\{mutationHeld \|\| requestHeld \|\| isScheduleRunStopHeldForTask\(task\.id\)\}/, 'the rail row stays held through edits, deletion, and exact-run Stop recovery')
 
   assert.match(runtime, /createRevisionedDeletionMutationController/, 'routine deletion reuses the destructive FIFO')
   assert.match(controller, /import\('\.\/scheduleDeletionRuntime'\)/, 'the low-frequency deletion engine stays behind a lazy boundary')

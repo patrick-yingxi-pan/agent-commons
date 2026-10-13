@@ -130,7 +130,13 @@ async function approve(page, origin, id, { checkBack = false } = {}) {
 
 async function start(page, origin, id) {
   await page.goto(`${origin}/scheduled/${id}`)
+  const accepted = page.waitForResponse(response =>
+    new URL(response.url()).pathname === `/api/v1/schedules/${id}/run`
+      && response.request().method() === 'POST', { timeout: WAIT })
   await page.getByRole('button', { name: 'Run now', exact: true }).click()
+  const response = await accepted
+  assert.equal(response.status(), 200, 'rendered Run now is durably acknowledged before reading its history')
+  return response.json()
 }
 
 async function backup(run, profile) {
@@ -253,11 +259,38 @@ export async function smokePackagedRoutineMcpLocal({ executable = packagedExecut
     const failedCounts = await counts()
     await relaunch(); await noReplay(failedCounts)
 
-    stage = 'pending-call-backup-and-relaunch-uncertainty'
+    stage = 'rendered-stop-during-local-call'
     await mode('hold-call')
     await approve(run.page, run.origin, task.id)
     await start(run.page, run.origin, task.id)
     await expect.poll(async () => (await counts()).calls, { timeout: WAIT }).toBe(failedCounts.calls + 1)
+    const stopTarget = (await review()).runs.find(row => row.calls.some(call => call.status === 'pending'))
+    assert.ok(stopTarget)
+    const childPid = (await rows(tracePath)).filter(row => row.kind === 'process-start').at(-1).pid
+    await run.page.getByRole('button', { name: 'Stop this run', exact: true }).click()
+    await expect.poll(async () => (await review()).runs.find(row => row.runId === stopTarget.runId)?.status, { timeout: WAIT }).toBe('cancelled')
+    const stoppedLedger = stored(profile, 'routineMcp').runs.find(row => row.runId === stopTarget.runId)
+    assert.equal(stoppedLedger.phase, 'interrupted')
+    assert.equal(stoppedLedger.calls[0].status, 'uncertain')
+    assert.equal((await review()).policy.approval, null)
+    assert.equal((await api(run.page, '/schedules')).find(row => row.id === task.id).enabled, false)
+    await expect.poll(() => {
+      try { process.kill(childPid, 0); return true } catch (error) { if (error.code === 'ESRCH') return false; throw error }
+    }, { timeout: 5_000, message: 'stopped child exits before another run is admitted' }).toBe(false)
+    await run.page.screenshot({ path: join(evidence, 'stopped-run.png'), fullPage: true })
+    const stopCounts = await counts()
+    await relaunch(); await noReplay(stopCounts)
+    assert.deepEqual(stored(profile, 'routineMcp').runs.find(row => row.runId === stopTarget.runId), stoppedLedger,
+      'Stop survives a full native relaunch without replay')
+    assert.equal((await api(run.page, '/schedules')).find(row => row.id === task.id).runs.find(row => row.id === stopTarget.runId).status, 'cancelled')
+    await run.page.goto(`${run.origin}/scheduled/${task.id}/external-mcp`)
+    await expect(run.page.getByText(`Run stopped · ${stopTarget.runId}`, { exact: true })).toBeVisible()
+
+    stage = 'pending-call-backup-and-relaunch-uncertainty'
+    await mode('hold-call')
+    await approve(run.page, run.origin, task.id)
+    await start(run.page, run.origin, task.id)
+    await expect.poll(async () => (await counts()).calls, { timeout: WAIT }).toBe(stopCounts.calls + 1)
     const pending = (await review()).runs.find(row => row.calls.some(call => call.status === 'pending'))
     assert.ok(pending, 'the real pending call is durable before interrupting the process')
     const saved = await backup(run, profile)
@@ -270,7 +303,10 @@ export async function smokePackagedRoutineMcpLocal({ executable = packagedExecut
     assert.equal(interrupted.calls[0].status, 'uncertain')
     assert.equal((await review()).policy.approval, null)
     await run.page.goto(`${run.origin}/scheduled/${task.id}/external-mcp`)
-    await expect(run.page.getByText(/Local program · records.search · Outcome uncertain/)).toBeVisible()
+    const interruptedRow = run.page.locator('article').filter({
+      has: run.page.getByText(`Run failed · ${pending.runId}`, { exact: true }),
+    })
+    await expect(interruptedRow.getByText(/Local program · records.search · Outcome uncertain/)).toBeVisible()
     await run.page.screenshot({ path: join(evidence, 'uncertain-relaunch.png'), fullPage: true })
 
     stage = 'managed-backup-native-restore'
@@ -284,10 +320,11 @@ export async function smokePackagedRoutineMcpLocal({ executable = packagedExecut
     await expect.poll(async () => (await counts()).calls, { timeout: WAIT }).toBe(pendingCounts.calls + 1)
     const restorePending = (await review()).runs.find(row => row.calls.some(call => call.status === 'pending'))
     assert.ok(restorePending)
-    await start(run.page, run.origin, queuedTask.id)
+    const queuedStart = await start(run.page, run.origin, queuedTask.id)
     const queuedReview = await api(run.page, `/schedules/${queuedTask.id}/mcp-permission`)
     assert.equal(queuedReview.runs.length, 1)
     const queuedRun = queuedReview.runs[0]
+    assert.equal(queuedRun.runId, queuedStart.id)
     assert.equal(queuedRun.status, 'running')
     assert.deepEqual(queuedRun.calls, [], 'the second Routine has no reserved call before restore')
     const queuedPublic = (await api(run.page, '/schedules')).find(row => row.id === queuedTask.id).runs[0]
@@ -336,13 +373,13 @@ export async function smokePackagedRoutineMcpLocal({ executable = packagedExecut
     assert.equal(restoredQueuedTask.runs[0].attempts, 0)
     await noReplay(restoreCounts)
     await run.page.goto(`${run.origin}/scheduled/${task.id}/external-mcp`)
-    await expect(run.page.getByText(/Local program · records.search · Outcome uncertain/)).toHaveCount(2)
+    await expect(run.page.getByText(/Local program · records.search · Outcome uncertain/)).toHaveCount(3)
     await run.page.screenshot({ path: join(evidence, 'explicit-restore.png'), fullPage: true })
     await writeFile(join(evidence, 'receipt.json'), JSON.stringify({
       sourceAsarSha256: fixture.sourceAsarSha256, fixtureAsarSha256: fixture.fixtureAsarSha256,
       platform: process.platform, architecture: process.arch, calls: await counts(),
       checks: ['rendered-local-consent', 'real-child-result', 'OS-custody', 'startup-failure',
-        'signed-in-relaunch-no-replay', 'pending-and-zero-receipt-queued-native-restore', 'pre-restore-safety-copy'],
+        'signed-in-relaunch-no-replay', 'rendered-stop-child-exit-and-relaunch', 'pending-and-zero-receipt-queued-native-restore', 'pre-restore-safety-copy'],
     }, null, 2))
     console.log(`[desktop-routine-local-smoke] real authored child · separate rendered consent · OS custody · private SQLite result · startup failure · relaunch uncertainty without replay · native managed restore + safety copy · evidence ${evidence}`)
   } catch (error) {

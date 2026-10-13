@@ -5680,6 +5680,13 @@ export function buildRouter(): Router {
     }
     sendJson(res, run)
   }))
+  // The exact persisted run is required; retry must never redirect to whatever
+  // happens to be current. A terminal run is an unchanged acknowledgement.
+  r.post('/schedules/:id/runs/:runId/stop', idempotent(({ req, res, params }) => {
+    const run = store.stopScheduleRun(params.id, params.runId, store.identity(req.headers).tenant.id)
+    if (!run) return sendError(res, 'not_found', 'No such Routine run')
+    sendJson(res, run)
+  }))
   // Patch a routine's own fields — enabled, name, prompt, cadence, model, … (the
   // entity edits behind the detail page). Cross-entity bindings (deliver to an
   // artifact/session, add a tool) go through POST /relations/ops instead.

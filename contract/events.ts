@@ -94,7 +94,7 @@ export interface RunProgressEvent {
   reachedStep: number
   status: ScheduledRun['status']
 }
-/** A scheduled run finished (ok / failed / skipped). */
+/** A scheduled run reached a terminal state (ok / failed / skipped / cancelled). */
 export interface RunFinishedEvent {
   type: 'run.finished'
   taskId: string

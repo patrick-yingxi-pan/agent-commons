@@ -191,6 +191,32 @@ test('explicit restore is local-scoped, idempotent and keeps newer HTTP grants a
 })
 
 for (const kind of ['json', 'sqlite'] as const) {
+  test(`${kind}: cancelled Routine run round-trips and is never re-admitted after restart`, () => {
+    const { port, file } = backend(kind, 'cancelled-run')
+    const state = fixture()
+    const stopped = {
+      id: runId,
+      status: 'cancelled' as const,
+      duration: '4s',
+      reachedStep: 1,
+      summary: 'Stopped by owner',
+      detail: 'A call may already have taken effect.',
+      at: now,
+      attempts: 1,
+      maxAttempts: 3,
+      nextAttemptAt: now + 1,
+    }
+    state.schedules[0]!.runs = [stopped]
+    try {
+      port.save(state)
+      assert.deepEqual(port.load()?.schedules[0]?.runs[0], stopped, 'the backend preserves the exact terminal row')
+    } finally { port.close() }
+
+    const recovered = boot(file, kind)
+    assert.deepEqual(recovered.state.schedules[0]?.runs[0], stopped, 'restart preserves cancelled status and metadata')
+    assert.deepEqual(recovered.pending, [], 'terminal work is not queued for execution')
+  })
+
   test(`${kind}: local history round-trips without native custody and malformed data is not repaired`, () => {
     const { port, file } = backend(kind, 'history')
     try {

@@ -210,7 +210,7 @@ test('MCP lifecycle events refresh Contribution availability and Routine permiss
 
 test('routine context readiness reads the live registry and respects connector kind', () => {
   const section = src('src', 'components', 'SectionView.tsx')
-  const panel = section.slice(section.indexOf('function ContextToolsPanel('), section.indexOf('const FREQ_OPTIONS'))
+  const panel = section.slice(section.indexOf('function ContextToolsPanel('), section.indexOf('function SchedulePanel('))
   assert.match(panel, /useSavedContexts\(\)/, 'the routine panel reads live saved contexts')
   assert.match(panel, /context\.kind === 'mcp'/, 'MCP tools resolve only against MCP contexts')
   assert.match(panel, /context\.kind === 'connector'/, 'connector tools resolve only against connector contexts')

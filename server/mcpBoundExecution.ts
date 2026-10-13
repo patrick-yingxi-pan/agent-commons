@@ -150,6 +150,7 @@ function createBoundMcpExecutionCore({
     authorize: () => boolean,
     actorUserId?: string,
     options: { formElicitation?: boolean; continuation?: McpBoundFormContinuation } = {},
+    callerSignal?: AbortSignal,
   ): Promise<McpBoundFormExecutionOutcome> => {
     const continuation = options.continuation
     const hasContinuation = continuation !== undefined
@@ -214,6 +215,9 @@ function createBoundMcpExecutionCore({
     }
 
     const controller = new AbortController()
+    const abortFromCaller = () => controller.abort(callerSignal?.reason)
+    callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
+    if (callerSignal?.aborted) abortFromCaller()
     const timer = setTimeout(() => controller.abort(), EXECUTION_TIMEOUT_MS)
     timer.unref?.()
     const startedAt = performance.now()
@@ -339,6 +343,7 @@ function createBoundMcpExecutionCore({
         : failed('The MCP call was refused before execution. Start a new tool request.')
     } finally {
       clearTimeout(timer)
+      callerSignal?.removeEventListener('abort', abortFromCaller)
       controller.abort()
     }
   }
@@ -353,8 +358,8 @@ export function createBoundMcpExecutor({
 } = {}) {
   const execute = createBoundMcpExecutionCore({ call, runtimeConfiguration })
   return async (store: McpBoundExecutionStore, tenantId: string, exactBinding: McpBoundToolCall,
-    authorize: () => boolean, actorUserId?: string): Promise<McpBoundExecutionOutcome> =>
-    execute(store, tenantId, exactBinding, authorize, actorUserId) as Promise<McpBoundExecutionOutcome>
+    authorize: () => boolean, actorUserId?: string, signal?: AbortSignal): Promise<McpBoundExecutionOutcome> =>
+    execute(store, tenantId, exactBinding, authorize, actorUserId, {}, signal) as Promise<McpBoundExecutionOutcome>
 }
 
 export function createBoundMcpFormExecutor({

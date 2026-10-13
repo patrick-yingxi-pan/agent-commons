@@ -454,3 +454,29 @@ test('usage recording failure is terminal and does not leak the private cause or
   assert.equal(state.failures[0]?.code, 'execution_error')
   assert.doesNotMatch(state.failures[0]?.detail ?? '', /private disk path/)
 })
+
+test('per-run cancel aborts only the exact active attempt and keeps its slot until settlement', async () => {
+  const state = fakeState()
+  let release!: (value: ReplyResult) => void
+  let started!: (signal: AbortSignal) => void
+  const entered = new Promise<AbortSignal>((resolve) => { started = resolve })
+  const pendingResult = new Promise<ReplyResult>((resolve) => { release = resolve })
+  const runner = createRoutineRunner(fakeStore(state), (async (...args: Parameters<RoutineGenerate>) => {
+    started(args[4])
+    return pendingResult // deliberately ignores abort until the provider settles
+  }) as RoutineGenerate, { now: () => 1_000 })
+  runner.start()
+  const signal = await entered
+  runner.cancel('routine-1', 'stale-run')
+  assert.equal(signal.aborted, false, 'a stale run id cannot cancel the current run')
+  state.context.run.status = 'cancelled'
+  runner.cancel('routine-1', 'run-1')
+  assert.equal(signal.aborted, true)
+  runner.enqueue('routine-1', 'run-1')
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.deepEqual(state.completions, [], 'a cancelled late model result is not published')
+  release(generated())
+  await new Promise((resolve) => setTimeout(resolve, 5))
+  assert.deepEqual(state.completions, [])
+  runner.stop()
+})

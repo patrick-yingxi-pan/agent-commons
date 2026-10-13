@@ -21,6 +21,10 @@ test('local Routine acceptance cannot enter the shipped app or signed-candidate 
     'actual restore replaced SQLite with the chosen earlier state',
     'safety backup preserves post-backup work',
     'restored queued work must be interrupted before admission',
+    "name: 'Stop this run'", 'stopped child exits before another run is admitted',
+    'Stop survives a full native relaunch without replay',
+    'rendered Run now is durably acknowledged before reading its history',
+    'assert.equal(queuedRun.runId, queuedStart.id)',
     "stored(profile, 'routineMcp')", "mode('hold-startup')", "mode('hold-call')",
   ]) assert.ok(smoke.includes(invariant), `local native acceptance must retain ${invariant}`)
 })

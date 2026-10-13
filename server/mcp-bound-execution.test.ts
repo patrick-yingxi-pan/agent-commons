@@ -129,6 +129,44 @@ test('the final synchronous dispatch guard catches revocation at the transport b
   assert.equal(sends, 0)
 })
 
+test('bound local MCP execution propagates caller cancellation and closes its process session', async () => {
+  const row: PrivateMcpConnection = {
+    tenantId: 'tenant-a', id: connectionId, label: 'Local Search', transport: 'stdio', ownerUserId: 'person-a',
+    grantReference: `MCP_STDIO_${'A'.repeat(32)}`, revision: 3, connected: true,
+    inspection: { protocolVersion: MCP_MODERN_VERSION, cleanup: 'released', inspectedAt: 1,
+      tools: [tool], schemaAdmission: { version: 1, hashes: [schemaHash] } },
+  }
+  const view: McpConnectionView = { id: row.id, label: row.label, status: 'connected', transport: 'stdio', revision: 3,
+    protocolVersion: MCP_MODERN_VERSION, inspectedAt: 1, tools: [tool], execution: 'approval-required', executableTools: ['search'] }
+  const store = { privateMcpConnection: () => row, mcpConnection: () => view }
+  let resolveCallStarted!: () => void
+  const callStarted = new Promise<void>((resolve) => { resolveCallStarted = resolve })
+  let closed = 0
+  const execute = createBoundMcpExecutor({ runtimeConfiguration: () => ({
+    deviceBearerAvailable: false, allowLoopback: false, localProcessesAvailable: true,
+    openStdio: () => ({
+      request: async (method, _params, { signal }) => {
+        if (method === 'server/discover') return { jsonrpc: '2.0', id: method, result: {
+          resultType: 'complete', supportedVersions: [MCP_MODERN_VERSION], capabilities: { tools: {} },
+          _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'fixture', version: '1' } },
+        } }
+        resolveCallStarted()
+        return await new Promise((_resolve, reject) => signal.addEventListener('abort', () =>
+          reject(Object.assign(new Error('cancelled'), { code: 'cancelled', mayHaveSubmitted: true })), { once: true }))
+      },
+      initialized: async () => undefined,
+      close: async () => { closed += 1 },
+      closed: Promise.resolve(),
+    }),
+  }) })
+  const caller = new AbortController()
+  const pending = execute(store, 'tenant-a', binding(), () => true, 'person-a', caller.signal)
+  await callStarted
+  caller.abort()
+  assert.equal((await pending).status, 'uncertain', 'a submitted call retains its uncertain receipt')
+  assert.equal(closed, 1, 'caller abort releases the native process session')
+})
+
 test('foreign, stale, disconnected, and non-admitted bindings refuse without a call', async () => {
   let calls = 0
   const execute = createBoundMcpExecutor({

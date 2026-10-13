@@ -22,7 +22,8 @@ test('every routine projection uses one acknowledgement-gated manual-run flow', 
   assert.equal((view.match(/isScheduleRunHeld\(id\)/g) ?? []).length, 2, 'both main projections render the immediate hold')
   assert.match(routineMenu, /isScheduleRunHeld\(task\.id\)/, 'the rail renders the same immediate hold')
   assert.match(view, /runs\.some\(\(run\) => run\.status === 'running'\)/, 'rendered controls respect durable active-run truth')
-  assert.match(routineMenu, /runs\.some\(\(run\) => run\.status === 'running'\)/, 'the rail respects durable active-run truth')
+  assert.match(routineMenu, /runs\.find\(\(run\) => run\.status === 'running'\)/, 'the rail binds Stop to one durable active run')
+  assert.match(routineMenu, /runId: activeRun\.id/, 'the rail never targets a latest run dynamically')
   assert.match(sidebar, /lazy\(\(\) =>[\s\S]*import\('\.\/RoutineRowMenu'\)/, 'rail execution state loads only with routine rows')
 
   assert.match(controller, /import\('\.\/scheduleRunRuntime'\)/, 'the low-frequency transport stays behind a lazy boundary')
@@ -37,6 +38,7 @@ test('every routine projection uses one acknowledgement-gated manual-run flow', 
   assert.match(notice, /kind="routine-run"/, 'uncertain execution has one enumerable shell recovery role')
 
   assert.match(rowMenu, /disabled=\{item\.disabled\}/, 'the rail can disable only Run while leaving other actions available')
-  assert.match(routineMenu, /disabled: running/, 'durable activity disables only the duplicate Run item')
+  assert.match(routineMenu, /key: 'stop-run'/, 'durable activity offers exact Stop instead of a disabled Run item')
+  assert.match(routineMenu, /\.\.\.\(!activeRun \?/, 'Run now is absent while a run is active')
   assert.match(actionRow, /disabled=\{disabled\}/, 'the action row uses native disabled semantics')
 })

@@ -14,11 +14,13 @@ function between(source: string, start: string, end: string): string {
 test('every routine draft editor closes only after acknowledgement and survives explicit Dismiss', () => {
   const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   const page = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))
+  const cadenceEditor = stripComments(read(join(ROOT, 'src', 'components', 'CadenceEditor.tsx')))
+  const draftHook = stripComments(read(join(ROOT, 'src', 'controller', 'useScheduleDraftCommit.ts')))
   const detail = between(view, 'function ScheduledDetail(', 'function PromptCard(')
   const prompt = between(view, 'function PromptCard(', "type RailState = 'idle'")
   const workflow = between(view, 'function WorkflowCard(', 'function StepsEditor(')
   const steps = between(view, 'function StepsEditor(', 'function StepToolPicker(')
-  const cadence = between(view, 'function CadenceEditor(', 'function ModelPanel(')
+  const cadence = cadenceEditor.slice(cadenceEditor.indexOf('export function CadenceEditor('))
   const delivery = between(view, 'function DeliveryPanel(', 'function ContextToolsPanel(')
   const model = between(view, 'function ModelPanel(', 'function DispatchView(')
 
@@ -35,9 +37,9 @@ test('every routine draft editor closes only after acknowledgement and survives 
       `${name} submits against the revision its draft was opened from`)
   }
 
-  assert.match(view, /function useScheduleDraftCommit\([\s\S]*expectedRevision: number[\s\S]*updateSchedule\(scheduleId, patch, expectedRevision\)[\s\S]*if \(outcome === 'applied'\)/,
+  assert.match(draftHook, /function useScheduleDraftCommit\([\s\S]*expectedRevision: number[\s\S]*update\(scheduleId, patch, expectedRevision\)[\s\S]*if \(outcome === 'applied'\)/,
     'all routine drafts settle through one acknowledgement-owned helper')
-  assert.match(view, /Your \$\{draftLabel\} draft was not saved/,
+  assert.match(draftHook, /Your \$\{draftLabel\} draft was not saved/,
     'an explicit Dismiss preserves one visible non-success outcome for every draft')
   assert.match(detail, /aria-busy=\{nameBusy\}[\s\S]*<input[\s\S]*disabled=\{nameBusy\}/,
     'rename freezes its submitted input immediately')
@@ -58,8 +60,8 @@ test('every routine draft editor closes only after acknowledgement and survives 
     'only the routine owner receives the workflow edit action')
   assert.match(workflow, /editing && task\.own === true \?/,
     'only the routine owner can render the workflow editor')
-  assert.match(view, /<FoldSection[\s\S]*title="Schedule"[\s\S]*heldOpen=\{draftHeld\}/,
-    'the schedule section connects its draft hold to the shared fold primitive')
+  assert.match(view, /function SchedulePanel[\s\S]*<FoldSection[\s\S]*title="Schedule"[\s\S]*heldOpen=\{busy\}[\s\S]*disabled=\{busy\}/,
+    'the schedule uses one acknowledgement-owned busy state to hold the section and editor action')
   assert.match(prompt, /heldOpen=\{busy\}/, 'the instruction cannot fold away while its draft is uncertain')
   assert.match(delivery, /heldOpen=\{busy\}/, 'the delivery editor cannot fold away while its draft is uncertain')
   assert.match(model, /heldOpen=\{draftHeld\}/, 'the Agent and model picker cannot fold away while its draft is uncertain')

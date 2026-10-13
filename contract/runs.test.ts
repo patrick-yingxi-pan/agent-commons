@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { recentEntries } from './runs.ts'
+import { recentEntries, runRecap } from './runs.ts'
 import type { ScheduledRun, ScheduledTask } from './cowork.ts'
 
 /** Run history times moved to absolute epoch-ms `at` (a v3 store change). The
@@ -50,4 +50,19 @@ test('recentEntries skips disabled routines and caps each routine at its two lat
     ['r1', 'r2'],
     'only the enabled routine contributes, and only its two most-recent runs',
   )
+})
+
+test('a stopped run recap does not claim success, delivery, or undo', () => {
+  const routine = task('stopped-routine', [run('stopped-run', 1_000)])
+  const stopped: ScheduledRun = {
+    ...run('stopped-run', 1_000),
+    status: 'cancelled',
+    summary: 'Stopped by owner',
+    detail: 'A partial response was received before stopping.',
+  }
+  const recap = runRecap(routine, stopped)
+  assert.match(recap, /stopped/i)
+  assert.match(recap, /completed effects/i)
+  assert.doesNotMatch(recap, /Done —|Delivered to|undone|reverted/i)
+  assert.doesNotMatch(recap, /partial response was received/i, 'partial content is not presented as successful output')
 })
