@@ -46,7 +46,77 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: Commission native restore and shutdown
+## Current checkpoint: person-approved local Commission programs
+
+Autonomous direction (2026-10-13): complete the existing Commission MCP workflow
+for person-owned local stdio tools on desktop. Conversations, Contributions and
+Routines already have the native process boundary; Commissions should reuse it
+under their own reviewed permission, not infer authority from setup or a Routine.
+The private grant freezes exact local connection identities, and admission,
+effect dispatch and publication each require the separate native capability.
+Existing HTTP grants retain their meaning. Hosted runtimes remain fail-closed.
+
+The review labels local programs and requires a fresh unchecked acknowledgement
+of normal OS access and possible startup effects. Startup failure withdraws its
+exact current grant without retry; known results retain frozen transport history.
+Restore/recovery preserve the existing global work-identity fences, including
+backed-up open work that had no claim. No real user program or third-party service
+is part of acceptance: tests use authored in-memory peers and an authored child.
+
+Required gates: pure policy/provenance, store/route person walls and effect races,
+JSON/SQLite restart and restore, rendered consent/recovery/history across five
+viewports, and an isolated packaged child-process walk. The complete local and
+desktop verifiers, UI sweep, diff review and direct main push remain required.
+Signing, Intel, actual native dialogs, live providers/services and release
+publication are separate outstanding gates, not implied by this checkpoint.
+
+The focused policy/route/store/persistence/source checks pass 204/204, alongside
+typecheck and the unchanged production build budgets. The general UI sweep
+passes 135/135 cells with zero violations or skips. The first focused browser
+run passed 11 of 12 walks; its one new test incorrectly queried the tool-choice
+card after Review had unmounted it. Choice assertions now precede that transition,
+while frozen labels are checked on the actual review. The second run exposed
+an incomplete local fixture projection: it omitted transport and expected an
+HTTP label. The fixture now returns the real actor-filtered connection view.
+The complete Node suite passed 6,020/6,021; its sole failure was the old exact
+desktop-verifier command list, now extended to include the new local walk.
+The final frozen-tree browser/full-verifier runs remain pre-landing requirements,
+not assumed passes.
+
+The corrected browser run passed 11/12 and exposed a real WCAG target-size defect:
+the foreign public Project's shared Comment action measured 56×18px at tablet
+width. The inline-action primitive now owns a 24×24px minimum, with a watched-red
+source lock, existing enumerated editor controls and the foreign Project scan.
+UI-227 records the class-level fix. This broadens final visual acceptance to all
+inline-action consumers through the full UI sweep and structured-editor walks.
+The MCP fixture intentionally aborts SSE; its visible reconnect notice is not
+evidence of a live-update regression or real-service acceptance.
+
+Post-fix acceptance passes all 19 focused browser walks, the complete 135/135-cell
+UI sweep with zero violations/skips, and the complete desktop verifier; the
+local Commission walk is retained at
+`.data/desktop-commission-local-smoke/run-WhxEJA`. Final review then found a
+vacuous store refusal test: its supposed other-person tool selection was empty.
+A new payload precondition was watched fail; the corrected test submits Grace's
+real tool under Ada's otherwise-valid review and proves refusal without a policy
+mutation. All 38 targeted policy/claim/registry/store/route tests pass. The active
+full verifier was cleanly interrupted before this correction and is not a pass;
+the final frozen-tree complete verifier remains required before landing.
+
+Packaged local acceptance passes at
+`.data/desktop-commission-local-smoke/run-9plYUb`, source ASAR
+`f3823de1566dffb136608e5c0503bae400b0699b3cc5e8478bc6e50078ddbfb5`.
+It proves known success and credit, startup failure without a tool call, exact
+private provenance and usage retention across signed-in relaunch/revoke, and
+actual SQLite replacement through the native managed-restore path with a fresh
+safety backup. Reapproval never replays restored pending or unclaimed work;
+new work still runs. Native dialog answers and relaunch spawning are fixtures.
+The full `npm run desktop:verify` also passed, including the local Commission
+walk at `.data/desktop-commission-local-smoke/run-pCaDzp` and all existing native
+phases. The complete local verifier remains required. This evidence is not a
+signed, Intel or live-service release gate.
+
+## Completed checkpoint: Commission native restore and shutdown
 
 Autonomous direction (2026-10-13): prove Commission MCP's existing explicit
 restore boundary through the actual native lifecycle, not only a backup read.

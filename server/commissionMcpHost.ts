@@ -4,10 +4,9 @@
 import type { CommissionMcpDecisionRequest, CommissionMcpDecisionResponse, CommissionMcpReview } from '../contract/commissionMcpApi.ts'
 import type { DispatchBinding } from '../contract/dispatchExecution.ts'
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
-import { CommissionMcpPolicyError, type CommissionMcpScope } from './commissionMcpPolicy.ts'
+import { CommissionMcpPolicyError, commissionMcpToolPermitted, type CommissionMcpScope } from './commissionMcpPolicy.ts'
 import { CommissionMcpRegistry } from './commissionMcpRegistry.ts'
 import { commissionMcpReviewFacts, publicCommissionMcpClaim } from './commissionMcpReview.ts'
-import { matchesHttpMcpPermission } from './mcpPermission.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 
 export type CommissionMcpModelSelection = Pick<DispatchBinding, 'providerId' | 'modelId'>
@@ -23,6 +22,8 @@ export interface CommissionMcpHostPort {
   commit<T>(operation: () => T): T
   changed(commissionId: string, projectId: string): void
   now(): number
+  /** Deployment-owned capability; absent is HTTP-only. Never request-owned. */
+  allowLocalPrograms?(): boolean
 }
 
 export class CommissionMcpHost {
@@ -51,7 +52,7 @@ export class CommissionMcpHost {
         available.connectionRevision === tool.connectionRevision && available.tool.name === tool.toolName &&
         available.schemaHash === tool.schemaHash) &&
         (() => { const view = this.port.connection(tool.connectionId, base.scope.tenantId, userId)
-          return !!view && matchesHttpMcpPermission(tool, view) })())
+          return commissionMcpToolPermitted(stored!, tool, view, this.port.allowLocalPrograms?.() === true) })())
     return structuredClone({ commissionId: id, projectId: source.project.id,
       configurationRevision: source.commission.configurationRevision ?? 0, ...facts,
       execution: source.execution, policy, active, blockedReason: source.blockedReason,
@@ -71,6 +72,7 @@ export class CommissionMcpHost {
       const decision = this.port.registry.decide(base.scope, request, {
         configurationRevision: review.configurationRevision, reviewHash: review.reviewHash, now: this.port.now(),
         approvalAllowed: !review.blockedReason && !!review.execution,
+        allowLocalPrograms: this.port.allowLocalPrograms?.() === true,
         connection: (connectionId, owner, person) => {
           const connection = this.port.connection(connectionId, owner, person)
           if (!connection) return undefined

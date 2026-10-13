@@ -120,6 +120,7 @@ export function reserveCommissionMcpClaim(current: StoredCommissionMcpClaim | un
   review: CommissionMcpLiveReview
   now: number
   connection: CommissionMcpConnectionReader
+  allowLocalPrograms?: boolean
 }): { claim: StoredCommissionMcpClaim; created: boolean } {
   const permission = parseCommissionMcpPolicy(input.permission)
   const work = parseCommissionMcpWork(input.work)
@@ -132,7 +133,8 @@ export function reserveCommissionMcpClaim(current: StoredCommissionMcpClaim | un
     return { claim: parseCommissionMcpClaim(represented), created: false }
   }
   if (!approvedTool(permission, tool) || tool.toolName !== work.target || !commissionMcpInteger(input.now) ||
-      !commissionMcpCallPermitted(permission, input.live, input.review, fixedCall(tool), input.now, input.connection)) return fail('denied')
+      !commissionMcpCallPermitted(permission, input.live, input.review, fixedCall(tool), input.now, input.connection,
+        input.allowLocalPrograms === true)) return fail('denied')
   const base = makeBase(permission, work, tool, input.now)
   return { claim: parseCommissionMcpClaim({ ...base, phase: 'preparing' }), created: true }
 }
@@ -144,6 +146,7 @@ export function beginCommissionMcpEffect(claimValue: StoredCommissionMcpClaim, i
   review: CommissionMcpLiveReview
   now: number
   connection: CommissionMcpConnectionReader
+  allowLocalPrograms?: boolean
 }): { claim: StoredCommissionMcpClaim; created: boolean } {
   const claim = parseCommissionMcpClaim(claimValue)
   const call = snapshotMcpBoundToolCall(input.call) ?? fail()
@@ -154,7 +157,8 @@ export function beginCommissionMcpEffect(claimValue: StoredCommissionMcpClaim, i
   if (claim.phase !== 'preparing') return fail('stale')
   if (call.toolName !== claim.work.target || !mcpPermissionAllowsCall(claim.tool, call)) return fail('stale')
   const reservation = reserveCommissionMcpAttempt(undefined, { permission: claim.permission, work: claim.work, call,
-    live: input.live, review: input.review, now: input.now, connection: input.connection })
+    live: input.live, review: input.review, now: input.now, connection: input.connection,
+    allowLocalPrograms: input.allowLocalPrograms })
   if (reservation.attempt.startedAt < claim.startedAt) return fail('stale')
   return { claim: parseCommissionMcpClaim({ ...claim, phase: 'effect', attempt: reservation.attempt }), created: true }
 }

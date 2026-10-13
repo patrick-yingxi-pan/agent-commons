@@ -45,3 +45,14 @@ test('Commission approval controls share wrapping actions and keyboard-readable 
   assert.match(panel, /FORM_INPUT_CLASS/)
   assert.match(panel, /<CheckboxRow/)
 })
+
+test('local Commission review starts unchecked and gates submission separately from setup consent', () => {
+  const panel = source('CommissionMcpApprovalPanel.tsx')
+  assert.match(panel, /\[localProgramsAcknowledged, setLocalProgramsAcknowledged\] = useState\(false\)/)
+  assert.match(panel, /setLocalProgramsAcknowledged\(false\)/)
+  assert.match(panel, /request\.approval\.localPrograms && !localProgramsAcknowledged/)
+  assert.match(panel, /frozen\.approval\.localPrograms && !localProgramsAcknowledged/)
+  assert.match(panel, /<CheckboxRow checked=\{localProgramsAcknowledged\}/)
+  assert.match(panel, /normal OS access and possible startup effects/)
+  assert.match(panel, /claim\.transport === 'stdio'/)
+})

@@ -77,7 +77,7 @@ export class CommissionMcpExecution {
     const nextClaims = new CommissionMcpRegistry(p.registry.snapshot())
     const reservation = nextClaims.reserve({ permission, work, tool,
       review: { configurationRevision: source.commission.configurationRevision ?? 0, reviewHash: commissionMcpReviewFacts(source).reviewHash },
-      now: p.now(), connection: p.connection })
+      now: p.now(), connection: p.connection, allowLocalPrograms: p.allowLocalPrograms?.() === true })
     const nextUsage = new UsageRegistry(p.now, () => base.scope.tenantId)
     nextUsage.rehydrate(p.usage.snapshot(), false)
     nextUsage.rehydrateReservations(p.usage.snapshotReservations())
@@ -128,7 +128,7 @@ export class CommissionMcpExecution {
         p.commit(() => {
           p.registry.beginEffect(source.project.id, itemId, call, {
             configurationRevision: live.commission.configurationRevision ?? 0, reviewHash: commissionMcpReviewFacts(live).reviewHash,
-            now: p.now(), connection: p.connection,
+            now: p.now(), connection: p.connection, allowLocalPrograms: p.allowLocalPrograms?.() === true,
           })
           p.changed(commissionId, source.project.id)
         })
@@ -178,7 +178,7 @@ export class CommissionMcpExecution {
         row.schemaHash === call.schemaHash && row.tool.name === call.toolName)) return false
     return commissionMcpCallPermitted(claim.permission, p.registry.policy(this.scope(claim)), {
       configurationRevision: source.commission.configurationRevision ?? 0, reviewHash: commissionMcpReviewFacts(source).reviewHash,
-    }, call, p.now(), p.connection)
+    }, call, p.now(), p.connection, p.allowLocalPrograms?.() === true)
   }
 
   private close(claim: StoredCommissionMcpClaim, known: boolean): StoredCommissionMcpClaim {

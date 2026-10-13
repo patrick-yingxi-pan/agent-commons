@@ -62,8 +62,10 @@ async function capture(page: Page, detail: Locator, testInfo: TestInfo, label: s
       expect(await actions.count()).toBeGreaterThan(2)
       expect(await actions.evaluateAll((buttons) => buttons.filter((button) => {
         const style = getComputedStyle(button)
+        const bounds = button.getBoundingClientRect()
         // A flex parent's inline-flex child is blockified to computed flex.
-        return !['inline-flex', 'flex'].includes(style.display) || style.alignItems !== 'center'
+        return !['inline-flex', 'flex'].includes(style.display) || style.alignItems !== 'center' ||
+          bounds.width < 24 || bounds.height < 24
       }).map((button) => button.textContent?.trim()))).toEqual([])
     }
     await detail.getByRole('button', { name: 'Content', exact: true }).scrollIntoViewIfNeeded()

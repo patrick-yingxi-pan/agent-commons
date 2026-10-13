@@ -47,8 +47,8 @@ export function commissionMcpReviewFacts(input: {
   return { reviewHash, disclosures: [
     `This Contributor uses ${agent.label}${provider && execution ? ` with ${provider.label} / ${execution.modelId}` : ' with an explicitly selected endpoint model'}. Your workspace pays for its model usage.`,
     `The model receives this Agent’s instructions, the readable definition of Project “${project.name}”, each matching open work item and the selected tool schema. No ambient conversations or attached resource contents are included.`,
-    'The model drafts arguments for one selected HTTP MCP tool per work item. Fixed argument values cannot change. Every tool is treated as potentially effectful, regardless of its read-only label.',
-    'Tool arguments go to the selected external service. Exact arguments and results stay in your private receipt history; successful work attribution is visible to people who can read the Project.',
+    'The model drafts arguments for one selected MCP tool per work item. Fixed argument values cannot change. Every tool is treated as potentially effectful, regardless of its read-only label.',
+    'Tool arguments go to the selected service or local program. Exact arguments and results stay in your private receipt history; successful work attribution is visible to people who can read the Project.',
     project.shared ? 'This Project is publicly shared. Its work-item completion and Contributor credit can be visible beyond your workspace.' : 'Project work-item completion and Contributor credit follow the Project’s current sharing.',
     'Calls use your connection and require your continued workspace membership. Existing standing settings, connection setup and another person’s permission never grant this approval.',
     'The work count includes failed and uncertain attempts. External services and model providers may charge fees; work limits and local token estimates are not monetary caps.',
@@ -57,7 +57,8 @@ export function commissionMcpReviewFacts(input: {
 }
 
 export function publicCommissionMcpClaim(claim: StoredCommissionMcpClaim): CommissionMcpClaimView {
-  const base = { id: claim.id, work: structuredClone(claim.work), startedAt: claim.startedAt, phase: claim.phase }
+  const base = { id: claim.id, work: structuredClone(claim.work), startedAt: claim.startedAt, phase: claim.phase,
+    ...(claim.permission.localConnectionIds?.includes(claim.tool.connectionId) ? { transport: 'stdio' as const } : {}) }
   if (claim.phase === 'preparing') return { ...base, status: 'pending' }
   if (claim.phase === 'closed') return { ...base, status: claim.status, finishedAt: claim.finishedAt }
   return { ...base, status: claim.attempt.status, call: structuredClone(claim.attempt.call),

@@ -41,14 +41,23 @@ export function validateCommissionMcpRegistryJoins(value: CommissionMcpRegistryS
         if (commission.tenantId !== undefined && commission.tenantId !== policy.tenantId) return false
       }
       if (sources.projectIds && !sources.projectIds.has(policy.projectId)) return false
-      for (const tool of policy.policy.approval?.tools ?? []) {
-        // Ownerless HTTP none/bearer connections remain tenant-owned; OAuth
-        // identities must join the approver, including after disconnection or
-        // removal. Stdio cannot be smuggled through a historical identity.
-        const connection = identities.get(JSON.stringify([policy.tenantId, tool.connectionId]))
-        if (!connection || connection.transport === 'stdio' ||
-            (connection.ownerUserId !== undefined && connection.ownerUserId !== policy.ownerUserId)) return false
+      const localIds = new Set(policy.localConnectionIds ?? [])
+      for (const id of localIds) {
+        const connection = identities.get(JSON.stringify([policy.tenantId, id]))
+        if (!connection || connection.transport !== 'stdio' || connection.ownerUserId !== policy.ownerUserId) return false
       }
+      const selectedLocalIds = new Set<string>()
+      for (const tool of policy.policy.approval?.tools ?? []) {
+        const connection = identities.get(JSON.stringify([policy.tenantId, tool.connectionId]))
+        if (!connection || (connection.ownerUserId !== undefined && connection.ownerUserId !== policy.ownerUserId)) return false
+        if (connection.transport === 'stdio') {
+          if (!localIds.has(tool.connectionId) || connection.ownerUserId !== policy.ownerUserId) return false
+          selectedLocalIds.add(tool.connectionId)
+        } else if (localIds.has(tool.connectionId)) return false
+      }
+      if (policy.policy.approval && (policy.policy.approval.localPrograms === true) !== !!localIds.size) return false
+      if (policy.policy.approval && (selectedLocalIds.size !== localIds.size ||
+          [...localIds].some(id => !selectedLocalIds.has(id)))) return false
     }
     for (const claim of state.claims) {
       const item = work.get(JSON.stringify([claim.permission.projectId, claim.work.itemId]))

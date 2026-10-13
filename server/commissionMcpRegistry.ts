@@ -64,6 +64,8 @@ export interface CommissionMcpRegistryContext extends CommissionMcpLiveReview {
   connection: CommissionMcpConnectionReader
   /** Host admission gate for a fresh model/role/budget-dependent approval. */
   approvalAllowed?: boolean
+  /** Native capability gate for person-owned stdio permission and calls. */
+  allowLocalPrograms?: boolean
 }
 export const emptyCommissionMcpRegistry = (): CommissionMcpRegistryState => ({ policies: [], claims: [], retired: [] })
 const fail = (code: CommissionMcpPolicyError['code'] = 'invalid'): never => { throw new CommissionMcpPolicyError(code) }
@@ -335,7 +337,8 @@ export class CommissionMcpRegistry {
     if (exact.action === 'approve') {
       if ((current?.policy.revision ?? 0) >= COMMISSION_MCP_MAX_REVISIONS - 1) return fail('limit')
       next = approveCommissionMcpPolicy(exactScope, current,
-        { configurationRevision: context.configurationRevision, reviewHash: context.reviewHash }, exact.approval!, context.now, context.connection)
+        { configurationRevision: context.configurationRevision, reviewHash: context.reviewHash }, exact.approval!, context.now,
+        context.connection, context.allowLocalPrograms === true)
     } else {
       if (!current) return fail('unavailable')
       next = revokeCommissionMcpPolicy(current, exact.expectedRevision!)
@@ -356,7 +359,8 @@ export class CommissionMcpRegistry {
     // Keep the final revision available for unconditional withdrawal.
     if ((current?.policy.revision ?? 0) >= COMMISSION_MCP_MAX_REVISIONS - 1) return fail('limit')
     const next = approveCommissionMcpPolicy(scope, current,
-      { configurationRevision: context.configurationRevision, reviewHash: context.reviewHash }, intent, context.now, context.connection)
+      { configurationRevision: context.configurationRevision, reviewHash: context.reviewHash }, intent, context.now,
+      context.connection, context.allowLocalPrograms === true)
     this.commit({ ...this.state, policies: [...this.state.policies, next] })
     return parseCommissionMcpPolicy(next)
   }
@@ -384,7 +388,8 @@ export class CommissionMcpRegistry {
   beginEffect(projectId: string, itemId: string, call: McpBoundToolCall, context: CommissionMcpRegistryContext): { claim: StoredCommissionMcpClaim; created: boolean } {
     const prior = this.claim(projectId, itemId) ?? fail('unavailable')
     const result = beginCommissionMcpEffect(prior, { call, live: this.policy(prior.permission),
-      review: { configurationRevision: context.configurationRevision, reviewHash: context.reviewHash }, now: context.now, connection: context.connection })
+      review: { configurationRevision: context.configurationRevision, reviewHash: context.reviewHash }, now: context.now,
+      connection: context.connection, allowLocalPrograms: context.allowLocalPrograms })
     if (result.created) this.storeClaim(result.claim)
     return result
   }

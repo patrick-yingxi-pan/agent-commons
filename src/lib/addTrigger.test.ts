@@ -24,6 +24,12 @@ test('the shared inline-action class is an inline text-button affordance', () =>
   }
 })
 
+test('inline actions own a 24px minimum target without relying on neighboring spacing', () => {
+  for (const piece of ['min-h-6', 'min-w-6']) {
+    assert.ok(INLINE_ACTION_CLASS.split(' ').includes(piece), `inline action target requires ${piece}`)
+  }
+})
+
 test('the AddTrigger component sources its styling from the shared module', () => {
   const src = read(join(ROOT, 'src', 'components', 'AddTrigger.tsx'))
   assert.match(src, /from\s+'(\.\.\/)+lib\/inlineAction'/, 'imports the shared module')
@@ -46,8 +52,8 @@ test('the inline-action class is defined once — no component re-hardcodes the 
   // The full literal lives only in the lib module; everywhere else goes through the
   // constant or AddTrigger, so re-introducing a copy-pasted inline action fails this.
   const components = concatSource('src/components')
-  assert.ok(
-    !components.includes(INLINE_ACTION_CLASS),
-    'no component re-hardcodes the inline-action class — it must come from lib/inlineAction',
-  )
+  for (const literal of [INLINE_ACTION_CLASS, INLINE_ACTION_CLASS.replace('min-h-6 min-w-6 ', '')]) {
+    assert.ok(!components.includes(literal),
+      'no component re-hardcodes the inline-action class, including its old undersized form')
+  }
 })

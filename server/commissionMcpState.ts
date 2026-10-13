@@ -111,6 +111,7 @@ export function reserveCommissionMcpAttempt(current: StoredCommissionMcpAttempt 
   review: CommissionMcpLiveReview
   now: number
   connection: CommissionMcpConnectionReader
+  allowLocalPrograms?: boolean
 }): { attempt: StoredCommissionMcpAttempt; created: boolean } {
   const permission = parseCommissionMcpPolicy(input.permission)
   const work = workFrom(detached(input.work))
@@ -122,7 +123,7 @@ export function reserveCommissionMcpAttempt(current: StoredCommissionMcpAttempt 
     return { attempt: represented, created: false }
   }
   if (work.target !== call.toolName || !commissionMcpCallPermitted(permission, input.live, input.review,
-    call, input.now, input.connection)) return fail('denied')
+    call, input.now, input.connection, input.allowLocalPrograms === true)) return fail('denied')
   return { attempt: parseCommissionMcpAttempt({ id: attemptId(permission, work), permission, work, call,
     startedAt: input.now, intentHash: intentHash(permission, work, call, input.now), status: 'pending' }), created: true }
 }

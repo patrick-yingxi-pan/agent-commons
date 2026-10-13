@@ -5,7 +5,7 @@ import type { McpJsonValue } from '../../contract/mcpExecution.ts'
 
 export type CommissionToolChoice = CommissionMcpReview['tools'][number]
 export type CommissionToolDraft = { selected: boolean; fixedText: string }
-export const commissionToolKey = (tool: CommissionToolChoice) => JSON.stringify([tool.connectionId, tool.tool.name, tool.schemaHash])
+export const commissionToolKey = (tool: CommissionToolChoice) => JSON.stringify([tool.connectionId, tool.tool.name, tool.schemaHash, tool.transport ?? 'http'])
 export const commissionToolLabelKey = (connectionId: string, name: string) => JSON.stringify([connectionId, name])
 
 /** Pure form validation. The server repeats strict JSON/schema and authority
@@ -33,13 +33,16 @@ export function commissionApprovalFromDraft(review: CommissionMcpReview, drafts:
     return { connectionId: choice.connectionId, connectionRevision: choice.connectionRevision, toolName: choice.tool.name, schemaHash: choice.schemaHash, fixedArguments }
   })
   return structuredClone({ expectedRevision: review.policy.revision, expectedConfigurationRevision: review.configurationRevision,
-    reviewHash: review.reviewHash, execution: review.execution, expiresAt, maxWorkItems, tools })
+    reviewHash: review.reviewHash, execution: review.execution, expiresAt, maxWorkItems, tools,
+    ...(selected.some(tool => tool.transport === 'stdio') ? { localPrograms: true as const } : {}) })
 }
 
 export function commissionApprovalMatchesReview(approval: CommissionMcpApprovalIntent, review: CommissionMcpReview, now = Date.now()): boolean {
   return !review.blockedReason && approval.expiresAt > now && approval.expectedRevision === review.policy.revision &&
     approval.expectedConfigurationRevision === review.configurationRevision && approval.reviewHash === review.reviewHash &&
     approval.execution.agentId === review.execution?.agentId && approval.execution.providerId === review.execution?.providerId &&
+    (approval.localPrograms === true) === review.tools.some(choice => choice.transport === 'stdio' &&
+      approval.tools.some(tool => tool.connectionId === choice.connectionId && tool.toolName === choice.tool.name)) &&
     approval.execution.modelId === review.execution?.modelId && approval.tools.every(tool => review.tools.some(choice =>
       choice.connectionId === tool.connectionId && choice.connectionRevision === tool.connectionRevision && choice.tool.name === tool.toolName && choice.schemaHash === tool.schemaHash))
 }

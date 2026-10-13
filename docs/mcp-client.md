@@ -542,8 +542,8 @@ history is admitted independently of runtime availability; explicit restore
 revokes local grants, pauses affected tasks and terminalizes unfinished restored
 frozen-local runs, including queued runs with no receipt, while retaining known
 receipts. A completed historical local run alone does not revoke a newer
-HTTP-only grant. Authored-child browser coverage is being added; packaged local
-Routine smoke and full acceptance remain outstanding.
+HTTP-only grant. In-memory browser and real authored-child packaged acceptance
+are recorded in the production plan; signed/Intel and real-service gates remain.
 
 Routine MCP adds a distinct opt-in permission, not context-level trust. The owner
 reviews exact tools, fixed top-level argument values, a per-run attempt cap,
@@ -739,8 +739,30 @@ capability. Explicit restore revokes current local grants, pauses affected tasks
 and terminalizes restored unfinished frozen-local runs, including queued runs
 with no receipt, while retaining known receipts. A completed historical local
 run alone does not revoke a newer HTTP-only grant. Browser coverage uses an
-in-memory injected stdio peer, not a child process. Packaged local Routine
-smoke and complete native acceptance remain outstanding.
+in-memory injected stdio peer, not a child process. The separate packaged local
+Routine walk passed with a real authored child, restart and managed restore;
+the production plan scopes that unsigned-arm64 evidence and remaining gates.
+
+### Local Commission permission
+
+Commission work uses the existing native stdio runtime, but never a Routine's
+grant or setup consent. Its person-private review requires literal
+`localPrograms: true` and a fresh unchecked acknowledgement of normal OS access
+and possible startup effects. The private `localConnectionIds` stamp is derived
+from the exact selected owner connections; current and retired history joins
+retain transport and person. The native capability is checked at approval,
+admission, dispatch and publication; web runtimes do not gain local execution.
+
+Each posted item has one durable claim across grant replacement. Startup failure
+withdraws the exact current authorizing grant without retry, even when no tool
+request was sent. Revoke and restore retain provenance, not permission; restore
+also blocks every backed-up open MCP item, including those with no claim. Review
+and history label local programs without exposing executable paths or credentials.
+`desktop/commissionMcpLocalSmoke.mjs` owns authored-child packaged acceptance.
+Its unsigned-arm64 walk passed with real encrypted custody, SQLite, child
+execution, signed-in relaunch and managed restore; native dialog answers and
+relaunch spawning remain fixtures. Signed/Intel, actual OS-dialog and real
+third-party acceptance remain separate.
 
 ## Required next work
 
@@ -750,8 +772,8 @@ smoke and complete native acceptance remain outstanding.
   but is not a complete MCP client. Execution-specific expiry recovery and
   input modes beyond private form elicitation remain. The bounded workflows do not
   replace those requirements or imply general server trust.
-- Packaged local Routine smoke and full acceptance remain required; neither
-  OAuth setup nor Contribution review authorizes local Routine execution.
+- Signed two-architecture and live-service acceptance remain required; neither
+  connection setup nor another workflow's grant authorizes unattended work.
 - Third-party and combined packaged acceptance of the whole journey, including
   tenant walls, restart, secret exclusion, cancellation and failure recovery.
 

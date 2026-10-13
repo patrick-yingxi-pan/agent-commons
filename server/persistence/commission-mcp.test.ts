@@ -2,6 +2,7 @@
  * exercised through real JSON/SQLite startup in child processes so no singleton
  * store state or backend handles leak between cases. */
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -9,9 +10,15 @@ import { join } from 'node:path'
 import { after, test } from 'node:test'
 import type { PersistedState } from './persist.ts'
 import { validateCommissionMcpRegistryJoins } from '../commissionMcpAuthority.ts'
-import { createMcpConnectionRegistry, parseMcpConnectionState } from '../mcpConnections.ts'
-import { parseCommissionMcpRegistryState } from '../commissionMcpRegistry.ts'
+import { createMcpConnectionRegistry, mcpStdioConnectionCreationId, parseMcpConnectionState } from '../mcpConnections.ts'
+import { CommissionMcpRegistry, parseCommissionMcpRegistryState } from '../commissionMcpRegistry.ts'
 import { addCommissionMcpSnapshotFixture } from '../../scripts/snapshotCommissionMcp.ts'
+import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
+import { MCP_SCHEMA_ADMISSION_VERSION, mcpToolSchemaHash } from '../mcpToolAdmission.ts'
+import { JsonFileBackend } from './json.ts'
+import { SqliteBackend } from './sqlite.ts'
+import { exportBackendSnapshot, readPortableSnapshot, restoreBackendState } from './portable.ts'
+import { hasCorePersistedShape } from './format.ts'
 
 const ROOT = mkdtempSync(join(tmpdir(), `agent-commons-commission-mcp-${process.pid}-`))
 const storeModule = new URL('../store/index.ts', import.meta.url).href
@@ -52,6 +59,54 @@ function makeFixture(file: string, backend: 'json' | 'sqlite', phase: 'done' | '
 
 function stateFor(file: string): PersistedState {
   return JSON.parse(readFileSync(file, 'utf8')) as PersistedState
+}
+
+function withLocalCommissionHistory(input: PersistedState): PersistedState {
+  const state = structuredClone(input)
+  const now = Date.parse('2026-10-04T12:00:00.000Z')
+  const existing = state.commissionMcp!.policies.find(row => row.commissionId === COMMISSION_ID)!
+  const item = state.openSubGoals.find(row => row.id === ITEM_ID)!
+  const sourceConnections = createMcpConnectionRegistry()
+  sourceConnections.rehydrate(state.mcpConnections!)
+  const localConnections = createMcpConnectionRegistry()
+  localConnections.rehydrate(state.mcpConnections!)
+  const sourceId = existing.policy.approval!.tools[0]!.connectionId
+  const source = sourceConnections.privateConnection(sourceId, existing.tenantId)!
+  const definition = source.inspection!.tools.find(tool => tool.name === item.target)!
+  const connectionId = mcpStdioConnectionCreationId(existing.tenantId, 'commission-mcp-persistence', existing.ownerUserId)
+  const grantReference = `MCP_STDIO_${'E'.repeat(32)}`
+  localConnections.create({ transport: 'stdio', id: connectionId, label: 'Commission local persistence fixture' },
+    existing.tenantId, false, existing.ownerUserId)
+  localConnections.commitInspection(connectionId, existing.tenantId, 0, { protocolVersion: MCP_MODERN_VERSION,
+    cleanup: 'released', tools: [definition], schemaAdmission: { version: MCP_SCHEMA_ADMISSION_VERSION,
+      hashes: [mcpToolSchemaHash(definition)] } }, now, undefined, undefined, existing.ownerUserId, grantReference)
+  const localView = localConnections.view(connectionId, existing.tenantId, existing.ownerUserId)!
+  const tool = { connectionId, connectionRevision: localView.revision, toolName: definition.name,
+    schemaHash: mcpToolSchemaHash(definition), fixedArguments: {} }
+  const reviewHash = 'e'.repeat(64)
+  const scope = { tenantId: existing.tenantId, ownerUserId: existing.ownerUserId, projectId: existing.projectId,
+    commissionId: existing.commissionId, agentId: existing.agentId }
+  const registry = new CommissionMcpRegistry()
+  const context = { configurationRevision: 0, reviewHash, now, allowLocalPrograms: true,
+    connection: (id: string, tenantId: string, ownerUserId: string) => localConnections.view(id, tenantId, ownerUserId) }
+  const approval = registry.approve(scope, { expectedRevision: 0, expectedConfigurationRevision: 0, reviewHash,
+    execution: existing.policy.approval!.execution, expiresAt: now + 60 * 60 * 1000, maxWorkItems: 1,
+    tools: [tool], localPrograms: true }, context)
+  const work = { itemId: item.id, subGoal: item.subGoal, type: item.type, target: item.target, note: item.note ?? '' }
+  registry.reserve({ permission: approval, work, tool, review: { configurationRevision: 0, reviewHash }, now: now + 1,
+    connection: context.connection, allowLocalPrograms: true })
+  const call = { connectionId, connectionRevision: localView.revision, toolName: definition.name,
+    schemaHash: mcpToolSchemaHash(definition), arguments: {} }
+  registry.beginEffect(existing.projectId, item.id, call, { ...context, now: now + 2 })
+  registry.settleEffect(existing.projectId, item.id, { status: 'done', summary: 'Offline local Commission result.',
+    result: { resultType: 'complete', content: [{ type: 'text', text: 'Durable local receipt.' }], isError: false } }, now + 3)
+  state.commissionMcp = registry.snapshot()
+  state.mcpConnections = localConnections.snapshot()
+  const claim = state.commissionMcp.claims[0]!
+  state.usageReservations = [{ id: claim.id, tenantId: existing.tenantId, allowance: 1,
+    fiveHourStart: 0, weeklyStart: 0, status: 'settled', report: { inputTokens: 0, outputTokens: 0 } }]
+  assert.equal(hasCorePersistedShape(state), true, 'authored local policy and claim must satisfy full snapshot admission')
+  return state
 }
 
 for (const backend of ['json', 'sqlite'] as const) {
@@ -255,6 +310,86 @@ test('store startup rejects a structurally consistent Commission MCP assignment 
   const rejected = run(file, 'json', `const { store } = await import(${JSON.stringify(storeModule)}); store.initPersistence();`)
   assert.notEqual(rejected.status, 0)
   assert.match(rejected.stderr, /invalid owner, work or connection bindings/)
+})
+
+test('local Commission policy and exact claim survive JSON/SQLite and portable restore while restore withdraws and blocks replay', () => {
+  const sourceFile = join(ROOT, 'local-source')
+  makeFixture(sourceFile, 'json')
+  const local = withLocalCommissionHistory(stateFor(sourceFile))
+  const policy = local.commissionMcp!.policies[0]!
+  const claim = local.commissionMcp!.claims[0]!
+  const connectionId = policy.localConnectionIds![0]!
+  const joinSources = {
+    commissions: local.commissions.map(([, row]) => row), agents: local.agents.map(([, row]) => row),
+    work: local.openSubGoals, connections: parseMcpConnectionState(local.mcpConnections),
+  }
+  assert.deepEqual(policy.localConnectionIds, [connectionId], 'the person-owned stdio stamp is canonical and sorted')
+  assert.equal(claim.permission.policy.approval?.localPrograms, true)
+  assert.equal(validateCommissionMcpRegistryJoins(local.commissionMcp!, joinSources), true)
+
+  const invalidOwner = structuredClone(local)
+  ;(invalidOwner.mcpConnections!.connections.find(row => row.id === connectionId)! as any).ownerUserId = 'user-foreign'
+  assert.equal(hasCorePersistedShape(invalidOwner), false, 'a foreign current stdio owner cannot satisfy local policy or claim history')
+  const relabeledHttp = structuredClone(local)
+  const httpRow = relabeledHttp.mcpConnections!.connections.find(row => row.id === connectionId)! as any
+  delete httpRow.transport
+  delete httpRow.ownerUserId
+  delete httpRow.grantReference
+  httpRow.endpoint = 'https://mcp.example.test/local-history'
+  httpRow.authentication = 'none'
+  assert.equal(validateCommissionMcpRegistryJoins(relabeledHttp.commissionMcp!, { ...joinSources,
+    connections: parseMcpConnectionState(relabeledHttp.mcpConnections) }), false,
+  'a valid HTTP identity cannot be relabeled to satisfy a frozen local stamp')
+  const unstamped = structuredClone(local)
+  unstamped.commissionMcp!.policies[0]!.localConnectionIds = ['mcp-connection-' + 'f'.repeat(32)]
+  assert.equal(hasCorePersistedShape(unstamped), false, 'the private stamp must resolve to the selected connection')
+
+  const retired = structuredClone(local)
+  const retiredRegistry = createMcpConnectionRegistry()
+  retiredRegistry.rehydrate(retired.mcpConnections)
+  const localView = retiredRegistry.view(connectionId, policy.tenantId, policy.ownerUserId)!
+  assert.equal(retiredRegistry.remove(connectionId, policy.tenantId, localView.revision, policy.ownerUserId), true)
+  retired.mcpConnections = retiredRegistry.snapshot()
+  assert.equal(hasCorePersistedShape(retired), true, 'retired local identity remains a valid historical join')
+  for (const mutate of [
+    (bad: any) => { bad.ownerUserId = 'user-foreign' },
+    (bad: any) => { delete bad.transport },
+  ]) {
+    const bad = structuredClone(retired)
+    mutate(bad.mcpConnections!.retired.find((row: any) => row.id === connectionId))
+    assert.equal(hasCorePersistedShape(bad), false, 'wrong-owner or HTTP-retired identity cannot satisfy the local stamp')
+  }
+
+  const previousDataFile = process.env.DATA_FILE
+  try {
+    for (const kind of ['json', 'sqlite'] as const) {
+      for (const [suffix, candidate] of [['current', local], ['retired', retired]] as const) {
+        const file = join(ROOT, `local-history-${kind}-${suffix}${kind === 'json' ? '.json' : '.db'}`)
+        if (kind === 'json') process.env.DATA_FILE = file
+        const backend = kind === 'json' ? new JsonFileBackend() : new SqliteBackend(file)
+        try {
+          backend.save(candidate)
+          assert.deepEqual(backend.load()?.commissionMcp, candidate.commissionMcp)
+          const portableFile = join(ROOT, `local-history-${kind}-${suffix}.backup`)
+          exportBackendSnapshot(backend, portableFile)
+          assert.deepEqual(readPortableSnapshot(portableFile).commissionMcp, candidate.commissionMcp,
+            'portable export retains the exact private local policy and receipt')
+          const restored = restoreBackendState(backend, structuredClone(candidate))
+          const restoredPolicy = restored.commissionMcp!.policies.at(-1)!
+          assert.equal(restoredPolicy.policy.approval, null, 'explicit restore withdraws the current local grant')
+          assert.deepEqual(restoredPolicy.localConnectionIds, [connectionId], 'restore retains the exact private transport stamp')
+          assert.deepEqual(restored.commissionMcp!.claims, candidate.commissionMcp!.claims,
+            'restore keeps frozen local claims and exact result receipts unchanged')
+          const blockedId = `commission-work-${createHash('sha256').update(JSON.stringify([claim.permission.projectId, claim.work.itemId])).digest('hex')}`
+          assert.ok(restored.commissionMcp!.blockedWork?.includes(blockedId), 'restored open work is blocked from renewed-grant replay')
+          assert.deepEqual(backend.load()?.commissionMcp, restored.commissionMcp, 'read-back proves restore was durably applied')
+        } finally { backend.close() }
+      }
+    }
+  } finally {
+    if (previousDataFile === undefined) delete process.env.DATA_FILE
+    else process.env.DATA_FILE = previousDataFile
+  }
 })
 
 for (const backend of ['json', 'sqlite'] as const) {

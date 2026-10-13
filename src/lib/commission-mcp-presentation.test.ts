@@ -55,3 +55,18 @@ test('Commission receipt success describes the external call, never invents Proj
   assert.equal(commissionClaimLabel({ ...claim, phase: 'closed', status: 'failed' }), 'Preparation stopped')
   assert.equal(commissionClaimLabel({ ...claim, phase: 'effect', status: 'done' }), 'Call succeeded')
 })
+
+test('local Commission selections freeze explicit launch intent and cannot silently change transport', () => {
+  const source = review()
+  const httpKey = commissionToolKey(source.tools[0]!)
+  source.tools[0]!.transport = 'stdio'
+  const localKey = commissionToolKey(source.tools[0]!)
+  assert.notEqual(localKey, httpKey, 'a changed transport requires a fresh selection')
+  const approval = commissionApprovalFromDraft(source, { [localKey]: { selected: true, fixedText: '{}' } }, '2', expiry, now)
+  assert.equal(approval.localPrograms, true)
+  assert.equal(commissionApprovalMatchesReview(approval, source, now), true)
+  assert.equal(commissionApprovalMatchesReview({ ...approval, localPrograms: undefined }, source, now), false)
+  delete source.tools[0]!.transport
+  assert.equal(commissionApprovalMatchesReview(approval, source, now), false)
+  assert.equal(commissionApprovalFromDraft(source, drafts(), '2', expiry, now).localPrograms, undefined)
+})

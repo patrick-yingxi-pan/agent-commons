@@ -20,6 +20,8 @@ export interface CommissionMcpReview {
     connectionId: string
     connectionRevision: number
     connectionLabel: string
+    /** Absent means HTTP. Local launch is a separately approved capability. */
+    transport?: 'stdio'
     schemaHash: string
     tool: McpDiscoveredTool
   }>
@@ -36,6 +38,8 @@ export interface CommissionMcpClaimView {
   finishedAt?: number
   call?: McpBoundToolCall
   result?: McpToolResult
+  /** Frozen receipt provenance, not inferred from current connection setup. */
+  transport?: 'stdio'
 }
 
 export type CommissionMcpDecisionRequest =

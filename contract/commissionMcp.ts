@@ -19,6 +19,8 @@ export interface CommissionMcpApproval {
    * slot, including failure/uncertainty; renewal cannot replay an old work item. */
   maxWorkItems: number
   tools: McpToolPermission[]
+  /** Explicit opt-in to person-owned local programs. Absence is HTTP-only. */
+  localPrograms?: true
 }
 
 export interface CommissionMcpPolicy {
@@ -37,6 +39,8 @@ export interface CommissionMcpApprovalIntent {
   expiresAt: number
   maxWorkItems: number
   tools: McpToolPermission[]
+  /** Explicit, one-time consent for selected person-owned local programs. */
+  localPrograms?: true
 }
 
 /** One frozen work item. Initial execution treats every MCP tool as potentially

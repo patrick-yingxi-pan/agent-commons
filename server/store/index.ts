@@ -36,7 +36,7 @@ import { commissionMcpLegacyDispatchBlocked, type CommissionMcpQueueCandidate } 
 import { validateCommissionMcpRegistryJoins } from '../commissionMcpAuthority.ts'
 import { CommissionMcpHost, type CommissionMcpLiveSource, type CommissionMcpModelSelection } from '../commissionMcpHost.ts'
 import { commissionMcpReviewFacts } from '../commissionMcpReview.ts'
-import { matchesHttpMcpPermission } from '../mcpPermission.ts'
+import { commissionMcpToolPermitted } from '../commissionMcpPolicy.ts'
 import type { CommissionMcpReview, CommissionMcpDecisionRequest, CommissionMcpDecisionResponse } from '../../contract/commissionMcpApi.ts'
 import { RoutineMcpPolicyError, routineMcpCallPermitted, routineMcpJsonText, routineMcpPermissionOwner } from '../routineMcpPolicy.ts'
 import { reserveRoutineMcpCall, settleRoutineMcpCall, interruptRoutineMcpRun, publicRoutineMcpReceipt, routineMcpReceiptNeedsReview } from '../routineMcpState.ts'
@@ -2451,12 +2451,14 @@ const routineMcpRegistry = new RoutineMcpRegistry()
 const commissionMcpRegistry = new CommissionMcpRegistry()
 const commissionMcpHost = new CommissionMcpHost({
   registry: commissionMcpRegistry, source: commissionMcpLiveSource, now: () => Date.now(),
+  allowLocalPrograms: () => mcpRuntimeCapabilities().localProcesses === true,
   connection: (id, tenant, person) => store.mcpConnection(id, tenant, person),
   commit: operation => commitMutationBatch(operation),
   changed: (_commissionId, projectId) => { emit({ type: 'commission.changed', projectId }); persist() },
 })
 const commissionMcpExecution = new CommissionMcpExecution({
   registry: commissionMcpRegistry, usage: usageRegistry, source: commissionMcpLiveSource, now: () => Date.now(),
+  allowLocalPrograms: () => mcpRuntimeCapabilities().localProcesses === true,
   ready: () => persistenceFault === null,
   connection: (id, tenant, person) => store.mcpConnection(id, tenant, person),
   commit: operation => commitMutationBatch(operation),
@@ -2551,13 +2553,15 @@ function commissionMcpLiveSource(id: string, viewerTenant: string, actorUserId: 
   }
   const ceilings = [parentProvider?.authority ?? {}, agent.authority ?? {}, commission.authority ?? {}, provider?.authority ?? {}]
   const tools = store.mcpConnections(owner, actorUserId)
-    .filter(connection => connection.transport !== 'stdio' && connection.status === 'connected' &&
-      connection.execution === 'approval-required' && ['none', 'device-bearer', 'device-oauth'].includes(connection.authentication ?? ''))
+    .filter(connection => connection.status === 'connected' && connection.execution === 'approval-required' &&
+      (connection.transport === 'stdio' ? mcpRuntimeCapabilities().localProcesses === true :
+        ['none', 'device-bearer', 'device-oauth'].includes(connection.authentication ?? '')))
     .flatMap(connection => connection.tools.filter(tool => connection.executableTools?.includes(tool.name) &&
       store.commissionCanReach(id, 'connectors', tool.name) && ceilings.every(authority => authorityAdmits(authority, 'connectors', tool.name)))
       .map(tool => ({ connectionId: connection.id, connectionRevision: connection.revision,
-        connectionLabel: connection.label, schemaHash: mcpToolSchemaHash(tool), tool })))
-  if (!blockedReason && !tools.length) blockedReason = 'No inspected HTTP MCP tool is admitted by this Project and Contributor.'
+        connectionLabel: connection.label, schemaHash: mcpToolSchemaHash(tool), tool,
+        ...(connection.transport === 'stdio' ? { transport: 'stdio' as const } : {}) })))
+  if (!blockedReason && !tools.length) blockedReason = 'No inspected MCP tool is admitted by this Project and Contributor.'
   const audience = grants.filter(row => row.subject.kind === 'project' && row.subject.id === project.id)
     .sort((a, b) => a.id.localeCompare(b.id)).map(row => ({ id: row.id, audience: row.audience, tier: row.tier,
       audienceTenant: row.audienceTenant, redeemedBy: row.redeemedBy ?? [] }))
@@ -2591,7 +2595,7 @@ function commissionMcpApprovedToolForWork(item: StoredOpenSubGoal, row: Commissi
         available.tool.name === tool.toolName && available.schemaHash === tool.schemaHash) &&
         (() => {
           const connection = store.mcpConnection(tool.connectionId, row.tenantId, row.ownerUserId)
-          return !!connection && matchesHttpMcpPermission(tool, connection)
+          return commissionMcpToolPermitted(row, tool, connection, mcpRuntimeCapabilities().localProcesses === true)
         })())
     liveReview = current && source && facts ? { source, reviewHash: facts.reviewHash } : null
     liveReviewCache.set(reviewKey, liveReview)

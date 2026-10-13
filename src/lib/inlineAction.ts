@@ -16,4 +16,4 @@
  *  class + a Plus glyph + dialog aria) is the AddTrigger component
  *  (src/components/AddTrigger.tsx). */
 export const INLINE_ACTION_CLASS =
-  'inline-flex items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink'
+  'inline-flex min-h-6 min-w-6 items-center gap-1 text-[12px] font-medium text-ink-faint transition hover:text-ink'

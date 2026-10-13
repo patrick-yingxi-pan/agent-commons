@@ -26,6 +26,12 @@ function connection(): McpConnectionView {
     protocolVersion: '2026-07-28', inspectedAt: now, tools: [toolDefinition], execution: 'approval-required', executableTools: ['search'] }
 }
 
+function localConnection(id: string): McpConnectionView {
+  const view = { ...connection(), id, transport: 'stdio' } as Record<string, unknown>
+  delete view.authentication
+  return view as McpConnectionView
+}
+
 function context(overrides: Partial<CommissionMcpRegistryContext> = {}): CommissionMcpRegistryContext {
   return { configurationRevision: 4, reviewHash, now, connection: (id, tenant, owner) =>
     id === connectionId && !!tenant && !!owner ? connection() : undefined, ...overrides }
@@ -72,6 +78,34 @@ test('policy history is append-only and claims join the exact historical grant',
   assert.equal(claim.permission.policy.revision, 1)
   assert.deepEqual(registry.snapshot().policies.map(row => [row.policy.revision, row.policy.approval !== null]), [[1, true], [2, false], [3, true]])
   assert.deepEqual(parseCommissionMcpRegistryState(registry.snapshot()), registry.snapshot())
+})
+
+test('registry carries local provenance through revoke, replacement and claim without bypassing capability', () => {
+  const registry = new CommissionMcpRegistry()
+  const localId = 'mcp-connection-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const localTool = { ...tool, connectionId: localId }
+  const localView = localConnection(localId)
+  const localContext = (allowLocalPrograms?: boolean): CommissionMcpRegistryContext => ({
+    ...context({ allowLocalPrograms, connection: (id, tenant, owner) =>
+      id === localId && tenant === 'tenant-a' && owner === 'person-a' ? localView : undefined }),
+  })
+  const localIntent = (expectedRevision: number, literalConsent?: true): CommissionMcpApprovalIntent => ({
+    ...intent(expectedRevision), tools: [localTool], ...(literalConsent ? { localPrograms: true } : {}),
+  })
+  errorCode(() => registry.approve(scope(), localIntent(0, true), localContext(false)), 'unavailable')
+  errorCode(() => registry.approve(scope(), localIntent(0), localContext(true)), 'unavailable')
+  const first = registry.approve(scope(), localIntent(0, true), localContext(true))
+  assert.deepEqual(first.localConnectionIds, [localId])
+  errorCode(() => registry.reserve({ permission: first, work: work('local-item'), tool: localTool,
+    review: { configurationRevision: 4, reviewHash }, now, connection: localContext(true).connection }), 'denied')
+  const reserved = registry.reserve({ permission: first, work: work('local-item'), tool: localTool,
+    review: { configurationRevision: 4, reviewHash }, now, connection: localContext(true).connection, allowLocalPrograms: true })
+  assert.equal(reserved.claim.permission.localConnectionIds?.[0], localId)
+  const revoked = registry.revoke(scope(), first.policy.revision)
+  assert.deepEqual(revoked.localConnectionIds, [localId], 'revocation retains historical transport provenance')
+  const second = registry.approve(scope(), localIntent(revoked.policy.revision, true), localContext(true))
+  assert.deepEqual(second.localConnectionIds, [localId])
+  assert.deepEqual(parseCommissionMcpRegistryState(registry.snapshot()), registry.snapshot(), 'restart parsing retains nested provenance')
 })
 
 test('Project and item identity prevents a second Commission, person, or grant from claiming the same work', () => {

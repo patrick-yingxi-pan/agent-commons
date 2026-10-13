@@ -43,6 +43,12 @@ function reader(row: McpConnectionView = connection()) {
     id === row.id && tenant === tenantId && person === ownerUserId ? row : undefined
 }
 
+function stdioConnection(overrides: Partial<McpConnectionView> = {}): McpConnectionView {
+  const base = { ...connection() } as Record<string, unknown>
+  delete base.authentication
+  return { ...base, transport: 'stdio', ...overrides } as McpConnectionView
+}
+
 function intent(overrides: Partial<CommissionMcpApprovalIntent> = {}): CommissionMcpApprovalIntent {
   return {
     expectedRevision: 0, expectedConfigurationRevision: 4, reviewHash,
@@ -180,6 +186,83 @@ test('approval requires one exact connected HTTP tool, schema, revision, auth mo
   ]
   for (const view of invalidViews) errorCode(() => approve(intent(), undefined, reader(view)), 'unavailable')
   errorCode(() => approve(intent(), undefined, (id, tenant, person) => id === connectionId && tenant === tenantId && person === ownerUserId ? undefined : connection()), 'unavailable')
+})
+
+test('local stdio approval requires literal consent and native capability, and freezes only selected local identities', () => {
+  const localPermission = { ...permission(), connectionId: 'mcp-connection-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' }
+  const localView = stdioConnection({ id: localPermission.connectionId })
+  const localReader = (id: string, tenant: string, person: string) =>
+    id === localView.id && tenant === tenantId && person === ownerUserId ? localView : undefined
+  const localIntent = intent({ tools: [localPermission], localPrograms: true })
+
+  errorCode(() => approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash },
+    localIntent, now, localReader), 'unavailable')
+  errorCode(() => approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash },
+    intent({ tools: [localPermission] }), now, localReader, true), 'unavailable')
+  const approved = approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash },
+    localIntent, now, localReader, true)
+  assert.equal(approved.policy.approval?.localPrograms, true)
+  assert.deepEqual(approved.localConnectionIds, [localView.id])
+
+  for (const invalid of [false, null]) {
+    errorCode(() => approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash },
+      { ...localIntent, localPrograms: invalid } as CommissionMcpApprovalIntent, now, localReader, true), 'invalid')
+  }
+
+  const httpAndLocal = approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash },
+    intent({ tools: [permission(), localPermission], localPrograms: true }), now,
+    (id, tenant, person) => id === connectionId ? connection() : localReader(id, tenant, person), true)
+  assert.deepEqual(httpAndLocal.localConnectionIds, [localView.id])
+  assert.equal(httpAndLocal.policy.approval?.tools.length, 2)
+  errorCode(() => approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash },
+    intent({ tools: [permission()], localPrograms: true }), now, reader(), true), 'invalid')
+})
+
+test('local policy parser validates the private sorted identity stamp and exact approval relationship', () => {
+  const localIds = ['mcp-connection-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'mcp-connection-cccccccccccccccccccccccccccccccc']
+  const approval = { ...intent({ tools: [
+    { ...permission(), connectionId: localIds[0] },
+    { ...permission(), connectionId: localIds[1], toolName: 'search' },
+  ], localPrograms: true }), configurationRevision: 4, approvedAt: now, reviewHash }
+  const stored = { ...scope, localConnectionIds: localIds,
+    policy: { version: 1 as const, revision: 1, approval: {
+      configurationRevision: 4, reviewHash, execution: approval.execution, approvedAt: now,
+      expiresAt: now + 60_000, maxWorkItems: 3, tools: approval.tools, localPrograms: true as const,
+    } } }
+  assert.deepEqual(parseCommissionMcpPolicy(stored), stored)
+  for (const malformed of [
+    { ...stored, localConnectionIds: [] },
+    { ...stored, localConnectionIds: [localIds[1], localIds[0]] },
+    { ...stored, localConnectionIds: [localIds[0], localIds[0]] },
+    { ...stored, localConnectionIds: [...localIds, ...Array.from({ length: 15 }, (_, i) => `mcp-connection-${String(i).padStart(32, 'd')}`)] },
+    { ...stored, policy: { ...stored.policy, approval: { ...stored.policy.approval, localPrograms: false } } },
+    { ...stored, policy: { ...stored.policy, approval: { ...stored.policy.approval, localPrograms: null } } },
+    { ...stored, policy: { ...stored.policy, approval: { ...stored.policy.approval, localPrograms: undefined } } },
+    { ...stored, localConnectionIds: [...localIds, 'mcp-connection-dddddddddddddddddddddddddddddddd'] },
+    { ...stored, policy: { ...stored.policy, approval: { ...stored.policy.approval, tools: [permission()] } } },
+  ]) assert.throws(() => parseCommissionMcpPolicy(malformed), CommissionMcpPolicyError)
+})
+
+test('stdio permission is limited to the exact frozen identity, schema and enabled host capability', () => {
+  const localId = 'mcp-connection-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const localTool = { ...permission(), connectionId: localId }
+  const localView = stdioConnection({ id: localId })
+  const localReader = (id: string, tenant: string, person: string) =>
+    id === localId && tenant === tenantId && person === ownerUserId ? localView : undefined
+  const frozen = approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash },
+    intent({ tools: [localTool], localPrograms: true }), now, localReader, true)
+  const fixedCall: McpBoundToolCall = { ...call(), connectionId: localId }
+  assert.equal(commissionMcpCallPermitted(frozen, frozen, { configurationRevision: 4, reviewHash }, fixedCall, now, localReader), false)
+  assert.equal(commissionMcpCallPermitted(frozen, frozen, { configurationRevision: 4, reviewHash }, fixedCall, now, localReader, true), true)
+  assert.equal(commissionMcpCallPermitted(frozen, frozen, { configurationRevision: 4, reviewHash }, fixedCall, now,
+    (id, tenant, person) => id === localId && tenant === tenantId && person !== ownerUserId ? localView : undefined, true), false)
+  for (const view of [
+    stdioConnection({ id: localId, revision: 8 }),
+    stdioConnection({ id: localId, tools: [{ ...tool, inputSchema: { type: 'object', properties: { q: { type: 'number' } } } }] }),
+    connection({ id: localId }),
+  ]) assert.equal(commissionMcpCallPermitted(frozen, frozen, { configurationRevision: 4, reviewHash }, fixedCall, now,
+    (id, tenant, person) => id === localId && tenant === tenantId && person === ownerUserId ? view : undefined, true), false)
+  assert.deepEqual(revokeCommissionMcpPolicy(frozen, 1).localConnectionIds, [localId])
 })
 
 test('call permission is a frozen/live exact intersection with half-open expiry', () => {

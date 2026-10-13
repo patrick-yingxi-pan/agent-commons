@@ -145,15 +145,21 @@ edit the saved reply before explicitly posting a comment. The item stays open,
 and no Agent completion credit is awarded. Commission, Agent, provider and
 account budget gates apply; these token checks do not reserve a monetary ceiling.
 Legacy standing commissioned effects and Agent proxies remain development-only
-fixtures; the separately opted-in HTTP Commission MCP path is described below.
+fixtures; the separately opted-in Commission MCP path is described below.
 
 Commission owners can separately opt in to one bounded Commission MCP path for
 posted `mcp.mutate` work. A private owner review binds the exact Project,
-Commission, Agent/provider/model, HTTP connection/tool schema, fixed arguments,
+Commission, Agent/provider/model, exact connection/tool schema, fixed arguments,
 expiry and item limit; standing settings and Routine approval grant nothing.
 The server rechecks current membership, role/reach, Project fire and Guardian
 authority across asynchronous waits, then performs one tool-free model
-preparation and at most one exact HTTP call. Capacity is bounded at four active
+preparation and at most one exact MCP call. Person-owned local stdio additionally
+requires the native runtime and an explicit unattended-program acknowledgement;
+setup alone grants no tool permission. Local grants and receipts retain exact
+person/transport provenance, and startup failure withdraws the current authorizing
+grant without retry. A local program has normal OS access, including possible
+startup effects before a tool result; tool constraints are not a sandbox.
+Capacity is bounded at four active
 calls per process, two per paying tenant and one per tenant/Agent. A durable
 usage hold covers this new Commission path only; it is not a universal billing
 limit. Only verified known success completes current work or awards credit.

@@ -32,6 +32,12 @@ function connection(): McpConnectionView {
     protocolVersion: '2026-07-28', inspectedAt: now, tools: [toolDefinition], execution: 'approval-required', executableTools: ['search'] }
 }
 
+function localConnection(id: string): McpConnectionView {
+  const view = { ...connection(), id, transport: 'stdio' } as Record<string, unknown>
+  delete view.authentication
+  return view as McpConnectionView
+}
+
 function reader(counter?: { reads: number[] }, expectedOwner = ownerUserId) {
   return (id: string, tenant: string, owner: string) => {
     counter?.reads.push(1)
@@ -111,6 +117,32 @@ test('fresh preparation requires the approved selected tool, target, live grant,
     review: { configurationRevision: 4, reviewHash }, now, connection: reader() })
   assert.equal(exact.created, true)
   errorCode(() => begin(exact.claim, { call: call({ query: 'different' }) }), 'stale')
+})
+
+test('local claim keeps policy provenance and requires host capability at reservation and effect admission', () => {
+  const localId = 'mcp-connection-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+  const localTool = { ...permission(), connectionId: localId }
+  const localView = localConnection(localId)
+  const localReader = (id: string, tenant: string, owner: string) =>
+    id === localId && tenant === tenantId && owner === ownerUserId ? localView : undefined
+  const localGrant = approveCommissionMcpPolicy(scope, undefined, { configurationRevision: 4, reviewHash }, {
+    expectedRevision: 0, expectedConfigurationRevision: 4, reviewHash,
+    execution: { agentId: 'agent-a', providerId: 'provider-a', modelId: 'model-a' }, expiresAt: now + 60_000,
+    maxWorkItems: 3, tools: [localTool], localPrograms: true,
+  }, now, localReader, true)
+  const input = { permission: localGrant, work: work(), tool: localTool, live: localGrant,
+    review: { configurationRevision: 4, reviewHash }, now, connection: localReader }
+  errorCode(() => reserveCommissionMcpClaim(undefined, input), 'denied')
+  const reserved = reserveCommissionMcpClaim(undefined, { ...input, allowLocalPrograms: true })
+  assert.equal(reserved.claim.permission.localConnectionIds?.[0], localId)
+  assert.equal(reserved.claim.permission.policy.approval?.localPrograms, true)
+  const localCall = { ...call(), connectionId: localId }
+  errorCode(() => beginCommissionMcpEffect(reserved.claim, { call: localCall, live: localGrant,
+    review: input.review, now: now + 1, connection: localReader }), 'denied')
+  const effect = beginCommissionMcpEffect(reserved.claim, { call: localCall, live: localGrant,
+    review: input.review, now: now + 1, connection: localReader, allowLocalPrograms: true })
+  assert.equal(effect.claim.phase, 'effect')
+  assert.deepEqual(effect.claim.permission.localConnectionIds, [localId])
 })
 
 test('claim intent hash treats nested JSON object key order as semantically irrelevant', () => {

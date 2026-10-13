@@ -11,6 +11,7 @@ import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
 import { matchesHttpMcpPermission, mcpPermissionAllowsCall, sameMcpPermissionJson, snapshotMcpToolPermissions } from './mcpPermission.ts'
+import { mcpToolSchemaHash } from './mcpToolAdmission.ts'
 
 export interface CommissionMcpScope {
   tenantId: string
@@ -19,7 +20,11 @@ export interface CommissionMcpScope {
   commissionId: string
   agentId: string
 }
-export interface StoredCommissionMcpPolicy extends CommissionMcpScope { policy: CommissionMcpPolicy }
+export interface StoredCommissionMcpPolicy extends CommissionMcpScope {
+  policy: CommissionMcpPolicy
+  /** Private transport provenance, derived from person-filtered live stdio views. */
+  localConnectionIds?: string[]
+}
 export interface CommissionMcpLiveReview { configurationRevision: number; reviewHash: string }
 /** Must apply exact live owner/membership/tenant walls for every authentication
  * mode. A public connection view does not itself prove those prerequisites. */
@@ -57,7 +62,9 @@ function scopeFrom(value: Record<string, McpJsonValue>): CommissionMcpScope {
 }
 
 function approvalFrom(value: McpJsonValue, scope: CommissionMcpScope): CommissionMcpApproval {
-  if (!record(value) || !fields(value, ['configurationRevision', 'reviewHash', 'execution', 'approvedAt', 'expiresAt', 'maxWorkItems', 'tools']) ||
+  const hasLocalPrograms = record(value) && Object.hasOwn(value, 'localPrograms')
+  if (!record(value) || !fields(value, ['configurationRevision', 'reviewHash', 'execution', 'approvedAt', 'expiresAt', 'maxWorkItems', 'tools',
+      ...(hasLocalPrograms ? ['localPrograms'] : [])]) || (hasLocalPrograms && value.localPrograms !== true) ||
       !commissionMcpInteger(value.configurationRevision) || !hash(value.reviewHash) ||
       !commissionMcpInteger(value.approvedAt) || !commissionMcpInteger(value.expiresAt) ||
       value.expiresAt <= value.approvedAt || value.expiresAt - value.approvedAt > COMMISSION_MCP_MAX_LIFETIME_MS ||
@@ -67,25 +74,60 @@ function approvalFrom(value: McpJsonValue, scope: CommissionMcpScope): Commissio
   const tools = snapshotMcpToolPermissions(value.tools, COMMISSION_MCP_MAX_TOOLS) ?? fail()
   return { configurationRevision: value.configurationRevision, reviewHash: value.reviewHash,
     execution: { agentId: scope.agentId, providerId: value.execution.providerId, modelId: value.execution.modelId },
-    approvedAt: value.approvedAt, expiresAt: value.expiresAt, maxWorkItems: value.maxWorkItems, tools }
+    approvedAt: value.approvedAt, expiresAt: value.expiresAt, maxWorkItems: value.maxWorkItems, tools,
+    ...(hasLocalPrograms ? { localPrograms: true as const } : {}) }
+}
+
+function localConnectionIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length < 1 || value.length > COMMISSION_MCP_MAX_TOOLS ||
+      value.some((id, index) => !identity(id) || !/^mcp-connection-[a-f0-9]{32}$/.test(id) ||
+        (index > 0 && typeof value[index - 1] === 'string' && value[index - 1] >= id))) return fail()
+  return value as string[]
 }
 
 /** Present malformed data fails closed. Absence is handled only as no grant by
  * the registry; it is never reconstructed from a Commission flag. */
 export function parseCommissionMcpPolicy(value: unknown): StoredCommissionMcpPolicy {
   const copy = detached(value)
-  if (!fields(copy, [...SCOPE_FIELDS, 'policy']) || !record(copy.policy) ||
+  const hasLocalIds = Object.hasOwn(copy, 'localConnectionIds')
+  if (!fields(copy, [...SCOPE_FIELDS, 'policy', ...(hasLocalIds ? ['localConnectionIds'] : [])]) || !record(copy.policy) ||
       !fields(copy.policy, ['version', 'revision', 'approval']) || copy.policy.version !== 1 ||
       !commissionMcpInteger(copy.policy.revision) || copy.policy.revision < 1) return fail()
   const scope = scopeFrom(copy)
-  return { ...scope, policy: { version: 1, revision: copy.policy.revision,
-    approval: copy.policy.approval === null ? null : approvalFrom(copy.policy.approval, scope) } }
+  const ids = hasLocalIds ? localConnectionIds(copy.localConnectionIds) : undefined
+  const approval = copy.policy.approval === null ? null : approvalFrom(copy.policy.approval, scope)
+  if (approval && ((approval.localPrograms === true) !== !!ids ||
+      (ids ?? []).some(id => !approval.tools.some(tool => tool.connectionId === id)))) return fail()
+  return { ...scope, ...(ids ? { localConnectionIds: ids } : {}), policy: { version: 1, revision: copy.policy.revision, approval } }
+}
+
+/** Exact transport/schema check. The connection reader must already have
+ * applied tenant and person ownership; this predicate never infers ownership
+ * from a public view. */
+export function commissionMcpToolPermitted(
+  permission: StoredCommissionMcpPolicy, tool: CommissionMcpApproval['tools'][number],
+  view: McpConnectionView | undefined, allowLocalPrograms = false,
+): boolean {
+  try {
+    if (!permission.policy.approval || !permission.policy.approval.tools.some(candidate => sameMcpPermissionJson(candidate, tool)) ||
+        !view || view.id !== tool.connectionId || view.revision !== tool.connectionRevision || view.status !== 'connected' ||
+        view.execution !== 'approval-required' || !view.executableTools?.includes(tool.toolName)) return false
+    if (view.transport !== 'stdio') {
+      return !permission.localConnectionIds?.includes(tool.connectionId) &&
+        ['none', 'device-bearer', 'device-oauth'].includes(view.authentication) && matchesHttpMcpPermission(tool, view)
+    }
+    if (allowLocalPrograms !== true || permission.policy.approval.localPrograms !== true ||
+        !permission.localConnectionIds?.includes(tool.connectionId) || Object.hasOwn(view, 'authentication') ||
+        !commissionMcpInteger(view.inspectedAt)) return false
+    const matches = view.tools.filter(candidate => candidate.name === tool.toolName)
+    return matches.length === 1 && mcpToolSchemaHash(matches[0]) === tool.schemaHash
+  } catch { return false }
 }
 
 export function approveCommissionMcpPolicy(
   scope: CommissionMcpScope, current: StoredCommissionMcpPolicy | undefined,
   liveReview: CommissionMcpLiveReview, intent: CommissionMcpApprovalIntent,
-  now: number, connection: CommissionMcpConnectionReader,
+  now: number, connection: CommissionMcpConnectionReader, allowLocalPrograms = false,
 ): StoredCommissionMcpPolicy {
   const scoped = detached(scope)
   if (!fields(scoped, SCOPE_FIELDS)) return fail()
@@ -93,7 +135,9 @@ export function approveCommissionMcpPolicy(
   const live = detached(liveReview)
   const review = detached(intent)
   if (!fields(live, ['configurationRevision', 'reviewHash']) || !commissionMcpInteger(live.configurationRevision) || !hash(live.reviewHash) ||
-      !fields(review, ['expectedRevision', 'expectedConfigurationRevision', 'reviewHash', 'execution', 'expiresAt', 'maxWorkItems', 'tools']) ||
+      !fields(review, ['expectedRevision', 'expectedConfigurationRevision', 'reviewHash', 'execution', 'expiresAt', 'maxWorkItems', 'tools',
+        ...(Object.hasOwn(review, 'localPrograms') ? ['localPrograms'] : [])]) ||
+      (Object.hasOwn(review, 'localPrograms') && review.localPrograms !== true) ||
       !commissionMcpInteger(review.expectedRevision) || !commissionMcpInteger(review.expectedConfigurationRevision) ||
       !hash(review.reviewHash) || !commissionMcpInteger(now)) return fail()
   const old = current === undefined ? undefined : parseCommissionMcpPolicy(current)
@@ -101,13 +145,30 @@ export function approveCommissionMcpPolicy(
       review.expectedRevision !== (old?.policy.revision ?? 0) || review.expectedConfigurationRevision !== live.configurationRevision ||
       review.reviewHash !== live.reviewHash) return fail('stale')
   if (review.expectedRevision === Number.MAX_SAFE_INTEGER) return fail('limit')
-  const approval = approvalFrom({ configurationRevision: live.configurationRevision, reviewHash: live.reviewHash,
-    execution: review.execution, approvedAt: now, expiresAt: review.expiresAt, maxWorkItems: review.maxWorkItems, tools: review.tools }, exactScope)
-  for (const tool of approval.tools) {
+  const tools = snapshotMcpToolPermissions(review.tools, COMMISSION_MCP_MAX_TOOLS) ?? fail()
+  const localIds = new Set<string>()
+  const views = new Map<string, McpConnectionView>()
+  for (const tool of tools) {
     const view = connection(tool.connectionId, exactScope.tenantId, exactScope.ownerUserId)
-    if (!view || !['none', 'device-bearer', 'device-oauth'].includes(view.authentication ?? '') || !matchesHttpMcpPermission(tool, view)) return fail('unavailable')
+    if (!view) return fail('unavailable')
+    views.set(tool.connectionId, view)
+    if (view.transport === 'stdio') localIds.add(tool.connectionId)
   }
-  return parseCommissionMcpPolicy({ ...exactScope, policy: { version: 1, revision: review.expectedRevision + 1, approval } })
+  if (localIds.size && review.localPrograms !== true) return fail('unavailable')
+  if (review.localPrograms === true && !localIds.size) return fail()
+  if (localIds.size && allowLocalPrograms !== true) return fail('unavailable')
+  const ids = [...localIds].sort()
+  const approval = approvalFrom({ configurationRevision: live.configurationRevision, reviewHash: live.reviewHash,
+    execution: review.execution, approvedAt: now, expiresAt: review.expiresAt, maxWorkItems: review.maxWorkItems,
+    tools: tools as unknown as McpJsonValue[],
+    ...(ids.length ? { localPrograms: true } : {}) }, exactScope)
+  for (const tool of approval.tools) {
+    const view = views.get(tool.connectionId)
+    if (!commissionMcpToolPermitted({ ...exactScope, policy: { version: 1, revision: review.expectedRevision + 1, approval },
+      ...(ids.length ? { localConnectionIds: ids } : {}) }, tool, view, allowLocalPrograms)) return fail('unavailable')
+  }
+  return parseCommissionMcpPolicy({ ...exactScope, ...(ids.length ? { localConnectionIds: ids } : {}),
+    policy: { version: 1, revision: review.expectedRevision + 1, approval } })
 }
 
 export function revokeCommissionMcpPolicy(value: StoredCommissionMcpPolicy, expectedRevision: number): StoredCommissionMcpPolicy {
@@ -124,7 +185,7 @@ export function revokeCommissionMcpPolicy(value: StoredCommissionMcpPolicy, expe
 export function commissionMcpCallPermitted(
   frozen: StoredCommissionMcpPolicy, live: StoredCommissionMcpPolicy | undefined,
   liveReview: CommissionMcpLiveReview, call: McpBoundToolCall,
-  now: number, connection: CommissionMcpConnectionReader,
+  now: number, connection: CommissionMcpConnectionReader, allowLocalPrograms = false,
 ): boolean {
   try {
     const queued = parseCommissionMcpPolicy(frozen)
@@ -139,6 +200,6 @@ export function commissionMcpCallPermitted(
     const tool = approval.tools.find(tool => mcpPermissionAllowsCall(tool, exact))
     if (!tool) return false
     const view = connection(tool.connectionId, queued.tenantId, queued.ownerUserId)
-    return !!view && ['none', 'device-bearer', 'device-oauth'].includes(view.authentication ?? '') && matchesHttpMcpPermission(tool, view)
+    return commissionMcpToolPermitted(queued, tool, view, allowLocalPrograms)
   } catch { return false }
 }

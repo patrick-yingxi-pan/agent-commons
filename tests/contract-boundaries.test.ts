@@ -16,6 +16,20 @@ import { join } from 'node:path'
 import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
+test('local Commission execution reuses the native-gated bound executor without owning a process launcher', () => {
+  const store = stripComments(read(join(ROOT, 'server/store/index.ts')))
+  const hosts = store.slice(store.indexOf('const commissionMcpHost ='), store.indexOf('function backgroundModelCapacity('))
+  assert.ok(hosts.startsWith('const commissionMcpHost ='))
+  const check = (source: string) => {
+    assert.equal(source.split('allowLocalPrograms: () => mcpRuntimeCapabilities().localProcesses === true').length - 1, 2)
+    assert.match(source, /executeBoundMcpCall\(store, tenant, call, allowed, person, signal\)/)
+    assert.doesNotMatch(source, /\b(?:spawn|execFile|createMcpStdioClient)\s*\(/)
+  }
+  check(hosts)
+  assert.throws(() => check(hosts.replace('allowLocalPrograms: () => mcpRuntimeCapabilities().localProcesses === true', 'allowLocalPrograms: () => true')))
+  assert.throws(() => check(`${hosts}\nspawn('local')`))
+})
+
 test('MCP argument drafting shares one portable binding contract without acquiring execution authority', () => {
   const server = stripComments(read(join(ROOT, 'server/projectWorkMcpDraft.ts')))
   const client = stripComments(read(join(ROOT, 'src/components/ContributionMcpDraftHelper.tsx')))
@@ -109,7 +123,7 @@ test('internal stdio protocol cannot acquire launch configuration or product exe
 test('local MCP launch custody stays confined to the authenticated native workflow', () => {
   const allowed = new Set(['desktop/mcpStdioGrantVault.mjs', 'desktop/mcpStdioLaunchAuthority.mjs',
     'desktop/mcpStdioLifecycle.mjs', 'desktop/mcpStdioSource.mjs', 'desktop/mcpStdioSetup.mjs',
-    'desktop/main.mjs', 'desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs'].map(path => join(ROOT, path)))
+    'desktop/main.mjs', 'desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs', 'desktop/commissionMcpLocalSmoke.mjs'].map(path => join(ROOT, path)))
   const symbols = /\b(?:openMcpStdioGrantVault|createMcpStdioLaunchAuthority|snapshotMcpStdioGrantBinding)\b|mcpStdio(?:GrantVault|LaunchAuthority)\.mjs/
   const check = (source: string, path: string) => assert.doesNotMatch(source, symbols,
     `${path}: saved local launch authority requires the separate authenticated native product workflow`)
@@ -120,7 +134,7 @@ test('local MCP launch custody stays confined to the authenticated native workfl
     }
   }
   for (const path of allowed) assert.match(stripComments(read(path)), symbols, `${path}: expected native custody owner`)
-  for (const driver of ['desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs']) {
+  for (const driver of ['desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs', 'desktop/commissionMcpLocalSmoke.mjs']) {
     assert.equal(ignoreFromPackage(`/${driver}`), true,
       `${driver}: the native acceptance driver must never ship as product authority`)
     assert.doesNotMatch(stripComments(read(join(ROOT, driver))),
@@ -168,15 +182,16 @@ test('Commission preparation shares portable types and tool constraints without 
   assert.match(stripComments(read(join(ROOT, 'contract/routineMcp.ts'))), /RoutineMcpToolPermission\s*=\s*McpToolPermission/)
 })
 
-test('local Routine history is portable while execution capability remains native-owned', () => {
+test('local unattended history is portable while execution capability remains native-owned', () => {
   const check = (snapshotHost: string, storeHost: string) => {
     assert.ok(snapshotHost.includes('validateRoutineMcpAuthorities(routineMcp, parseMcpConnectionState(state.mcpConnections), true)'),
       'snapshot admission validates local history independently of device readiness')
     assert.doesNotMatch(snapshotHost, /mcpRuntimeCapabilities|mcpRuntimeConfiguration/,
       'reading history cannot depend on live native custody')
     const gates = [...storeHost.matchAll(/allowLocalPrograms:\s*([^,\n]+)/g)].map(match => match[1])
-    assert.deepEqual(gates, Array(2).fill('mcpRuntimeCapabilities().localProcesses === true'),
-      'both approval and reservation require literal native runtime capability, never request consent alone')
+    assert.deepEqual(gates, [...Array(2).fill('() => mcpRuntimeCapabilities().localProcesses === true'),
+      ...Array(2).fill('mcpRuntimeCapabilities().localProcesses === true')],
+      'Commission host/execution and Routine approval/reservation require literal native runtime capability, never request consent alone')
     assert.doesNotMatch(storeHost, /permission\.oauthAuthority\??\.ownerUserId|storedPolicy\?\.oauthAuthority/,
       'Routine person projections must use the common local/OAuth permission owner')
   }
