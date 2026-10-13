@@ -336,6 +336,51 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     'rename review and grouping do not mutate the saved conversation workspace')
   await assertIndexUnchanged(repository, indexBeforeRenameReview)
 
+  // A selected working file is a separate portable attachment, not a live Git
+  // handle. Only the explicit Attach action persists exactly the previewed text.
+  const browseSession = await run.page.evaluate(async id => {
+    const response = await fetch('/api/v1/sessions', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
+    })
+    if (!response.ok) throw new Error('Could not create the isolated Git browsing conversation.')
+    return response.json()
+  }, providerId)
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(browseSession.id)}`)
+  await run.page.getByRole('button', { name: 'Add context' }).click()
+  const browsePicker = run.page.getByRole('dialog', { name: 'Add context' })
+  await browsePicker.getByRole('button', { name: /^Repository/ }).click()
+  await browsePicker.getByRole('button', { name: `Browse files in ${repositoryName}`, exact: true }).click()
+  const browser = browsePicker.locator('[data-local-git-browser]')
+  await expect(browser.locator('[data-local-git-browser-listing]')).toHaveCount(0)
+  await expect(browser.locator('[data-local-git-file-preview]')).toHaveCount(0)
+  const beforeBrowse = await readWorkspace(run.page, browseSession.id)
+  const beforeBrowseModel = endpoint.requests.length
+  const beforeBrowseIndex = await indexState(repository)
+  await browser.getByRole('button', { name: 'List tracked paths', exact: true }).click()
+  await expect(browser.getByRole('list', { name: 'Tracked repository paths' })).toBeVisible({ timeout: TIMEOUT_MS })
+  await expect(browser.locator('[data-local-git-file-preview]')).toHaveCount(0)
+  await expect(browser).not.toContainText('ignored-secret.md')
+  await expect(browser).not.toContainText('untracked-secret.md')
+  await browser.getByRole('button', { name: 'src/nested.md Tracked file', exact: true }).click()
+  const filePreview = browser.getByRole('region', { name: 'Preview of src/nested.md', exact: true })
+  await expect(filePreview).toHaveText('review-working-only-v3\n', { timeout: TIMEOUT_MS })
+  assert.equal(await filePreview.textContent(), 'review-working-only-v3\n')
+  assert.deepEqual(await readWorkspace(run.page, browseSession.id), beforeBrowse)
+  assert.equal(endpoint.requests.length, beforeBrowseModel, 'listing and preview cannot call a model')
+  await writeFile(join(repository, 'src', 'nested.md'), 'browse-source-changed-after-preview-v4\n')
+  await browser.getByRole('button', { name: 'Attach saved copy', exact: true }).click()
+  await expect(browsePicker).toContainText('1 added')
+  await run.page.screenshot({ path: join(fixtureRoot, 'local-git-browse.png') })
+  await browsePicker.getByRole('button', { name: 'Done', exact: true }).click()
+  const savedBrowse = await readWorkspace(run.page, browseSession.id)
+  assert.ok(JSON.stringify(savedBrowse).includes('review-working-only-v3'))
+  assert.equal(JSON.stringify(savedBrowse).includes('browse-source-changed-after-preview-v4'), false)
+  assert.equal(JSON.stringify(savedBrowse).includes(fixtureRoot), false)
+  assert.equal(endpoint.requests.length, beforeBrowseModel, 'attaching the saved copy does not itself call a model')
+  await assertIndexUnchanged(repository, beforeBrowseIndex)
+  await send(run.page, 'Read only the selected saved file.', 'review-working-only-v3', 0)
+  await assertModelFiles(endpoint, [['nested.md', 'ready', 'review-working-only-v3\n']])
+
   // A full packaged-process relaunch proves the remembered native grant and
   // durable saved snapshot are separate: reopening access does not auto-attach.
   await run.app.close()
@@ -347,11 +392,15 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.equal(connections[0].id, connectionId, 'relaunch restores the original opaque Git connection id')
   const reopenedWorkspace = await readWorkspace(run.page, session.id)
   assert.ok(gitFolder(reopenedWorkspace, connectionId)?.gitSnapshot, 'the saved Git copy survives relaunch')
+  assert.deepEqual(await readWorkspace(run.page, browseSession.id), savedBrowse,
+    'the exact separately attached file survives native relaunch without rereading its source')
   await run.page.goto(run.origin + '/contexts/' + encodeURIComponent(connectionId))
   const reopenedReviewPanel = run.page.locator('[data-local-git-review]')
   await expect(reopenedReviewPanel).toBeVisible()
   await expect(reopenedReviewPanel.locator('[data-local-git-review-result]')).toHaveCount(0,
     'a prior transient review does not return automatically after relaunch')
+  await expect(run.page.locator('[data-local-git-browser-listing]')).toHaveCount(0)
+  await expect(run.page.locator('[data-local-git-file-preview]')).toHaveCount(0)
   await run.page.goto(run.origin + '/s/' + encodeURIComponent(session.id))
   await send(run.page, 'Read the Git snapshot after relaunch.', 'captured-dotfile-v1', 3)
   await assertModelFiles(endpoint, [

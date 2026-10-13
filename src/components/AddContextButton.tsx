@@ -205,6 +205,7 @@ export function AddContextButton({
                   attachments={attachments}
                   workspaces={workspaces}
                   sessionId={sessionId}
+                  referenceCopiesEnabled={referenceCopiesEnabled}
                 />
               </div>
             </div>

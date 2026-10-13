@@ -48,6 +48,7 @@ export function WorkflowBody({
   attachments,
   workspaces,
   sessionId,
+  referenceCopiesEnabled,
 }: {
   type: TypeId
   /** How many recent rows to show inline before folding the rest into "More". */
@@ -62,6 +63,7 @@ export function WorkflowBody({
   attachments: Attachment[]
   workspaces: Workspace[]
   sessionId?: string
+  referenceCopiesEnabled: boolean
 }) {
   // Which option ids are already attached, per type — so an attached element
   // reads "Added" (no plus) instead of inviting a duplicate add. Mapped back to
@@ -90,6 +92,9 @@ export function WorkflowBody({
         onClose={onClose}
         addedRepoIds={addedRepoIds}
         addedLocalGitIds={addedFolderIds.filter((id) => parseFsRecentKey(id)?.sourceId === 'ui-host' && /^GIT_[A-F0-9]{32}$/.test(parseFsRecentKey(id)?.entryId ?? ''))}
+        attachments={attachments}
+        referenceCopiesEnabled={referenceCopiesEnabled}
+        sessionId={sessionId}
         hasGitHubConnector={hasGitHubConnector}
       />
     )

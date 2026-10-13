@@ -1,6 +1,7 @@
 import type { Identity } from '../../contract/identity.ts'
 import { isLocalGitCapture, isLocalGitConnectionId, type LocalGitCapture, type LocalGitConnection, type NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
 import { parseLocalGitReview, type LocalGitReview } from '../../contract/localGitReview.mjs'
+import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview, type LocalGitFileSelection } from '../../contract/localGitBrowse.mjs'
 import { accountGeneration, activeAccount } from './account.ts'
 import { AccountSwitchedError } from './client.ts'
 import { peek } from './cache.ts'
@@ -90,4 +91,30 @@ export async function readLocalGitChanges(id: string, scope: DesktopBridgeScope 
   const review = parseLocalGitReview(result)
   if (!review) throw new Error('The repository returned an invalid review.')
   return structuredClone(review)
+}
+
+/** List only bounded tracked path metadata and ignore counts. This does not
+ * read or return source file contents. */
+export async function readLocalGitFiles(id: string, scope: DesktopBridgeScope = window) {
+  const identity = captureLocalGitSource()
+  if (!isLocalGitConnectionId(id)) throw new Error('This repository connection is unavailable.')
+  const result = await bridge(scope).files(id, identity.source)
+  identity.assertCurrent()
+  const listing = parseLocalGitFileListing(result)
+  if (!listing) throw new Error('The repository returned an invalid file listing.')
+  return structuredClone(listing)
+}
+
+/** Read exactly one user-selected tracked file, bounded by the detached
+ * contract parser; results remain transient and account-fenced. */
+export async function readLocalGitFile(id: string, path: string, scope: DesktopBridgeScope = window) {
+  const identity = captureLocalGitSource()
+  if (!isLocalGitConnectionId(id)) throw new Error('This repository connection is unavailable.')
+  const selection: LocalGitFileSelection = { path }
+  if (!isLocalGitFileSelection(selection)) throw new Error('Choose a valid tracked file path.')
+  const result = await bridge(scope).file(id, selection, identity.source)
+  identity.assertCurrent()
+  const preview = parseLocalGitFilePreview(result)
+  if (!preview || preview.path !== path) throw new Error('The repository returned an invalid file preview.')
+  return structuredClone(preview)
 }

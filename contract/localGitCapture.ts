@@ -2,6 +2,7 @@ import type { GitSnapshotFile } from './localGitSnapshot.mjs'
 import { isClosedRecord } from './closedRecord.mjs'
 import type { LocalGitReview } from './localGitReview.mjs'
 import { isGitSnapshotFiles } from './localGitSnapshot.mjs'
+import type { LocalGitFileListing, LocalGitFilePreview, LocalGitFileSelection } from './localGitBrowse.mjs'
 import { isServedCaptureTime, isSnapshotId } from './servedTextSnapshot.ts'
 
 export type LocalGitConnectionId = `GIT_${string}`
@@ -23,6 +24,8 @@ export interface NativeLocalGitBridge {
   connect(input: { remember: boolean }, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<{ status: 'cancelled' } | { status: 'connected'; connection: LocalGitConnection }>
   snapshot(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<{ name: string; files: GitSnapshotFile[] }>
   review(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitReview>
+  files(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitFileListing>
+  file(id: LocalGitConnectionId, selection: LocalGitFileSelection, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitFilePreview>
   disconnect(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<void>
 }
 

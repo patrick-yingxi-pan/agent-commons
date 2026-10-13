@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isGitSnapshotPath, MAX_GIT_SNAPSHOT_ENTRIES } from '../contract/localGitSnapshot.mjs'
+import { MAX_GIT_BROWSE_ENTRIES } from '../contract/localGitBrowse.mjs'
 
 const MAX_METADATA_BYTES = 16 * 1024 * 1024
 const MAX_INDEX_OUTPUT_BYTES = 2 * 1024 * 1024
@@ -62,13 +63,14 @@ export async function prepareGitIndex({
 
 /** Parse Git's NUL-delimited ls-files --stage output as authoritative stages.
  * Review additionally requests -t so skip-worktree never means deleted. */
-export function parseGitIndexStages(bytes, { tagged = false } = {}) {
+export function parseGitIndexStages(bytes, { tagged = false, maxEntries = MAX_GIT_SNAPSHOT_ENTRIES } = {}) {
+  if (!Number.isSafeInteger(maxEntries) || maxEntries < 1 || maxEntries > MAX_GIT_BROWSE_ENTRIES) fail()
   if (!(bytes instanceof Uint8Array) || bytes.byteLength > MAX_INDEX_OUTPUT_BYTES) fail()
   const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes)
   if (!text) return []
   if (!text.endsWith('\0')) fail()
   const records = text.slice(0, -1).split('\0')
-  if (records.length > MAX_GIT_SNAPSHOT_ENTRIES * 4) fail()
+  if (records.length > maxEntries * 4) fail()
 
   const entries = []
   const stagesByName = new Map()
@@ -89,7 +91,7 @@ export function parseGitIndexStages(bytes, { tagged = false } = {}) {
     stages.add(stage)
     stagesByName.set(name, stages)
     entries.push({ name, mode, oid, stage, ...(tagged ? { skipWorktree: tag === 'S ' } : {}) })
-    if (stagesByName.size > MAX_GIT_SNAPSHOT_ENTRIES) fail()
+    if (stagesByName.size > maxEntries) fail()
   }
   return entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : left.stage - right.stage)
 }

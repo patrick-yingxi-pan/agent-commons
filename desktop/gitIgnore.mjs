@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isGitSnapshotPath } from '../contract/localGitSnapshot.mjs'
+import { MAX_GIT_BROWSE_ENTRIES } from '../contract/localGitBrowse.mjs'
 
 const MAX_ENTRIES = 500
 const MAX_DIRECTORIES = 1024
@@ -12,8 +13,9 @@ const MODES = new Set(['100644', '100755', '120000', '160000', '040000'])
 const DIRECTORY_MODES = new Set(['160000', '040000'])
 const fail = () => { throw new Error('Git ignore evaluation is unavailable or exceeds its read limits.') }
 
-function checkedEntries(entries) {
-  if (!Array.isArray(entries) || entries.length > MAX_ENTRIES) fail()
+function checkedEntries(entries, maximum) {
+  if (!Number.isSafeInteger(maximum) || maximum < 1 || maximum > MAX_GIT_BROWSE_ENTRIES ||
+    !Array.isArray(entries) || entries.length > maximum) fail()
   const unique = new Map()
   for (const entry of entries) {
     if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
@@ -79,11 +81,12 @@ function parseIgnored(result, candidates) {
  * Git; candidates travel only on stdin to fixed check-ignore invocations. */
 export async function readGitIgnoredPaths({
   root, common, metadata, worktree, staging, entries, load, runGit, signal, reserveMetadata,
+  maxEntries = MAX_ENTRIES,
 }) {
   if (!root || !common || !metadata || !worktree || !staging || typeof load !== 'function' ||
     typeof runGit !== 'function' || typeof reserveMetadata !== 'function' || signal?.aborted) fail()
   const check = () => { if (signal?.aborted) fail() }
-  const admitted = checkedEntries(entries)
+  const admitted = checkedEntries(entries, maxEntries)
   const { directories, candidates } = structure(admitted)
   if (directories.size > MAX_DIRECTORIES) fail()
 

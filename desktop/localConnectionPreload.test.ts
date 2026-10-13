@@ -16,6 +16,8 @@ const gitChannels = {
   connect: 'agent-commons:local-git:connect',
   snapshot: 'agent-commons:local-git:snapshot',
   review: 'agent-commons:local-git:review',
+  files: 'agent-commons:local-git:files',
+  file: 'agent-commons:local-git:file',
   disconnect: 'agent-commons:local-git:disconnect',
 }
 const unavailableMessage = 'The local folder is unavailable. Your saved snapshots have not been changed.'
@@ -155,6 +157,8 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
     { status: 'cancelled' },
     { name: 'Agent Commons', files },
     { version: 1, comparison: 'raw', head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' }, excludedCount: 0, unchangedCount: 0, files: [] },
+    { version: 1, files: [{ path: 'src/main.ts', kind: 'file' }], excludedCount: 0 },
+    { version: 1, path: 'src/main.ts', sizeBytes: 4, snapshot: { text: 'test' } },
     undefined,
   ]
   const { bridge, calls } = loadPreload(values.map(value => ({ value: { ok: true, value } })), 'darwin')
@@ -164,12 +168,17 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
   assert.deepEqual(await git.connect(remember, sourceIdentity), values[1])
   assert.deepEqual(await git.snapshot('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), values[2])
   assert.deepEqual(await git.review('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), values[3])
+  assert.deepEqual(await git.files('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), values[4])
+  const selection = { path: 'src/main.ts' }
+  assert.deepEqual(await git.file('GIT_0123456789ABCDEF0123456789ABCDEF', selection, sourceIdentity), values[5])
   assert.equal(await git.disconnect('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), undefined)
   assert.deepEqual(calls, [
     [gitChannels.list, sourceIdentity],
     [gitChannels.connect, remember, sourceIdentity],
     [gitChannels.snapshot, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
     [gitChannels.review, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
+    [gitChannels.files, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
+    [gitChannels.file, 'GIT_0123456789ABCDEF0123456789ABCDEF', selection, sourceIdentity],
     [gitChannels.disconnect, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
   ])
   assert.equal(JSON.stringify(values[2]).includes('/Users/'), false, 'Git snapshots expose relative tracked paths only')
@@ -184,6 +193,8 @@ test('Git preload is absent outside macOS and maps every native failure to fixed
     ['connect', () => [{ remember: false }, sourceIdentity]],
     ['snapshot', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
     ['review', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
+    ['files', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
+    ['file', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', { path: 'src/main.ts' }, sourceIdentity]],
     ['disconnect', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
   ]
   const privatePath = '/Users/private/customer/repository'

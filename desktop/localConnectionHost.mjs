@@ -2,6 +2,7 @@ import { basename } from 'node:path'
 import { LocalConnectionError } from './localConnectionStore.mjs'
 import { parseLocalGitReview } from '../contract/localGitReview.mjs'
 import { isFolderTreeFiles } from '../contract/localFolderTree.mjs'
+import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview } from '../contract/localGitBrowse.mjs'
 
 const ID = /^LOCAL_[A-F0-9]{32}$/
 const fail = () => { throw new LocalConnectionError() }
@@ -153,6 +154,35 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
         await unchanged(before)
         const parsed = parseLocalGitReview(value)
         if (!parsed) fail()
+        return parsed
+      })
+    },
+    files(event, id, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        if (extra.length || connectionKind !== 'git') fail()
+        if (typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id)) fail()
+        const before = await source()
+        assertExpectedSource(before, expectedSource)
+        const value = await store.files(before.owner, id)
+        await unchanged(before)
+        const parsed = parseLocalGitFileListing(value)
+        if (!parsed) fail()
+        return parsed
+      })
+    },
+    file(event, id, selection, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        // Reject mutable, accessor-bearing, or malformed selections before
+        // source lookup and before the store can wait for read admission.
+        if (extra.length || connectionKind !== 'git' || !isLocalGitFileSelection(selection)) fail()
+        if (typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id)) fail()
+        const detached = { path: selection.path }
+        const before = await source()
+        assertExpectedSource(before, expectedSource)
+        const value = await store.file(before.owner, id, detached)
+        await unchanged(before)
+        const parsed = parseLocalGitFilePreview(value)
+        if (!parsed || parsed.path !== detached.path) fail()
         return parsed
       })
     },

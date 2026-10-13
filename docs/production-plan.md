@@ -46,7 +46,73 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: person-approved local Commission programs
+## Current checkpoint: explicit local Git tracked-file browsing
+
+Add a read-only browse step to the existing local Git repository page. On macOS,
+the person explicitly lists tracked paths and chooses one supported text file to
+preview. Listing reads bounded Git metadata and applicable ignore files; the
+copied index/ignore aggregate is capped at 16 MiB, and `.git/config` is separately
+capped at 128 KiB when needed to resolve object format. It does not read
+working-file bodies beyond applicable ignore rules. The listing admits at most
+10,000 unique tracked paths and
+1 MiB aggregate returned path bytes. The existing ignore walk remains capped at
+1,024 directories and depth 64.
+
+Before preview, the exact selected path is re-admitted against the current index,
+ignore state and pinned repository identity. Only a current tracked, regular,
+supported text file may return a whole preview, capped at 64 KiB. Nonregular and
+unsupported-name entries grant no body read; invalid/binary selected text yields
+an explicit omission. Listing and preview are transient account-scoped results;
+Disconnect, account change, Dismiss and shutdown fence pending work or clear its
+projection.
+
+Browsing does not attach, persist or send source text. Dismiss remains available
+during initial listing, and the shared browse funnel distinguishes metadata
+reads from working-file body reads. A separate explicit Attach saved copy sends
+only the exact preview text through the existing UI-host file input path. One
+byte-free account/conversation/connection/preview receipt keeps the same copy
+identity and pending acknowledgement across picker close/reopen. Added feedback
+and counts come only from actual workspace attachments, not optimistic UI state.
+After first send materializes a draft, only exact known attachment IDs present
+in the saved conversation reconcile that identity; labels and text are never
+used to guess a match. Preview-only reads create no attachment intent records.
+Project context is descriptive: its picker can list and preview but offers
+neither saved-file nor whole-snapshot Attach, which would discard captured bytes.
+The existing conversation Git Attach/Refresh capture limits remain unchanged: the
+500-entry refusal and 24-file/64 KiB-per-file/128 KiB-total capture limits still
+apply. The native bridge carries opaque connection IDs and relative
+selections/results, never absolute native paths or commands; this adds no shell,
+write, HTTP, or standing access authority.
+
+Acceptance on 2026-10-13: the focused native/contract/host/preload/legacy suite
+passes 66/66; the final frontend/controller locks pass 28/28 plus typecheck.
+The combined Git browser/review/snapshot walk passes 12/12; after the final
+read-only identity cleanup, all four browse walks pass again. These include
+pending close/reopen, acknowledged reopen, draft materialization and descriptive
+Project gating. The complete UI sweep passes 135/135 cells with zero violations
+or skips; five-viewport focused screenshots and 20 affected general-sweep
+screenshots have no confirmed visual regression.
+
+The complete `npm run desktop:verify` passes on unsigned arm64. Its real packaged
+Git reader/bridge walk proves explicit listing and preview, unchanged workspace
+and model-call count before Attach, exact saved preview despite a later source
+edit, no model call until Send, unchanged index bytes/mtime, saved-only input and
+full signed-in relaunch. Native dialog answers remain fixtures. The complete
+local `npm run verify` remains the mandatory final landing gate; no GitHub CI is
+used. Actual chooser/lifecycle review, signing/notarization, Intel and live-service
+acceptance remain separate release evidence.
+
+The first complete verifier attempt did not pass: its Node lane exposed a
+missing Git-browse module in the packaged dependency test's expected closure,
+and the Sheet reader keyboard check targeted the last row coordinate rather
+than the rightmost column. The dependency expectation is repaired. The Sheet
+walk now selects the explicit column heading and asserts its table-header
+precondition; that assertion was watched fail against the old selector. Scroll
+containment and timeouts are unchanged. The interrupted verifier and diagnostic
+runs do not count as acceptance; the final frozen revision requires a complete
+trace-enabled local verifier before landing.
+
+## Completed checkpoint: person-approved local Commission programs
 
 Autonomous direction (2026-10-13): complete the existing Commission MCP workflow
 for person-owned local stdio tools on desktop. Conversations, Contributions and
@@ -80,8 +146,8 @@ an incomplete local fixture projection: it omitted transport and expected an
 HTTP label. The fixture now returns the real actor-filtered connection view.
 The complete Node suite passed 6,020/6,021; its sole failure was the old exact
 desktop-verifier command list, now extended to include the new local walk.
-The final frozen-tree browser/full-verifier runs remain pre-landing requirements,
-not assumed passes.
+At this point, the final frozen-tree browser/full-verifier runs remained
+pre-landing requirements; verified completion evidence is recorded below.
 
 The corrected browser run passed 11/12 and exposed a real WCAG target-size defect:
 the foreign public Project's shared Comment action measured 56×18px at tablet
@@ -113,8 +179,17 @@ safety backup. Reapproval never replays restored pending or unclaimed work;
 new work still runs. Native dialog answers and relaunch spawning are fixtures.
 The full `npm run desktop:verify` also passed, including the local Commission
 walk at `.data/desktop-commission-local-smoke/run-pCaDzp` and all existing native
-phases. The complete local verifier remains required. This evidence is not a
-signed, Intel or live-service release gate.
+phases. At that point, the complete local verifier remained required. This
+evidence is not a signed, Intel or live-service release gate.
+
+Completion was recorded at `af04e73f` after verified final2 evidence: all five
+local verifier lanes passed in 767.5 seconds, including 685 browser tests across
+the four shards (148 + 189 + 184 + 164). The complete desktop verifier exited 0;
+the UI sweep passed 135/135 cells with zero violations and zero skips. The
+latest packaged receipt is
+`.data/desktop-commission-local-smoke/run-WhxEJA/receipt.json`. This closes the
+checkpoint's local implementation gates without closing signing/Intel,
+real-provider or third-party-service acceptance.
 
 ## Completed checkpoint: Commission native restore and shutdown
 

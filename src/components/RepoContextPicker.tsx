@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { FolderGit2, Github } from 'lucide-react'
-import type { AddedContext } from '../types'
+import type { AddedContext, Attachment } from '../types'
 import type { RepoCatalogOption } from '../../contract/contexts.ts'
 import { GITHUB_CONNECTOR } from '../lib/connectors'
 import { repoIdForLabel } from '../data/liveSession'
@@ -17,6 +17,7 @@ import { BrowseRow, MultiAddFooter, Section } from './ContextPickerParts.tsx'
 import { NativeLocalGitPicker } from './LocalGitConnections.tsx'
 import { localGitAvailable } from '../api/localGitCapability.ts'
 import { FS_PICKER_BODY_CLASS } from '../lib/fsSourceLayout.ts'
+import { localGitSavedCopies, localGitSavedCopyScope } from '../controller/localGitSavedCopies.ts'
 
 type RepoContext = Extract<AddedContext, { kind: 'repo' }>
 
@@ -131,20 +132,31 @@ export function RepoPicker({
   onClose,
   addedRepoIds,
   addedLocalGitIds,
+  attachments,
   hasGitHubConnector,
+  referenceCopiesEnabled,
+  sessionId,
 }: {
   maxRows: number
-  onAdd: (ctx: AddedContext) => void
+  onAdd: (ctx: AddedContext) => void | Promise<unknown>
   onClose: () => void
   /** Live-repo ids already attached — rows for these read ✓ Added. */
   addedRepoIds: readonly string[]
   /** Source-qualified native Git folders already attached to the workspace. */
   addedLocalGitIds: readonly string[]
+  /** Acknowledged attachments in the conversation, including saved previews. */
+  attachments: Attachment[]
   hasGitHubConnector: boolean
+  referenceCopiesEnabled: boolean
+  sessionId?: string
 }) {
   const [pending, setPending] = useState<{ ctx: RepoContext; id: string } | null>(null)
   const [dontAsk, setDontAsk] = useState(false)
   const [browsing, setBrowsing] = useState(false)
+  const intentScope = localGitSavedCopyScope(sessionId)
+  localGitSavedCopies.adoptAttachments(intentScope, attachments.map(item => item.id))
+  const acknowledgedSavedCopyCount = localGitSavedCopies.ids(intentScope)
+    .filter(id => attachments.some(item => item.id === id)).length
 
   const labelOf = (o: RepoOption) => (o.origin === 'local' ? basename(o.path) : o.remote)
   const isAdded = (o: RepoOption) => addedRepoIds.includes(repoIdForLabel(labelOf(o)))
@@ -225,7 +237,7 @@ export function RepoPicker({
   return (
     <>
       <div data-fs-picker-body className={FS_PICKER_BODY_CLASS}>
-      {localGitAvailable() && <NativeLocalGitPicker onAdd={onAdd} addedIds={addedLocalGitIds} onClose={onClose} />}
+      {localGitAvailable() && <NativeLocalGitPicker onAdd={onAdd} addedIds={addedLocalGitIds} attachments={attachments} intentScope={intentScope} allowSavedCopy={referenceCopiesEnabled} onClose={onClose} />}
       <ContextCatalogNotice query={catalog} />
       {browsing && (
         <BrowseDialog
@@ -269,7 +281,7 @@ export function RepoPicker({
         <BrowseRow label="Browse repositories…" onClick={() => setBrowsing(true)} />
       </Section> : catalog.data && !localGitAvailable() ? <p className="px-1 py-3 text-[12px] text-ink-soft">Local repository connections require the macOS desktop app. Add files or a folder instead.</p> : null}
       </div>
-      <MultiAddFooter count={addedRepoIds.length + addedLocalGitIds.length} onDone={onClose} />
+      <MultiAddFooter count={addedRepoIds.length + addedLocalGitIds.length + acknowledgedSavedCopyCount} onDone={onClose} />
     </>
   )
 }

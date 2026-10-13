@@ -3,12 +3,13 @@ import assert from 'node:assert/strict'
 import type { Identity } from '../../contract/identity.ts'
 import type { LocalGitConnection, NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
 import type { LocalGitReview } from '../../contract/localGitReview.mjs'
+import type { LocalGitFileListing, LocalGitFilePreview } from '../../contract/localGitBrowse.mjs'
 import { refreshAccount, accountGeneration } from './account.ts'
 import { peek, resetAll, setData } from './cache.ts'
 import { AccountSwitchedError } from './client.ts'
 import { keys } from './keys.ts'
 import { localGitAvailable } from './localGitCapability.ts'
-import { captureLocalGit, captureLocalGitSource, connectLocalGit, disconnectLocalGit, readLocalGitChanges, readLocalGitConnections } from './localGit.ts'
+import { captureLocalGit, captureLocalGitSource, connectLocalGit, disconnectLocalGit, readLocalGitChanges, readLocalGitConnections, readLocalGitFile, readLocalGitFiles } from './localGit.ts'
 
 const ada: Identity = { user: { id: 'ada', name: 'Ada' }, tenant: { id: 'tenant-a', name: 'A', kind: 'org' }, role: 'member', local: false, via: 'session' }
 const grace: Identity = { ...ada, user: { id: 'grace', name: 'Grace' }, tenant: { id: 'tenant-b', name: 'B', kind: 'org' } }
@@ -48,6 +49,8 @@ function bridge(overrides: Partial<NativeLocalGitBridge> = {}, calls: unknown[][
     async connect(input, source) { calls.push(['connect', input, source]); return { status: 'connected', connection: { ...row, remembered: input.remember } } },
     async snapshot(connectionId, source) { calls.push(['snapshot', connectionId, source]); return { name: 'Commons', files: [file] } },
     async review(connectionId, source) { calls.push(['review', connectionId, source]); return structuredClone(review) },
+    async files(connectionId, source) { calls.push(['files', connectionId, source]); return { version: 1, files: [{ path: 'README.md', kind: 'file' }], excludedCount: 2 } },
+    async file(connectionId, selection, source) { calls.push(['file', connectionId, selection, source]); return { version: 1, path: selection.path, sizeBytes: 3, snapshot: { text: 'abc' } } },
     async disconnect(connectionId, source) { calls.push(['disconnect', connectionId, source]) },
     ...overrides,
   }
@@ -172,5 +175,54 @@ test('native Git review response is fenced across an account switch', async () =
     pending.resolve(review)
     await assert.rejects(reading, AccountSwitchedError)
     assert.deepEqual(calls, [[id, { userId: 'ada', namespace: 'tenant-a' }]])
+  } finally { cleanup() }
+})
+
+test('native Git browsing lists metadata separately and reads only the explicitly selected path', async () => {
+  try {
+    select(ada)
+    const calls: unknown[][] = []
+    const listing: LocalGitFileListing = { version: 1, excludedCount: 3, files: [
+      { path: 'README.md', kind: 'file' }, { path: 'merge.txt', kind: 'conflict' }, { path: 'src/lazy.ts', kind: 'sparse' },
+    ] }
+    const preview: LocalGitFilePreview = { version: 1, path: 'README.md', sizeBytes: 3, snapshot: { text: 'abc' } }
+    const scope = scopeFor(bridge({
+      files: async (connectionId, source) => { calls.push(['files', connectionId, source]); return listing },
+      file: async (connectionId, selection, source) => { calls.push(['file', connectionId, selection, source]); return preview },
+    }, calls))
+    assert.deepEqual(await readLocalGitFiles(id, scope), listing)
+    assert.deepEqual(calls, [['files', id, { userId: 'ada', namespace: 'tenant-a' }]], 'listing does not read file contents')
+    assert.deepEqual(await readLocalGitFile(id, 'README.md', scope), preview)
+    assert.deepEqual(calls[1], ['file', id, { path: 'README.md' }, { userId: 'ada', namespace: 'tenant-a' }])
+    await assert.rejects(readLocalGitFile(id, '../secret', scope), /valid tracked file path/i)
+    await assert.rejects(readLocalGitFiles('not-a-connection', scope), /connection is unavailable/i)
+    assert.equal(calls.length, 2, 'invalid ids and paths never reach the native bridge')
+
+    const malformed = scopeFor(bridge({ files: async () => ({ version: 1, files: [{ path: '../secret', kind: 'file' }], excludedCount: 0 } as never) }))
+    await assert.rejects(readLocalGitFiles(id, malformed), /invalid file listing/i)
+    const mismatched = scopeFor(bridge({ file: async () => ({ ...preview, path: 'other.txt' }) }))
+    await assert.rejects(readLocalGitFile(id, 'README.md', mismatched), /invalid file preview/i)
+  } finally { cleanup() }
+})
+
+test('native Git browsing results are fenced across account switches', async () => {
+  try {
+    select(ada)
+    const pending = deferred<LocalGitFileListing>()
+    const scope = scopeFor(bridge({ files: () => pending.promise }))
+    const reading = readLocalGitFiles(id, scope)
+    refreshAccount({ userId: 'grace', tenantId: 'tenant-b' })
+    setData(keys.me, grace)
+    pending.resolve({ version: 1, files: [{ path: 'README.md', kind: 'file' }], excludedCount: 0 })
+    await assert.rejects(reading, AccountSwitchedError)
+
+    select(ada)
+    const pendingPreview = deferred<LocalGitFilePreview>()
+    const previewScope = scopeFor(bridge({ file: () => pendingPreview.promise }))
+    const previewRead = readLocalGitFile(id, 'README.md', previewScope)
+    refreshAccount({ userId: 'grace', tenantId: 'tenant-b' })
+    setData(keys.me, grace)
+    pendingPreview.resolve({ version: 1, path: 'README.md', sizeBytes: 3, snapshot: { text: 'abc' } })
+    await assert.rejects(previewRead, AccountSwitchedError)
   } finally { cleanup() }
 })

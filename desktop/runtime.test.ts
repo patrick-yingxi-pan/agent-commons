@@ -333,6 +333,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   const localGitBridge = contextBridge.slice(contextBridge.indexOf('localGit: Object.freeze('))
   assert.match(localGitBridge, /list: \(source\) => invokeLocalFolder\(localGitChannels\.list, source\)/)
   assert.match(localGitBridge, /review: \(id, source\) => invokeLocalFolder\(localGitChannels\.review, id, source\)/)
+  assert.match(localGitBridge, /files: \(id, source\) => invokeLocalFolder\(localGitChannels\.files, id, source\)/)
+  assert.match(localGitBridge, /file: \(id, selection, source\) => invokeLocalFolder\(localGitChannels\.file, id, selection, source\)/)
   assert.doesNotMatch(localGitBridge, /owner|path|ipcRenderer\.(send|on)/i,
     'the renderer can select a Git connection id but cannot claim an owner or repository path')
   assert.match(main, /installLocalFolderIpc\(\)/)
@@ -352,8 +354,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'packaged smoke requires the explicit recursive folder method')
   assert.ok(packagedSmokeSource.includes("typeof window.agentCommonsDesktop?.context?.localGit?.review === 'function'"),
     'packaged smoke requires the explicit Git review method')
-  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,list,review,snapshot'"),
-    'packaged smoke locks all five Git methods without widening the folder bridge')
+  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,file,files,list,review,snapshot'"),
+    'packaged smoke locks the Git browse methods without widening the folder bridge')
   assert.match(preload, /mcpCredentials = Object.freeze\(/)
   assert.match(preload, /mcp-provision-v1/)
   assert.match(preload, /mcp-credentials:provision/)

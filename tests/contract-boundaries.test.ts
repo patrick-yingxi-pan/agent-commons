@@ -437,6 +437,43 @@ test('recursive folder capture stays explicit and confined to the packaged macOS
   assert.throws(() => checkPortable("import { readLocalFolderTree } from '../desktop/localFolderTree.mjs'", 'server'), /cannot import or call native folder readers/)
 })
 
+test('Git browse shares a portable parser contract while native listing and reads stay macOS-hosted', () => {
+  const portable = concatSource('contract') + '\n' + concatSource('server') + '\n' + concatSource('src')
+  assert.doesNotMatch(portable, /from\s+['"][^'"]*(?:desktop\/localGitReader|localGitReader\.mjs)['"]|node:child_process/,
+    'portable code cannot import the native Git reader or its process authority')
+
+  const parserModule = stripComments(read(join(ROOT, 'contract/localGitBrowse.mjs')))
+  for (const parser of ['isLocalGitFileSelection', 'parseLocalGitFileListing', 'parseLocalGitFilePreview']) {
+    assert.match(parserModule, new RegExp(`export function ${parser}\\b`), `${parser} belongs to the portable contract`)
+  }
+  for (const path of ['src/api/localGit.ts', 'desktop/localConnectionStore.mjs', 'desktop/localConnectionHost.mjs']) {
+    const source = stripComments(read(join(ROOT, path)))
+    assert.match(source, /from ['"][^'"]*contract\/localGitBrowse\.mjs['"]/, `${path} uses the shared parser module`)
+    for (const parser of ['parseLocalGitFileListing', 'parseLocalGitFilePreview']) {
+      assert.match(source, new RegExp(`\\b${parser}\\(`), `${path} validates with ${parser}`)
+    }
+  }
+
+  const main = stripComments(read(join(ROOT, 'desktop/main.mjs')))
+  const setupStart = main.indexOf("if (process.platform === 'darwin') {\n    try {\n      const gitExecutable")
+  const setupEnd = main.indexOf('  let providerCredentials = {}', setupStart)
+  assert.ok(setupStart >= 0 && setupEnd > setupStart, 'the native Git setup block is present')
+  const setup = main.slice(setupStart, setupEnd)
+  assert.match(setup, /if \(process\.platform === 'darwin'\)/)
+  assert.match(setup, /browse: reader\.listLocalGitFiles/)
+  assert.match(setup, /preview: reader\.readLocalGitFile/)
+  assert.match(setup, /connectionKind: 'git'/)
+  const installStart = main.indexOf('function installLocalGitIpc() {')
+  const installEnd = main.indexOf('\nfunction installImageOcrIpc()', installStart)
+  assert.ok(installStart >= 0 && installEnd > installStart, 'the local Git IPC installer is present')
+  const installer = main.slice(installStart, installEnd)
+  assert.match(installer, /if \(process\.platform !== 'darwin'\) return/)
+  assert.match(installer, /Object\.entries\(localGitChannels\)/)
+  assert.match(installer, /localGitHost\[name\]\(event, \.\.\.args\)/)
+  const checkPlatformGuard = (source: string) => assert.match(source, /if \(process\.platform !== 'darwin'\) return/)
+  assert.throws(() => checkPlatformGuard(installer.replace('if (process.platform !== \'darwin\') return', '')), assert.AssertionError)
+})
+
 test('browser and native selected-file intake share one portable text policy', () => {
   for (const path of ['desktop/contextPicker.mjs', 'src/lib/uiHostFs.ts']) {
     const source = stripComments(read(join(ROOT, path)))

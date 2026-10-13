@@ -74,7 +74,9 @@ async function capture(page: Page, detail: Locator, testInfo: TestInfo, label: s
     if (await sheet.count() && await sheet.evaluate((node) => node.scrollWidth > node.clientWidth)) {
       await sheet.focus()
       const finalColumn = await sheet.getByRole('textbox').count()
-        ? sheet.locator('th:has(textarea)').last() : sheet.locator('th').last()
+        ? sheet.locator('th:has(textarea)').last() : sheet.locator('thead th[scope="col"]').last()
+      expect(await finalColumn.evaluate((node) => !!node.closest('thead')),
+        'horizontal reach must target a column heading, never a row coordinate').toBe(true)
       await expect.poll(async () => {
         await sheet.press('ArrowRight')
         return finalColumn.evaluate((node) => {

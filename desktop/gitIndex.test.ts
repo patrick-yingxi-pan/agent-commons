@@ -142,6 +142,14 @@ test('index preparation detects checksummed index formats without reading config
   }
 })
 
+test('only an explicit bounded browse capacity admits more than 500 indexed paths', () => {
+  const bytes = Buffer.from(Array.from({ length: 10000 }, (_, index) => `H ${row(`${index}.ts`)}`).join(''))
+  assert.equal(parseGitIndexStages(bytes, { tagged: true, maxEntries: 10000 }).length, 10000)
+  assert.throws(() => parseGitIndexStages(bytes, { tagged: true }))
+  for (const maxEntries of [0, -1, 1.5, 10001, Infinity, NaN]) assert.throws(() => parseGitIndexStages(Buffer.alloc(0), { maxEntries }))
+  assert.throws(() => parseGitIndexStages(Buffer.concat([bytes, Buffer.from(`H ${row('extra.ts')}`)]), { tagged: true, maxEntries: 10000 }))
+})
+
 test('an absent or skip-hash index infers either format from bounded no-includes config', async (t) => {
   for (const [format, withIndex] of [['sha1', false], ['sha256', false], ['sha256', true]] as const) {
     const zeroChecksumIndex = withIndex ? Buffer.concat([Buffer.from('index-with-zero-checksum'), Buffer.alloc(20)]) : undefined

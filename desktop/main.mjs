@@ -186,6 +186,7 @@ async function startDesktop() {
         filePath: join(app.getPath('userData'), LOCAL_GIT_CONNECTION_FILE), storage: safeStorage,
         connectionKind: 'git', validateRoot: isLocalGitRoot,
         inspectRoot: reader.inspectLocalGitRoot, capture: reader.readLocalGitSnapshot,
+        browse: reader.listLocalGitFiles, preview: reader.readLocalGitFile,
         review: (root, { signal }) => readLocalGitReview(root, { gitExecutable, fileExecutable, signal }),
       })
     } catch { console.warn('[desktop] local Git access is unavailable for this run.') }

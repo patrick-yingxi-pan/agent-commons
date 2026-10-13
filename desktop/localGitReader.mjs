@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { MAX_GIT_SNAPSHOT_FILE_BYTES, snapshotGitFiles } from '../contract/localGitSnapshot.mjs'
+import { isLocalGitFileSelection, MAX_GIT_BROWSE_ENTRIES, MAX_GIT_BROWSE_FILE_BYTES,
+  parseLocalGitFileListing, parseLocalGitFilePreview } from '../contract/localGitBrowse.mjs'
+import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
 import { bundledGitProbeEnvironment } from './bundledGit.mjs'
 import { parseGitIndexStages, prepareGitIndex } from './gitIndex.mjs'
 import { readGitFile, listGitSharedIndexes } from './gitFileRead.mjs'
@@ -124,7 +127,10 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
     } catch { fail() }
   }
 
-  async function readLocalGitSnapshot(root, { signal: callerSignal } = {}) {
+  // All Git reads share one pinned-index transaction and publication fence.
+  // Listing reads only copied index/ignore metadata; file bodies need a separate
+  // selection that is re-admitted against a freshly copied current index.
+  async function withIndex(root, { signal: callerSignal } = {}, capture) {
     const signal = AbortSignal.any([AbortSignal.timeout(30_000), ...(callerSignal ? [callerSignal] : [])])
     let staging
     try {
@@ -159,7 +165,7 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
       }
       const git = { path: root.repository.path, identity: root.repository.identity }
       const common = { path: root.repository.commonPath, identity: root.repository.commonIdentity }
-      const objectFormat = await prepareGitIndex({
+      await prepareGitIndex({
         git,
         common,
         metadata,
@@ -171,19 +177,35 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
         runGit,
         signal,
       })
-      const list = async () => {
+      const list = async (browse = false) => {
         const result = await runGit([`--git-dir=${metadata}`, `--work-tree=${worktree}`, 'ls-files', '--cached', '--stage', '--sparse', '-z', '--full-name',
-          '--'], { cwd: staging, signal })
+          ...(browse ? ['-t'] : []), '--'], { cwd: staging, signal })
         if (result.status !== 0) fail()
-        return parseGitIndexEntries(result.stdout)
+        return browse ? parseGitIndexStages(result.stdout, { tagged: true, maxEntries: MAX_GIT_BROWSE_ENTRIES }) : parseGitIndexEntries(result.stdout)
       }
-      const entries = await list()
-      const ignored = await readGitIgnoredPaths({ root, common, metadata, worktree, staging,
+      const ignoredPaths = (entries, maxEntries) => readGitIgnoredPaths({ root, common, metadata, worktree, staging, maxEntries,
         entries: entries.map(entry => ({ name: entry.name, mode: entry.mode === 'mixed' ? '100644' : entry.mode })),
         load, runGit, signal, reserveMetadata: size => {
           if (!Number.isSafeInteger(size) || size < 0 || size > MAX_METADATA_BYTES - metadataBytes) fail()
           metadataBytes += size
         } })
+      const result = await capture({ list, load, ignoredPaths })
+      for (const observation of observed.values()) {
+        checkSignal(signal)
+        const current = await read(observation.base, observation.name, null, signal)
+        if (!isDeepStrictEqual(observation.signature, signature(current))) fail()
+      }
+      if (!isDeepStrictEqual(await inspectLocalGitRoot(root.path, { signal }), root)) fail()
+      checkSignal(signal)
+      return result
+    } catch { fail() }
+    finally { if (staging) await rm(staging, { recursive: true, force: true }) }
+  }
+
+  async function readLocalGitSnapshot(root, options = {}) {
+    return withIndex(root, options, async ({ list, load, ignoredPaths }) => {
+      const entries = await list()
+      const ignored = await ignoredPaths(entries)
       const files = []
       const omissions = []
       for (const entry of entries) {
@@ -206,16 +228,53 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
         } catch { changed = true; fail() }
       })
       if (changed) fail()
-      for (const observation of observed.values()) {
-        checkSignal(signal)
-        const current = await read(observation.base, observation.name, null, signal)
-        if (!isDeepStrictEqual(observation.signature, signature(current))) fail()
-      }
-      if (!isDeepStrictEqual(await inspectLocalGitRoot(root.path, { signal }), root)) fail()
-      checkSignal(signal)
       return { name: basename(root.path), files: [...snapshots, ...omissions].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0) }
-    } catch { fail() }
-    finally { if (staging) await rm(staging, { recursive: true, force: true }) }
+    })
   }
-  return { inspectLocalGitRoot, readLocalGitSnapshot }
+
+  function browseEntries(stages) {
+    const entries = new Map()
+    for (const entry of stages) {
+      const kind = entry.stage !== 0 ? 'conflict' : entry.skipWorktree || entry.mode === '040000' ? 'sparse' :
+        !['100644', '100755'].includes(entry.mode) || !isLocalTextFileName(basename(entry.name)) ? 'unsupported' : 'file'
+      entries.set(entry.name, { ...entry, kind })
+    }
+    return [...entries.values()]
+  }
+
+  async function listLocalGitFiles(root, options = {}) {
+    return withIndex(root, options, async ({ list, ignoredPaths }) => {
+      const entries = browseEntries(await list(true))
+      const ignored = await ignoredPaths(entries, MAX_GIT_BROWSE_ENTRIES)
+      const result = parseLocalGitFileListing({ version: 1, excludedCount: ignored.size,
+        files: entries.filter(entry => !ignored.has(entry.name)).map(entry => ({ path: entry.name, kind: entry.kind })) })
+      if (!result) fail()
+      return result
+    })
+  }
+
+  async function readLocalGitFile(root, { signal, selection } = {}) {
+    if (!isLocalGitFileSelection(selection)) fail()
+    const path = Object.getOwnPropertyDescriptor(selection, 'path').value
+    return withIndex(root, { signal }, async ({ list, load, ignoredPaths }) => {
+      const entry = browseEntries(await list(true)).find(entry => entry.name === path)
+      if (!entry || entry.kind === 'conflict' || entry.kind === 'sparse' ||
+        (await ignoredPaths([entry], MAX_GIT_BROWSE_ENTRIES)).has(path)) fail()
+      let snapshot = { omitted: 'unsupported' }
+      let sizeBytes = 0
+      if (entry.kind === 'file') {
+        const value = await load(root, path, MAX_GIT_BROWSE_FILE_BYTES)
+        sizeBytes = value.sizeBytes ?? 0
+        if (value.status === 'too-large') snapshot = { omitted: 'too-large' }
+        else if (value.status === 'file' && value.bytes instanceof Uint8Array) {
+          const text = decodeLocalTextPreview(value.bytes)
+          snapshot = text === undefined ? { omitted: 'unsupported' } : { text }
+        } else snapshot = { omitted: value.status === 'unsupported' ? 'unsupported' : 'unreadable' }
+      }
+      const result = parseLocalGitFilePreview({ version: 1, path, sizeBytes, snapshot })
+      if (!result) fail()
+      return result
+    })
+  }
+  return { inspectLocalGitRoot, readLocalGitSnapshot, listLocalGitFiles, readLocalGitFile }
 }

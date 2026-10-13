@@ -32,6 +32,8 @@ const localGitChannels = Object.freeze({
   connect: 'agent-commons:local-git:connect',
   snapshot: 'agent-commons:local-git:snapshot',
   review: 'agent-commons:local-git:review',
+  files: 'agent-commons:local-git:files',
+  file: 'agent-commons:local-git:file',
   disconnect: 'agent-commons:local-git:disconnect',
 })
 const mcpCredentialChannels = Object.freeze({
@@ -158,6 +160,8 @@ const bridge = {
       connect: (options, source) => invokeLocalFolder(localGitChannels.connect, options, source),
       snapshot: (id, source) => invokeLocalFolder(localGitChannels.snapshot, id, source),
       review: (id, source) => invokeLocalFolder(localGitChannels.review, id, source),
+      files: (id, source) => invokeLocalFolder(localGitChannels.files, id, source),
+      file: (id, selection, source) => invokeLocalFolder(localGitChannels.file, id, selection, source),
       disconnect: (id, source) => invokeLocalFolder(localGitChannels.disconnect, id, source),
     }) } : {}),
   }),

@@ -210,10 +210,12 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       typeof window.agentCommonsDesktop?.context?.localGit?.connect === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localGit?.snapshot === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localGit?.review === 'function' &&
+      typeof window.agentCommonsDesktop?.context?.localGit?.files === 'function' &&
+      typeof window.agentCommonsDesktop?.context?.localGit?.file === 'function' &&
       typeof window.agentCommonsDesktop?.context?.localGit?.disconnect === 'function' &&
       Object.keys(window.agentCommonsDesktop.context).sort().join(',') === 'localFolders,localGit,pickFiles,pickFolder' &&
       Object.keys(window.agentCommonsDesktop.context.localFolders).sort().join(',') === 'connect,disconnect,list,snapshot,snapshotTree' &&
-      Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,list,review,snapshot',
+      Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,file,files,list,review,snapshot',
     )
     if (!hasContextBridge) throw new Error('The narrow native context picker bridge was not available.')
     const recoveryDirectory = join(userDataPath, 'snapshots')
