@@ -4,6 +4,7 @@ import type { LocalGitReview } from './localGitReview.mjs'
 import { isGitSnapshotFiles } from './localGitSnapshot.mjs'
 import type { LocalGitFileListing, LocalGitFilePreview, LocalGitFileSelection } from './localGitBrowse.mjs'
 import type { LocalGitUntrackedFileListing, LocalGitUntrackedFilePreview, LocalGitUntrackedFileRequest, LocalGitUntrackedFilesRequest } from './localGitUntrackedBrowse.mjs'
+import type { LocalGitFileComparison, LocalGitFileComparisonRequest, LocalGitFileComparisonCancel } from './localGitFileComparison.mjs'
 import { isServedCaptureTime, isSnapshotId } from './servedTextSnapshot.ts'
 
 export type LocalGitConnectionId = `GIT_${string}`
@@ -30,6 +31,8 @@ export interface NativeLocalGitBridge {
   untrackedFiles(id: LocalGitConnectionId, request: LocalGitUntrackedFilesRequest, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitUntrackedFileListing>
   untrackedFile(id: LocalGitConnectionId, request: LocalGitUntrackedFileRequest, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitUntrackedFilePreview>
   cancelUntrackedRead(id: LocalGitConnectionId, request: LocalGitUntrackedFilesRequest, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<boolean>
+  fileComparison?(id: LocalGitConnectionId, request: LocalGitFileComparisonRequest, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitFileComparison>
+  cancelFileComparison?(id: LocalGitConnectionId, request: LocalGitFileComparisonCancel, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<boolean>
   disconnect(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<void>
 }
 

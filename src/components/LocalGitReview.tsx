@@ -10,6 +10,7 @@ import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
 import { TextDiff } from './TextDiff.tsx'
 import { CheckboxRow } from './Checkbox.tsx'
 import { LocalSavedCopyAction } from './LocalSavedCopyAction.tsx'
+import { LocalGitFileComparison } from './LocalGitFileComparison.tsx'
 import type { LocalGitConnectionId } from '../../contract/localGitCapture.ts'
 import type { LocalGitReview as Review } from '../../contract/localGitReview.mjs'
 
@@ -58,6 +59,8 @@ export function LocalGitReview({ id, name, enabled, intentScope, isAttached, onA
   return <section data-local-git-review className="mt-6 min-w-0 space-y-3">
     <h2 className="text-[15px] font-semibold text-ink">Changes on this device</h2>
     <p className="text-[13px] leading-relaxed text-ink-soft">Compare staged and unstaged tracked changes. Reading and selecting stay local; nothing is saved or sent automatically.{onAttach ? ' Attach this comparison saves only the selected captured sides as conversation context. Send remains a separate action.' : ' To save a comparison, open this repository from a conversation’s Add context menu.'}</p>
+    <LocalGitFileComparison id={id} name={name} enabled={enabled} intentScope={intentScope} isAttached={isAttached} onAttach={onAttach} />
+    <h3 data-local-git-whole-review className="pt-2 text-[13px] font-semibold text-ink">Whole-repository review</h3>
     <div className="flex flex-wrap gap-2">
       <button type="button" disabled={!enabled || state.pending} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
         onClick={() => void localGitReviews.read(id)}>{loading ? 'Reading changes…' : result ? 'Read changes again' : state.status === 'error' ? 'Retry review' : 'Review changes'}</button>

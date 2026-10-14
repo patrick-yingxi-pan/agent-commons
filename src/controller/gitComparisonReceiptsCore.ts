@@ -1,10 +1,12 @@
 import type { LocalGitReview } from '../../contract/localGitReview.mjs'
+import type { LocalGitFileComparison } from '../../contract/localGitFileComparison.mjs'
 import type { LocalGitReviewComparison } from './localGitReviewsCore.ts'
 
 /** Own byte-free selection identities only for the lifetime of a captured
  * review object. Review content stays outside receipt keys and metadata. */
 export function createGitComparisonReceiptsCore() {
   const receiptsByReview = new WeakMap<LocalGitReview, Map<string, number>>()
+  const receiptsByFileComparison = new WeakMap<LocalGitFileComparison, Map<string, number>>()
   let nextReceipt = 1
 
   const receipt = (
@@ -28,5 +30,19 @@ export function createGitComparisonReceiptsCore() {
     return created
   }
 
-  return { receipt }
+  const fileReceipt = (captured: LocalGitFileComparison): number => {
+    let receipts = receiptsByFileComparison.get(captured)
+    if (!receipts) {
+      receipts = new Map<string, number>()
+      receiptsByFileComparison.set(captured, receipts)
+    }
+    const selection = JSON.stringify([captured.comparison, captured.path])
+    const existing = receipts.get(selection)
+    if (existing !== undefined) return existing
+    const created = nextReceipt++
+    receipts.set(selection, created)
+    return created
+  }
+
+  return { receipt, fileReceipt }
 }

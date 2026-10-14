@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { LocalGitReview } from '../../contract/localGitReview.mjs'
+import type { LocalGitFileComparison } from '../../contract/localGitFileComparison.mjs'
 import { createGitComparisonReceiptsCore } from './gitComparisonReceiptsCore.ts'
 
 function review(text: string): LocalGitReview {
@@ -17,6 +18,12 @@ function review(text: string): LocalGitReview {
       working: { kind: 'text', text, mode: '100644' },
     }],
   }
+}
+
+function fileComparison(path: string, comparison: 'staged' | 'unstaged' = 'staged'): LocalGitFileComparison {
+  return { version: 1, scope: 'file-comparison', path, comparison,
+    head: { oid: null, ref: 'refs/heads/main' }, status: 'ready', change: 'modified',
+    before: { kind: 'text', text: 'old', mode: '100644' }, after: { kind: 'text', text: 'new', mode: '100644' } }
 }
 
 test('comparison receipt reuses identity when switching away and back within one review', () => {
@@ -68,4 +75,19 @@ test('selection receipt numbers increase globally and content changes do not cha
   const otherReview = core.receipt(review('other contents'), 'staged', 'selected.txt')
   assert.ok(next > receipt)
   assert.ok(otherReview > next)
+})
+
+test('single-file and whole-review receipts share one global allocator without retaining captured bytes', () => {
+  const core = createGitComparisonReceiptsCore()
+  const reviewReceipt = core.receipt(review('review bytes'), 'staged', 'file.txt')
+  const captured = fileComparison('file.txt')
+  const fileReceipt = core.fileReceipt(captured)
+  const unstagedReceipt = core.fileReceipt(fileComparison('file.txt', 'unstaged'))
+  assert.ok(reviewReceipt < fileReceipt && fileReceipt < unstagedReceipt,
+    'all Git comparison kinds use the same monotonic receipt sequence')
+  assert.equal(core.fileReceipt(captured), fileReceipt, 'the exact captured object retains its retry identity')
+  assert.notEqual(core.fileReceipt(structuredClone(captured)), fileReceipt,
+    'a fresh capture cannot inherit an earlier selection receipt')
+  assert.deepEqual(Object.keys(captured).sort(), ['comparison', 'head', 'path', 'scope', 'status', 'version', 'before', 'after', 'change'].sort(),
+    'receipt creation does not add metadata or bytes to the captured object')
 })

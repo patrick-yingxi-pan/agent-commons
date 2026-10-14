@@ -18,6 +18,8 @@ const gitChannels = {
   connect: 'agent-commons:local-git:connect',
   snapshot: 'agent-commons:local-git:snapshot',
   review: 'agent-commons:local-git:review',
+  fileComparison: 'agent-commons:local-git:file-comparison',
+  cancelFileComparison: 'agent-commons:local-git:cancel-file-comparison',
   files: 'agent-commons:local-git:files',
   file: 'agent-commons:local-git:file',
   untrackedFiles: 'agent-commons:local-git:untracked-files',
@@ -201,6 +203,10 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
     { version: 1, comparison: 'raw', head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' }, excludedCount: 0, unchangedCount: 0, files: [] },
     { version: 1, files: [{ path: 'src/main.ts', kind: 'file' }], excludedCount: 0 },
     { version: 1, path: 'src/main.ts', sizeBytes: 4, snapshot: { text: 'test' } },
+    { version: 1, scope: 'file-comparison', path: 'src/main.ts', comparison: 'staged',
+      head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' }, status: 'ready', change: 'modified',
+      before: { kind: 'text', text: 'old', mode: '100644' }, after: { kind: 'text', text: 'new', mode: '100644' } },
+    true,
     { scope: 'untracked', version: 1, files: [{ path: 'draft.md', kind: 'file' }], excludedCount: 0 },
     { scope: 'untracked', version: 1, path: 'draft.md', sizeBytes: 5, snapshot: { text: 'draft' } },
     true,
@@ -217,10 +223,14 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
   const selection = { path: 'src/main.ts' }
   assert.deepEqual(await git.file('GIT_0123456789ABCDEF0123456789ABCDEF', selection, sourceIdentity), values[5])
   const operationId = '4ca5af48-2a21-4c80-9bfe-f627ef872e23'
+  const comparisonRequest = { scope: 'file-comparison', operationId, path: 'src/main.ts', comparison: 'staged' }
+  const comparisonCancel = { scope: 'file-comparison', operationId }
   const untrackedRequest = { scope: 'untracked', operationId }
   const untrackedFileRequest = { scope: 'untracked', path: 'draft.md', operationId }
-  assert.deepEqual(await git.untrackedFiles('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity), values[6])
-  assert.deepEqual(await git.untrackedFile('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedFileRequest, sourceIdentity), values[7])
+  assert.deepEqual(await git.fileComparison('GIT_0123456789ABCDEF0123456789ABCDEF', comparisonRequest, sourceIdentity), values[6])
+  assert.equal(await git.cancelFileComparison('GIT_0123456789ABCDEF0123456789ABCDEF', comparisonCancel, sourceIdentity), values[7])
+  assert.deepEqual(await git.untrackedFiles('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity), values[8])
+  assert.deepEqual(await git.untrackedFile('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedFileRequest, sourceIdentity), values[9])
   assert.equal(await git.cancelUntrackedRead('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity), true)
   assert.equal(await git.disconnect('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), undefined)
   assert.deepEqual(calls, [
@@ -230,6 +240,8 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
     [gitChannels.review, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
     [gitChannels.files, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
     [gitChannels.file, 'GIT_0123456789ABCDEF0123456789ABCDEF', selection, sourceIdentity],
+    [gitChannels.fileComparison, 'GIT_0123456789ABCDEF0123456789ABCDEF', comparisonRequest, sourceIdentity],
+    [gitChannels.cancelFileComparison, 'GIT_0123456789ABCDEF0123456789ABCDEF', comparisonCancel, sourceIdentity],
     [gitChannels.untrackedFiles, 'GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity],
     [gitChannels.untrackedFile, 'GIT_0123456789ABCDEF0123456789ABCDEF', untrackedFileRequest, sourceIdentity],
     [gitChannels.cancelUntrackedRead, 'GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity],
@@ -249,6 +261,8 @@ test('Git preload is absent outside macOS and maps every native failure to fixed
     ['review', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
     ['files', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
     ['file', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', { path: 'src/main.ts' }, sourceIdentity]],
+    ['fileComparison', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', { scope: 'file-comparison', operationId: '4ca5af48-2a21-4c80-9bfe-f627ef872e23', path: 'src/main.ts', comparison: 'staged' }, sourceIdentity]],
+    ['cancelFileComparison', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', { scope: 'file-comparison', operationId: '4ca5af48-2a21-4c80-9bfe-f627ef872e23' }, sourceIdentity]],
     ['disconnect', () => ['GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity]],
   ]
   const privatePath = '/Users/private/customer/repository'

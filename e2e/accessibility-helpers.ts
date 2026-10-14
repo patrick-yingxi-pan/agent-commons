@@ -23,6 +23,18 @@ export async function settledAttachmentPreview(page: Page, selector = '[data-att
   await settledOpaquePaint(page.locator(selector).filter({ visible: true }))
 }
 
+/** Narrow resize closes the rail asynchronously. Its closing pixels can cover
+ * an already-stable page or popover, so local geometry alone is insufficient. */
+export async function settledNarrowRail(page: Page) {
+  const width = page.viewportSize()?.width ?? await page.evaluate(() => innerWidth)
+  if (tierFor(width) !== 'narrow') return
+  await expect(page.locator('main[inert]')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => {
+    const drawer = document.querySelector('aside')?.closest('.overflow-hidden')
+    return drawer?.hasAttribute('inert') === true && drawer.getBoundingClientRect().width <= 1
+  }), { message: 'the mobile drawer finishes closing before reviewing the page' }).toBe(true)
+}
+
 /** Presence and containment can both pass during an ancestor's reveal fade.
  * Capture or audit only the fully opaque, frame-stable surface. */
 export async function settledOpaquePaint(target: Locator) {

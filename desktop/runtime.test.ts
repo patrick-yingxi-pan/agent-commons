@@ -335,6 +335,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   const localGitBridge = contextBridge.slice(contextBridge.indexOf('localGit: Object.freeze('))
   assert.match(localGitBridge, /list: \(source\) => invokeLocalFolder\(localGitChannels\.list, source\)/)
   assert.match(localGitBridge, /review: \(id, source\) => invokeLocalFolder\(localGitChannels\.review, id, source\)/)
+  assert.match(localGitBridge, /fileComparison: \(id, request, source\) => invokeLocalFolder\(localGitChannels\.fileComparison, id, request, source\)/)
+  assert.match(localGitBridge, /cancelFileComparison: \(id, request, source\) => invokeLocalFolder\(localGitChannels\.cancelFileComparison, id, request, source\)/)
   assert.match(localGitBridge, /files: \(id, source\) => invokeLocalFolder\(localGitChannels\.files, id, source\)/)
   assert.match(localGitBridge, /file: \(id, selection, source\) => invokeLocalFolder\(localGitChannels\.file, id, selection, source\)/)
   assert.match(localGitBridge, /untrackedFiles: \(id, request, source\) => invokeLocalFolder\(localGitChannels\.untrackedFiles, id, request, source\)/)
@@ -349,6 +351,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(main, /generation !== localFolderCookieGeneration/)
   assert.match(main, /review: \(root, \{ signal \}\) => readLocalGitReview\(root, \{ gitExecutable, fileExecutable, signal \}\)/,
     'the native Git store runs only the explicit, pinned-tool review reader')
+  assert.match(main, /fileComparison: \(root, selection, \{ signal \}\) => readLocalGitFileComparison\(root, selection, \{ gitExecutable, fileExecutable, signal \}\)/,
+    'the native Git store runs only the selected-file comparison reader')
   assert.match(main, /function beginShutdown\(\) \{[^}]*quitting = true[^}]*localFolderStore\?\.shutdown\(\)/)
   assert.equal((main.match(/quitting = true/g) ?? []).length, 1, 'quitting is a one-way transition owned by beginShutdown')
   assert.equal((main.match(/^\s+beginShutdown\(\)$/gm) ?? []).length, 4, 'update, restore, and both before-quit paths cancel local work')
@@ -363,7 +367,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     assert.ok(packagedSmokeSource.includes(`typeof window.agentCommonsDesktop?.context?.localGit?.${method} === 'function'`),
       `packaged smoke requires the explicit ${method} method`)
   }
-  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'cancelUntrackedRead,connect,disconnect,file,files,list,review,snapshot,untrackedFile,untrackedFiles'"),
+  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'cancelFileComparison,cancelUntrackedRead,connect,disconnect,file,fileComparison,files,list,review,snapshot,untrackedFile,untrackedFiles'"),
     'packaged smoke locks the distinct Git browse and cancellation methods without widening the folder bridge')
   assert.match(preload, /mcpCredentials = Object.freeze\(/)
   assert.match(preload, /mcp-provision-v1/)

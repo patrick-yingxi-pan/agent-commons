@@ -111,12 +111,31 @@ fences, denies unrelated blob/working reads and distinguishes sparse ancestry
 from a deleted index entry. Real generated repositories and the packaged Git
 smoke cover this boundary. File/directory transitions retain conservative
 ignore matching without granting descendant reads; both transition regressions
-were watched fail before the fix. This checkpoint does not yet add a renderer command
-or UI: the remaining work is a closed path/direction result, account-bound IPC,
-explicit controls, exact saved-copy integration and rendered/package acceptance.
-No UI files change in this prerequisite; the UI-review matrix applies when that
-workflow is connected. Full local verification and packaged-native regression
-remain required before landing this native boundary.
+were watched fail before the fix. The prerequisite landed as `e65f12ce` after
+the complete local verifier and unsigned arm64 desktop verifier.
+
+The current implementation connects that boundary to a closed path/direction
+result, account-bound cancellable IPC and explicit Compare file controls.
+Controls remain reachable when whole-review capture is unavailable. Readable
+change labels must agree with exact bytes/modes/presence; missing, empty,
+unsupported, ignored, sparse and conflicted outcomes cannot be called clean.
+Only the selected HEAD/index or index/working sides are read, each ≤64 KiB.
+Conversation Attach serializes the captured sides into the existing ordinary
+64 KiB saved-file funnel, without a reread or model call. Canonical and Project
+surfaces remain read-only. Input edits, Dismiss, disconnect and account changes
+abort and fence reads; remount alone preserves account-memory state. Native
+capacity remains occupied until cancelled work actually settles.
+
+Review caught unstable external-store idle snapshots and insufficient
+change/side coherence in the first result parser; focused regressions cover
+both. Acceptance covers the conversation picker and canonical detail across
+five viewports, read-only Project context, account disposal, late replies,
+exact Attach after source edits and saved-only Send. The packaged Git walk
+adds a real >500-path repository, staged deletion, missing-index refusal,
+selected unstaged Attach, unchanged index bytes/mtime and full source-absent
+relaunch. Complete local, separate UI and desktop gates must pass on the frozen
+final tree before landing. Native UI control still reports the Mac locked;
+the actual chooser, signed/notarized, Intel and live-service gates remain open.
 
 ## Completed checkpoint: explicitly attach a captured Git comparison
 

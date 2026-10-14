@@ -3,7 +3,7 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test'
 import type { ScheduledTask, ScheduleTemplate } from '../contract/index.ts'
 import { ms } from './budget.ts'
-import { settledOpaquePaint } from './accessibility-helpers.ts'
+import { settledNarrowRail, settledOpaquePaint } from './accessibility-helpers.ts'
 
 const VIEWPORTS = [
   { width: 320, height: 700 },
@@ -133,16 +133,7 @@ test('a failed cadence chunk stays contained, closes locally, and recovers on re
   await expectContained(page)
   for (const size of VIEWPORTS) {
     await page.setViewportSize(size)
-    if (size.width <= 375) {
-      // Crossing into narrow closes the rail automatically. Sampling its old
-      // inert state and clicking Collapse races that effect and targets a
-      // button that is already inert by the time the click can be delivered.
-      await expect(page.locator('main[inert]')).toHaveCount(0)
-      await expect.poll(() => page.evaluate(() => {
-        const drawer = document.querySelector('aside')?.closest('.overflow-hidden')
-        return drawer?.hasAttribute('inert') === true && drawer.getBoundingClientRect().width <= 1
-      }), { message: 'the mobile drawer finishes closing before reviewing the page' }).toBe(true)
-    }
+    await settledNarrowRail(page)
     await expect(failed).toBeVisible()
     await expectContained(page)
     await screenshot(page, testInfo, 'cadence-error', size)

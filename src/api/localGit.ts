@@ -4,6 +4,8 @@ import { parseLocalGitReview, type LocalGitReview } from '../../contract/localGi
 import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview, type LocalGitFileSelection } from '../../contract/localGitBrowse.mjs'
 import { parseLocalGitUntrackedFileRequest, parseLocalGitUntrackedFilesRequest,
   parseLocalGitUntrackedFileListing, parseLocalGitUntrackedFilePreview } from '../../contract/localGitUntrackedBrowse.mjs'
+import { parseLocalGitFileComparisonSelection, parseLocalGitFileComparisonRequest, parseLocalGitFileComparison,
+  type LocalGitFileComparisonSelection } from '../../contract/localGitFileComparison.mjs'
 import { accountGeneration, activeAccount, onAccountSwitch } from './account.ts'
 import { AccountSwitchedError } from './client.ts'
 import { peek } from './cache.ts'
@@ -123,18 +125,24 @@ export async function readLocalGitFile(id: string, path: string, scope: DesktopB
 
 function abortError() { return new DOMException('The native repository read was cancelled.', 'AbortError') }
 
-function readUntracked<T>(id: string, signal: AbortSignal | undefined, scope: DesktopBridgeScope | undefined,
-  invoke: (port: NativeLocalGitBridge, request: { scope: 'untracked'; operationId: string }, source: { userId: string; namespace: string }) => Promise<unknown>,
-  parse: (value: unknown) => T | undefined, expectedPath?: string): Promise<T> {
+type GitReadSource = { userId: string; namespace: string }
+type GitReadOperation<S extends string> = { scope: S; operationId: string }
+
+/** One account-bound cancellation/publication lifecycle for explicitly scoped
+ * native reads. Each adapter still owns its exact request and result parser. */
+function readOperation<T, S extends string>(id: string, signal: AbortSignal | undefined, scope: DesktopBridgeScope | undefined,
+  operationScope: S, available: (port: NativeLocalGitBridge) => boolean,
+  invoke: (port: NativeLocalGitBridge, request: GitReadOperation<S>, source: GitReadSource) => Promise<unknown>,
+  cancelRead: (port: NativeLocalGitBridge, request: GitReadOperation<S>, source: GitReadSource) => Promise<unknown>,
+  parse: (value: unknown) => T | undefined, matches: (value: T) => boolean): Promise<T> {
   const identity = captureLocalGitSource()
   if (!isLocalGitConnectionId(id)) return Promise.reject(new Error('This repository connection is unavailable.'))
   const currentScope = scope ?? (typeof window === 'undefined' ? undefined : window)
   let port: NativeLocalGitBridge
   try { port = bridge(currentScope as DesktopBridgeScope) }
   catch (error) { return Promise.reject(error) }
-  if (typeof port.untrackedFiles !== 'function' || typeof port.untrackedFile !== 'function' ||
-    typeof port.cancelUntrackedRead !== 'function') {
-    return Promise.reject(new Error('Untracked repository browsing is unavailable on this device.'))
+  if (!available(port)) {
+    return Promise.reject(new Error('This repository operation is unavailable on this device.'))
   }
   if (signal?.aborted) return Promise.reject(abortError())
   const operationId = globalThis.crypto?.randomUUID?.()
@@ -142,7 +150,7 @@ function readUntracked<T>(id: string, signal: AbortSignal | undefined, scope: De
     return Promise.reject(new Error('Could not start the native repository read.'))
   }
   const generation = accountGeneration()
-  const request = { scope: 'untracked' as const, operationId }
+  const request = { scope: operationScope, operationId }
   return new Promise<T>((resolve, reject) => {
     let settled = false
     let dispatched = false
@@ -157,7 +165,7 @@ function readUntracked<T>(id: string, signal: AbortSignal | undefined, scope: De
     }
     const cancel = () => {
       if (!dispatched) return
-      try { void Promise.resolve(port.cancelUntrackedRead!(id as LocalGitConnection['id'], request, identity.source)).catch(() => {}) }
+      try { void Promise.resolve(cancelRead(port, request, identity.source)).catch(() => {}) }
       catch { /* the local publication fence is immediate */ }
     }
     const onAbort = () => { cancel(); finish(abortError()) }
@@ -176,13 +184,39 @@ function readUntracked<T>(id: string, signal: AbortSignal | undefined, scope: De
         identity.assertCurrent()
         if (generation !== accountGeneration()) throw new AccountSwitchedError('local Git identity changed')
         const detached = parse(result)
-        if (!detached || (expectedPath !== undefined && (detached as { path?: string }).path !== expectedPath)) {
-          throw new Error('The repository returned an invalid untracked file result.')
+        if (!detached || !matches(detached)) {
+          throw new Error('The repository returned an invalid read result.')
         }
         finish(undefined, structuredClone(detached))
       }, (error) => finish(error)).catch((error) => finish(error))
     } catch (error) { finish(error) }
   })
+}
+
+function readUntracked<T>(id: string, signal: AbortSignal | undefined, scope: DesktopBridgeScope | undefined,
+  invoke: (port: NativeLocalGitBridge, request: GitReadOperation<'untracked'>, source: GitReadSource) => Promise<unknown>,
+  parse: (value: unknown) => T | undefined, expectedPath?: string): Promise<T> {
+  return readOperation(id, signal, scope, 'untracked',
+    port => typeof port.untrackedFiles === 'function' && typeof port.untrackedFile === 'function' && typeof port.cancelUntrackedRead === 'function',
+    invoke, (port, request, source) => port.cancelUntrackedRead(id as LocalGitConnection['id'], request, source),
+    parse, value => expectedPath === undefined || (value as { path?: string }).path === expectedPath)
+}
+
+/** Compare exactly one selected file; this operation does not depend on a
+ * successful whole-repository review and never captures unrelated file bodies. */
+export function readLocalGitFileComparison(id: string, selection: LocalGitFileComparisonSelection,
+  signal?: AbortSignal, scope?: DesktopBridgeScope) {
+  const detached = parseLocalGitFileComparisonSelection(selection)
+  if (!detached) return Promise.reject(new Error('Choose a valid repository file path and comparison.'))
+  return readOperation(id, signal, scope, 'file-comparison',
+    port => typeof port.fileComparison === 'function' && typeof port.cancelFileComparison === 'function',
+    (port, operation, source) => {
+      const request = parseLocalGitFileComparisonRequest({ ...operation, ...detached })
+      if (!request) throw new Error('Could not start the selected-file comparison.')
+      return port.fileComparison!(id as LocalGitConnection['id'], request, source)
+    },
+    (port, request, source) => port.cancelFileComparison!(id as LocalGitConnection['id'], request, source),
+    parseLocalGitFileComparison, value => value.path === detached.path && value.comparison === detached.comparison)
 }
 
 /** List untracked metadata through the explicit native scope and cancellation door. */

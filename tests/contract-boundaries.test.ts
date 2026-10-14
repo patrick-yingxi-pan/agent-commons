@@ -437,6 +437,26 @@ test('recursive folder capture stays explicit and confined to the packaged macOS
   assert.throws(() => checkPortable("import { readLocalFolderTree } from '../desktop/localFolderTree.mjs'", 'server'), /cannot import or call native folder readers/)
 })
 
+test('selected Git comparison shares its closed portable contract across all admission boundaries', () => {
+  const check = (source: string, path: string) => {
+    assert.ok(source.includes('contract/localGitFileComparison.mjs'), path + ' imports the authoritative selected contract')
+    assert.ok(source.includes('parseLocalGitFileComparisonRequest('), path + ' validates the closed request')
+    assert.ok(source.includes('parseLocalGitFileComparison'), path + ' validates or delegates the closed result')
+  }
+  for (const path of ['src/api/localGit.ts', 'desktop/localConnectionStore.mjs', 'desktop/localConnectionHost.mjs']) {
+    check(stripComments(read(join(ROOT, path))), path)
+  }
+  const host = stripComments(read(join(ROOT, 'desktop/localConnectionHost.mjs')))
+  assert.throws(() => check(host.replaceAll('contract/localGitFileComparison.mjs', 'local-parser'), 'mutated host'),
+    /imports the authoritative selected contract/, 'a local parser substitution is detected')
+  for (const directory of ['src', 'server', 'contract']) {
+    for (const path of filesUnder(directory, ['.ts', '.tsx', '.mjs', '.cjs'])) {
+      assert.doesNotMatch(stripComments(read(path)), /from\s+['"][^'"]*desktop\/localGitFileComparison\.mjs['"]/,
+        path + ': portable callers cannot import the native selected reader')
+    }
+  }
+})
+
 test('Git browse shares a portable parser contract while native listing and reads stay macOS-hosted', () => {
   const portable = concatSource('contract') + '\n' + concatSource('server') + '\n' + concatSource('src')
   assert.doesNotMatch(portable, /from\s+['"][^'"]*(?:desktop\/localGitReader|localGitReader\.mjs)['"]|node:child_process/,

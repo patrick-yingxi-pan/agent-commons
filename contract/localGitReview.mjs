@@ -63,7 +63,7 @@ function validRef(value) {
     !component.startsWith('.') && !component.endsWith('.') && !component.endsWith('.lock'))
 }
 
-function validHead(value) {
+export function parseLocalGitReviewHead(value) {
   const head = ownRecord(value, ['oid', 'ref'])
   if (!head) return undefined
   if (head.oid !== null && (typeof head.oid !== 'string' || !OID.test(head.oid) || /^0+$/.test(head.oid))) return undefined
@@ -72,6 +72,10 @@ function validHead(value) {
   // detached HEAD as {oid, ref:null}; null/null has no Git meaning.
   if (head.oid === null && head.ref === null) return undefined
   return { oid: head.oid, ref: head.ref }
+}
+
+export function isGitReviewChange(value) {
+  return typeof value === 'string' && CHANGES.has(value)
 }
 
 function validText(value) {
@@ -113,12 +117,18 @@ function validSide(value) {
   }
 }
 
+/** Validate and detach one shared Git-review side without applying a review's aggregate budget. */
+export function parseLocalGitReviewSide(value) {
+  const side = validSide(value)
+  return side ? side.value ?? side : undefined
+}
+
 /** Parse and detach the internal, raw-byte local Git review projection. */
 export function parseLocalGitReview(value) {
   try {
     const review = ownRecord(value, ['version', 'comparison', 'head', 'excludedCount', 'unchangedCount', 'files'])
     if (!review || review.version !== 1 || review.comparison !== 'raw') return undefined
-    const head = validHead(review.head)
+    const head = parseLocalGitReviewHead(review.head)
     const files = ownArray(review.files, MAX_GIT_SNAPSHOT_ENTRIES)
     if (!head || !files || !Number.isSafeInteger(review.excludedCount) || review.excludedCount < 0 ||
       !Number.isSafeInteger(review.unchangedCount) || review.unchangedCount < 0) return undefined
@@ -129,8 +139,7 @@ export function parseLocalGitReview(value) {
     for (const item of files) {
       const file = ownRecord(item, ['path', 'staged', 'unstaged', 'head', 'index', 'working'])
       if (!file || !isGitSnapshotPath(file.path) || (previous && file.path <= previous) ||
-        typeof file.staged !== 'string' || !CHANGES.has(file.staged) ||
-        typeof file.unstaged !== 'string' || !CHANGES.has(file.unstaged)) return undefined
+        !isGitReviewChange(file.staged) || !isGitReviewChange(file.unstaged)) return undefined
       previous = file.path
       const sides = []
       for (const key of ['head', 'index', 'working']) {

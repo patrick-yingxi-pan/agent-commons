@@ -42,3 +42,6 @@ export type LocalGitReview = {
 
 /** Parse and detach the internal, raw-byte local Git review projection. */
 export function parseLocalGitReview(value: unknown): LocalGitReview | undefined
+export function parseLocalGitReviewHead(value: unknown): LocalGitReview['head'] | undefined
+export function isGitReviewChange(value: unknown): value is GitReviewChange
+export function parseLocalGitReviewSide(value: unknown): GitReviewSide | undefined

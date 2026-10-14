@@ -5,6 +5,8 @@ module.exports = Object.freeze({
   connect: 'agent-commons:local-git:connect',
   snapshot: 'agent-commons:local-git:snapshot',
   review: 'agent-commons:local-git:review',
+  fileComparison: 'agent-commons:local-git:file-comparison',
+  cancelFileComparison: 'agent-commons:local-git:cancel-file-comparison',
   files: 'agent-commons:local-git:files',
   file: 'agent-commons:local-git:file',
   untrackedFiles: 'agent-commons:local-git:untracked-files',

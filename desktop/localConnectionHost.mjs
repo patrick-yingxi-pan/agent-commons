@@ -6,6 +6,7 @@ import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePre
 import { parseLocalGitUntrackedFileRequest, parseLocalGitUntrackedFilesRequest,
   parseLocalGitUntrackedFileListing, parseLocalGitUntrackedFilePreview } from '../contract/localGitUntrackedBrowse.mjs'
 import { isLocalFolderFileSelection, parseLocalFolderFileListing, parseLocalFolderFilePreview } from '../contract/localFolderBrowse.mjs'
+import { parseLocalGitFileComparisonRequest, parseLocalGitFileComparisonCancel, parseLocalGitFileComparison } from '../contract/localGitFileComparison.mjs'
 
 const ID = /^LOCAL_[A-F0-9]{32}$/
 const fail = () => { throw new LocalConnectionError() }
@@ -90,6 +91,7 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
   if (!['folder', 'git'].includes(connectionKind)) throw new Error('Invalid native connection kind.')
   const idPattern = connectionKind === 'git' ? /^GIT_[A-F0-9]{32}$/ : ID
   const untrackedOperations = new Map()
+  const comparisonOperations = new Map()
   const validOperationId = (value) => typeof value === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
@@ -171,6 +173,46 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
         const parsed = parseLocalGitReview(value)
         if (!parsed) fail()
         return parsed
+      })
+    },
+    fileComparison(event, id, request, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        const detached = parseLocalGitFileComparisonRequest(request)
+        if (extra.length || connectionKind !== 'git' || !detached ||
+          typeof id !== 'string' || !idPattern.test(id) || comparisonOperations.has(detached.operationId)) fail()
+        // Reserve before the first identity lookup: cancellation while that
+        // lookup waits must prevent later dispatch, not just hide its reply.
+        const binding = { sender: event.sender, owner: expectedOwner(expectedSource), id, cancelled: false, started: false }
+        comparisonOperations.set(detached.operationId, binding)
+        try {
+          const before = await source()
+          assertExpectedSource(before, binding.owner)
+          if (binding.cancelled) fail()
+          binding.started = true
+          const value = await store.fileComparison(before.owner, id, detached)
+          await unchanged(before)
+          if (binding.cancelled) fail()
+          const parsed = parseLocalGitFileComparison(value)
+          if (!parsed || parsed.path !== detached.path || parsed.comparison !== detached.comparison) fail()
+          return parsed
+        } finally {
+          if (comparisonOperations.get(detached.operationId) === binding) comparisonOperations.delete(detached.operationId)
+        }
+      })
+    },
+    cancelFileComparison(event, id, request, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        const detached = parseLocalGitFileComparisonCancel(request)
+        if (extra.length || connectionKind !== 'git' || !detached || typeof id !== 'string' || !idPattern.test(id)) fail()
+        const owner = expectedOwner(expectedSource)
+        const active = comparisonOperations.get(detached.operationId)
+        if (!active || active.sender !== event.sender || active.id !== id ||
+          active.owner.namespace !== owner.namespace || active.owner.userId !== owner.userId) return false
+        // The captured operation may be cancelled after account/cookie change.
+        // Keep its publication fence even if its native read already settled.
+        active.cancelled = true
+        if (active.started) await store.cancelFileComparison(owner, id, detached.operationId)
+        return true
       })
     },
     files(event, id, expectedSource, ...extra) {

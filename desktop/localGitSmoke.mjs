@@ -709,6 +709,105 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     ['nested.md', 'ready', 'captured-nested-v2-before-refresh\n'],
   ])
   assert.equal(JSON.stringify(endpoint.requests).includes(fixtureRoot), false)
+  // The explicit one-file workflow remains usable beyond whole-review limits.
+  // This fixture grows only after the smaller-repository acceptance above.
+  await mkdir(join(repository, 'large-index'), { recursive: true })
+  for (let index = 0; index < 501; index += 1) {
+    await writeFile(join(repository, 'large-index', `file-${index}.md`), 'unselected large-repository body\n')
+  }
+  git(gitExecutable, repository, 'add', '--', 'large-index')
+  const selectedIndexBefore = await indexState(repository)
+  const selectedSession = await run.page.evaluate(async id => {
+    const response = await fetch('/api/v1/sessions', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
+    })
+    if (!response.ok) throw new Error('Could not create the selected-comparison conversation.')
+    return response.json()
+  }, providerId)
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(selectedSession.id)}`)
+  await configureRepositoryDialog(run.app, repository)
+  await run.page.getByRole('button', { name: 'Add context' }).click()
+  const selectedPicker = run.page.getByRole('dialog', { name: 'Add context' })
+  await selectedPicker.getByRole('button', { name: /^Repository/ }).click()
+  await selectedPicker.getByRole('checkbox', { name: /Remember this connection/ }).check()
+  await selectedPicker.getByRole('button', { name: /Choose a repository from this computer/ }).click()
+  await expect(selectedPicker.getByRole('button', { name: `Review changes in ${repositoryName}`, exact: true })).toBeVisible()
+  const selectedConnections = await nativeGitConnections(run.page)
+  assert.equal(selectedConnections.length, 1)
+  const selectedConnectionId = selectedConnections[0].id
+  await selectedPicker.getByRole('button', { name: `Review changes in ${repositoryName}`, exact: true }).click()
+  const largeReview = selectedPicker.locator('[data-local-git-review]')
+  await largeReview.getByRole('button', { name: 'Review changes', exact: true }).click()
+  await expect(largeReview.getByRole('alert')).toBeVisible({ timeout: TIMEOUT_MS })
+  await expect(largeReview.locator('[data-local-git-review-result]')).toHaveCount(0)
+  const selectedPanel = largeReview.locator('[data-local-git-file-comparison]')
+  const selectedResult = selectedPanel.locator('[data-local-git-file-comparison-result]')
+  const selectedModelBefore = endpoint.requests.length
+  const selectedWorkspaceBefore = await readWorkspace(run.page, selectedSession.id)
+  await selectedPanel.getByLabel('Repository-relative path', { exact: true }).fill(exactOldPath)
+  await selectedPanel.getByRole('button', { name: 'Compare file', exact: true }).click()
+  await expect(selectedResult).toContainText('Deleted', { timeout: TIMEOUT_MS })
+  await selectedResult.getByLabel('Review view').selectOption('full')
+  assert.equal(await selectedResult.getByLabel('HEAD · Regular file').textContent(), exactText)
+  await expect(selectedResult.getByText('Not present in this version.', { exact: true })).toBeVisible()
+  await selectedPanel.getByRole('combobox', { name: 'Comparison direction', exact: true }).selectOption('unstaged')
+  await expect(selectedResult).toHaveCount(0, 'editing the direction retires the captured result without reading')
+  await selectedPanel.getByRole('button', { name: 'Compare file', exact: true }).click()
+  await expect(selectedResult).toContainText('not present in the index', { timeout: TIMEOUT_MS })
+  await expect(selectedResult.getByRole('button', { name: 'Attach this comparison', exact: true })).toHaveCount(0)
+  await selectedPanel.getByLabel('Repository-relative path', { exact: true }).fill('src/nested.md')
+  await selectedPanel.getByRole('button', { name: 'Compare file', exact: true }).click()
+  await expect(selectedResult).toContainText('Modified', { timeout: TIMEOUT_MS })
+  const selectedCopy = selectedResult.locator('[data-git-file-comparison-copy]')
+  await selectedCopy.getByText('Saved comparison contents', { exact: true }).click()
+  const selectedText = await selectedCopy.locator('[data-git-file-comparison-copy-text]').textContent()
+  const selectedCopyValue = JSON.parse(selectedText)
+  assert.deepEqual(selectedCopyValue, {
+    version: 1, kind: 'git-file-comparison-copy', repositoryName,
+    capturedAt: selectedCopyValue.capturedAt,
+    head: { ref: 'refs/heads/main', oid: git(gitExecutable, repository, 'rev-parse', 'HEAD').trim() },
+    comparison: 'unstaged', path: 'src/nested.md', change: 'modified',
+    before: { kind: 'text', text: 'captured-nested-index-v1\n', mode: '100644' },
+    after: { kind: 'text', text: 'comparison-source-changed-after-preview-v5\n', mode: '100644' },
+  }, 'single-file comparison captures exact sides despite the refused whole review')
+  assert.equal(JSON.stringify(selectedCopyValue, null, 2), selectedText)
+  assert.equal(new Date(selectedCopyValue.capturedAt).toISOString(), selectedCopyValue.capturedAt)
+  assert.deepEqual(await readWorkspace(run.page, selectedSession.id), selectedWorkspaceBefore)
+  assert.equal(endpoint.requests.length, selectedModelBefore)
+  await writeFile(join(repository, 'src', 'nested.md'), 'selected-source-changed-after-read-v6\n')
+  await selectedCopy.getByRole('button', { name: 'Attach this comparison', exact: true }).click()
+  await expect(selectedPicker).toContainText('1 added', { timeout: TIMEOUT_MS })
+  const selectedSaved = await readWorkspace(run.page, selectedSession.id)
+  assert.deepEqual(selectedSaved.attachments, [{
+    id: selectedSaved.attachments[0].id, label: comparisonName, kind: 'file',
+    source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' }, previewText: selectedText,
+  }], 'Attach saves the exact selected comparison without a native reread')
+  assert.equal(endpoint.requests.length, selectedModelBefore)
+  await assertIndexUnchanged(repository, selectedIndexBefore)
+  await run.page.screenshot({ path: join(fixtureRoot, 'local-git-file-comparison.png') })
+  await selectedPicker.getByRole('button', { name: 'Done', exact: true }).click()
+  await send(run.page, 'Read the selected-file Git comparison.', 'Read supplied attachment:', 0)
+  assert.equal(endpoint.requests.length, selectedModelBefore + 1)
+  await assertModelFiles(endpoint, [[comparisonName, 'ready', selectedText]])
+
+  const selectedSource = join(repository, 'src', 'nested.md')
+  await rename(selectedSource, join(fixtureRoot, 'selected-comparison-source-held.md'))
+  await run.app.close()
+  run = await relaunch(executable, userDataPath)
+  await assert.rejects(stat(selectedSource), { code: 'ENOENT' })
+  assert.deepEqual(await readWorkspace(run.page, selectedSession.id), selectedSaved,
+    'the exact selected comparison survives full relaunch without its source')
+  await run.page.goto(`${run.origin}/contexts/${encodeURIComponent(selectedConnectionId)}`)
+  await expect(run.page.locator('[data-local-git-file-comparison]')).toBeVisible()
+  await expect(run.page.locator('[data-local-git-file-comparison-result]')).toHaveCount(0)
+  await expect(run.page.getByLabel('Repository-relative path', { exact: true })).toHaveValue('')
+  await expect(run.page.getByRole('button', { name: 'Attach this comparison', exact: true })).toHaveCount(0)
+  await run.page.getByRole('button', { name: 'Disconnect', exact: true }).click()
+  await expect(run.page.locator('[data-local-git-file-comparison]')).toHaveCount(0)
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(selectedSession.id)}`)
+  await send(run.page, 'Read the selected-file comparison without its source or connection.', 'Read supplied attachment:', 1)
+  await assertModelFiles(endpoint, [[comparisonName, 'ready', selectedText]])
+  await assertIndexUnchanged(repository, selectedIndexBefore)
   console.log('[desktop-local-git-smoke] native dialog result fixture only · bundled Git + packaged reader/IPC/preload/renderer · tracked working edits and exclusions · explicit transient staged/unstaged review · optional identical/edited possible-rename grouping with raw opt-out · index/sharedindex names+bytes+mtime unchanged · remembered relaunch · saved-only Attach/Refresh/review/model input · missing-source recovery · disconnect clears review, retains copy and revokes Refresh')
   return run
 }

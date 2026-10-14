@@ -17,6 +17,7 @@ import { createLocalConnectionHost, localConnectionReply } from './localConnecti
 import { LocalConnectionError, LOCAL_CONNECTION_FILE, LOCAL_GIT_CONNECTION_FILE, openLocalConnectionStore } from './localConnectionStore.mjs'
 import { createLocalGitReader, isLocalGitRoot } from './localGitReader.mjs'
 import { readLocalGitReview } from './localGitReview.mjs'
+import { readLocalGitFileComparison } from './localGitFileComparison.mjs'
 import { bundledGitDirectory, verifyBundledGitDirectory } from './bundledGit.mjs'
 import { gitFileExecutable } from './gitFileRead.mjs'
 import { readLocalFolderTree } from './localFolderTree.mjs'
@@ -196,6 +197,7 @@ async function startDesktop() {
         browse: reader.listLocalGitFiles, preview: reader.readLocalGitFile,
         browseUntracked: reader.listLocalGitUntrackedFiles, previewUntracked: reader.readLocalGitUntrackedFile,
         review: (root, { signal }) => readLocalGitReview(root, { gitExecutable, fileExecutable, signal }),
+        fileComparison: (root, selection, { signal }) => readLocalGitFileComparison(root, selection, { gitExecutable, fileExecutable, signal }),
       })
     } catch { console.warn('[desktop] local Git access is unavailable for this run.') }
   }

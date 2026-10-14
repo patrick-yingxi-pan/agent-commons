@@ -6,6 +6,27 @@ import { extractDocx } from '../src/lib/docxExtraction.ts'
 
 const source = readFileSync(new URL('./localGitSmoke.mjs', import.meta.url), 'utf8')
 
+test('packaged selected comparison proves large-repository fallback and exact source-free saved input', () => {
+  const flow = source.slice(source.indexOf('// The explicit one-file workflow'))
+  assert.ok(flow.includes('index < 501'), 'real generated index exceeds the whole-review limit')
+  assert.ok(flow.includes("largeReview.getByRole('alert')"), 'whole review must visibly refuse')
+  const connectionReady = flow.indexOf("await expect(selectedPicker.getByRole('button', { name: `Review changes in ${repositoryName}`, exact: true })).toBeVisible()")
+  const connectionRead = flow.indexOf('const selectedConnections = await nativeGitConnections(run.page)')
+  assert.ok(connectionReady >= 0 && connectionRead > connectionReady,
+    'connection inspection follows rendered native completion, not just the chooser click')
+  assert.ok(flow.includes("name: 'Compare file', exact: true"), 'the rendered selected comparison is explicit')
+  assert.ok(flow.includes("toContainText('not present in the index'"), 'HEAD-only deletion cannot read an untracked recreation')
+  assert.ok(flow.includes("kind: 'git-file-comparison-copy'"), 'exact selected-copy JSON is asserted')
+  const laterWrite = flow.indexOf("'selected-source-changed-after-read-v6\\n'")
+  const attach = flow.indexOf("name: 'Attach this comparison', exact: true }).click()")
+  assert.ok(laterWrite >= 0 && attach > laterWrite, 'source changes before Attach, not just before Send')
+  assert.ok(flow.includes('assert.deepEqual(selectedSaved.attachments,'))
+  assert.ok(flow.includes("await assert.rejects(stat(selectedSource), { code: 'ENOENT' })"))
+  assert.ok(flow.includes('run = await relaunch(executable, userDataPath)'))
+  assert.ok(flow.includes('await assertModelFiles(endpoint, [[comparisonName, \'ready\', selectedText]])'))
+  assert.ok(flow.includes('await assertIndexUnchanged(repository, selectedIndexBefore)'))
+})
+
 test('packaged Git sends use the live hit-tested composer after picker transitions', () => {
   const send = source.slice(source.indexOf('async function send('), source.indexOf('async function assertModelFiles('))
   const click = send.indexOf('await composer.click()')
