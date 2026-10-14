@@ -355,4 +355,3 @@ test('untracked traversal refuses depth and aggregate candidate-path overflow', 
   }
   await assert.rejects(pathFixture.reader.listLocalGitUntrackedFiles(pathFixture.pinned), /unavailable or has changed|limit|exceed/i)
 })
-

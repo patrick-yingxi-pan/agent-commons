@@ -102,8 +102,10 @@ The complete unsigned arm64 `npm run desktop:verify` passed all stages on the
 frozen 2,919-file source tree, including the new packaged internal reader checks
 and existing native workflows. Independent review found no remaining code defect;
 its documentation correction above clarifies the pre-existing copied object-format
-probe and changes no packaged runtime code. The complete local verifier is still
-required on this final documentation-inclusive revision before commit/push.
+probe and changes no packaged runtime code. A subsequent complete local verifier
+passed all five lanes and 702 browser tests in 766.7 seconds on the frozen,
+documentation-inclusive tree. The full verifier remains mandatory after any
+later change; final landing outcomes accompany the checkpoint handoff.
 
 ## Completed checkpoint: review documents inside connected sources
 

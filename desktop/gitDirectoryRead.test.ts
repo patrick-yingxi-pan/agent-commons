@@ -253,4 +253,3 @@ test('native directory reader fences mutations to root and intermediate ancestor
     await assert.rejects(listing, /changed|unavailable/i)
   }
 })
-
