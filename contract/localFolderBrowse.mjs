@@ -1,8 +1,8 @@
 import { isFolderTreePath, MAX_FOLDER_TREE_DEPTH, MAX_FOLDER_TREE_DIRECTORIES,
   MAX_FOLDER_TREE_ENTRIES, MAX_FOLDER_TREE_PATH_BYTES } from './localFolderTree.mjs'
-import { decodeLocalTextPreview, isLocalTextFileName } from './localTextFile.mjs'
+import { isLocalBrowseFileName, MAX_LOCAL_BROWSE_TEXT_BYTES, parseLocalBrowseFileSnapshot } from './localFileBrowse.mjs'
 
-export const MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES = 64 * 1024
+export const MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES = MAX_LOCAL_BROWSE_TEXT_BYTES
 export const MAX_LOCAL_FOLDER_BROWSE_PATH_BYTES = MAX_FOLDER_TREE_ENTRIES * MAX_FOLDER_TREE_PATH_BYTES
 
 const encoder = new TextEncoder()
@@ -66,7 +66,7 @@ export function parseLocalFolderFileListing(value) {
       const file = record(item, ['path', 'kind'])
       const bytes = file && pathBytes(file.path)
       if (bytes === undefined || (previous && file.path <= previous) || !['file', 'unsupported'].includes(file.kind) ||
-        (file.kind === 'file' && !isLocalTextFileName(file.path.slice(file.path.lastIndexOf('/') + 1)))) return undefined
+        (file.kind === 'file' && !isLocalBrowseFileName(file.path.slice(file.path.lastIndexOf('/') + 1)))) return undefined
       totalBytes += bytes
       if (totalBytes > MAX_LOCAL_FOLDER_BROWSE_PATH_BYTES) return undefined
       previous = file.path
@@ -83,18 +83,7 @@ export function parseLocalFolderFilePreview(value) {
     const preview = record(value, ['version', 'path', 'sizeBytes', 'snapshot'])
     if (!preview || preview.version !== 1 || pathBytes(preview.path) === undefined ||
       !Number.isSafeInteger(preview.sizeBytes) || preview.sizeBytes < 0) return undefined
-    const text = record(preview.snapshot, ['text'])
-    if (text) {
-      if (!isLocalTextFileName(preview.path.slice(preview.path.lastIndexOf('/') + 1)) || typeof text.text !== 'string' ||
-        text.text.length > MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES) return undefined
-      const bytes = encoder.encode(text.text)
-      if (bytes.byteLength !== preview.sizeBytes || bytes.byteLength > MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES ||
-        decodeLocalTextPreview(bytes) !== text.text) return undefined
-      return { version: 1, path: preview.path, sizeBytes: preview.sizeBytes, snapshot: { text: text.text } }
-    }
-    const omission = record(preview.snapshot, ['omitted'])
-    if (!omission || !['too-large', 'unsupported', 'unreadable'].includes(omission.omitted) ||
-      (omission.omitted === 'too-large' && preview.sizeBytes <= MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES)) return undefined
-    return { version: 1, path: preview.path, sizeBytes: preview.sizeBytes, snapshot: { omitted: omission.omitted } }
+    const snapshot = parseLocalBrowseFileSnapshot(preview.path, preview.sizeBytes, preview.snapshot)
+    return snapshot ? { version: 1, path: preview.path, sizeBytes: preview.sizeBytes, snapshot } : undefined
   } catch { return undefined }
 }

@@ -23,8 +23,8 @@ covers clean onboarding, encrypted provider-key custody and signed-in relaunch.
 These are implemented-boundary checks against a local model peer, not evidence
 of a successful paid-provider call.
 
-The latest corrected frozen-tree verifier completed successfully: all five
-lanes and 689 browser tests passed in 750.3 seconds before `db44a107` landed.
+The preceding landed revision's corrected frozen-tree verifier passed: all five
+lanes and 693 browser tests passed in 752.9 seconds before `fe98e2b7` landed.
 The earlier interrupted attempt remains failure evidence only. Actual native
 local-MCP Cancel/Allow and the complete authored-peer workflow are separately
 accepted on the artifact named in the [native review](acceptance/native-mcp-stdio-2026-10-12.md).
@@ -46,7 +46,111 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: select files from a connected local folder
+## Current checkpoint: review documents inside connected sources
+
+The previous goal turn clarified Apple enrollment using Apple's current
+mainland-China guidance: individual enrollment supports international Mac
+distribution through Developer ID and notarization. Actual residence/account
+region and completed membership remain owner inputs, not inferred facts.
+
+Checkpoint review derives the following matrix from the shared browser view,
+both native bindings, document projection and saved-file consumers:
+
+| Surface and principal | Explicit acceptance coverage |
+| --- | --- |
+| Canonical Folder and Git detail, Ada owner | Real DOCX worker preview and no Attach at 320×700, 375×812, 768×1024, 844×390 and 1280×800; existing sibling walks retain listing, errors and non-document states. |
+| Conversation source pickers, owner | Every PDF/DOCX/XLSX/PPTX format from both sources at all five viewports in the packaged walk; exact source-byte/fidelity disclosure, complete text, reachable Done and separate Attach. Browser coverage adds protected/no-text/invalid/unsupported outcomes and long relative paths. |
+| Draft, saved attachment and shared conversation | First-send materialization, exact stable attachment identity, shared-reader text/fidelity without native authority, foreign denial, and source-absent saved previews/model input after real relaunch. Existing direct-document suites retain their five-viewport owner/shared preview matrix. |
+| Project context and account lifetime | Native source browsing is descriptive/read-only; no saved-file or whole-source Attach. Dismiss, Disconnect, native-response delay, stalled worker/importer and account-switch fences prevent late publication. |
+| Shared shell regression | Complete 135-cell UI sweep plus the complete local verifier. No theme tokens or global primitives changed; the existing contrast/theme locks remain the oracle for unchanged palettes. |
+
+This is not a claim of original document layout fidelity, automatic OCR,
+third-party corpus/provider acceptance, native Open-dialog acceptance or signed
+Intel/Apple Silicon release acceptance. The Mac remained locked when native
+review availability was rechecked; browser and packaged fixture work can proceed.
+
+Autonomous direction (2026-10-13): extend selected-file browsing in both native
+Folders and Git repositories to the PDF, DOCX, XLSX and PPTX formats already
+supported by direct file selection. A person should not need to leave a known
+source and repeat the OS chooser merely to review one document and attach its
+saved text. The actual native-dialog review remains pending because the current
+computer-use surface reports a locked Mac; that is not a product failure or a
+reason to mark native acceptance complete.
+
+Listing remains bounded metadata only. Explicit preview re-admits the exact
+selected regular file, returns at most the existing format's 8 MiB source limit
+through path-free native IPC, and runs the existing isolated renderer extractor.
+The native host never parses document archives. Only extracted text and its
+validated format/outcome disclosure enter transient browser state; original
+bytes never enter saved context. Dismiss, Disconnect and account changes cancel
+extraction and fence late results. Text previews retain their 64 KiB whole-file
+limit; document extraction retains its existing independent resource/text limits.
+
+Separate Attach saved copy preserves exactly the reviewed text and extraction
+metadata under the existing receipt identity. Project context remains browse-only.
+There is no automatic OCR, formula calculation, layout-fidelity expansion, source
+write, original upload or model call. Invalid, protected, empty and bounded-out
+documents must remain visibly distinct from ready text.
+
+Acceptance must cover all four formats through genuine renderer workers, both
+native source boundaries, exact selected/versioned reads, omissions, cancellation
+and person walls, source changes after preview, saved-only model metadata and
+source-absent relaunch. Reuse the shared browser and importer rather than adding
+format-specific workflows. Keep existing budgets and verification timeouts; new
+locks must be watched fail before the final frozen-tree local verifier, UI sweep,
+packaged desktop gate, adversarial review and direct main delivery.
+
+Acceptance (2026-10-13): the focused seven-spec browser run passed all 29 tests,
+including all nine new document-browse cases. The full shell sweep covered
+135/135 cells with zero violations and zero skips. The final unsigned arm64
+`npm run desktop:verify` passed every stage, including both native sources,
+real packaged extraction workers, exact saved copies after source replacement,
+unchanged Git index bytes/mtime, and all four saved previews and model inputs
+after full relaunch with the original documents absent. All 80 final native
+document screenshots (two sources, four formats, two scroll positions, five
+viewports) and the shell captures were visually reviewed without actionable
+findings. Independent code review found no remaining actionable defects.
+
+Acceptance development exposed test-harness defects, not a reason to weaken
+the product contract: listings now satisfy their closed ordering/count rules,
+Git's Project walk follows its actual Repository pane, multi-file relaunch
+opens the grouped Files menu, and Send awaits picker exit and hit-tested composer
+activation. Text capture centers the preview while retaining strict full
+containment. A screenshot caught the responsive rail mid-collapse, so both
+disclosure and text captures now wait for unoccluded paint at center/edge hit
+points, not a fixed sleep. The new capture and grouped-navigation locks were
+watched fail before repair; earlier failed runs and the obscured capture are
+not acceptance evidence. No production deadline, retry policy or fidelity
+assertion was relaxed. Landing still requires the complete local verifier;
+its final outcome accompanies the checkpoint handoff.
+
+The first complete verifier passed checks and three browser shards, but failed
+the existing cadence-chunk error walk after 803.7 seconds. Its retained trace
+shows a stale conditional read of `main[inert]` immediately after resizing:
+the narrow-layout effect had already closed and made the rail inert before the
+test attempted Collapse. The walk now awaits accessible main content plus an
+existing inert, zero-width drawer; it neither clicks an automatically closing
+control nor accepts an absent drawer as evidence. The failed editor must remain
+visible, and the original containment, Close/reopen, real reload and unchanged
+revision assertions remain. This is a test-precondition repair, not a production
+layout change; the failed verifier is not a passing revision.
+Both original cadence browser tests passed in 14.5 seconds after this repair,
+with unchanged timeouts and coverage; independent review confirmed the causal
+trace and the stronger, non-vacuous settled-drawer precondition.
+
+The next full verifier was deliberately stopped after its checks lane passed
+(218.8 seconds): screenshot review caught the cadence loading shell during its
+section-action reveal fade. That interrupted run is not a passing revision.
+The shared browser paint guard now serves both attachment previews and cadence
+captures, requiring fully opaque ancestors and stable geometry across animation
+frames. The capture source lock was watched fail before repair; no product CSS,
+timeout or retry policy changed. Both focused tests passed again (14.6 seconds),
+and all 16 fresh loading/error/loaded/footer captures were reviewed at original
+size. The blend disappeared with settled paint; the surface is solid and legible,
+so no product styling change was justified. Final landing still requires a new
+complete frozen-tree verifier run.
+
+## Completed checkpoint: select files from a connected local folder
 
 Autonomous direction (2026-10-13): complete the local-folder intake workflow
 with explicit path listing, one-file preview and a separate Attach saved copy.
@@ -107,6 +211,12 @@ with the original source removed. Native chooser answers remain test fixtures;
 this is not signed/Intel, actual OS-dialog, paid-provider or public-service
 acceptance. The final complete local verifier and post-test diff review remain
 mandatory before main delivery; no GitHub CI is used.
+
+The final frozen tree passed all five local verifier lanes and 693 browser tests
+in 752.9 seconds. Its source fingerprint stayed unchanged through acceptance;
+post-test review found no remaining blocker. Commit `fe98e2b7` was pushed to
+main with a clean worktree. This closes the implementation checkpoint, not the
+separate actual-dialog, signed/Intel or live-service release gates.
 
 ## Completed checkpoint: explicit local Git tracked-file browsing
 

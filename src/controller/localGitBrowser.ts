@@ -3,6 +3,7 @@ import type { LocalGitConnectionId } from '../../contract/localGitCapture.ts'
 import { accountGeneration, onAccountSwitch } from '../api/account.ts'
 import { localGitConnections } from './localGitConnections.ts'
 import { createLocalGitBrowserCore } from './localGitBrowserCore.ts'
+import { prepareLocalFilePreview } from '../lib/localFilePreview.ts'
 
 async function commands() {
   const generation = accountGeneration()
@@ -13,7 +14,11 @@ async function commands() {
 
 export const localGitBrowser = createLocalGitBrowserCore({
   list: async id => (await commands()).readLocalGitFiles(id),
-  preview: async (id, path) => (await commands()).readLocalGitFile(id, path),
+  preview: async (id, path, signal) => {
+    const api = await commands()
+    signal.throwIfAborted()
+    return prepareLocalFilePreview(await api.readLocalGitFile(id, path), signal)
+  },
   now: () => Date.now(),
 })
 

@@ -19,6 +19,7 @@ import { runArtifactSheetImportSmoke } from './artifactSheetImportSmoke.mjs'
 import { smokeDesktopUpdateMenu } from './updateMenuSmoke.mjs'
 import { smokePackagedLocalGit } from './localGitSmoke.mjs'
 import { smokeLocalFolderBrowse, verifyLocalFolderBrowseRelaunch } from './localFolderBrowseSmoke.mjs'
+import { smokeLocalDocumentBrowse, verifyLocalDocumentBrowseRelaunch } from './localDocumentBrowseSmoke.mjs'
 import { settledAttachmentPreview } from '../e2e/accessibility-helpers.ts'
 import { docBlockId } from '../server/documentIdentity.ts'
 
@@ -1311,6 +1312,10 @@ export async function smokePackagedAttachments({ executable }) {
       run, root: ephemeralFolder, connectionId: ephemeralConnectionId,
       providerId: session.providerId, endpoint, openPicker: openNativeLocalFolderPicker,
     }) : null
+    const folderDocumentReceipt = treeCapture ? await smokeLocalDocumentBrowse({
+      run, root: ephemeralFolder, source: 'folder', name: 'folder-ephemeral',
+      providerId: session.providerId, endpoint,
+    }) : null
     await page.goto(`${origin}${localSessionPath}`)
     await chooseNativeConnectionFolder(run.app, rememberedFolder)
     localPicker = await openNativeLocalFolderPicker(page)
@@ -1493,6 +1498,7 @@ export async function smokePackagedAttachments({ executable }) {
     run = await launch(executable, userDataPath)
     ;({ page, origin } = run)
     if (folderBrowseReceipt) await verifyLocalFolderBrowseRelaunch(page, folderBrowseReceipt)
+    if (folderDocumentReceipt) await verifyLocalDocumentBrowseRelaunch(run, folderDocumentReceipt, endpoint)
     await page.goto(`${origin}${localSessionPath}`)
     nativeConnections = await readNativeConnections(page)
     assert.deepEqual(nativeConnections.map(({ name, remembered }) => [name, remembered]), [

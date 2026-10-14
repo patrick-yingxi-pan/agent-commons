@@ -1,3 +1,5 @@
+import type { LocalBrowseFileSnapshot } from './localFileBrowse.mjs'
+
 export type LocalFolderFileKind = 'file' | 'unsupported'
 export type LocalFolderFileOmission = 'too-large' | 'unsupported' | 'unreadable'
 export interface LocalFolderFileSelection { path: string }
@@ -15,7 +17,7 @@ export interface LocalFolderFilePreview {
   version: 1
   path: string
   sizeBytes: number
-  snapshot: { text: string } | { omitted: LocalFolderFileOmission }
+  snapshot: LocalBrowseFileSnapshot
 }
 export function isLocalFolderFileSelection(value: unknown): value is LocalFolderFileSelection
 export function parseLocalFolderFileListing(value: unknown): LocalFolderFileListing | undefined

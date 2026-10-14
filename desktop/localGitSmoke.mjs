@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process'
 import { expect } from '@playwright/test'
 import { bundledGitDirectory } from './bundledGit.mjs'
 import { localGitCommandEnvironment } from './localGitReader.mjs'
+import { smokeLocalDocumentBrowse, verifyLocalDocumentBrowseRelaunch } from './localDocumentBrowseSmoke.mjs'
 
 const TIMEOUT_MS = 30_000
 
@@ -381,6 +382,16 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await send(run.page, 'Read only the selected saved file.', 'review-working-only-v3', 0)
   await assertModelFiles(endpoint, [['nested.md', 'ready', 'review-working-only-v3\n']])
 
+  const documentBrowseReceipt = await smokeLocalDocumentBrowse({
+    run, root: repository, source: 'git', name: repositoryName, providerId, endpoint,
+    prepareFiles: async paths => {
+      git(gitExecutable, repository, 'add', '--', ...paths)
+      const documentIndex = await indexState(repository)
+      return () => assertIndexUnchanged(repository, documentIndex)
+    },
+  })
+  await rename(documentBrowseReceipt.sourceDirectory, join(fixtureRoot, 'git-browse-documents-held'))
+
   // A full packaged-process relaunch proves the remembered native grant and
   // durable saved snapshot are separate: reopening access does not auto-attach.
   await run.app.close()
@@ -394,6 +405,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.ok(gitFolder(reopenedWorkspace, connectionId)?.gitSnapshot, 'the saved Git copy survives relaunch')
   assert.deepEqual(await readWorkspace(run.page, browseSession.id), savedBrowse,
     'the exact separately attached file survives native relaunch without rereading its source')
+  await verifyLocalDocumentBrowseRelaunch(run, documentBrowseReceipt, endpoint)
   await run.page.goto(run.origin + '/contexts/' + encodeURIComponent(connectionId))
   const reopenedReviewPanel = run.page.locator('[data-local-git-review]')
   await expect(reopenedReviewPanel).toBeVisible()

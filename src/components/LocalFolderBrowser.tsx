@@ -1,4 +1,5 @@
 import type { LocalFolderConnectionId } from '../../contract/localFolderCapture.ts'
+import type { DocumentImportOutcome } from '../../contract/documentImport.mjs'
 import { localFolderBrowser, useLocalFolderBrowser } from '../controller/localFolderBrowser.ts'
 import { LocalFileBrowserView } from './LocalFileBrowserView.tsx'
 
@@ -7,7 +8,7 @@ export function LocalFolderBrowser({ id, name, enabled, intentScope = '', onAtta
   name: string
   enabled: boolean
   intentScope?: string
-  onAttach?: (path: string, text: string, receipt: number) => void | Promise<unknown>
+  onAttach?: (path: string, text: string, receipt: number, documentImport?: DocumentImportOutcome) => void | Promise<unknown>
   isAttached?: (receipt: number) => boolean
   headingLevel?: 2 | 3
 }) {
@@ -24,6 +25,6 @@ export function LocalFolderBrowser({ id, name, enabled, intentScope = '', onAtta
     entryLabel={entry => entry.kind === 'file' ? 'File' : 'Unsupported'}
     entryMessage={entry => entry.kind === 'unsupported' ? 'This entry is unsupported for text preview.' : null}
     listingSummary={(listing, readAt) => <>Read at {readAt ? new Date(readAt).toLocaleString() : 'this session'} · {listing.files.length} visible paths · visited {listing.visited} entries · {listing.directoryCount} directories · {listing.hiddenCount} hidden paths excluded.</>}
-    limitsCopy="Listing is bounded to 16 levels, 64 directories, and 500 entries. Hidden paths are excluded and counted. Search and pagination operate over the full returned listing. Selecting a supported file reads only that file, as whole text up to 64 KiB; results are point-in-time, not live. Results stay in memory; Dismiss, Disconnect, changing accounts, reload, or closing the app clears them."
+    limitsCopy="Listing is bounded to 16 levels, 64 directories, and 500 entries. Hidden paths are excluded and counted. Search and pagination operate over the full returned listing. Selecting a supported file reads only that file: whole text up to 64 KiB, or PDF, DOCX, XLSX and PPTX sources up to 8 MiB with extracted text up to 64 KiB. Document extraction is text-only, without OCR or formula calculation. Results are point-in-time, not live. Original document bytes are never saved. Results stay in memory; Dismiss, Disconnect, changing accounts, reload, or closing the app clears them and cancels document extraction."
     omittedCopy={omission => omission === 'too-large' ? 'This file exceeds the 64 KiB preview limit; no content was returned.' : omission === 'unsupported' ? 'This file is not supported for text preview; no content was returned.' : 'The file could not be read; no content was returned.'} />
 }

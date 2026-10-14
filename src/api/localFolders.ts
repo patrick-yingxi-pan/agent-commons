@@ -118,8 +118,9 @@ export async function readLocalFolderFiles(id: string, scope: DesktopBridgeScope
   return structuredClone(listing)
 }
 
-/** Read one explicit, previously listed relative path as a bounded whole-text
- * preview. Device and contract validation are both required before display. */
+/** Read one explicit, previously listed relative path as bounded whole text or
+ * a transient document container. The controller extracts documents before
+ * display; device and contract validation are both required at this boundary. */
 export async function readLocalFolderFile(id: string, path: string, scope: DesktopBridgeScope = window) {
   const identity = captureLocalFolderSource()
   if (!isLocalConnectionId(id)) throw new Error('This local folder connection is unavailable.')

@@ -65,6 +65,12 @@ test('routine cadence editor and its option catalog load only after opening Sche
   const loadState = deferred.slice(deferred.indexOf('function CadenceEditorLoadState('), deferred.indexOf('export function DeferredCadenceEditor('))
   const editor = stripComments(read(join(ROOT, 'src/components/CadenceEditor.tsx')))
   const hook = stripComments(read(join(ROOT, 'src/controller/useScheduleDraftCommit.ts')))
+  const walk = stripComments(read(join(ROOT, 'e2e/cadence-editor-loading.spec.ts')))
+  const paint = stripComments(read(join(ROOT, 'e2e/accessibility-helpers.ts')))
+  assert.match(walk, /async function screenshot[\s\S]*await settledOpaquePaint\(page\.locator\('\[data-cadence-editor-shell\]'\)\)[\s\S]*await page\.screenshot/,
+    'cadence captures await settled opaque paint, not a partially revealed action cluster')
+  assert.match(paint, /export async function settledOpaquePaint[\s\S]*getComputedStyle\(node\)\.opacity !== '1'[\s\S]*before === paint\(\)/,
+    'the shared paint guard checks ancestor opacity and stable frame geometry')
   assert.match(section, /import \{ DeferredCadenceEditor \} from '\.\/DeferredCadenceEditor\.tsx'/)
   assert.match(section, /editing && <DeferredCadenceEditor[\s\S]*task=\{task\}[\s\S]*commit=\{commit\}/)
   assert.doesNotMatch(section, /import \{\s*CadenceEditor\s*\} from/)

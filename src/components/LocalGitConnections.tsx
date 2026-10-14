@@ -104,11 +104,11 @@ export function NativeLocalGitPicker({ onAdd, addedIds, attachments, intentScope
                 const id = localGitSavedCopies.id(intentScope, connection.id, receipt)
                 return id !== undefined && attachments.some(item => item.id === id)
               }}
-              onAttach={allowSavedCopy ? (path, text, receipt) => {
+              onAttach={allowSavedCopy ? (path, text, receipt, documentImport) => {
                 const result = localGitSavedCopies.submit(intentScope, connection.id, receipt, newLocalGitSavedCopyId, id => {
                   if (attachments.some(item => item.id === id)) return
                   return onAdd({ kind: 'files', attachments: [{
-                    id, label: path, kind: 'file', source: UI_HOST_SOURCE, previewText: text,
+                    id, label: path, kind: 'file', source: UI_HOST_SOURCE, previewText: text, ...(documentImport && { documentImport }),
                   }] })
                 })
                 return result.promise

@@ -151,6 +151,17 @@ test('selective folder browse methods are macOS-only and pass only exact relativ
   assert.deepEqual(calls, [[channels.files, 'LOCAL_A', sourceIdentity], [channels.file, 'LOCAL_A', selection, sourceIdentity]])
 })
 
+test('selected folder and Git document bytes cross only their existing explicit file channels', async () => {
+  for (const [door, id, channel] of [['localFolders', 'LOCAL_A', channels.file], ['localGit', 'GIT_A', gitChannels.file]]) {
+    const selection = { path: 'nested/selected.pdf' }
+    const preview = { version: 1, path: selection.path, sizeBytes: 3,
+      snapshot: { document: { format: 'pdf', bytes: new Uint8Array([0, 255, 1]) } } }
+    const { bridge, calls } = loadPreload([{ value: { ok: true, value: preview } }], 'darwin')
+    assert.deepEqual(await bridge.context[door].file(id, selection, sourceIdentity), preview)
+    assert.deepEqual(calls, [[channel, id, selection, sourceIdentity]])
+  }
+})
+
 test('raw IPC rejection and malformed or prototype-shaped replies become path-free unavailable errors', async () => {
   const privatePath = '/Users/private/customer/source'
   const cases = [

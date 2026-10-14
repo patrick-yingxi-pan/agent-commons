@@ -1,13 +1,14 @@
-import type { LocalFolderFileListing, LocalFolderFilePreview } from '../../contract/localFolderBrowse.mjs'
+import type { LocalFolderFileListing } from '../../contract/localFolderBrowse.mjs'
+import type { LocalBrowsePreview } from '../lib/localFilePreview.ts'
 import { createLocalFileBrowserCore, type LocalFileBrowserState } from './localFileBrowserCore.ts'
 
 export type LocalFolderBrowseListing = LocalFolderFileListing
-export type LocalFolderBrowsePreview = LocalFolderFilePreview
+export type LocalFolderBrowsePreview = LocalBrowsePreview
 export type LocalFolderBrowserState = LocalFileBrowserState<LocalFolderBrowseListing, LocalFolderBrowsePreview>
 
 export function createLocalFolderBrowserCore(deps: {
   list(id: string): Promise<LocalFolderBrowseListing>
-  preview(id: string, path: string): Promise<LocalFolderBrowsePreview>
+  preview(id: string, path: string, signal: AbortSignal): Promise<LocalFolderBrowsePreview>
   now(): number
 }) {
   return createLocalFileBrowserCore({ ...deps, isPreviewable: kind => kind === 'file',

@@ -8,6 +8,7 @@ import { bundledGitDirectory } from './bundledGit.mjs'
 import { buildGitFileTestHelper } from './gitFileTestFixture.mjs'
 import { readGitFile } from './gitFileRead.mjs'
 import { createLocalGitReader, localGitCommandEnvironment } from './localGitReader.mjs'
+import { localBrowseFileByteLimit } from '../contract/localFileBrowse.mjs'
 
 const fileExecutable = buildGitFileTestHelper()
 const gitExecutable = join(bundledGitDirectory({ packaged: false }), 'git')
@@ -145,4 +146,40 @@ test('native browse supports repositories beyond the legacy 500-path bulk-captur
   assert.equal(listing.files.length, 508)
   assert.equal((await reader.readLocalGitFile(pinned, { selection: { path: 'large-500.ts' } })).snapshot.text, 'untouched')
   await assert.rejects(reader.readLocalGitSnapshot(pinned), /unavailable or has changed/)
+})
+
+test('Git document browsing lists candidates without body reads and transports only selected current bytes', native, async t => {
+  const { root, reader, pinned, reads, git } = await fixture(t)
+  const paths = ['src/document.docx', 'src/document.pdf', 'src/document.pptx', 'src/document.xlsx']
+  const bytes = new Uint8Array(65537).fill(255)
+  for (const path of paths) await fs.writeFile(join(root, path), bytes)
+  git('add', '--', ...paths)
+  const listing = await reader.listLocalGitFiles(pinned)
+  assert.deepEqual(listing.files.filter(file => paths.includes(file.path)), paths.map(path => ({ path, kind: 'file' })))
+  assert.equal(reads.some(read => paths.includes(read.name) && read.body), false)
+  for (const path of paths) {
+    reads.length = 0
+    const preview = await reader.readLocalGitFile(pinned, { selection: { path } })
+    assert.deepEqual(preview.snapshot, { document: { format: path.split('.').at(-1), bytes } })
+    assert.deepEqual(reads.filter(read => paths.includes(read.name) && read.body).map(read => read.name), [path])
+  }
+  await fs.writeFile(join(root, paths[0]), new Uint8Array(localBrowseFileByteLimit(paths[0]) + 1))
+  assert.deepEqual((await reader.readLocalGitFile(pinned, { selection: { path: paths[0] } })).snapshot, { omitted: 'too-large' })
+})
+
+test('Git selected document publication retains current-file and ignore-version fences', native, async t => {
+  for (const change of ['file', 'ignore']) {
+    let observed = false
+    const data = await fixture(t, async (base, name, options) => {
+      if (!observed && name === 'src/document.pdf' && options.maxBytes !== null) {
+        observed = true
+        if (change === 'file') await fs.writeFile(join(base.path, name), 'changed after document read')
+        else await fs.appendFile(join(base.path, '.gitignore'), 'src/document.pdf\n')
+      }
+    })
+    await fs.writeFile(join(data.root, 'src/document.pdf'), new Uint8Array([0, 255, 1]))
+    data.git('add', '--', 'src/document.pdf')
+    await assert.rejects(data.reader.readLocalGitFile(data.pinned, { selection: { path: 'src/document.pdf' } }), /unavailable or has changed/)
+    assert.equal(observed, true)
+  }
 })

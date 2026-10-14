@@ -226,3 +226,25 @@ test('native Git browsing results are fenced across account switches', async () 
     await assert.rejects(previewRead, AccountSwitchedError)
   } finally { cleanup() }
 })
+
+test('Git document reads return detached containers for renderer extraction and fence identity changes', async () => {
+  try {
+    for (const format of ['pdf', 'docx', 'xlsx', 'pptx'] as const) {
+      select(ada)
+      const path = `reports/data.${format}`
+      const bytes = new Uint8Array([1, 2, 3])
+      const preview: LocalGitFilePreview = { version: 1, path, sizeBytes: 3, snapshot: { document: { format, bytes } } }
+      const scope = scopeFor(bridge({ file: async () => preview }))
+      const result = await readLocalGitFile(id, path, scope)
+      assert.ok('document' in result.snapshot)
+      assert.deepEqual(result.snapshot.document.bytes, bytes)
+      bytes[0] = 9
+      assert.equal(result.snapshot.document.bytes[0], 1, 'native output cannot mutate the accepted renderer input')
+      const pending = deferred<LocalGitFilePreview>()
+      const reading = readLocalGitFile(id, path, scopeFor(bridge({ file: () => pending.promise })))
+      select(grace)
+      pending.resolve(preview)
+      await assert.rejects(reading, AccountSwitchedError)
+    }
+  } finally { cleanup() }
+})

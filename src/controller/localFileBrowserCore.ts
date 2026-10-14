@@ -12,7 +12,7 @@ export interface LocalFileBrowserState<Listing, Preview> {
   previewReceipt: number | null
   pending: boolean
 }
-interface PendingRead { epoch: number; version: number; key: string; promise: Promise<unknown> }
+interface PendingRead { epoch: number; version: number; key: string; promise: Promise<unknown>; controller: AbortController }
 
 const makeIdle = <L, P>(): LocalFileBrowserState<L, P> => Object.freeze({
   listingStatus: 'idle', listing: null, listingReadAt: null, listingError: null,
@@ -26,8 +26,8 @@ export function createLocalFileBrowserCore<
   Listing extends { files: Array<{ path: string; kind: string }> },
   Preview extends { path: string },
 >(deps: {
-  list(id: string): Promise<Listing>
-  preview(id: string, path: string): Promise<Preview>
+  list(id: string, signal: AbortSignal): Promise<Listing>
+  preview(id: string, path: string, signal: AbortSignal): Promise<Preview>
   now(): number
   isPreviewable(kind: string): boolean
   listingError: string
@@ -48,17 +48,20 @@ export function createLocalFileBrowserCore<
   }
   const versionOf = (id: string) => versions.get(id) ?? 0
   const occupied = (id: string) => [...(pending.get(id) ?? [])].some(item => item.epoch === epoch)
-  const current = (id: string, request: PendingRead) => request.epoch === epoch && request.version === versionOf(id)
-  const begin = <T>(id: string, key: string, task: () => Promise<T>, onStart: (state: State) => State,
+  const current = (id: string, request: PendingRead) => !request.controller.signal.aborted && request.epoch === epoch && request.version === versionOf(id)
+  const begin = <T>(id: string, key: string, task: (signal: AbortSignal) => Promise<T>, onStart: (state: State) => State,
     onSuccess: (state: State, value: T) => State,
     onFailure: (state: State) => State): Promise<T | null> => {
     if (occupied(id)) {
       const same = [...(pending.get(id) ?? [])].find(item => item.epoch === epoch && item.key === key)
       return same ? same.promise as Promise<T | null> : Promise.resolve(null)
     }
-    const request: PendingRead = { epoch, version: versionOf(id), key, promise: Promise.resolve(null) }
+    const request: PendingRead = { epoch, version: versionOf(id), key, promise: Promise.resolve(null), controller: new AbortController() }
     publish(id, onStart(get(id)))
-    const promise = Promise.resolve().then(task).then(value => {
+    const promise = Promise.resolve().then(() => {
+      request.controller.signal.throwIfAborted()
+      return task(request.controller.signal)
+    }).then(value => {
       if (!current(id, request)) return null
       publish(id, onSuccess(get(id), structuredClone(value)))
       return structuredClone(value)
@@ -75,7 +78,7 @@ export function createLocalFileBrowserCore<
     const reads = pending.get(id) ?? new Set<PendingRead>(); reads.add(request); pending.set(id, reads)
     return promise
   }
-  const readListing = (id: string) => begin(id, 'listing', () => deps.list(id),
+  const readListing = (id: string) => begin(id, 'listing', signal => deps.list(id, signal),
     state => ({ ...state, listingStatus: 'loading', listing: null, listingReadAt: null, listingError: null,
       selectedPath: null, previewStatus: 'idle', preview: null, previewReadAt: null, previewError: null, previewReceipt: null, pending: true }),
     (state, listing) => ({ ...state, listingStatus: 'ready', listing, listingReadAt: deps.now(), listingError: null, pending: false }),
@@ -85,7 +88,7 @@ export function createLocalFileBrowserCore<
     const state = get(id)
     const entry = state.listing?.files.find(file => file.path === path)
     if (state.listingStatus !== 'ready' || !entry || !deps.isPreviewable(entry.kind)) return Promise.resolve(null)
-    return begin(id, `preview:${path}`, () => deps.preview(id, path),
+    return begin(id, `preview:${path}`, signal => deps.preview(id, path, signal),
       currentState => ({ ...currentState, selectedPath: path, previewStatus: 'loading', preview: null,
         previewReadAt: null, previewError: null, previewReceipt: null, pending: true }),
       (currentState, preview) => ({ ...currentState, selectedPath: path, previewStatus: 'ready', preview,
@@ -96,6 +99,7 @@ export function createLocalFileBrowserCore<
   const dismiss = (id: string) => {
     const hasPending = occupied(id)
     if (hasPending) versions.set(id, versionOf(id) + 1)
+    for (const request of pending.get(id) ?? []) request.controller.abort()
     if (get(id) !== IDLE || hasPending) publish(id, hasPending ? { ...IDLE, pending: true } : IDLE)
   }
   const retain = (ids: readonly string[]) => {
@@ -104,6 +108,7 @@ export function createLocalFileBrowserCore<
   }
   const clear = () => {
     epoch += 1
+    for (const reads of pending.values()) for (const request of reads) request.controller.abort()
     const ids = new Set([...states.keys(), ...listeners.keys()])
     states.clear(); versions.clear()
     for (const id of ids) for (const listener of listeners.get(id) ?? []) listener()

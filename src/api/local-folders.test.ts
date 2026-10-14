@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Identity } from '../../contract/identity.ts'
 import type { LocalFolderConnection, NativeLocalFolderBridge } from '../../contract/localFolderCapture.ts'
+import type { LocalFolderFilePreview } from '../../contract/localFolderBrowse.mjs'
 import { refreshAccount, accountGeneration } from './account.ts'
 import { peek, resetAll, setData } from './cache.ts'
 import { AccountSwitchedError } from './client.ts'
@@ -183,6 +184,28 @@ test('folder browse fails closed when optional native file methods are absent or
     await assert.rejects(readLocalFolderFiles(id, badListing), /invalid folder path listing/)
     const mismatchedPreview = scopeFor(bridge({ file: async () => ({ version: 1, path: 'other.txt', sizeBytes: 0, snapshot: { text: '' } }) }))
     await assert.rejects(readLocalFolderFile(id, 'notes.txt', mismatchedPreview), /invalid folder file preview/)
+  } finally { cleanup() }
+})
+
+test('folder document reads return detached containers for renderer extraction and fence identity changes', async () => {
+  try {
+    for (const format of ['pdf', 'docx', 'xlsx', 'pptx'] as const) {
+      select(ada)
+      const path = `reports/data.${format}`
+      const bytes = new Uint8Array([1, 2, 3])
+      const preview: LocalFolderFilePreview = { version: 1, path, sizeBytes: 3, snapshot: { document: { format, bytes } } }
+      const scope = scopeFor(bridge({ file: async () => preview }))
+      const result = await readLocalFolderFile(id, path, scope)
+      assert.ok('document' in result.snapshot)
+      assert.deepEqual(result.snapshot.document.bytes, bytes)
+      bytes[0] = 9
+      assert.equal(result.snapshot.document.bytes[0], 1, 'native output cannot mutate the accepted renderer input')
+      const pending = deferred<LocalFolderFilePreview>()
+      const reading = readLocalFolderFile(id, path, scopeFor(bridge({ file: () => pending.promise })))
+      select(grace)
+      pending.resolve(preview)
+      await assert.rejects(reading, AccountSwitchedError)
+    }
   } finally { cleanup() }
 })
 

@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { MAX_GIT_SNAPSHOT_FILE_BYTES, snapshotGitFiles } from '../contract/localGitSnapshot.mjs'
-import { isLocalGitFileSelection, MAX_GIT_BROWSE_ENTRIES, MAX_GIT_BROWSE_FILE_BYTES,
+import { isLocalGitFileSelection, MAX_GIT_BROWSE_ENTRIES,
   parseLocalGitFileListing, parseLocalGitFilePreview } from '../contract/localGitBrowse.mjs'
-import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
+import { isLocalBrowseFileName, localBrowseFileByteLimit, localBrowseSnapshotFromBytes } from '../contract/localFileBrowse.mjs'
 import { bundledGitProbeEnvironment } from './bundledGit.mjs'
 import { parseGitIndexStages, prepareGitIndex } from './gitIndex.mjs'
 import { readGitFile, listGitSharedIndexes } from './gitFileRead.mjs'
@@ -236,7 +236,7 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
     const entries = new Map()
     for (const entry of stages) {
       const kind = entry.stage !== 0 ? 'conflict' : entry.skipWorktree || entry.mode === '040000' ? 'sparse' :
-        !['100644', '100755'].includes(entry.mode) || !isLocalTextFileName(basename(entry.name)) ? 'unsupported' : 'file'
+        !['100644', '100755'].includes(entry.mode) || !isLocalBrowseFileName(basename(entry.name)) ? 'unsupported' : 'file'
       entries.set(entry.name, { ...entry, kind })
     }
     return [...entries.values()]
@@ -263,12 +263,11 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
       let snapshot = { omitted: 'unsupported' }
       let sizeBytes = 0
       if (entry.kind === 'file') {
-        const value = await load(root, path, MAX_GIT_BROWSE_FILE_BYTES)
+        const value = await load(root, path, localBrowseFileByteLimit(path))
         sizeBytes = value.sizeBytes ?? 0
         if (value.status === 'too-large') snapshot = { omitted: 'too-large' }
         else if (value.status === 'file' && value.bytes instanceof Uint8Array) {
-          const text = decodeLocalTextPreview(value.bytes)
-          snapshot = text === undefined ? { omitted: 'unsupported' } : { text }
+          snapshot = localBrowseSnapshotFromBytes(path, value.sizeBytes, value.bytes)
         } else snapshot = { omitted: value.status === 'unsupported' ? 'unsupported' : 'unreadable' }
       }
       const result = parseLocalGitFilePreview({ version: 1, path, sizeBytes, snapshot })

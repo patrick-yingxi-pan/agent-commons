@@ -7,9 +7,9 @@ import {
 } from '../contract/localFolderSnapshot.mjs'
 import { snapshotFolderFiles } from '../contract/localFolderSnapshotBuilder.mjs'
 import { MAX_FOLDER_TREE_ENTRIES } from '../contract/localFolderTree.mjs'
-import { MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES, parseLocalFolderFileListing, parseLocalFolderFilePreview,
+import { parseLocalFolderFileListing, parseLocalFolderFilePreview,
   isLocalFolderFileSelection } from '../contract/localFolderBrowse.mjs'
-import { decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
+import { isLocalBrowseFileName, localBrowseFileByteLimit, localBrowseSnapshotFromBytes } from '../contract/localFileBrowse.mjs'
 import { listLocalFolderTree, readGitFile } from './gitFileRead.mjs'
 
 const ROOT_ERROR = 'The selected folder is unavailable or has changed.'
@@ -215,7 +215,7 @@ function createLocalFolderReader({ filesystem = defaultFilesystem, listTree = li
         const before = await listTree(root, options)
         const files = before.entries.filter((entry) => entry.kind !== 'D').map((entry) => ({
           path: entry.name,
-          kind: entry.kind === 'F' && isLocalTextFileName(entry.name.slice(entry.name.lastIndexOf('/') + 1)) ? 'file' : 'unsupported',
+          kind: entry.kind === 'F' && isLocalBrowseFileName(entry.name.slice(entry.name.lastIndexOf('/') + 1)) ? 'file' : 'unsupported',
         }))
         if (before.entries.length > MAX_FOLDER_TREE_ENTRIES) throw new ChangedDuringCapture(ROOT_ERROR)
         const result = parseLocalFolderFileListing({ version: 1, visited: before.visited,
@@ -241,18 +241,18 @@ function createLocalFolderReader({ filesystem = defaultFilesystem, listTree = li
         const before = await listTree(root, options)
         const entry = before.entries.find((candidate) => candidate.name === detached.path)
         if (!entry) throw new ChangedDuringCapture(ROOT_ERROR)
-        const supportedName = isLocalTextFileName(entry.name.slice(entry.name.lastIndexOf('/') + 1))
+        const supportedName = isLocalBrowseFileName(entry.name.slice(entry.name.lastIndexOf('/') + 1))
+        const maxBytes = localBrowseFileByteLimit(entry.name)
         let snapshot
         let sizeBytes = entry.sizeBytes
         if (entry.kind !== 'F' || !supportedName) {
           snapshot = { omitted: 'unsupported' }
-        } else if (entry.sizeBytes > MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES) {
+        } else if (entry.sizeBytes > maxBytes) {
           snapshot = { omitted: 'too-large' }
         } else {
-          const read = await readFile(root, detached.path, { ...options, maxBytes: MAX_LOCAL_FOLDER_BROWSE_FILE_BYTES })
+          const read = await readFile(root, detached.path, { ...options, maxBytes })
           if (read.status === 'file' && read.version === entry.version && read.sizeBytes === entry.sizeBytes) {
-            const text = decodeLocalTextPreview(read.bytes)
-            snapshot = text === undefined ? { omitted: 'unsupported' } : { text }
+            snapshot = localBrowseSnapshotFromBytes(detached.path, read.sizeBytes, read.bytes)
           } else if (read.status === 'unreadable') {
             snapshot = { omitted: 'unreadable' }
           } else {

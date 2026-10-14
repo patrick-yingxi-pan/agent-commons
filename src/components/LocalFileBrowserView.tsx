@@ -3,11 +3,12 @@ import type { LocalFileBrowserState } from '../controller/localFileBrowserCore.t
 import { useLocalGitSavedCopyPending } from '../controller/localGitSavedCopies.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput.ts'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
+import { documentImportCopy, type DocumentImportOutcome } from '../../contract/documentImport.mjs'
 
 const PAGE_SIZE = 100
 type Entry = { path: string; kind: string }
 type Listing = { files: Entry[] }
-type Preview = { path: string; sizeBytes: number; snapshot: { text: string } | { omitted: string } }
+type Preview = { path: string; sizeBytes: number; snapshot: { text: string } | { omitted: string }; documentImport?: DocumentImportOutcome }
 
 export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   source, connectionId, name, enabled, intentScope, state, readListing, readPreview, dismiss, onAttach, isAttached,
@@ -23,7 +24,7 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   readListing: () => unknown
   readPreview: (path: string) => unknown
   dismiss: () => void
-  onAttach?: (path: string, text: string, receipt: number) => void | Promise<unknown>
+  onAttach?: (path: string, text: string, receipt: number, documentImport?: DocumentImportOutcome) => void | Promise<unknown>
   isAttached?: (receipt: number) => boolean
   title: string
   intro: string
@@ -68,7 +69,7 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
     attachingRef.current = previewKey
     setAttachingKey(previewKey)
     setAttachError(null)
-    try { await onAttach(path, previewText, receipt) }
+    try { await onAttach(path, previewText, receipt, state.preview.documentImport) }
     catch { setAttachError('Could not confirm this saved copy. Check the context update before trying again.') }
     finally { attachingRef.current = null; setAttachingKey(null) }
   }
@@ -119,14 +120,15 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
       {state.previewStatus === 'error' && <p role="alert" className="text-[12px] text-danger-text">{state.previewError}</p>}
       {state.preview && <div {...(folder ? { 'data-local-folder-file-preview': '' } : { 'data-local-git-file-preview': '' })} className="min-w-0 space-y-2">
         <h3 className="break-all font-mono text-[13px] text-ink">{state.preview.path}</h3>
-        <p className="text-[12px] text-ink-soft">Read at {state.previewReadAt ? new Date(state.previewReadAt).toLocaleString() : 'this session'} · {state.preview.sizeBytes.toLocaleString()} bytes · whole-file limit 65,536 bytes. This is not live; select the path again after changes.</p>
+        <p className="text-[12px] text-ink-soft">Read at {state.previewReadAt ? new Date(state.previewReadAt).toLocaleString() : 'this session'} · {state.preview.sizeBytes.toLocaleString()} {state.preview.documentImport ? 'source bytes · extracted-text limit 65,536 bytes. Original document bytes are not saved.' : 'bytes · whole-file limit 65,536 bytes.'} This is not live; select the path again after changes.</p>
+        {state.preview.documentImport && <p data-local-document-preview={state.preview.documentImport.format} role="status" className="text-[12px] leading-relaxed text-ink-soft">{documentImportCopy(state.preview.documentImport)}</p>}
         {'text' in state.preview.snapshot ? <>
           {state.preview.sizeBytes === 0 && state.preview.snapshot.text === '' && <p role="status" className="text-[12px] text-ink-soft">Empty file (0 bytes).</p>}
           <pre role="region" aria-label={`Preview of ${state.preview.path}`} tabIndex={0} className="max-h-96 overflow-auto rounded-md border border-line bg-canvas p-3 font-mono text-[12px] leading-relaxed text-ink" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{state.preview.snapshot.text}</pre>
           {onAttach && <button type="button" disabled={!enabled || state.pending || attachWaiting || previewAttached} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
             onClick={() => void attachSavedCopy()}>{previewAttached ? 'Added' : attachWaiting ? 'Saving saved copy…' : 'Attach saved copy'}</button>}
           {attachError && <p role="alert" className="text-[12px] text-danger-text">{attachError}</p>}
-        </> : <p role="status" className="text-[12px] text-ink-soft">{omittedCopy(state.preview.snapshot.omitted)}</p>}
+        </> : !state.preview.documentImport && <p role="status" className="text-[12px] text-ink-soft">{omittedCopy(state.preview.snapshot.omitted)}</p>}
       </div>}
     </div>}
   </section>

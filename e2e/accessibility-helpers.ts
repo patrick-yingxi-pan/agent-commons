@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, type Page } from '@playwright/test'
+import { expect, type Locator, type Page } from '@playwright/test'
 import { tierFor } from '../src/lib/viewport.ts'
 
 const WCAG_22_AA_TAGS = [
@@ -18,7 +18,13 @@ export async function settledAttachmentPreview(page: Page, selector = '[data-att
   const dock = page.locator('[data-overlay-dock]')
   if (tier === 'wide') await expect(dock).toHaveCount(0)
   else await expect(dock).toHaveAttribute('data-overlay-dock', tier)
-  await expect.poll(() => page.locator(selector).filter({ visible: true }).evaluate(async (element) => {
+  await settledOpaquePaint(page.locator(selector).filter({ visible: true }))
+}
+
+/** Presence and containment can both pass during an ancestor's reveal fade.
+ * Capture or audit only the fully opaque, frame-stable surface. */
+export async function settledOpaquePaint(target: Locator) {
+  await expect.poll(() => target.evaluate(async (element) => {
     const paint = () => {
       if (!element.isConnected) return null
       for (let node: Element | null = element; node; node = node.parentElement) {
@@ -31,7 +37,7 @@ export async function settledAttachmentPreview(page: Page, selector = '[data-att
     if (!before) return false
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     return before === paint()
-  })).toBe(true)
+  }), { message: 'the reviewed surface has fully opaque ancestors and stable painted geometry' }).toBe(true)
 }
 
 /** Run the standards-based browser audit and keep failures compact enough to

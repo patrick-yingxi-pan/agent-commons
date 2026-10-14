@@ -3,6 +3,7 @@
 import { test, expect, type Page, type TestInfo } from '@playwright/test'
 import type { ScheduledTask, ScheduleTemplate } from '../contract/index.ts'
 import { ms } from './budget.ts'
+import { settledOpaquePaint } from './accessibility-helpers.ts'
 
 const VIEWPORTS = [
   { width: 320, height: 700 },
@@ -45,6 +46,7 @@ async function expectContained(page: Page) {
 }
 
 async function screenshot(page: Page, testInfo: TestInfo, label: string, viewport: { width: number; height: number }) {
+  await settledOpaquePaint(page.locator('[data-cadence-editor-shell]'))
   await page.screenshot({ path: testInfo.outputPath(`${label}-${viewport.width}x${viewport.height}.png`), fullPage: false })
 }
 
@@ -132,21 +134,16 @@ test('a failed cadence chunk stays contained, closes locally, and recovers on re
   for (const size of VIEWPORTS) {
     await page.setViewportSize(size)
     if (size.width <= 375) {
-      const coveredMain = page.locator('main[inert]')
-      if (await coveredMain.count()) {
-        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click()
-        await expect(coveredMain).toHaveCount(0)
-        // The outside click also dismisses the popover; reopen its cached
-        // failure body on the now-accessible page before reviewing this cell.
-        await expect(page.locator('[data-cadence-editor-shell]')).toHaveCount(0)
-        await schedule.getByRole('button', { name: 'Edit schedule' }).click()
-        await expect(failed).toBeVisible()
-      }
+      // Crossing into narrow closes the rail automatically. Sampling its old
+      // inert state and clicking Collapse races that effect and targets a
+      // button that is already inert by the time the click can be delivered.
+      await expect(page.locator('main[inert]')).toHaveCount(0)
       await expect.poll(() => page.evaluate(() => {
         const drawer = document.querySelector('aside')?.closest('.overflow-hidden')
-        return !drawer || drawer.getBoundingClientRect().width <= 1
+        return drawer?.hasAttribute('inert') === true && drawer.getBoundingClientRect().width <= 1
       }), { message: 'the mobile drawer finishes closing before reviewing the page' }).toBe(true)
     }
+    await expect(failed).toBeVisible()
     await expectContained(page)
     await screenshot(page, testInfo, 'cadence-error', size)
   }

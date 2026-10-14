@@ -107,10 +107,10 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, attachments = [], int
                 const savedId = localGitSavedCopies.id(savedCopyScope, connection.id, receipt, 'folder')
                 return savedId !== undefined && attachments.some(item => item.id === savedId)
               }}
-              onAttach={allowSavedCopies ? (path, text, receipt) => {
+              onAttach={allowSavedCopies ? (path, text, receipt, documentImport) => {
                 const result = localGitSavedCopies.submit(savedCopyScope, connection.id, receipt, newLocalGitSavedCopyId, savedId => {
                   if (attachments.some(item => item.id === savedId)) return
-                  return onAdd({ kind: 'files', attachments: [{ id: savedId, label: path, kind: 'file', source: UI_HOST_SOURCE, previewText: text }] })
+                  return onAdd({ kind: 'files', attachments: [{ id: savedId, label: path, kind: 'file', source: UI_HOST_SOURCE, previewText: text, ...(documentImport && { documentImport }) }] })
                 }, 'folder')
                 return result.promise
               } : undefined} />

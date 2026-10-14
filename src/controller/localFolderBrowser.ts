@@ -3,6 +3,7 @@ import type { LocalFolderConnectionId } from '../../contract/localFolderCapture.
 import { accountGeneration, onAccountSwitch } from '../api/account.ts'
 import { localFolderConnections } from './localFolderConnections.ts'
 import { createLocalFolderBrowserCore } from './localFolderBrowserCore.ts'
+import { prepareLocalFilePreview } from '../lib/localFilePreview.ts'
 
 async function commands() {
   const generation = accountGeneration()
@@ -13,7 +14,11 @@ async function commands() {
 
 export const localFolderBrowser = createLocalFolderBrowserCore({
   list: async id => (await commands()).readLocalFolderFiles(id),
-  preview: async (id, path) => (await commands()).readLocalFolderFile(id, path),
+  preview: async (id, path, signal) => {
+    const api = await commands()
+    signal.throwIfAborted()
+    return prepareLocalFilePreview(await api.readLocalFolderFile(id, path), signal)
+  },
   now: () => Date.now(),
 })
 
