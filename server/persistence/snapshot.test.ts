@@ -530,6 +530,14 @@ test('build produces a snapshot covering every persisted slice', async () => {
     s.agents?.some(([, a]) => a.label === 'Playground research agent'),
     'createAgentFromRequest → agents',
   )
+  const ownedAgent = s.agents!.find(([, agent]) => agent.label === 'Playground research agent')![1]
+  assert.deepEqual(s.agentOwnership?.find(row => row.agentId === ownedAgent.id), {
+    agentId: ownedAgent.id, tenantId: ownedAgent.tenantId, ownerUserId: 'user-local',
+  }, 'private Agent provenance is exercised through the real creation funnel')
+  assert.deepEqual(s.agentOwnership?.find(row => row.agentId === 'agent-new-000000000000000000000000'), {
+    agentId: 'agent-new-000000000000000000000000', tenantId: ownedAgent.tenantId, ownerUserId: 'user-local', retired: true,
+  }, 'Agent deletion retains private provenance without a live definition')
+  assert.equal(Object.hasOwn(ownedAgent, 'ownerUserId'), false, 'ownership never enters the public Agent row')
   assert.equal(
     s.agents?.find(([, a]) => a.label === 'Playground research agent')?.[1].revision,
     1,

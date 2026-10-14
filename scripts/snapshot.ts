@@ -390,7 +390,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
     providerId: provider.id,
     systemPromptId: prompt.id,
     instructions: 'Prefer primary sources.',
-  })
+  }, store.defaultTenantId(), { ownerUserId: store.identity({}).user.id })
   store.updateAgentFromRequest(
     playgroundAgent.id,
     { instructions: 'Prefer primary and official sources.', published: true },
@@ -425,7 +425,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
   const retiredAgent = store.createAgent(
     { label: 'Retired playground Agent', systemPrompt: 'x', tools: [], instructions: '' },
     store.defaultTenantId(),
-    { logicalId: 'agent-new-000000000000000000000000' },
+    { logicalId: 'agent-new-000000000000000000000000', ownerUserId: store.identity({}).user.id },
   )
   store.deleteAgent(retiredAgent.id)
   const retiredAgentFork = store.forkAgent(

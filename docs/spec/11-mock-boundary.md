@@ -276,6 +276,8 @@ request/consent/reply state kernel. It performs no I/O, enables no route and doe
 not persist anything by itself. Owner-reviewed execution and explicitly shared
 reply, durable admission, current-authority checks and the inbox UI still need
 integration. The legacy proxy remains release-refused; MOCK-9 is not closed.
+PERSIST-57 separately records authenticated Agent creation provenance in private
+durable state; that identity anchor is not a request, approval, or executor.
 
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |
 |----|--------------------------------------------------|--------|--------|

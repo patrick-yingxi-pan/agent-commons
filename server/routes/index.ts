@@ -2065,8 +2065,14 @@ export function buildRouter(): Router {
     }
     return null
   }
+  // Release desktop's credential-less local device owner is a real principal;
+  // a loose dev header or a hosted/default fallback is not private provenance.
+  const agentCreationPerson = (who: ReturnType<typeof store.identity>): string | undefined =>
+    who.via === 'session' || (process.env.DEPLOYMENT_PROFILE === 'desktop' && who.via === 'default' && who.local &&
+      !identityHeadersAllowed() && !store.capabilities().features.authGate) ? who.user.id : undefined
   r.post('/agents', idempotent(async ({ req, res, body }) => {
-    const tenantId = store.identity(req.headers).tenant.id
+    const who = store.identity(req.headers)
+    const tenantId = who.tenant.id
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     const logicalAgentId = idempotencyKey
       ? agentCreationId(tenantId, idempotencyKey)
@@ -2089,7 +2095,9 @@ export function buildRouter(): Router {
     const bad = badAgentRef(input, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
     try {
-      sendJson(res, store.createAgentFromRequest(input, tenantId, { logicalId: logicalAgentId }))
+      // Runtime provenance comes from the resolved actor, never body fields.
+      sendJson(res, store.createAgentFromRequest(input, tenantId, { logicalId: logicalAgentId,
+        ownerUserId: agentCreationPerson(who) }))
     } catch (err) {
       // An over-grant on either cascade face — the request named an impossible grant —
       // or a binding the store's own strictness wall refused.
@@ -2167,7 +2175,8 @@ export function buildRouter(): Router {
   // counter increments. An unknown id or a foreign UNPUBLISHED Agent is a 404
   // (existence-hiding); the caller's own Agents fork freely (duplicate).
   r.post('/agents/:id/fork', ({ req, res, params }) => {
-    const tenantId = store.identity(req.headers).tenant.id
+    const who = store.identity(req.headers)
+    const tenantId = who.tenant.id
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     const logicalAgentId = idempotencyKey
       ? agentForkCreationId(tenantId, idempotencyKey)
@@ -2182,7 +2191,8 @@ export function buildRouter(): Router {
     if (represented === 'invalid') return sendError(res, 'bad_request', 'This Agent fork identity is not valid for this account')
     if (represented === 'retired') return sendError(res, 'not_found', 'This Agent fork was already removed')
     try {
-      const fork = store.forkAgent(params.id, tenantId, { logicalId: logicalAgentId })
+      const fork = store.forkAgent(params.id, tenantId, { logicalId: logicalAgentId,
+        ownerUserId: agentCreationPerson(who) })
       if (!fork) return sendError(res, 'not_found', `No agent '${params.id}'`)
       sendJson(res, fork)
     } catch (error) {
@@ -3986,7 +3996,8 @@ export function buildRouter(): Router {
     return Buffer.concat(chunks).toString('utf8')
   }
   r.post('/agents/import-card', async ({ req, res, body }) => {
-    const tenantId = store.identity(req.headers).tenant.id
+    const who = store.identity(req.headers)
+    const tenantId = who.tenant.id
     const idempotencyKey = headerValue(req.headers, 'idempotency-key')
     const logicalAgentId = idempotencyKey
       ? agentImportCreationId(tenantId, idempotencyKey)
@@ -4031,7 +4042,13 @@ export function buildRouter(): Router {
       return sendError(res, 'upstream_unavailable', 'The remote response is not an Agent Card: a string `name` is required')
     }
     const shaped = card as { name: string; description?: string; skills?: { id?: string; name?: string }[] }
-    sendJson(res, store.importAgentFromCard(shaped, cardUrl, tenantId, { logicalId: logicalAgentId }))
+    try {
+      sendJson(res, store.importAgentFromCard(shaped, cardUrl, tenantId, { logicalId: logicalAgentId,
+        ownerUserId: agentCreationPerson(who) }))
+    } catch (error) {
+      if (error instanceof ValidationError) return sendError(res, 'bad_request', error.message)
+      throw error
+    }
   })
 
   // A Contributor fires an externally-effectful action on a shared Project (D11/D12, OQ3+OQ4):

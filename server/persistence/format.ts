@@ -76,6 +76,7 @@ import type {
 import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
+import { parseAgentOwnership, validateAgentOwnershipJoins, type AgentOwnership } from '../agentOwnership.ts'
 import { parseMcpInputFlows, validateMcpInputFlows, type McpInputFlow } from '../mcpInputState.ts'
 import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
@@ -386,6 +387,9 @@ export interface PersistedState {
    *  with no defaults flagged (pickers fall back to the first entry). */
   registryDefaults?: [string, { providerId?: string; promptId?: string }][]
   agents?: [string, Agent][]
+  /** Private immutable person provenance, with retirement retained for history.
+   * Legacy absence stays unbound; this is never a live execution grant. */
+  agentOwnership?: AgentOwnership[]
   /** Durable tombstones for keyed Agent creation and Agent forks. A delayed
    * Retry cannot recreate a definition explicitly removed on another device. */
   retiredAgentCreationIds?: string[]
@@ -589,6 +593,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   systemPrompts: 'mapEntries',
   registryDefaults: 'mapEntries',
   agents: 'mapEntries',
+  agentOwnership: 'array',
   retiredAgentCreationIds: 'array',
   commissions: 'mapEntries',
   commissionCaps: 'mapEntries',
@@ -1145,6 +1150,9 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   if (state?.modelPreferences !== undefined) {
     try { parsePersistedModelPreferences(state.modelPreferences) } catch { return false }
   }
+  try {
+    if (!validateAgentOwnershipJoins(parseAgentOwnership(state?.agentOwnership), state!)) return false
+  } catch { return false }
   const record = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value)
   const exactJsonEqual = (left: unknown, right: unknown): boolean => {

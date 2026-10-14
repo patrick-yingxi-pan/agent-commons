@@ -75,6 +75,27 @@ multiline filesystem import; side-effect imports, dynamic loads and runtime
 re-exports are negative controls too. The earlier full-verifier attempt was
 cleanly interrupted before this test edit and is not passing revision evidence.
 
+Private person provenance now has an integrated creation/persistence boundary:
+verified-session and trusted desktop-device create, fork and import atomically
+stamp a separate sidecar with the exact person and tenant. Desktop provenance
+requires the explicit desktop profile, local default identity, disabled header
+impersonation and its credential-less auth posture. A fork belongs to its forker,
+not its source owner; keyed replay cannot transfer or retroactively add a binding. Live membership is
+checked again after import/body waits. Legacy, system-created and loose dev-header
+Agents stay unbound. Hosted/default fallbacks cannot acquire provenance.
+Deletion retains retired provenance, and strict JSON/SQLite and portable joins
+preserve it without exposing person IDs in Agent/event rows.
+This changes neither tenant configuration rights nor execution consent. The
+request registry and end-user workflow below are still required; legacy adoption
+will need an explicit controlled owner opt-in, not a first-member claim.
+
+The provenance checkpoint's first full verifier exposed late rejection handling
+in two native directory-mutation tests. Their expected-refusal assertions now
+attach before fixture awaits; a controlled scheduling delay reproduced the old
+unhandled rejection and passed with early attachment. The diagnostic delay was
+removed, with native behavior, bounds and assertions unchanged. That interrupted
+verifier is failure evidence, not a passing revision.
+
 Remaining work for this milestone, not optional polish:
 
 1. Integrate a private durable registry with authoritative Agent/person resolution,

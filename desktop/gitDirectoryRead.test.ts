@@ -208,6 +208,9 @@ test('native directory reader reports mutation during enumeration as changed, ne
   await chmod(wrapper, 0o755)
 
   const listing = listLocalGitDirectory(root, '', { executable: wrapper })
+  // Observe the expected refusal before any fixture await: after release the
+  // child can reject before writeFile's promise resumes this test.
+  const rejected = assert.rejects(listing, /changed|unavailable/i)
   const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
     try { await lstat(readyPath); break } catch {}
@@ -217,7 +220,7 @@ test('native directory reader reports mutation during enumeration as changed, ne
   await rm(filePath)
   await writeFile(replacementPath, 'replacement')
   await writeFile(releasePath, 'continue')
-  await assert.rejects(listing, /changed|unavailable/i)
+  await rejected
 })
 
 test('native directory reader fences mutations to root and intermediate ancestors during nested enumeration', { skip: native.skip }, async (t) => {
@@ -241,6 +244,7 @@ test('native directory reader fences mutations to root and intermediate ancestor
     await chmod(wrapper, 0o755)
 
     const listing = listLocalGitDirectory(root, 'parent/target', { executable: wrapper })
+    const rejected = assert.rejects(listing, /changed|unavailable/i)
     const deadline = Date.now() + 10_000
     while (Date.now() < deadline) {
       try { await lstat(readyPath); break } catch {}
@@ -250,6 +254,6 @@ test('native directory reader fences mutations to root and intermediate ancestor
     const changedDirectory = changedAncestor === 'root' ? rootPath : parentPath
     await writeFile(join(changedDirectory, `${changedAncestor}-sibling-created-during-scan`), 'mutates the ancestor directory')
     await writeFile(releasePath, 'continue')
-    await assert.rejects(listing, /changed|unavailable/i)
+    await rejected
   }
 })

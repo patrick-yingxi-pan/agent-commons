@@ -43,6 +43,7 @@ import { reserveRoutineMcpCall, settleRoutineMcpCall, interruptRoutineMcpRun, pu
 import { mcpRuntimeCapabilities } from '../mcpRuntime.ts'
 import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
+import { AgentOwnershipRegistry, type AgentOwnership } from '../agentOwnership.ts'
 import { parseMcpInputFlows, validateMcpInputFlows, mcpInputFlowKey, mcpInputBindingHash, mcpInputCommandHash, hasMcpInputFlowCapacity, MCP_INPUT_MAX_ROUNDS, MCP_INPUT_MAX_FLOWS, MCP_INPUT_TTL_MS, type McpInputFlow } from '../mcpInputState.ts'
 import { parseMcpFormInputRequired, parseMcpFormResponses, type McpFormInputRequired } from '../mcpElicitation.ts'
 import { parseMcpInputCommand } from '../mcpInputCommand.ts'
@@ -1828,6 +1829,7 @@ const generationCounts = new Map<GenerationOutcome, number>()
 // The seeded worker Agents (docs/agent-commons.md, D6) — one for now, the
 // degenerate N=1 case. Every Conversation resolves to it until users create more.
 const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
+const agentOwnershipRegistry = new AgentOwnershipRegistry()
 /** Keyed Agent identities remain retired after explicit deletion. Otherwise a
  * delayed New-Agent, Fork-agent, or Agent-import Retry could recreate a
  * definition the person deliberately removed on another device. */
@@ -3283,6 +3285,7 @@ function snapshot(): PersistedState {
     systemPrompts: [...SYSTEM_PROMPT_LIB.entries()],
     registryDefaults: [...REGISTRY_DEFAULTS.entries()], // per-tenant default-flag pointers (UI shortcut)
     agents: [...WORKER_AGENTS.entries()],
+    agentOwnership: agentOwnershipRegistry.snapshot(),
     retiredAgentCreationIds: [...retiredAgentCreationIds],
     commissions: [...COMMISSIONS.entries()],
     // D13 commission caps — only Projects that carry one (the seed Projects are otherwise
@@ -3395,6 +3398,7 @@ function cleanFirstBootState(): PersistedState {
   clean.systemPrompts = [[defaultPrompt.id, defaultPrompt]]
   clean.registryDefaults = []
   clean.agents = [[DEFAULT_AGENT.id, DEFAULT_AGENT]]
+  clean.agentOwnership = []
   clean.retiredAgentCreationIds = []
   clean.commissions = []
   clean.commissionCaps = []
@@ -3856,6 +3860,7 @@ function rehydrate(s: PersistedState): boolean {
   replaceMap(SYSTEM_PROMPT_LIB, s.systemPrompts)
   replaceMap(REGISTRY_DEFAULTS, s.registryDefaults)
   replaceMap(WORKER_AGENTS, s.agents)
+  agentOwnershipRegistry.rehydrate(s.agentOwnership)
   retiredAgentCreationIds = new Set(
     (s.retiredAgentCreationIds ?? []).filter(isAgentCreationId),
   )
@@ -6177,6 +6182,12 @@ export const store = {
   getAgent(id?: string): Agent {
     return resolveAgent(id)
   },
+  /** Private historical provenance only, not live permission. Never serialize
+   * this into Agent rows; callers must separately check current membership,
+   * Agent visibility/configuration, and explicit per-call human consent. */
+  agentProvenance(id: string) {
+    return agentOwnershipRegistry.get(id)
+  },
   /** Mint a worker Agent through the D8 creation funnel (docs/agent-commons.md): both
    *  faces of the cascade are enforced here against the Agent's **provider** (D9 — the
    *  cascade root), so the *agent ⊆ provider* invariant holds by construction.
@@ -6189,7 +6200,7 @@ export const store = {
   createAgent(
     input: Omit<Agent, 'id'>,
     tenantId?: string,
-    options: { logicalId?: string } = {},
+    options: { logicalId?: string; ownerUserId?: string } = {},
   ): Agent {
     const ownerTenant = tenantId ?? input.tenantId
     // A keyed create owns this exact row beyond the HTTP response cache. A
@@ -6218,11 +6229,23 @@ export const store = {
     // Stamp the creating tenant (F2/PD9) so listAgents(tenant) scopes it; unset ⇒ shared.
     const agent: Agent = {
       ...input,
-      id: options.logicalId ?? `agent-${(workerAgentSeq += 1)}`,
+      id: options.logicalId ?? `agent-${workerAgentSeq + 1}`,
       tenantId: ownerTenant,
       revision: 0,
     }
+    if (agentOwnershipRegistry.get(agent.id)) throw new ValidationError('That Agent identity has retained ownership history.')
+    let ownership: AgentOwnership | undefined
+    if (options.ownerUserId !== undefined) {
+      if (!ownerTenant || !accounts.identityFor(options.ownerUserId, ownerTenant)) {
+        throw new ValidationError('The creating person no longer has access to this account.')
+      }
+      try {
+        ownership = agentOwnershipRegistry.prepare({ agentId: agent.id, tenantId: ownerTenant, ownerUserId: options.ownerUserId })
+      } catch { throw new ValidationError('Private Agent ownership could not be recorded.') }
+    }
     return commitMutationBatch(() => {
+      if (ownership) agentOwnershipRegistry.bind(ownership)
+      if (!options.logicalId) workerAgentSeq += 1
       WORKER_AGENTS.set(agent.id, agent)
       emitAgentChanged(agent)
       persist()
@@ -6238,7 +6261,7 @@ export const store = {
   createAgentFromRequest(
     input: CreateAgentRequest,
     tenantId?: string,
-    options: { logicalId?: string } = {},
+    options: { logicalId?: string; ownerUserId?: string } = {},
   ): Agent {
     const provider = input.providerId ? MODEL_PROVIDERS.get(input.providerId) : undefined
     if (!provider) throw new ValidationError(`An agent must name a registered model provider — no provider '${input.providerId ?? ''}'.`)
@@ -6391,6 +6414,7 @@ export const store = {
         }
       }
       WORKER_AGENTS.delete(id)
+      agentOwnershipRegistry.retire(id)
       if (isAgentCreationId(id)) retiredAgentCreationIds.add(id)
       // Sessions survive and resolve to the default Agent. Clear only model
       // picks invalid under that new inheritance chain.
@@ -9488,7 +9512,7 @@ export const store = {
   forkAgent(
     sourceId: string,
     tenantId: string,
-    options: { logicalId?: string } = {},
+    options: { logicalId?: string; ownerUserId?: string } = {},
   ): Agent | undefined {
     if (options.logicalId) {
       const represented = this.getAgentCreation(options.logicalId, tenantId)
@@ -9543,7 +9567,7 @@ export const store = {
     card: { name: string; description?: string; skills?: { id?: string; name?: string }[] },
     url: string,
     tenantId: string,
-    options: { logicalId?: string } = {},
+    options: { logicalId?: string; ownerUserId?: string } = {},
   ): Agent {
     // Untrusted remote input: trim + cap what lands in the registry. The route's
     // body cap bounds the total; these bound what the UI renders and the store
