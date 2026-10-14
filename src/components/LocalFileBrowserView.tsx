@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { LocalFileBrowserState } from '../controller/localFileBrowserCore.ts'
+import type { LocalSavedCopySourceKind } from '../controller/localGitSavedCopiesCore.ts'
 import { useLocalGitSavedCopyPending } from '../controller/localGitSavedCopies.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput.ts'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
@@ -11,11 +12,11 @@ type Listing = { files: Entry[] }
 type Preview = { path: string; sizeBytes: number; snapshot: { text: string } | { omitted: string }; documentImport?: DocumentImportOutcome }
 
 export function LocalFileBrowserView<L extends Listing, P extends Preview>({
-  source, connectionId, name, enabled, intentScope, state, readListing, readPreview, dismiss, onAttach, isAttached,
-  title, intro, listLabel, refreshLabel, listingNoun, loadingStatusCopy, outsideListingPrivacyCopy, searchPlaceholder, listAria, pageAria,
+  source, connectionId, name, enabled, intentScope, state, readListing, readPreview, dismiss, onAttach, isAttached, compact = false,
+  title, intro, listLabel, refreshLabel, listingNoun, loadingStatusCopy, outsideListingPrivacyCopy, searchPlaceholder, listAria, pageAria, limitsLabel, afterContent,
   entryLabel, entryMessage, listingSummary, limitsCopy, omittedCopy, headingLevel = 2,
 }: {
-  source: 'git' | 'folder'
+  source: 'git' | 'git-untracked' | 'folder'
   connectionId: string
   name: string
   enabled: boolean
@@ -24,8 +25,11 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   readListing: () => unknown
   readPreview: (path: string) => unknown
   dismiss: () => void
-  onAttach?: (path: string, text: string, receipt: number, documentImport?: DocumentImportOutcome) => void | Promise<unknown>
-  isAttached?: (receipt: number) => boolean
+  onAttach?: (path: string, text: string, receipt: number, documentImport?: DocumentImportOutcome, sourceKind?: LocalSavedCopySourceKind) => void | Promise<unknown>
+  isAttached?: (receipt: number, sourceKind?: LocalSavedCopySourceKind) => boolean
+  compact?: boolean
+  limitsLabel?: string
+  afterContent?: ReactNode
   title: string
   intro: string
   listLabel: string
@@ -60,8 +64,9 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   const previewText = state.preview?.snapshot && 'text' in state.preview.snapshot ? state.preview.snapshot.text : null
   const receipt = state.previewReceipt
   const previewKey = previewText === null || receipt === null ? null : String(receipt)
-  const sharedPending = useLocalGitSavedCopyPending(intentScope, connectionId, receipt, source)
-  const previewAttached = previewText !== null && receipt !== null && !!isAttached?.(receipt)
+  const sourceKind = source
+  const sharedPending = useLocalGitSavedCopyPending(intentScope, connectionId, receipt, sourceKind)
+  const previewAttached = previewText !== null && receipt !== null && !!isAttached?.(receipt, sourceKind)
   const attachWaiting = !!previewKey && (attachingKey === previewKey || sharedPending)
   const attachSavedCopy = async () => {
     if (!onAttach || previewText === null || !state.preview || receipt === null || !previewKey || attachingRef.current || previewAttached || sharedPending) return
@@ -69,16 +74,18 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
     attachingRef.current = previewKey
     setAttachingKey(previewKey)
     setAttachError(null)
-    try { await onAttach(path, previewText, receipt, state.preview.documentImport) }
+    try { await onAttach(path, previewText, receipt, state.preview.documentImport, sourceKind) }
     catch { setAttachError('Could not confirm this saved copy. Check the context update before trying again.') }
     finally { attachingRef.current = null; setAttachingKey(null) }
   }
   const Header = headingLevel === 2 ? 'h2' : 'h3'
   const folder = source === 'folder'
+  const dataSource = source === 'git-untracked' ? { 'data-local-git-untracked-browser': '' }
+    : folder ? { 'data-local-folder-browser': '' } : { 'data-local-git-browser': '' }
 
-  return <section {...(folder ? { 'data-local-folder-browser': '' } : { 'data-local-git-browser': '' })} className="mt-4 min-w-0 space-y-3">
+  return <section {...dataSource} className="mt-4 min-w-0 space-y-3">
     <Header className="text-[15px] font-semibold text-ink">{title}</Header>
-    <p className="text-[13px] leading-relaxed text-ink-soft">{intro}</p>
+    {!compact && <p className="text-[13px] leading-relaxed text-ink-soft">{intro}</p>}
     <div className="flex flex-wrap gap-2">
       <button type="button" disabled={!enabled || state.pending} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
         onClick={() => { setQuery(''); setPage(0); void readListing() }}>
@@ -90,12 +97,12 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
     {state.pending && state.listingStatus === 'idle' && <p role="status" className="text-[12px] text-ink-soft">The previous read is finishing; browse again when ready.</p>}
     {state.listingStatus === 'loading' && <p role="status" className="text-[12px] text-ink-soft">{loadingStatusCopy}</p>}
     {state.listingStatus === 'error' && <p role="alert" className="text-[12px] text-danger-text">{state.listingError}</p>}
-    <details className="text-[12px] leading-relaxed text-ink-soft">
-      <summary className="cursor-pointer py-1">Browse limits and privacy</summary>
+    {(!compact || limitsLabel) && <details className="text-[12px] leading-relaxed text-ink-soft">
+      <summary className="cursor-pointer py-1">{limitsLabel ?? 'Browse limits and privacy'}</summary>
       <p className="py-1">{limitsCopy}</p>
-    </details>
-    {onAttach && <p className="text-[12px] leading-relaxed text-ink-soft">Browsing never attaches content. Attach saved copy adds exactly the text shown in this preview to conversation context. {outsideListingPrivacyCopy}</p>}
-    {listing && <div className="min-w-0 space-y-3" data-local-folder-browser-listing={folder ? '' : undefined} data-local-git-browser-listing={!folder ? '' : undefined}>
+    </details>}
+    {onAttach && !compact && <p className="text-[12px] leading-relaxed text-ink-soft">Browsing never attaches content. Attach saved copy adds exactly the text shown in this preview to conversation context. {outsideListingPrivacyCopy}</p>}
+    {listing && <div className="min-w-0 space-y-3" data-local-folder-browser-listing={folder ? '' : undefined} data-local-git-browser-listing={source === 'git' ? '' : undefined} data-local-git-untracked-browser-listing={source === 'git-untracked' ? '' : undefined}>
       <p className="break-words text-[12px] text-ink-soft">{listingSummary(listing, state.listingReadAt)}</p>
       <label className="block min-w-0 space-y-1 text-[12px] text-ink-soft">Search paths
         <input className={FORM_INPUT_CLASS} type="search" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} placeholder={searchPlaceholder} />
@@ -118,7 +125,7 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
       {selected && selected.kind !== 'file' && <p role="status" className="text-[12px] text-ink-soft">{entryMessage(selected)}</p>}
       {state.previewStatus === 'loading' && <p role="status" className="text-[12px] text-ink-soft">Reading {state.selectedPath}…</p>}
       {state.previewStatus === 'error' && <p role="alert" className="text-[12px] text-danger-text">{state.previewError}</p>}
-      {state.preview && <div {...(folder ? { 'data-local-folder-file-preview': '' } : { 'data-local-git-file-preview': '' })} className="min-w-0 space-y-2">
+      {state.preview && <div {...(folder ? { 'data-local-folder-file-preview': '' } : source === 'git-untracked' ? { 'data-local-git-untracked-file-preview': '' } : { 'data-local-git-file-preview': '' })} className="min-w-0 space-y-2">
         <h3 className="break-all font-mono text-[13px] text-ink">{state.preview.path}</h3>
         <p className="text-[12px] text-ink-soft">Read at {state.previewReadAt ? new Date(state.previewReadAt).toLocaleString() : 'this session'} · {state.preview.sizeBytes.toLocaleString()} {state.preview.documentImport ? 'source bytes · extracted-text limit 65,536 bytes. Original document bytes are not saved.' : 'bytes · whole-file limit 65,536 bytes.'} This is not live; select the path again after changes.</p>
         {state.preview.documentImport && <p data-local-document-preview={state.preview.documentImport.format} role="status" className="text-[12px] leading-relaxed text-ink-soft">{documentImportCopy(state.preview.documentImport)}</p>}
@@ -131,5 +138,6 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
         </> : !state.preview.documentImport && <p role="status" className="text-[12px] text-ink-soft">{omittedCopy(state.preview.snapshot.omitted)}</p>}
       </div>}
     </div>}
+    {afterContent}
   </section>
 }

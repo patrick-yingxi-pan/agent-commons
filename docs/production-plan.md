@@ -77,14 +77,35 @@ metadata shares the existing 16 MiB limit and the transaction retains its
 than claiming a count of unseen descendants. Overflow fails without partial
 results. Selected text/document bounds reuse the existing portable contracts.
 
-Remaining work for the complete workflow: distinct owner-bound native IPC and
-closed discriminated selections, opt-in transient UI state, exact saved-copy
-attachment, cancellation/account/disconnect fences, five-viewport browser review
-and packaged source-absent relaunch acceptance. The internal functions are not
-wired into existing renderer channels, persistence, model input or unattended
-execution. They do not close CTX-FS-32 or the external release gates above.
-New internal locks must be watched fail, reviewed and pass the full local and
-packaged-native gates before this foundation lands.
+The following user-workflow checkpoint adds distinct owner-bound IPC with closed
+untracked scope and per-operation cancellation, an unchecked transient browser,
+and conversation-only exact saved-copy attachment. Opt-in and previews belong to
+the current account and connection, so reopening another pane can inspect the
+same in-memory review without another read; target-qualified receipts still
+require a separate Attach in each conversation. Uncheck, Dismiss, Disconnect and
+account disposal clear pending results; reload removes the opt-in. Tracked and
+untracked receipts cannot collide. A fresh preview after app restart intentionally
+creates a new copy identity rather than deduplicating by a mutable path.
+
+Cancellation must retire queued as well as active native work, and a cancelled
+reader retains its capacity until it actually settles. Browser acceptance covers
+canonical detail, conversation intake and Project browse-only at all five tiers,
+plus exact saved content, shared/foreign account walls and late-result refusal.
+Packaged acceptance uses generated dotfile/text and DOCX sources, changes them
+after preview and removes them before relaunch; saved text/fidelity and model
+input must remain exact while split-index bytes/mtime stay unchanged. Complete
+local, shell and unsigned native gates plus adversarial review remain mandatory
+before landing; final outcomes accompany the handoff. This adds no source writes,
+unattended intake, external calls or authority to the existing tracked channels.
+
+The foundation landed at `1a5930a6` after the final local verifier passed all five
+lanes and 702 browser tests in 770.1 seconds. On 2026-10-13 the actual native Folder
+chooser (including Cancel, unchecked Remember and exact generated directory) and
+all four canonical document previews passed on its unchanged unsigned arm64
+package in an isolated profile. The Mac locked again before the Git chooser;
+that native check and this new untracked UI's native review remain pending. The
+test app exited cleanly and its backend stopped. This is not saved-copy/relaunch,
+signed/Intel or live-service evidence.
 
 Focused development evidence: the 26 directory/reader cases passed after a new
 race test exposed missing ancestor-version checks in the directory primitive.

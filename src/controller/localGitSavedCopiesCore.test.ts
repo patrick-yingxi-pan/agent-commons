@@ -97,14 +97,18 @@ test('acknowledged saved-copy projection counts only known IDs present in actual
 test('acknowledged saved-copy counts stay isolated by source kind', () => {
   const core = createLocalGitSavedCopiesCore()
   const target = scope(9, 'session')
-  const create = (source: 'git' | 'folder') => core.submit(
+  const create = (source: 'git' | 'git-untracked' | 'folder') => core.submit(
     target, 'same-connection', 4, () => `${source}-copy-id`, () => undefined, source,
   ).id
   const gitId = create('git')
+  const untrackedId = create('git-untracked')
   const folderId = create('folder')
 
   assert.notEqual(gitId, folderId, 'identical receipt coordinates from distinct sources remain distinct intents')
+  assert.notEqual(gitId, untrackedId, 'tracked and untracked receipt counters cannot alias')
+  assert.notEqual(untrackedId, folderId, 'untracked and folder receipt coordinates remain distinct intents')
   assert.deepEqual(core.acknowledgedIds(target, [gitId, folderId], 'git'), [gitId])
+  assert.deepEqual(core.acknowledgedIds(target, [gitId, untrackedId], 'git-untracked'), [untrackedId])
   assert.deepEqual(core.acknowledgedIds(target, [gitId, folderId], 'folder'), [folderId])
 })
 

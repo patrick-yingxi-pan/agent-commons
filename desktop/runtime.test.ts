@@ -337,6 +337,9 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(localGitBridge, /review: \(id, source\) => invokeLocalFolder\(localGitChannels\.review, id, source\)/)
   assert.match(localGitBridge, /files: \(id, source\) => invokeLocalFolder\(localGitChannels\.files, id, source\)/)
   assert.match(localGitBridge, /file: \(id, selection, source\) => invokeLocalFolder\(localGitChannels\.file, id, selection, source\)/)
+  assert.match(localGitBridge, /untrackedFiles: \(id, request, source\) => invokeLocalFolder\(localGitChannels\.untrackedFiles, id, request, source\)/)
+  assert.match(localGitBridge, /untrackedFile: \(id, request, source\) => invokeLocalFolder\(localGitChannels\.untrackedFile, id, request, source\)/)
+  assert.match(localGitBridge, /cancelUntrackedRead: \(id, request, source\) => invokeLocalFolder\(localGitChannels\.cancelUntrackedRead, id, request, source\)/)
   assert.doesNotMatch(localGitBridge, /owner|path|ipcRenderer\.(send|on)/i,
     'the renderer can select a Git connection id but cannot claim an owner or repository path')
   assert.match(main, /installLocalFolderIpc\(\)/)
@@ -356,8 +359,12 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'packaged smoke requires the explicit recursive folder method')
   assert.ok(packagedSmokeSource.includes("typeof window.agentCommonsDesktop?.context?.localGit?.review === 'function'"),
     'packaged smoke requires the explicit Git review method')
-  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'connect,disconnect,file,files,list,review,snapshot'"),
-    'packaged smoke locks the Git browse methods without widening the folder bridge')
+  for (const method of ['untrackedFiles', 'untrackedFile', 'cancelUntrackedRead']) {
+    assert.ok(packagedSmokeSource.includes(`typeof window.agentCommonsDesktop?.context?.localGit?.${method} === 'function'`),
+      `packaged smoke requires the explicit ${method} method`)
+  }
+  assert.ok(packagedSmokeSource.includes("Object.keys(window.agentCommonsDesktop.context.localGit).sort().join(',') === 'cancelUntrackedRead,connect,disconnect,file,files,list,review,snapshot,untrackedFile,untrackedFiles'"),
+    'packaged smoke locks the distinct Git browse and cancellation methods without widening the folder bridge')
   assert.match(preload, /mcpCredentials = Object.freeze\(/)
   assert.match(preload, /mcp-provision-v1/)
   assert.match(preload, /mcp-credentials:provision/)

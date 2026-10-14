@@ -1,6 +1,5 @@
 <!-- context-schema: v1 -->
 # src/api/ — backend-door module index
-
 ## Scope
 
 The layer's rules are [`src/CLAUDE.md`](../CLAUDE.md); the always-on map is
@@ -118,6 +117,7 @@ Read [`contract/CLAUDE.md`](../../contract/CLAUDE.md) for wire types,
 | API-D98 | data-access | Commission MCP review reads and one keyed decision mutation stay behind their exact private API paths. Hooks expose only current owner review and receipts; transport or malformed acknowledgement recovery is read-only and never repeats the effect POST. | [`commissionMcpHooks.ts`](commissionMcpHooks.ts) · [`commissionMcpReview.ts`](commissionMcpReview.ts) · [`commissionMcpReadErrors.ts`](commissionMcpReadErrors.ts) | [`commission-mcp-review.test.ts`](commission-mcp-review.test.ts) · [`commission-mcp-read-errors.test.ts`](commission-mcp-read-errors.test.ts) · [`../../e2e/commission-mcp-approval.spec.ts`](../../e2e/commission-mcp-approval.spec.ts) | requires CONTRACT-D129; requires ROUTES-D96; refines API-D1 |
 | API-D99 | data-access | Native Git browse calls are explicit macOS bridge operations with captured account identity and post-await generation checks. Shared closed parsers validate listing and exact selected-file preview before transient results leave the API; this path has no HTTP route, persistence or model-input authority. | [`localGit.ts`](localGit.ts) · [`../../contract/localGitBrowse.mjs`](../../contract/localGitBrowse.mjs) | [`local-git.test.ts`](local-git.test.ts) · [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | requires CONTRACT-D133; refines API-A1; requires DESKTOP-S30 |
 | API-D100 | data-access | Native local-folder browsing is optional and explicit: the API requires both the folder connection identity and validated relative path, checks captured account identity after native reads, and validates complete bounded metadata or the exact whole-file preview before returning a detached result. No HTTP, persistence or model-input path is added. | [`localFolders.ts`](localFolders.ts) · [`../../contract/localFolderBrowse.mjs`](../../contract/localFolderBrowse.mjs) | [`local-folders.test.ts`](local-folders.test.ts) · [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | requires DESKTOP-S31; refines API-A1 |
+| API-D101 | data-access | Explicit untracked native calls require closed scoped requests/results and operation IDs. Abort/account disposal cancels only the captured operation and fences late results; already-aborted work cannot dispatch. Exact path and generation checks precede detached publication. | [`localGit.ts`](localGit.ts) · [`../../contract/localGitUntrackedBrowse.mjs`](../../contract/localGitUntrackedBrowse.mjs) | [`local-git.test.ts`](local-git.test.ts) · [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | requires DESKTOP-S33; requires CONTRACT-D135; refines API-A1 |
 <!-- context-rules:end -->
 
 ## What lives here

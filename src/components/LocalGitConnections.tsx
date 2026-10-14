@@ -99,18 +99,18 @@ export function NativeLocalGitPicker({ onAdd, addedIds, attachments, intentScope
           <button type="button" aria-label={`Manage ${connection.name}`} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => { onClose(); rel.navigate('contexts', connection.id) }}>Manage</button>
           {browsingId === connection.id && <div className="basis-full"><Suspense fallback={<p role="status" className="py-2 text-[12px] text-ink-soft">Loading file browser…</p>}>
             <LocalGitBrowser id={connection.id} name={connection.name} enabled={state.status === 'ready' && !state.busy && !reading} intentScope={intentScope}
-              isAttached={receipt => {
+              isAttached={(receipt, sourceKind = 'git') => {
                 localGitSavedCopies.adoptAttachments(intentScope, attachments.map(item => item.id))
-                const id = localGitSavedCopies.id(intentScope, connection.id, receipt)
+                const id = localGitSavedCopies.id(intentScope, connection.id, receipt, sourceKind)
                 return id !== undefined && attachments.some(item => item.id === id)
               }}
-              onAttach={allowSavedCopy ? (path, text, receipt, documentImport) => {
+              onAttach={allowSavedCopy ? (path, text, receipt, documentImport, sourceKind = 'git') => {
                 const result = localGitSavedCopies.submit(intentScope, connection.id, receipt, newLocalGitSavedCopyId, id => {
                   if (attachments.some(item => item.id === id)) return
                   return onAdd({ kind: 'files', attachments: [{
                     id, label: path, kind: 'file', source: UI_HOST_SOURCE, previewText: text, ...(documentImport && { documentImport }),
                   }] })
-                })
+                }, sourceKind)
                 return result.promise
               } : undefined} />
           </Suspense></div>}

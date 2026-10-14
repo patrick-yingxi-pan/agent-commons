@@ -9,7 +9,8 @@ import { peek, resetAll, setData } from './cache.ts'
 import { AccountSwitchedError } from './client.ts'
 import { keys } from './keys.ts'
 import { localGitAvailable } from './localGitCapability.ts'
-import { captureLocalGit, captureLocalGitSource, connectLocalGit, disconnectLocalGit, readLocalGitChanges, readLocalGitConnections, readLocalGitFile, readLocalGitFiles } from './localGit.ts'
+import { captureLocalGit, captureLocalGitSource, connectLocalGit, disconnectLocalGit, readLocalGitChanges, readLocalGitConnections, readLocalGitFile, readLocalGitFiles,
+  readLocalGitUntrackedFile, readLocalGitUntrackedFiles } from './localGit.ts'
 
 const ada: Identity = { user: { id: 'ada', name: 'Ada' }, tenant: { id: 'tenant-a', name: 'A', kind: 'org' }, role: 'member', local: false, via: 'session' }
 const grace: Identity = { ...ada, user: { id: 'grace', name: 'Grace' }, tenant: { id: 'tenant-b', name: 'B', kind: 'org' } }
@@ -51,6 +52,9 @@ function bridge(overrides: Partial<NativeLocalGitBridge> = {}, calls: unknown[][
     async review(connectionId, source) { calls.push(['review', connectionId, source]); return structuredClone(review) },
     async files(connectionId, source) { calls.push(['files', connectionId, source]); return { version: 1, files: [{ path: 'README.md', kind: 'file' }], excludedCount: 2 } },
     async file(connectionId, selection, source) { calls.push(['file', connectionId, selection, source]); return { version: 1, path: selection.path, sizeBytes: 3, snapshot: { text: 'abc' } } },
+    async untrackedFiles(connectionId, request, source) { calls.push(['untrackedFiles', connectionId, request, source]); return { scope: request.scope, version: 1, files: [{ path: 'draft.md', kind: 'file' }], excludedCount: 0 } },
+    async untrackedFile(connectionId, request, source) { calls.push(['untrackedFile', connectionId, request, source]); return { scope: request.scope, version: 1, path: request.path, sizeBytes: 5, snapshot: { text: 'draft' } } },
+    async cancelUntrackedRead(connectionId, request, source) { calls.push(['cancelUntrackedRead', connectionId, request, source]); return true },
     async disconnect(connectionId, source) { calls.push(['disconnect', connectionId, source]) },
     ...overrides,
   }
@@ -224,6 +228,95 @@ test('native Git browsing results are fenced across account switches', async () 
     setData(keys.me, grace)
     pendingPreview.resolve({ version: 1, path: 'README.md', sizeBytes: 3, snapshot: { text: 'abc' } })
     await assert.rejects(previewRead, AccountSwitchedError)
+  } finally { cleanup() }
+})
+
+test('untracked browsing uses distinct explicit scope requests and exact cancellation IDs', async () => {
+  try {
+    select(ada)
+    const calls: unknown[][] = []
+    const scope = scopeFor(bridge({}, calls))
+    assert.deepEqual(await readLocalGitUntrackedFiles(id, undefined, scope), {
+      scope: 'untracked', version: 1, files: [{ path: 'draft.md', kind: 'file' }], excludedCount: 0,
+    })
+    const listingCall = calls[0]
+    assert.equal(listingCall[0], 'untrackedFiles')
+    assert.equal(listingCall[1], id)
+    const listingRequest = listingCall[2] as { scope: string; operationId: string }
+    assert.equal(listingRequest.scope, 'untracked')
+    assert.match(listingRequest.operationId, /^[0-9a-f-]{36}$/i)
+    assert.deepEqual(await readLocalGitUntrackedFile(id, 'draft.md', undefined, scope), {
+      scope: 'untracked', version: 1, path: 'draft.md', sizeBytes: 5, snapshot: { text: 'draft' },
+    })
+    const fileCall = calls[1]
+    assert.equal(fileCall[0], 'untrackedFile')
+    assert.deepEqual(fileCall[2], { scope: 'untracked', path: 'draft.md', operationId: (fileCall[2] as any).operationId })
+    await assert.rejects(readLocalGitUntrackedFile(id, '../secret', undefined, scope), /valid untracked file path/i)
+    assert.equal(calls.length, 2)
+  } finally { cleanup() }
+})
+
+test('untracked browse abort sends one matching cancellation and fences late native results', async () => {
+  try {
+    select(ada)
+    const pending = deferred<any>()
+    const calls: unknown[][] = []
+    const scope = scopeFor(bridge({
+      untrackedFiles: async (connectionId, request, source) => { calls.push(['read', connectionId, request, source]); return pending.promise },
+      cancelUntrackedRead: async (connectionId, request, source) => { calls.push(['cancel', connectionId, request, source]); return true },
+    }, calls))
+    const controller = new AbortController()
+    const reading = readLocalGitUntrackedFiles(id, controller.signal, scope)
+    await Promise.resolve()
+    controller.abort()
+    await assert.rejects(reading, { name: 'AbortError' })
+    await Promise.resolve()
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0][0], 'read')
+    assert.equal(calls[1][0], 'cancel')
+    assert.deepEqual(calls[0][2], calls[1][2], 'cancel targets the exact scope and operation ID')
+    pending.resolve({ scope: 'untracked', version: 1, files: [], excludedCount: 0 })
+    await Promise.resolve()
+  } finally { cleanup() }
+})
+
+test('untracked browse abort before its dispatch microtask never starts or cancels a native operation', async () => {
+  try {
+    select(ada)
+    const calls: unknown[][] = []
+    const scope = scopeFor(bridge({
+      untrackedFiles: async (...args) => { calls.push(['read', ...args]); return { scope: 'untracked', version: 1, files: [], excludedCount: 0 } },
+      cancelUntrackedRead: async (...args) => { calls.push(['cancel', ...args]); return true },
+    }, calls))
+    const controller = new AbortController()
+    const reading = readLocalGitUntrackedFiles(id, controller.signal, scope)
+    controller.abort()
+    await assert.rejects(reading, { name: 'AbortError' })
+    await Promise.resolve()
+    assert.deepEqual(calls, [])
+  } finally { cleanup() }
+})
+
+test('untracked browse account changes cancel the same native operation and suppress late results', async () => {
+  try {
+    select(ada)
+    const pending = deferred<any>()
+    const calls: unknown[][] = []
+    const scope = scopeFor(bridge({
+      untrackedFile: async (connectionId, request, source) => { calls.push(['read', connectionId, request, source]); return pending.promise },
+      cancelUntrackedRead: async (connectionId, request, source) => { calls.push(['cancel', connectionId, request, source]); return true },
+    }, calls))
+    const reading = readLocalGitUntrackedFile(id, 'draft.md', undefined, scope)
+    await Promise.resolve()
+    refreshAccount({ userId: 'grace', tenantId: 'tenant-b' })
+    setData(keys.me, grace)
+    await assert.rejects(reading, AccountSwitchedError)
+    assert.equal(calls.length, 2)
+    assert.equal(calls[0][0], 'read')
+    assert.equal(calls[1][0], 'cancel')
+    assert.equal((calls[0][2] as any).operationId, (calls[1][2] as any).operationId)
+    pending.resolve({ scope: 'untracked', version: 1, path: 'draft.md', sizeBytes: 3, snapshot: { text: 'late' } })
+    await Promise.resolve()
   } finally { cleanup() }
 })
 

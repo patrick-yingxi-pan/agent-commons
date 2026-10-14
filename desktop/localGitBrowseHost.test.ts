@@ -103,3 +103,102 @@ test('corrupt listing, mismatched preview path, and changed identity during prev
   held.resolve(preview)
   await pending
 })
+
+test('untracked host validates explicit scope, binds cancellation to source/window/connection, and parses outputs', async () => {
+  const operationId = '4ca5af48-2a21-4c80-9bfe-f627ef872e23'
+  const request = { scope: 'untracked', operationId }
+  const untrackedListing = { scope: 'untracked', version: 1, files: [{ path: 'draft.md', kind: 'file' }], excludedCount: 0 }
+  const pending = deferred()
+  const calls: unknown[][] = []
+  const store = {
+    async untrackedFiles(owner: any, connectionId: string, frozen: any) {
+      calls.push(['files', owner, connectionId, frozen])
+      return pending.promise
+    },
+    async cancelUntrackedRead(owner: any, connectionId: string, operation: string) {
+      calls.push(['cancel', owner, connectionId, operation])
+      return true
+    },
+  }
+  const host = setup({ store })
+  const listingPending = host.untrackedFiles(event, id, request, expected)
+  while (!calls.length) await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(calls[0], ['files', expected, id, request])
+  assert.equal(await host.cancelUntrackedRead(event, id, request, expected), true)
+  assert.deepEqual(calls[1], ['cancel', expected, id, operationId])
+  pending.resolve(untrackedListing)
+  assert.deepEqual(await listingPending, untrackedListing)
+  await assert.rejects(host.untrackedFiles(event, id, { ...request, scope: 'tracked' }, expected), LocalConnectionError)
+  await assert.rejects(host.untrackedFiles(event, id, { ...request, extra: true }, expected), LocalConnectionError)
+  const malformed = setup({ store: { async untrackedFiles() { return { ...untrackedListing, scope: 'tracked' } } } })
+  await assert.rejects(malformed.untrackedFiles(event, id, request, expected), LocalConnectionError)
+})
+
+test('untracked host cancellation reserves synchronously and prevents a late source lookup from dispatching', async () => {
+  const operationId = 'f1e5a0d7-ab85-4e7c-9a03-8c51ead2d938'
+  const request = { scope: 'untracked', operationId }
+  const sourceLookup = deferred()
+  let lookups = 0
+  let reads = 0
+  const store = {
+    async untrackedFiles() { reads++; return { scope: 'untracked', version: 1, files: [], excludedCount: 0 } },
+    async cancelUntrackedRead() { return true },
+  }
+  const host = setup({ store, resolveSource: async () => ++lookups === 1 ? sourceLookup.promise : source })
+  const pending = assert.rejects(host.untrackedFiles(event, id, request, expected), LocalConnectionError)
+  await assert.rejects(host.untrackedFiles(event, id, request, expected), LocalConnectionError, 'duplicate reserved IDs refuse before dispatch')
+  assert.equal(await host.cancelUntrackedRead(event, id, request, expected), true)
+  sourceLookup.resolve(source)
+  await pending
+  assert.equal(reads, 0, 'cancelled source lookup cannot start a native reader')
+})
+
+test('untracked host freezes path before waits and rejects a cookie/source transition after native read', async () => {
+  const operationId = 'f6ff7431-4e82-49c1-b341-d46e32978a69'
+  const selected = { scope: 'untracked', path: 'draft.md', operationId }
+  const lookup = deferred()
+  const native = deferred()
+  const received: unknown[] = []
+  const switchedSource = { ...source, cookieGeneration: 2 }
+  let sourceCalls = 0
+  const host = setup({
+    store: { async untrackedFile(_owner: any, _id: string, request: any) { received.push(request); return native.promise } },
+    resolveSource: async () => {
+      sourceCalls++
+      if (sourceCalls === 1) return lookup.promise
+      return sourceCalls === 2 ? switchedSource : source
+    },
+  })
+  const pending = assert.rejects(host.untrackedFile(event, id, selected, expected), LocalConnectionError)
+  selected.path = 'changed-after-call.md'
+  lookup.resolve(source)
+  while (!received.length) await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(received, [{ scope: 'untracked', path: 'draft.md', operationId }])
+  native.resolve({ scope: 'untracked', version: 1, path: 'draft.md', sizeBytes: 0, snapshot: { text: '' } })
+  await pending
+})
+
+test('untracked cancellation still reaches its exact old operation after a source transition', async () => {
+  const operationId = '9f4fb75a-44da-496d-9c3d-c29e614e4641'
+  const request = { scope: 'untracked', operationId }
+  const native = deferred()
+  const switched = { ...source, cookieGeneration: 2 }
+  const calls: unknown[][] = []
+  let reads = 0
+  const host = setup({ store: {
+    async untrackedFiles(owner: any, connectionId: string) { reads++; calls.push(['read', owner, connectionId]); return native.promise },
+    async cancelUntrackedRead(owner: any, connectionId: string, exactId: string) {
+      calls.push(['cancel', owner, connectionId, exactId])
+      return true
+    },
+  }, resolveSource: async () => reads === 0 ? source : switched })
+  const pending = assert.rejects(host.untrackedFiles(event, id, request, expected), LocalConnectionError)
+  while (!reads) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(await host.cancelUntrackedRead(event, `GIT_${'B'.repeat(32)}`, request, expected), false)
+  assert.equal(await host.cancelUntrackedRead(event, id, { scope: 'untracked', operationId: 'c24a0060-b05e-4b8b-8a8d-37b927606a5c' }, expected), false)
+  assert.equal(await host.cancelUntrackedRead(event, id, request, { namespace: 'acme', userId: 'other' }), false)
+  assert.equal(await host.cancelUntrackedRead(event, id, request, expected), true)
+  assert.deepEqual(calls[1], ['cancel', expected, id, operationId])
+  native.resolve({ scope: 'untracked', version: 1, files: [], excludedCount: 0 })
+  await pending
+})

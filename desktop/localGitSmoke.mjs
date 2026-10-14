@@ -6,6 +6,7 @@ import { expect } from '@playwright/test'
 import { bundledGitDirectory } from './bundledGit.mjs'
 import { localGitCommandEnvironment } from './localGitReader.mjs'
 import { smokeLocalDocumentBrowse, verifyLocalDocumentBrowseRelaunch } from './localDocumentBrowseSmoke.mjs'
+import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 
 const TIMEOUT_MS = 30_000
 
@@ -103,6 +104,8 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await writeFile(join(repository, 'src', 'nested.md'), 'captured-nested-index-v1\n')
   await writeFile(join(repository, 'ignored-secret.md'), 'must-never-enter-model ignored content')
   await writeFile(join(repository, 'untracked-secret.md'), 'must-never-enter-model untracked content')
+  await writeFile(join(repository, '.ordinary-note.md'), 'untracked-dotfile-reviewed-v1\n')
+  await writeFile(join(repository, 'untracked-document.docx'), docxFixture({ paragraphs: ['untracked-document-reviewed-v1 · café 世界 😀'] }))
   git(gitExecutable, repository, 'init', '--template=', '--initial-branch=main', '.')
   git(gitExecutable, repository, 'add', '--', '.gitignore', '.config/tracked.md', 'src/nested.md')
   git(gitExecutable, repository, 'update-index', '--split-index')
@@ -382,6 +385,112 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await send(run.page, 'Read only the selected saved file.', 'review-working-only-v3', 0)
   await assertModelFiles(endpoint, [['nested.md', 'ready', 'review-working-only-v3\n']])
 
+  // Untracked browsing remains opt-in, with listing and each selected preview
+  // separate from the conversation-only Attach action. The generated fixtures
+  // cover an ordinary dotfile and the real packaged DOCX worker.
+  const untrackedSession = await run.page.evaluate(async id => {
+    const response = await fetch('/api/v1/sessions', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
+    })
+    if (!response.ok) throw new Error('Could not create the isolated untracked Git browsing conversation.')
+    return response.json()
+  }, providerId)
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(untrackedSession.id)}`)
+  await run.page.getByRole('button', { name: 'Add context' }).click()
+  const untrackedPicker = run.page.getByRole('dialog', { name: 'Add context' })
+  await untrackedPicker.getByRole('button', { name: /^Repository/ }).click()
+  await untrackedPicker.getByRole('button', { name: `Browse files in ${repositoryName}`, exact: true }).click()
+  const untrackedIntake = untrackedPicker.locator('[data-local-git-untracked-intake]')
+  const untrackedToggle = untrackedIntake.getByRole('checkbox', { name: 'Browse untracked files', exact: true })
+  const trackedBrowser = untrackedPicker.locator('[data-local-git-browser]')
+  const untrackedBrowser = untrackedPicker.locator('[data-local-git-untracked-browser]')
+  await expect(untrackedToggle).toHaveAttribute('aria-checked', 'false')
+  const untrackedBefore = await readWorkspace(run.page, untrackedSession.id)
+  const untrackedModelBefore = endpoint.requests.length
+  const untrackedIndexBefore = await indexState(repository)
+  await trackedBrowser.getByRole('button', { name: 'List tracked paths', exact: true }).click()
+  const trackedListing = trackedBrowser.getByRole('list', { name: 'Tracked repository paths', exact: true })
+  await expect(trackedListing).toBeVisible({ timeout: TIMEOUT_MS })
+  await expect(trackedListing).not.toContainText('.ordinary-note.md')
+  await expect(trackedListing).not.toContainText('untracked-document.docx')
+  await expect(trackedListing).not.toContainText('ignored-secret.md')
+  await expect(untrackedBrowser.getByRole('button', { name: 'List untracked paths', exact: true })).toHaveCount(0)
+  assert.deepEqual(await readWorkspace(run.page, untrackedSession.id), untrackedBefore,
+    'default tracked listing neither captures untracked bodies nor mutates the destination')
+  assert.equal(endpoint.requests.length, untrackedModelBefore, 'listing tracked files makes no model request')
+
+  await untrackedToggle.click()
+  await expect(untrackedToggle).toHaveAttribute('aria-checked', 'true')
+  await expect(untrackedBrowser.getByRole('list', { name: 'Untracked repository paths', exact: true })).toHaveCount(0,
+    'opting in alone does not enumerate paths')
+  await untrackedBrowser.getByRole('button', { name: 'List untracked paths', exact: true }).click()
+  const untrackedListing = untrackedBrowser.getByRole('list', { name: 'Untracked repository paths', exact: true })
+  await expect(untrackedListing).toBeVisible({ timeout: TIMEOUT_MS })
+  await expect(untrackedListing).toContainText('.ordinary-note.md')
+  await expect(untrackedListing).toContainText('untracked-document.docx')
+  await expect(untrackedListing).toContainText('untracked-secret.md')
+  await expect(untrackedListing).not.toContainText('ignored-secret.md')
+  await expect(untrackedBrowser).not.toContainText('untracked-dotfile-reviewed-v1')
+  await expect(untrackedBrowser).not.toContainText('must-never-enter-model')
+  await expect(untrackedBrowser.locator('[data-local-git-untracked-file-preview]')).toHaveCount(0,
+    'explicit path enumeration remains metadata-only')
+  assert.deepEqual(await readWorkspace(run.page, untrackedSession.id), untrackedBefore,
+    'opt-in path listing still does not persist content')
+  assert.equal(endpoint.requests.length, untrackedModelBefore, 'path listing makes no model request')
+
+  const dotfilePath = '.ordinary-note.md'
+  await untrackedListing.getByRole('button', { name: `${dotfilePath} Untracked file`, exact: true }).click()
+  const dotfilePreview = untrackedBrowser.getByRole('region', { name: `Preview of ${dotfilePath}`, exact: true })
+  await expect(dotfilePreview).toHaveText('untracked-dotfile-reviewed-v1\n', { timeout: TIMEOUT_MS })
+  assert.deepEqual(await readWorkspace(run.page, untrackedSession.id), untrackedBefore,
+    'untracked text preview is transient')
+  assert.equal(endpoint.requests.length, untrackedModelBefore, 'untracked text preview makes no model request')
+  await writeFile(join(repository, dotfilePath), 'untracked-dotfile-replaced-after-review-v2\n')
+  await untrackedBrowser.getByRole('button', { name: 'Attach saved copy', exact: true }).click()
+  await expect(untrackedPicker).toContainText('1 added', { timeout: TIMEOUT_MS })
+
+  const documentPath = 'untracked-document.docx'
+  await untrackedListing.getByRole('button', { name: `${documentPath} Untracked file`, exact: true }).click()
+  const documentPreview = untrackedBrowser.getByRole('region', { name: `Preview of ${documentPath}`, exact: true })
+  const documentText = 'untracked-document-reviewed-v1 · café 世界 😀'
+  await expect(documentPreview).toHaveText(documentText, { timeout: TIMEOUT_MS })
+  await expect(untrackedBrowser.locator('[data-local-document-preview="docx"]')).toContainText('Word body text')
+  assert.deepEqual(await readWorkspace(run.page, untrackedSession.id).then(workspace => workspace.attachments.map(({ label }) => label)),
+    [dotfilePath], 'document preview remains separate from Attach')
+  assert.equal(endpoint.requests.length, untrackedModelBefore, 'untracked document worker preview makes no model request')
+  await writeFile(join(repository, documentPath), docxFixture({ paragraphs: ['untracked-document-replaced-after-review-v2'] }))
+  await untrackedBrowser.getByRole('button', { name: 'Attach saved copy', exact: true }).click()
+  await expect(untrackedPicker).toContainText('2 added', { timeout: TIMEOUT_MS })
+  await untrackedPicker.getByRole('button', { name: 'Done', exact: true }).click()
+  const untrackedSaved = await readWorkspace(run.page, untrackedSession.id)
+  assert.deepEqual(untrackedSaved.attachments.map(({ label, kind, source, previewText, documentImport }) => ({
+    label, kind, source, previewText, documentImport,
+  })), [
+    { label: dotfilePath, kind: 'file', source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+      previewText: 'untracked-dotfile-reviewed-v1\n', documentImport: undefined },
+    { label: documentPath, kind: 'file', source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+      previewText: documentText, documentImport: { format: 'docx', status: 'ready' } },
+  ], 'Attach saves exactly the reviewed text and real worker outcome, not later source changes')
+  assert.equal(JSON.stringify(untrackedSaved).includes(fixtureRoot), false, 'untracked copies do not persist native paths')
+  assert.equal(JSON.stringify(untrackedSaved).includes('untracked-dotfile-replaced-after-review-v2'), false)
+  assert.equal(JSON.stringify(untrackedSaved).includes('untracked-document-replaced-after-review-v2'), false)
+  assert.equal(endpoint.requests.length, untrackedModelBefore, 'Attach saved copy does not call a model')
+  await assertIndexUnchanged(repository, untrackedIndexBefore)
+  await send(run.page, 'Read only the reviewed untracked saved copies.', 'untracked-dotfile-reviewed-v1', 0)
+  await assertModelFiles(endpoint, [
+    [dotfilePath, 'ready', 'untracked-dotfile-reviewed-v1\n'],
+    [documentPath, 'ready', documentText],
+  ])
+  assert.equal(JSON.stringify(endpoint.requests.at(-1)).includes('must-never-enter-model'), false,
+    'unselected untracked and ignored bodies never reach the model')
+  assert.equal(JSON.stringify(endpoint.requests.at(-1)).includes('replaced-after-review'), false,
+    'source changes after preview never replace the reviewed model input')
+  const untrackedSourcePaths = [join(repository, dotfilePath), join(repository, documentPath)]
+  for (const [index, path] of untrackedSourcePaths.entries()) {
+    await rename(path, join(fixtureRoot, `untracked-source-held-${index}`))
+  }
+  await assertIndexUnchanged(repository, untrackedIndexBefore)
+
   const documentBrowseReceipt = await smokeLocalDocumentBrowse({
     run, root: repository, source: 'git', name: repositoryName, providerId, endpoint,
     prepareFiles: async paths => {
@@ -396,6 +505,15 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   // durable saved snapshot are separate: reopening access does not auto-attach.
   await run.app.close()
   run = await relaunch(executable, userDataPath)
+  for (const path of untrackedSourcePaths) await assert.rejects(stat(path), { code: 'ENOENT' }, 'untracked source is absent after full relaunch')
+  assert.deepEqual(await readWorkspace(run.page, untrackedSession.id), untrackedSaved,
+    'saved untracked copies survive packaged relaunch without their source files')
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(untrackedSession.id)}`)
+  await send(run.page, 'Read the reviewed untracked saved copies after relaunch.', 'untracked-dotfile-reviewed-v1', 1)
+  await assertModelFiles(endpoint, [
+    [dotfilePath, 'ready', 'untracked-dotfile-reviewed-v1\n'],
+    [documentPath, 'ready', documentText],
+  ])
   await run.page.goto(`${run.origin}/s/${encodeURIComponent(session.id)}`)
   connections = await nativeGitConnections(run.page)
   assert.deepEqual(connections.map(({ name, remembered }) => [name, remembered]), [[repositoryName, true]],

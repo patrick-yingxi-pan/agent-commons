@@ -3,6 +3,7 @@ import { isClosedRecord } from './closedRecord.mjs'
 import type { LocalGitReview } from './localGitReview.mjs'
 import { isGitSnapshotFiles } from './localGitSnapshot.mjs'
 import type { LocalGitFileListing, LocalGitFilePreview, LocalGitFileSelection } from './localGitBrowse.mjs'
+import type { LocalGitUntrackedFileListing, LocalGitUntrackedFilePreview, LocalGitUntrackedFileRequest, LocalGitUntrackedFilesRequest } from './localGitUntrackedBrowse.mjs'
 import { isServedCaptureTime, isSnapshotId } from './servedTextSnapshot.ts'
 
 export type LocalGitConnectionId = `GIT_${string}`
@@ -26,6 +27,9 @@ export interface NativeLocalGitBridge {
   review(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitReview>
   files(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitFileListing>
   file(id: LocalGitConnectionId, selection: LocalGitFileSelection, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitFilePreview>
+  untrackedFiles(id: LocalGitConnectionId, request: LocalGitUntrackedFilesRequest, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitUntrackedFileListing>
+  untrackedFile(id: LocalGitConnectionId, request: LocalGitUntrackedFileRequest, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<LocalGitUntrackedFilePreview>
+  cancelUntrackedRead(id: LocalGitConnectionId, request: LocalGitUntrackedFilesRequest, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<boolean>
   disconnect(id: LocalGitConnectionId, source: import('./localFolderCapture.ts').LocalFolderAccountSource): Promise<void>
 }
 

@@ -13,6 +13,7 @@ test('Repository → This computer separates conversation copies from descriptiv
   assert.ok(repo.includes('addedLocalGitIds'))
   assert.ok(repo.includes('attachments={attachments}'))
   assert.ok(repo.includes("localGitSavedCopies.acknowledgedIds(intentScope, attachments.map(item => item.id), 'git')"), 'repository footer counts only acknowledged Git-preview copies')
+  assert.ok(repo.includes("localGitSavedCopies.acknowledgedIds(intentScope, attachments.map(item => item.id), 'git-untracked')"), 'repository footer includes acknowledged untracked preview copies')
   assert.ok(repo.includes('localGitSavedCopyScope(sessionId)'))
   assert.ok(source('src/components/ContextPickerWorkflow.tsx').includes('sessionId={sessionId}'))
   assert.ok(repo.includes('addedRepoIds.length + addedLocalGitIds.length + acknowledgedSavedCopyCount'))

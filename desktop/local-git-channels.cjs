@@ -7,5 +7,8 @@ module.exports = Object.freeze({
   review: 'agent-commons:local-git:review',
   files: 'agent-commons:local-git:files',
   file: 'agent-commons:local-git:file',
+  untrackedFiles: 'agent-commons:local-git:untracked-files',
+  untrackedFile: 'agent-commons:local-git:untracked-file',
+  cancelUntrackedRead: 'agent-commons:local-git:cancel-untracked-read',
   disconnect: 'agent-commons:local-git:disconnect',
 })

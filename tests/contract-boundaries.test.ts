@@ -474,6 +474,28 @@ test('Git browse shares a portable parser contract while native listing and read
   assert.throws(() => checkPlatformGuard(installer.replace('if (process.platform !== \'darwin\') return', '')), assert.AssertionError)
 })
 
+test('untracked Git browsing has distinct shared parsers and no tracked-channel widening', () => {
+  const parserModule = stripComments(read(join(ROOT, 'contract/localGitUntrackedBrowse.mjs')))
+  const parsers = ['parseLocalGitUntrackedFilesRequest', 'parseLocalGitUntrackedFileRequest',
+    'parseLocalGitUntrackedFileListing', 'parseLocalGitUntrackedFilePreview']
+  for (const parser of parsers) assert.ok(parserModule.includes(`export function ${parser}(`), `${parser} is contract-owned`)
+  for (const path of ['src/api/localGit.ts', 'desktop/localConnectionStore.mjs', 'desktop/localConnectionHost.mjs']) {
+    const source = stripComments(read(join(ROOT, path)))
+    assert.ok(source.includes('contract/localGitUntrackedBrowse.mjs'), `${path} imports the shared untracked contract`)
+    for (const parser of parsers) {
+      const delegated = path === 'src/api/localGit.ts' && ['parseLocalGitUntrackedFileListing', 'parseLocalGitUntrackedFilePreview'].includes(parser)
+      assert.ok(source.includes(delegated ? `}, ${parser}` : `${parser}(`), `${path} uses ${parser}`)
+      if (delegated) assert.ok(source.includes('const detached = parse(result)'), 'shared native-read helper runs its result parser')
+    }
+  }
+  const main = stripComments(read(join(ROOT, 'desktop/main.mjs')))
+  assert.ok(main.includes('browseUntracked: reader.listLocalGitUntrackedFiles'), 'explicit untracked listing wires to its own reader')
+  assert.ok(main.includes('previewUntracked: reader.readLocalGitUntrackedFile'), 'explicit untracked preview wires to its own reader')
+  assert.ok(main.includes('browse: reader.listLocalGitFiles') && main.includes('preview: reader.readLocalGitFile'), 'tracked channels retain their original readers')
+  const contract = stripComments(read(join(ROOT, 'contract/localGitCapture.ts')))
+  for (const method of ['untrackedFiles', 'untrackedFile', 'cancelUntrackedRead']) assert.ok(contract.includes(`${method}(`), `${method} remains a distinct bridge capability`)
+})
+
 test('selective folder browse shares its portable contract while descriptor listing/read IPC stays macOS-only', () => {
   const portable = concatSource('contract') + '\n' + concatSource('server') + '\n' + concatSource('src')
   assert.doesNotMatch(portable, /from\s+['"][^'"]*(?:desktop\/(?:localFolderReader|gitFileRead|localFolderTree)|localFolderReader\.mjs)['"]|\blistLocalFolderTree\s*\(/,

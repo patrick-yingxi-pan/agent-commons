@@ -2,7 +2,9 @@ import type { Identity } from '../../contract/identity.ts'
 import { isLocalGitCapture, isLocalGitConnectionId, type LocalGitCapture, type LocalGitConnection, type NativeLocalGitBridge } from '../../contract/localGitCapture.ts'
 import { parseLocalGitReview, type LocalGitReview } from '../../contract/localGitReview.mjs'
 import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview, type LocalGitFileSelection } from '../../contract/localGitBrowse.mjs'
-import { accountGeneration, activeAccount } from './account.ts'
+import { parseLocalGitUntrackedFileRequest, parseLocalGitUntrackedFilesRequest,
+  parseLocalGitUntrackedFileListing, parseLocalGitUntrackedFilePreview } from '../../contract/localGitUntrackedBrowse.mjs'
+import { accountGeneration, activeAccount, onAccountSwitch } from './account.ts'
 import { AccountSwitchedError } from './client.ts'
 import { peek } from './cache.ts'
 import { keys } from './keys.ts'
@@ -117,4 +119,85 @@ export async function readLocalGitFile(id: string, path: string, scope: DesktopB
   const preview = parseLocalGitFilePreview(result)
   if (!preview || preview.path !== path) throw new Error('The repository returned an invalid file preview.')
   return structuredClone(preview)
+}
+
+function abortError() { return new DOMException('The native repository read was cancelled.', 'AbortError') }
+
+function readUntracked<T>(id: string, signal: AbortSignal | undefined, scope: DesktopBridgeScope | undefined,
+  invoke: (port: NativeLocalGitBridge, request: { scope: 'untracked'; operationId: string }, source: { userId: string; namespace: string }) => Promise<unknown>,
+  parse: (value: unknown) => T | undefined, expectedPath?: string): Promise<T> {
+  const identity = captureLocalGitSource()
+  if (!isLocalGitConnectionId(id)) return Promise.reject(new Error('This repository connection is unavailable.'))
+  const currentScope = scope ?? (typeof window === 'undefined' ? undefined : window)
+  let port: NativeLocalGitBridge
+  try { port = bridge(currentScope as DesktopBridgeScope) }
+  catch (error) { return Promise.reject(error) }
+  if (typeof port.untrackedFiles !== 'function' || typeof port.untrackedFile !== 'function' ||
+    typeof port.cancelUntrackedRead !== 'function') {
+    return Promise.reject(new Error('Untracked repository browsing is unavailable on this device.'))
+  }
+  if (signal?.aborted) return Promise.reject(abortError())
+  const operationId = globalThis.crypto?.randomUUID?.()
+  if (typeof operationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+    return Promise.reject(new Error('Could not start the native repository read.'))
+  }
+  const generation = accountGeneration()
+  const request = { scope: 'untracked' as const, operationId }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false
+    let dispatched = false
+    let unsubscribe = () => {}
+    const cleanup = () => { signal?.removeEventListener('abort', onAbort); unsubscribe() }
+    const finish = (error?: unknown, value?: T) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      if (error !== undefined) reject(error)
+      else resolve(value as T)
+    }
+    const cancel = () => {
+      if (!dispatched) return
+      try { void Promise.resolve(port.cancelUntrackedRead!(id as LocalGitConnection['id'], request, identity.source)).catch(() => {}) }
+      catch { /* the local publication fence is immediate */ }
+    }
+    const onAbort = () => { cancel(); finish(abortError()) }
+    const onSwitch = () => { cancel(); finish(new AccountSwitchedError('local Git identity changed')) }
+    try {
+      unsubscribe = onAccountSwitch(onSwitch)
+      signal?.addEventListener('abort', onAbort, { once: true })
+      if (signal?.aborted) { onAbort(); return }
+      if (generation !== accountGeneration()) { onSwitch(); return }
+      void Promise.resolve().then(() => {
+        if (settled) return undefined
+        dispatched = true
+        return invoke(port, request, identity.source)
+      }).then((result) => {
+        if (settled) return
+        identity.assertCurrent()
+        if (generation !== accountGeneration()) throw new AccountSwitchedError('local Git identity changed')
+        const detached = parse(result)
+        if (!detached || (expectedPath !== undefined && (detached as { path?: string }).path !== expectedPath)) {
+          throw new Error('The repository returned an invalid untracked file result.')
+        }
+        finish(undefined, structuredClone(detached))
+      }, (error) => finish(error)).catch((error) => finish(error))
+    } catch (error) { finish(error) }
+  })
+}
+
+/** List untracked metadata through the explicit native scope and cancellation door. */
+export function readLocalGitUntrackedFiles(id: string, signal?: AbortSignal, scope?: DesktopBridgeScope) {
+  return readUntracked(id, signal, scope, (port, request, source) => {
+    const closed = parseLocalGitUntrackedFilesRequest(request)
+    return port.untrackedFiles!(id as LocalGitConnection['id'], closed!, source)
+  }, parseLocalGitUntrackedFileListing)
+}
+
+/** Read one explicitly selected untracked path as a transient detached preview. */
+export function readLocalGitUntrackedFile(id: string, path: string, signal?: AbortSignal, scope?: DesktopBridgeScope) {
+  return readUntracked(id, signal, scope, (port, operation, source) => {
+    const request = parseLocalGitUntrackedFileRequest({ ...operation, path })
+    if (!request) throw new Error('Choose a valid untracked file path.')
+    return port.untrackedFile!(id as LocalGitConnection['id'], request, source)
+  }, parseLocalGitUntrackedFilePreview, path)
 }

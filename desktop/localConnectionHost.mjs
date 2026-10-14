@@ -3,6 +3,8 @@ import { LocalConnectionError } from './localConnectionStore.mjs'
 import { parseLocalGitReview } from '../contract/localGitReview.mjs'
 import { isFolderTreeFiles } from '../contract/localFolderTree.mjs'
 import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview } from '../contract/localGitBrowse.mjs'
+import { parseLocalGitUntrackedFileRequest, parseLocalGitUntrackedFilesRequest,
+  parseLocalGitUntrackedFileListing, parseLocalGitUntrackedFilePreview } from '../contract/localGitUntrackedBrowse.mjs'
 import { isLocalFolderFileSelection, parseLocalFolderFileListing, parseLocalFolderFilePreview } from '../contract/localFolderBrowse.mjs'
 
 const ID = /^LOCAL_[A-F0-9]{32}$/
@@ -39,9 +41,19 @@ function sourceParts(source) {
 }
 
 function assertExpectedSource(actual, expected) {
-  if (!expected || typeof expected !== 'object' || Array.isArray(expected) ||
-    Object.keys(expected).sort().join(',') !== 'namespace,userId' ||
-    expected.namespace !== actual.owner.namespace || expected.userId !== actual.owner.userId) fail()
+  const detached = expectedOwner(expected)
+  if (detached.namespace !== actual.owner.namespace || detached.userId !== actual.owner.userId) fail()
+}
+
+function expectedOwner(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null ||
+    Reflect.ownKeys(value).length !== 2 || Reflect.ownKeys(value).some((key) => !['namespace', 'userId'].includes(key))) fail()
+  const namespace = Object.getOwnPropertyDescriptor(value, 'namespace')
+  const userId = Object.getOwnPropertyDescriptor(value, 'userId')
+  if (!namespace?.enumerable || !Object.hasOwn(namespace, 'value') || !validText(namespace.value) ||
+    !userId?.enumerable || !Object.hasOwn(userId, 'value') || !validText(userId.value)) fail()
+  return { namespace: namespace.value, userId: userId.value }
 }
 
 function safeSnapshot(value, connectionKind) {
@@ -77,6 +89,9 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
   }
   if (!['folder', 'git'].includes(connectionKind)) throw new Error('Invalid native connection kind.')
   const idPattern = connectionKind === 'git' ? /^GIT_[A-F0-9]{32}$/ : ID
+  const untrackedOperations = new Map()
+  const validOperationId = (value) => typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
 
   const source = async () => {
     if (isClosing()) fail()
@@ -186,6 +201,67 @@ export function createLocalConnectionHost({ store, assertCaller, resolveSource, 
         const parsed = isGit ? parseLocalGitFilePreview(value) : parseLocalFolderFilePreview(value)
         if (!parsed || parsed.path !== detached.path) fail()
         return parsed
+      })
+    },
+    untrackedFiles(event, id, request, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        const detached = parseLocalGitUntrackedFilesRequest(request)
+        if (extra.length || connectionKind !== 'git' || !detached || !validOperationId(detached.operationId) ||
+          typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id) || untrackedOperations.has(detached.operationId)) fail()
+        const binding = { sender: event.sender, stamp: null, owner: expectedOwner(expectedSource), id, cancelled: false, started: false }
+        untrackedOperations.set(detached.operationId, binding)
+        try {
+          const before = await source()
+          assertExpectedSource(before, binding.owner)
+          if (binding.cancelled) fail()
+          binding.stamp = before.stamp
+          binding.owner = before.owner
+          binding.started = true
+          const value = await store.untrackedFiles(before.owner, id, detached)
+          await unchanged(before)
+          const parsed = parseLocalGitUntrackedFileListing(value)
+          if (!parsed) fail()
+          return parsed
+        } finally { if (untrackedOperations.get(detached.operationId) === binding) untrackedOperations.delete(detached.operationId) }
+      })
+    },
+    untrackedFile(event, id, request, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        const detached = parseLocalGitUntrackedFileRequest(request)
+        if (extra.length || connectionKind !== 'git' || !detached || !validOperationId(detached.operationId) ||
+          typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id) || untrackedOperations.has(detached.operationId)) fail()
+        const binding = { sender: event.sender, stamp: null, owner: expectedOwner(expectedSource), id, cancelled: false, started: false }
+        untrackedOperations.set(detached.operationId, binding)
+        try {
+          const before = await source()
+          assertExpectedSource(before, binding.owner)
+          if (binding.cancelled) fail()
+          binding.stamp = before.stamp
+          binding.owner = before.owner
+          binding.started = true
+          const value = await store.untrackedFile(before.owner, id, detached)
+          await unchanged(before)
+          const parsed = parseLocalGitUntrackedFilePreview(value)
+          if (!parsed || parsed.path !== detached.path) fail()
+          return parsed
+        } finally { if (untrackedOperations.get(detached.operationId) === binding) untrackedOperations.delete(detached.operationId) }
+      })
+    },
+    cancelUntrackedRead(event, id, request, expectedSource, ...extra) {
+      return invoke(event, async () => {
+        const detached = parseLocalGitUntrackedFilesRequest(request)
+        if (extra.length || connectionKind !== 'git' || !detached || !validOperationId(detached.operationId) ||
+          typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id)) fail()
+        const owner = expectedOwner(expectedSource)
+        const active = untrackedOperations.get(detached.operationId)
+        if (!active || active.sender !== event.sender || active.id !== id ||
+          active.owner.namespace !== owner.namespace || active.owner.userId !== owner.userId) return false
+        if (active.stamp === null) { active.cancelled = true; return true }
+        if (!active.started) { active.cancelled = true; return true }
+        // Cancellation cannot disclose source data, and must remain usable
+        // after account/cookie transitions so an exact captured operation
+        // releases its shared read capacity promptly.
+        return await store.cancelUntrackedRead(owner, id, detached.operationId) === true
       })
     },
     disconnect(event, id, expectedSource, ...extra) {

@@ -155,6 +155,7 @@ export function RepoPicker({
   const [browsing, setBrowsing] = useState(false)
   const intentScope = localGitSavedCopyScope(sessionId)
   const acknowledgedSavedCopyCount = localGitSavedCopies.acknowledgedIds(intentScope, attachments.map(item => item.id), 'git').length
+    + localGitSavedCopies.acknowledgedIds(intentScope, attachments.map(item => item.id), 'git-untracked').length
 
   const labelOf = (o: RepoOption) => (o.origin === 'local' ? basename(o.path) : o.remote)
   const isAdded = (o: RepoOption) => addedRepoIds.includes(repoIdForLabel(labelOf(o)))

@@ -4,6 +4,8 @@ import { secureStorageAvailable } from './credentialVault.mjs'
 import { inspectLocalFolderRoot, readLocalFolderSnapshot } from './localFolderReader.mjs'
 import { openPrivateTextFile } from './privateTextFile.mjs'
 import { isLocalGitFileSelection, parseLocalGitFileListing, parseLocalGitFilePreview } from '../contract/localGitBrowse.mjs'
+import { parseLocalGitUntrackedFileRequest, parseLocalGitUntrackedFilesRequest,
+  parseLocalGitUntrackedFileListing, parseLocalGitUntrackedFilePreview } from '../contract/localGitUntrackedBrowse.mjs'
 import { isLocalFolderFileSelection, parseLocalFolderFileListing, parseLocalFolderFilePreview } from '../contract/localFolderBrowse.mjs'
 
 export const LOCAL_CONNECTION_FILE = 'local-connections.v1.json'
@@ -69,6 +71,7 @@ export async function openLocalConnectionStore({
   filePath, storage, platform = process.platform,
   inspectRoot = inspectLocalFolderRoot, capture = readLocalFolderSnapshot, captureTree, review: reviewGit,
   browse: browseGit, preview: previewGit, browseFiles: browseFolder, previewFile: previewFolder, fsApi,
+  browseUntracked: browseUntrackedGit, previewUntracked: previewUntrackedGit,
   connectionKind = 'folder', validateRoot = validRoot,
 } = {}) {
   try {
@@ -90,6 +93,7 @@ export async function openLocalConnectionStore({
     let queue = Promise.resolve()
     let unavailable = false
     const captures = new Set()
+    const untrackedOperations = new Map()
     const shutdown = () => {
       unavailable = true
       for (const pending of captures) pending.controller.abort()
@@ -122,17 +126,28 @@ export async function openLocalConnectionStore({
       }
     }
 
-    async function read(owner, id, reader) {
+    async function read(owner, id, reader, operationId) {
       if (!validOwner(owner) || typeof id !== 'string' || !idPattern.test(id)) fail()
+      if (operationId !== undefined && (connectionKind !== 'git' || typeof operationId !== 'string' ||
+        !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId))) fail()
       const binding = { ...owner }
-      const pending = await serial(() => {
-        const found = entries.get(id)
-        if (!found || !sameOwner(found.owner, binding)) fail()
-        if (captures.size >= MAX_LOCAL_CAPTURES) throw new LocalConnectionError('busy')
-        const pending = { entry: found, controller: new AbortController() }
-        captures.add(pending)
-        return pending
-      })
+      if (operationId && untrackedOperations.has(operationId)) fail()
+      const pending = { entry: null, controller: new AbortController() }
+      if (operationId) untrackedOperations.set(operationId, { pending, owner: binding, id })
+      try {
+        await serial(() => {
+          const found = entries.get(id)
+          if (!found || !sameOwner(found.owner, binding) || pending.controller.signal.aborted) fail()
+          if (captures.size >= MAX_LOCAL_CAPTURES) throw new LocalConnectionError('busy')
+          pending.entry = found
+          captures.add(pending)
+        })
+      } catch (error) {
+        captures.delete(pending)
+        if (operationId && untrackedOperations.get(operationId)?.pending === pending) untrackedOperations.delete(operationId)
+        if (error instanceof LocalConnectionError) throw error
+        throw new LocalConnectionError()
+      }
       try {
         available()
         if (entries.get(id) !== pending.entry || pending.controller.signal.aborted) fail()
@@ -143,7 +158,10 @@ export async function openLocalConnectionStore({
           return result
         })
       } catch { throw new LocalConnectionError() }
-      finally { captures.delete(pending) }
+      finally {
+        captures.delete(pending)
+        if (operationId && untrackedOperations.get(operationId)?.pending === pending) untrackedOperations.delete(operationId)
+      }
     }
 
     return {
@@ -216,6 +234,39 @@ export async function openLocalConnectionStore({
           if (!parsed || parsed.path !== detached.path) fail()
           return parsed
         })
+      },
+      async untrackedFiles(owner, id, request) {
+        const detached = parseLocalGitUntrackedFilesRequest(request)
+        if (connectionKind !== 'git' || typeof browseUntrackedGit !== 'function' || !detached) fail()
+        return read(owner, id, async (root, context) => {
+          const result = await browseUntrackedGit(root, context)
+          const detachedResult = parseLocalGitFileListing(result)
+          const parsed = detachedResult && parseLocalGitUntrackedFileListing({ scope: 'untracked', ...detachedResult })
+          if (!parsed) fail()
+          return parsed
+        }, detached.operationId)
+      },
+      async untrackedFile(owner, id, request) {
+        const detached = parseLocalGitUntrackedFileRequest(request)
+        if (connectionKind !== 'git' || typeof previewUntrackedGit !== 'function' || !detached) fail()
+        const selection = { path: detached.path }
+        return read(owner, id, async (root, context) => {
+          const result = await previewUntrackedGit(root, { ...context, selection })
+          const detachedResult = parseLocalGitFilePreview(result)
+          const parsed = detachedResult && parseLocalGitUntrackedFilePreview({ scope: 'untracked', ...detachedResult })
+          if (!parsed || parsed.path !== selection.path) fail()
+          return parsed
+        }, detached.operationId)
+      },
+      cancelUntrackedRead(owner, id, operationId) {
+        if (!validOwner(owner) || typeof id !== 'string' || !/^GIT_[A-F0-9]{32}$/.test(id) ||
+          typeof operationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)) {
+          return Promise.reject(new LocalConnectionError())
+        }
+        const active = untrackedOperations.get(operationId)
+        if (!active || active.id !== id || !sameOwner(active.owner, owner)) return Promise.resolve(false)
+        active.pending.controller.abort()
+        return Promise.resolve(true)
       },
       disconnect(owner, id) {
         if (!validOwner(owner) || typeof id !== 'string' || !idPattern.test(id)) return Promise.reject(new LocalConnectionError())

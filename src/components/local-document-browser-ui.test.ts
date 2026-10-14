@@ -36,7 +36,7 @@ test('shared document preview discloses format fidelity and distinct source/text
   assert.ok(view.includes('data-local-document-preview={state.preview.documentImport.format}'))
   assert.ok(view.includes('documentImportCopy(state.preview.documentImport)'))
   assert.ok(view.includes('source bytes · extracted-text limit 65,536 bytes. Original document bytes are not saved.'))
-  assert.ok(view.includes('await onAttach(path, previewText, receipt, state.preview.documentImport)'))
+  assert.ok(view.includes('await onAttach(path, previewText, receipt, state.preview.documentImport, sourceKind)'))
   assert.ok(view.includes('previewText === null'), 'omitted/no-text document results cannot attach')
   assert.ok(view.indexOf('documentImportCopy(state.preview.documentImport)') < view.indexOf('onClick={() => void attachSavedCopy()}'))
   for (const kind of ['Folder', 'Git']) {

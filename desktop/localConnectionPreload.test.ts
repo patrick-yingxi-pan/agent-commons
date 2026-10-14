@@ -20,6 +20,9 @@ const gitChannels = {
   review: 'agent-commons:local-git:review',
   files: 'agent-commons:local-git:files',
   file: 'agent-commons:local-git:file',
+  untrackedFiles: 'agent-commons:local-git:untracked-files',
+  untrackedFile: 'agent-commons:local-git:untracked-file',
+  cancelUntrackedRead: 'agent-commons:local-git:cancel-untracked-read',
   disconnect: 'agent-commons:local-git:disconnect',
 }
 const unavailableMessage = 'The local folder is unavailable. Your saved snapshots have not been changed.'
@@ -198,6 +201,9 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
     { version: 1, comparison: 'raw', head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' }, excludedCount: 0, unchangedCount: 0, files: [] },
     { version: 1, files: [{ path: 'src/main.ts', kind: 'file' }], excludedCount: 0 },
     { version: 1, path: 'src/main.ts', sizeBytes: 4, snapshot: { text: 'test' } },
+    { scope: 'untracked', version: 1, files: [{ path: 'draft.md', kind: 'file' }], excludedCount: 0 },
+    { scope: 'untracked', version: 1, path: 'draft.md', sizeBytes: 5, snapshot: { text: 'draft' } },
+    true,
     undefined,
   ]
   const { bridge, calls } = loadPreload(values.map(value => ({ value: { ok: true, value } })), 'darwin')
@@ -210,6 +216,12 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
   assert.deepEqual(await git.files('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), values[4])
   const selection = { path: 'src/main.ts' }
   assert.deepEqual(await git.file('GIT_0123456789ABCDEF0123456789ABCDEF', selection, sourceIdentity), values[5])
+  const operationId = '4ca5af48-2a21-4c80-9bfe-f627ef872e23'
+  const untrackedRequest = { scope: 'untracked', operationId }
+  const untrackedFileRequest = { scope: 'untracked', path: 'draft.md', operationId }
+  assert.deepEqual(await git.untrackedFiles('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity), values[6])
+  assert.deepEqual(await git.untrackedFile('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedFileRequest, sourceIdentity), values[7])
+  assert.equal(await git.cancelUntrackedRead('GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity), true)
   assert.equal(await git.disconnect('GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity), undefined)
   assert.deepEqual(calls, [
     [gitChannels.list, sourceIdentity],
@@ -218,6 +230,9 @@ test('macOS Git preload unwraps exact tracked-path snapshots and invokes only th
     [gitChannels.review, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
     [gitChannels.files, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
     [gitChannels.file, 'GIT_0123456789ABCDEF0123456789ABCDEF', selection, sourceIdentity],
+    [gitChannels.untrackedFiles, 'GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity],
+    [gitChannels.untrackedFile, 'GIT_0123456789ABCDEF0123456789ABCDEF', untrackedFileRequest, sourceIdentity],
+    [gitChannels.cancelUntrackedRead, 'GIT_0123456789ABCDEF0123456789ABCDEF', untrackedRequest, sourceIdentity],
     [gitChannels.disconnect, 'GIT_0123456789ABCDEF0123456789ABCDEF', sourceIdentity],
   ])
   assert.equal(JSON.stringify(values[2]).includes('/Users/'), false, 'Git snapshots expose relative tracked paths only')

@@ -109,3 +109,58 @@ test('file selection is detached before admission; browse and preview share slot
   holds.at(-1)?.resolve(listing)
   await late
 }))
+
+test('untracked reads use closed scope requests, share read capacity, and cancellation targets one operation', async () => fixture(async ({ source, options }) => {
+  const held: Array<{ resolve(value: any): void; signal: AbortSignal }> = []
+  const reader = async (_root: any, context: any) => {
+    const pending = deferred()
+    held.push({ resolve: pending.resolve, signal: context.signal })
+    return pending.promise
+  }
+  const store = await openLocalConnectionStore({ ...options, browse: reader, browseUntracked: reader, previewUntracked: reader })
+  const connection = await store.connect({ owner, path: source })
+  const opA = '4ca5af48-2a21-4c80-9bfe-f627ef872e23'
+  const opB = 'd33ecf7d-167c-460e-a9fc-59b0c9cedb4d'
+  const a = store.untrackedFiles(owner, connection.id, { scope: 'untracked', operationId: opA })
+  const b = store.untrackedFile(owner, connection.id, { scope: 'untracked', path: 'draft.md', operationId: opB })
+  const c = store.files(owner, connection.id)
+  const d = store.files(owner, connection.id)
+  while (held.length < MAX_LOCAL_CAPTURES) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(await store.cancelUntrackedRead(foreign, connection.id, opA), false)
+  assert.equal(await store.cancelUntrackedRead(owner, connection.id, opB), true)
+  assert.equal(held[0].signal.aborted, false)
+  assert.equal(held[1].signal.aborted, true)
+  await assert.rejects(store.untrackedFiles(owner, connection.id, { scope: 'tracked', operationId: 'b613715a-e469-4efb-9b4b-d5406286f8c5' }), LocalConnectionError)
+  const busy = store.files(owner, connection.id)
+  await assert.rejects(busy, (error: any) => error instanceof LocalConnectionError && error.code === 'busy')
+  held[1].resolve({ version: 1, path: 'draft.md', sizeBytes: 0, snapshot: { text: '' } })
+  await assert.rejects(b, LocalConnectionError)
+  held[0].resolve({ version: 1, files: [], excludedCount: 0 })
+  assert.equal((await a).scope, 'untracked')
+  held[2].resolve({ version: 1, files: [], excludedCount: 0 })
+  held[3].resolve({ version: 1, files: [], excludedCount: 0 })
+  await Promise.all([c, d])
+  assert.equal(await store.cancelUntrackedRead(owner, connection.id, opA), false)
+}))
+
+test('untracked cancellation also fences an operation queued behind connection persistence', async () => fixture(async ({ source, options }) => {
+  const held = deferred<void>()
+  let holdWrites = false
+  let readerCalls = 0
+  const gatedStorage = { ...storage, async encryptString(value: string) {
+    if (holdWrites) await held.promise
+    return Buffer.from([...value].reverse().join(''))
+  } }
+  const store = await openLocalConnectionStore({ ...options, storage: gatedStorage,
+    browseUntracked: async () => { readerCalls++; return { version: 1, files: [], excludedCount: 0 } } })
+  const connection = await store.connect({ owner, path: source, remember: true })
+  holdWrites = true
+  const connecting = store.connect({ owner, path: `${source}/another`, remember: true })
+  const operationId = 'c24a0060-b05e-4b8b-8a8d-37b927606a5c'
+  const read = store.untrackedFiles(owner, connection.id, { scope: 'untracked', operationId })
+  assert.equal(await store.cancelUntrackedRead(owner, connection.id, operationId), true)
+  held.resolve()
+  await connecting
+  await assert.rejects(read, LocalConnectionError)
+  assert.equal(readerCalls, 0, 'a cancelled queued operation never dispatches a source reader')
+}))
