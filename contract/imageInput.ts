@@ -2,8 +2,9 @@
  * dimensions only; it is not a complete codec decoder. Browser intake may
  * raster-normalize separately, while the server independently applies these
  * bounds without fetching URLs or trusting MIME claims. */
+import { IMAGE_FILE_MAX_BYTES } from './imageFile.mjs'
 export const IMAGE_MAX_BYTES = 3 * 1024 * 1024
-export const IMAGE_MAX_CONTAINER_BYTES = 8 * 1024 * 1024
+export const IMAGE_MAX_CONTAINER_BYTES = IMAGE_FILE_MAX_BYTES
 export const IMAGE_MAX_DIMENSION = 8000
 export const IMAGE_MAX_PIXELS = 32_000_000
 export const IMAGE_TURN_MAX_BYTES = 8 * 1024 * 1024

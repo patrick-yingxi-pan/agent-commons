@@ -74,3 +74,11 @@ test('packaged untracked Git acceptance proves explicit listing, reviewed saves,
   assert.deepEqual(actual, { text, documentImport: { format: 'docx', status: 'ready' } },
     'the packaged document workflow fixture is a real DOCX with a parser-verified exact text oracle')
 })
+
+test('Git model-file oracle preserves exact selected image metadata beside text rows', () => {
+  assert.ok(source.includes("file.status === 'image-ready'"), 'the model-file projection keeps image rows instead of dropping them')
+  assert.ok(source.includes('image_index: file.image_index, width: file.width, height: file.height'))
+  assert.ok(source.includes("name: `src/${trackedImage.name}`, status: 'image-ready', image_index: 1, width: 180, height: 90"))
+  assert.ok(source.includes("name: untrackedImage.name, status: 'image-ready', image_index: 1, width: 64, height: 32"),
+    'untracked image input remains asserted after source removal and relaunch')
+})

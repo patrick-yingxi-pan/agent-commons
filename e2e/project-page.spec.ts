@@ -187,6 +187,9 @@ test('the project page is one column of foldable sections, configuration folded'
   const page = ada.page
   await page.goto(PROJECT)
   await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
+  // Changes is lazy; its loading placeholder is not the section whose order
+  // and geometry this walk measures. Wait for the actual section first.
+  await expect(header(page, 'Changes')).toBeVisible()
 
   // ── ONE column ────────────────────────────────────────────────────────────
   //  Stated as a MEASUREMENT plus an absence. The absence alone would pass on a

@@ -14,7 +14,9 @@ const WCAG_22_AA_TAGS = [
  * tablet drawer's JS-driven entrance starts. Presence alone cannot identify the
  * requested tier, and document.getAnimations() does not own Framer's springs. */
 export async function settledAttachmentPreview(page: Page, selector = '[data-attachment-preview]') {
-  const tier = tierFor(page.viewportSize()!.width)
+  // Native Electron windows need not have a Playwright viewport override.
+  const width = page.viewportSize()?.width ?? await page.evaluate(() => innerWidth)
+  const tier = tierFor(width)
   const dock = page.locator('[data-overlay-dock]')
   if (tier === 'wide') await expect(dock).toHaveCount(0)
   else await expect(dock).toHaveAttribute('data-overlay-dock', tier)

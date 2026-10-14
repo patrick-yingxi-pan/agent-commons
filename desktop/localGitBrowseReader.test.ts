@@ -49,7 +49,7 @@ test('native browse lists metadata only; one selected read uses current tracked 
   const listed = await reader.listLocalGitFiles(pinned)
   assert.deepEqual(listed.files.map(file => file.path), ['.gitignore', 'b.md', 'binary.txt', 'empty.txt', 'image.png', 'src/a.ts'])
   assert.equal(listed.excludedCount, 1)
-  assert.equal(listed.files.find(file => file.path === 'image.png').kind, 'unsupported')
+  assert.equal(listed.files.find(file => file.path === 'image.png').kind, 'file')
   assert.deepEqual(reads.filter(read => read.base === root && read.body).map(read => read.name), ['.gitignore', 'src/.gitignore'])
   reads.length = 0
   await fs.writeFile(join(root, 'src/a.ts'), 'edited after listing\n')
@@ -57,6 +57,8 @@ test('native browse lists metadata only; one selected read uses current tracked 
   assert.equal(preview.snapshot.text, 'edited after listing\n')
   assert.deepEqual(reads.filter(read => read.base === root && read.body && !read.name.endsWith('.gitignore')).map(read => read.name), ['src/a.ts'])
   assert.equal((await reader.readLocalGitFile(pinned, { selection: { path: 'empty.txt' } })).snapshot.text, '')
+  assert.deepEqual((await reader.readLocalGitFile(pinned, { selection: { path: 'image.png' } })).snapshot,
+    { image: { bytes: new TextEncoder().encode('not text') } })
   assert.deepEqual((await reader.readLocalGitFile(pinned, { selection: { path: 'binary.txt' } })).snapshot, { omitted: 'unsupported' })
 })
 
@@ -151,11 +153,15 @@ test('native browse supports repositories beyond the legacy 500-path bulk-captur
 test('Git document browsing lists candidates without body reads and transports only selected current bytes', native, async t => {
   const { root, reader, pinned, reads, git } = await fixture(t)
   const paths = ['src/document.docx', 'src/document.pdf', 'src/document.pptx', 'src/document.xlsx']
+  const imagePath = 'src/photo.png'
   const bytes = new Uint8Array(65537).fill(255)
   for (const path of paths) await fs.writeFile(join(root, path), bytes)
-  git('add', '--', ...paths)
+  const imageBytes = new Uint8Array([0, 255, 1, 2])
+  await fs.writeFile(join(root, imagePath), imageBytes)
+  git('add', '--', ...paths, imagePath)
   const listing = await reader.listLocalGitFiles(pinned)
-  assert.deepEqual(listing.files.filter(file => paths.includes(file.path)), paths.map(path => ({ path, kind: 'file' })))
+  assert.deepEqual(listing.files.filter(file => paths.includes(file.path) || file.path === imagePath),
+    [...paths.map(path => ({ path, kind: 'file' })), { path: imagePath, kind: 'file' }])
   assert.equal(reads.some(read => paths.includes(read.name) && read.body), false)
   for (const path of paths) {
     reads.length = 0
@@ -163,6 +169,11 @@ test('Git document browsing lists candidates without body reads and transports o
     assert.deepEqual(preview.snapshot, { document: { format: path.split('.').at(-1), bytes } })
     assert.deepEqual(reads.filter(read => paths.includes(read.name) && read.body).map(read => read.name), [path])
   }
+  reads.length = 0
+  assert.deepEqual((await reader.readLocalGitFile(pinned, { selection: { path: imagePath } })).snapshot, { image: { bytes: imageBytes } })
+  assert.deepEqual(reads.filter(read => read.base === root && read.body && read.name === imagePath).map(read => read.name), [imagePath])
+  await fs.writeFile(join(root, imagePath), new Uint8Array(localBrowseFileByteLimit(imagePath) + 1))
+  assert.deepEqual((await reader.readLocalGitFile(pinned, { selection: { path: imagePath } })).snapshot, { omitted: 'too-large' })
   await fs.writeFile(join(root, paths[0]), new Uint8Array(localBrowseFileByteLimit(paths[0]) + 1))
   assert.deepEqual((await reader.readLocalGitFile(pinned, { selection: { path: paths[0] } })).snapshot, { omitted: 'too-large' })
 })

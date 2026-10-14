@@ -159,7 +159,9 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
     await verifySourceMetadata?.()
     for (const [width, height] of VIEWPORTS) {
       await page.setViewportSize({ width, height })
-      await disclosure.scrollIntoViewIfNeeded()
+      // Nearest-edge scrolling can leave a fractional line clipped by the
+      // short scrollport. Center disclosures just like their text below.
+      await disclosure.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest' }))
       await expect(disclosure).toBeInViewport({ ratio: 1 })
       await expect(picker.getByRole('button', { name: 'Done', exact: true })).toBeInViewport({ ratio: 1 })
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)

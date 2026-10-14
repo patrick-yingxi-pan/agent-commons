@@ -94,6 +94,7 @@ export function ignoreFromPackage(path) {
       'desktop/attachmentSmoke.mjs',
       'desktop/localGitSmoke.mjs',
       'desktop/localFolderBrowseSmoke.mjs',
+      'desktop/localImageBrowseSmoke.mjs',
       'desktop/localDocumentBrowseSmoke.mjs',
       'desktop/attachmentSmokeFixture.mjs',
       'desktop/artifactImageImportSmoke.mjs',

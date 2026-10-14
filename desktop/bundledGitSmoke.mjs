@@ -34,6 +34,7 @@ const BASELINE_MODULES = [
   'contract/localGitBrowse.mjs',
   'contract/localFolderBrowse.mjs',
   'contract/localFileBrowse.mjs',
+  'contract/imageFile.mjs',
   'contract/pdfImport.mjs',
   'contract/docxImport.mjs',
   'contract/xlsxImport.mjs',

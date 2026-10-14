@@ -7,7 +7,7 @@ const listing = (files = [{ path: 'src/app.ts', kind: 'file' }], excludedCount =
 const preview = (text = '') => ({ version: 1, path: 'src/app.ts', sizeBytes: Buffer.byteLength(text), snapshot: { text } })
 
 test('Git browse data is detached, closed, sorted and relative with explicit unsupported states', () => {
-  const source = listing([{ path: 'a.ts', kind: 'conflict' }, { path: 'b', kind: 'sparse' }, { path: 'c.png', kind: 'unsupported' }], 2)
+  const source = listing([{ path: 'a.ts', kind: 'conflict' }, { path: 'b', kind: 'sparse' }, { path: 'c.zip', kind: 'unsupported' }], 2)
   const parsed = parseLocalGitFileListing(source)
   assert.deepEqual(parsed, source)
   source.files[0].path = 'changed.ts'
@@ -18,7 +18,7 @@ test('Git browse data is detached, closed, sorted and relative with explicit uns
     assert.equal(parseLocalGitFileListing(listing([{ path, kind: 'file' }])), undefined, path)
   }
   assert.equal(isLocalGitFileSelection({ path: '.config/合法.json' }), true)
-  for (const value of [listing([{ path: 'x.png', kind: 'file' }]), listing([{ path: 'z.ts', kind: 'file' }, { path: 'a.ts', kind: 'file' }]),
+  for (const value of [listing([{ path: 'x.zip', kind: 'file' }]), listing([{ path: 'z.ts', kind: 'file' }, { path: 'a.ts', kind: 'file' }]),
     listing([{ path: 'a.ts', kind: 'file' }, { path: 'a.ts', kind: 'file' }]), { ...listing(), nativePath: '/private' },
     listing([{ path: 'a.ts', kind: 'deleted' }]), listing([], -1), listing([], 1.5)]) assert.equal(parseLocalGitFileListing(value), undefined)
 })

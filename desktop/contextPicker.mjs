@@ -1,6 +1,6 @@
 import { constants } from 'node:fs'
 import { open, opendir, stat } from 'node:fs/promises'
-import { basename, extname, join } from 'node:path'
+import { basename, join } from 'node:path'
 import { LOCAL_TEXT_PREVIEW_BYTES, decodeLocalTextPreview, isLocalTextFileName } from '../contract/localTextFile.mjs'
 import { snapshotFolderFiles } from '../contract/localFolderSnapshotBuilder.mjs'
 import { MAX_FOLDER_SNAPSHOT_FILE_BYTES } from '../contract/localFolderSnapshot.mjs'
@@ -8,12 +8,13 @@ import { isPdfFileName, MAX_PDF_FILE_BYTES, MAX_PDF_SELECTION_BYTES } from '../c
 import { isDocxFileName, MAX_DOCX_FILE_BYTES, MAX_DOCX_SELECTION_BYTES } from '../contract/docxImport.mjs'
 import { isXlsxFileName, MAX_XLSX_FILE_BYTES, MAX_XLSX_SELECTION_BYTES } from '../contract/xlsxImport.mjs'
 import { isPptxFileName, MAX_PPTX_FILE_BYTES, MAX_PPTX_SELECTION_BYTES } from '../contract/pptxImport.mjs'
+import { IMAGE_FILE_MAX_BYTES, IMAGE_SELECTION_MAX_BYTES, imageFileExtensions, imageMimeForFileName } from '../contract/imageFile.mjs'
 
 export const MAX_PICKED_FILES = 24
 export const MAX_FOLDER_ENTRIES = 500
 export const MAX_TEXT_PREVIEW_BYTES = LOCAL_TEXT_PREVIEW_BYTES
-export const MAX_IMAGE_PREVIEW_BYTES = 8 * 1024 * 1024
-export const MAX_IMAGE_SELECTION_BYTES = 24 * 1024 * 1024
+export const MAX_IMAGE_PREVIEW_BYTES = IMAGE_FILE_MAX_BYTES
+export const MAX_IMAGE_SELECTION_BYTES = IMAGE_SELECTION_MAX_BYTES
 const MAX_DOCUMENT_SELECTION_BYTES = Math.min(MAX_PDF_SELECTION_BYTES, MAX_DOCX_SELECTION_BYTES, MAX_XLSX_SELECTION_BYTES, MAX_PPTX_SELECTION_BYTES)
 
 // Only transport policy belongs in main; all document parsing stays in the
@@ -25,25 +26,10 @@ const DOCUMENT_READERS = [
   { matches: isPptxFileName, maxBytes: MAX_PPTX_FILE_BYTES, bytesKey: 'pptxBytes', failureKey: 'pptxFailure' },
 ]
 
-const IMAGE_MIME = new Map([
-  ['.bmp', 'image/bmp'],
-  ['.gif', 'image/gif'],
-  ['.ico', 'image/x-icon'],
-  ['.jpeg', 'image/jpeg'],
-  ['.jpg', 'image/jpeg'],
-  ['.png', 'image/png'],
-  ['.svg', 'image/svg+xml'],
-  ['.webp', 'image/webp'],
-])
-
 const rejected = (reason) => ({ status: 'rejected', reason })
 
-function fileExtension(filePath) {
-  return extname(filePath).toLowerCase()
-}
-
 function imageMime(filePath) {
-  return IMAGE_MIME.get(fileExtension(filePath))
+  return imageMimeForFileName(basename(filePath))
 }
 
 async function safeFileDetails(filePath, inspect) {
@@ -114,7 +100,7 @@ export function createNativeContextPicker({
           title: pdfOnly ? 'Extract PDF text' : imageOnly ? 'Add photos' : 'Add files',
           properties: single ? ['openFile'] : ['openFile', 'multiSelections'],
           ...(imageOnly
-            ? { filters: [{ name: 'Images', extensions: [...IMAGE_MIME.keys()].map((extension) => extension.slice(1)) }] }
+            ? { filters: [{ name: 'Images', extensions: imageFileExtensions() }] }
             : pdfOnly ? { filters: [{ name: 'PDF documents', extensions: ['pdf'] }] } : {}),
         })
         if (result.canceled || result.filePaths.length === 0) return { status: 'cancelled' }

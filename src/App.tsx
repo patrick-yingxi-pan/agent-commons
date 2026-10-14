@@ -421,7 +421,7 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
   useEffect(() => {
     // No conversation focused (a section pane, the background) — leave the
     // tree as-is: an absent subject is not a "close the panel" instruction.
-    if (!focusedSessionId || (tier === 'wide' && contextIntakeOpen)) return
+    if (!focusedSessionId || contextIntakeOpen) return
     setFocusDrivenContext(focusedSessionId, tier === 'wide' ? activePanel : null)
   }, [setFocusDrivenContext, focusedSessionId, tier, activePanel, contextIntakeOpen])
   // Split duplicates the FOCUSED pane's own content (every page equally —

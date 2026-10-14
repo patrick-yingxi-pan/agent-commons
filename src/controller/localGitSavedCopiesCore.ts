@@ -2,7 +2,7 @@
 export type LocalSavedCopySourceKind = 'git' | 'git-untracked' | 'folder'
 
 export function createLocalGitSavedCopiesCore() {
-  type Entry = { id: string; account: string; sourceKind: LocalSavedCopySourceKind; connectionId: string; receipt: number; pending: boolean; promise: Promise<unknown> | null }
+  type Entry = { id: string; account: string; sourceKind: LocalSavedCopySourceKind; connectionId: string; receipt: number; pending: boolean; failed: boolean; acknowledged: boolean; promise: Promise<unknown> | null }
   const entries = new Map<string, Entry>()
   const listeners = new Map<string, Set<() => void>>()
   const keyOf = (scope: string, sourceKind: LocalSavedCopySourceKind, connectionId: string, receipt: number) => JSON.stringify([scope, sourceKind, connectionId, receipt])
@@ -22,7 +22,7 @@ export function createLocalGitSavedCopiesCore() {
   const getOrCreate = (scope: string, sourceKind: LocalSavedCopySourceKind, connectionId: string, receipt: number, makeId: () => string) => {
     const key = keyOf(scope, sourceKind, connectionId, receipt)
     let entry = entries.get(key)
-    if (!entry) { entry = { id: makeId(), account: accountOf(scope), sourceKind, connectionId, receipt, pending: false, promise: null }; entries.set(key, entry) }
+    if (!entry) { entry = { id: makeId(), account: accountOf(scope), sourceKind, connectionId, receipt, pending: false, failed: false, acknowledged: false, promise: null }; entries.set(key, entry) }
     return { key, entry }
   }
   return {
@@ -32,13 +32,24 @@ export function createLocalGitSavedCopiesCore() {
     isPending(scope: string, connectionId: string, receipt: number, sourceKind: LocalSavedCopySourceKind = 'git') {
       return entries.get(keyOf(scope, sourceKind, connectionId, receipt))?.pending ?? false
     },
+    isFailed(scope: string, connectionId: string, receipt: number, sourceKind: LocalSavedCopySourceKind = 'git') {
+      return entries.get(keyOf(scope, sourceKind, connectionId, receipt))?.failed ?? false
+    },
     submit(scope: string, connectionId: string, receipt: number, makeId: () => string,
       work: (id: string) => unknown | Promise<unknown>, sourceKind: LocalSavedCopySourceKind = 'git') {
       const { key, entry } = getOrCreate(scope, sourceKind, connectionId, receipt, makeId)
       if (entry.promise) return { id: entry.id, promise: entry.promise, coalesced: true }
+      if (entry.acknowledged) return { id: entry.id, promise: Promise.resolve(), coalesced: true }
+      entry.failed = false
       entry.pending = true
       publish(key)
-      const promise = Promise.resolve().then(() => work(entry.id)).finally(() => {
+      const promise = Promise.resolve().then(() => work(entry.id)).catch(error => {
+        if (entries.get(key) === entry && !entry.acknowledged) {
+          entry.failed = true
+          publish(key)
+        }
+        throw error
+      }).finally(() => {
         entry.pending = false
         entry.promise = null
         publish(key)
@@ -58,13 +69,29 @@ export function createLocalGitSavedCopiesCore() {
     adoptAttachments(scope: string, attachmentIds: readonly string[]) {
       const present = new Set(attachmentIds)
       const account = accountOf(scope)
+      const scopePrefix = `[${JSON.stringify(scope)},`
+      // Acknowledgement is a projection of current attachment truth, not a
+      // permanent receipt state. Removal makes the same saved identity
+      // attachable again on the next explicit user action.
+      for (const [key, current] of entries) {
+        if (!key.startsWith(scopePrefix) || current.account !== account) continue
+        current.acknowledged = present.has(current.id)
+      }
       for (const entry of [...entries.values()]) {
         if (entry.account !== account || !present.has(entry.id)) continue
         const key = keyOf(scope, entry.sourceKind, entry.connectionId, entry.receipt)
         const current = entries.get(key)
-        if (!current || !present.has(current.id)) {
-          entries.set(key, { ...entry, pending: false, promise: null })
-        }
+        // Keep one mutable receipt object across draft promotion and
+        // acknowledgement. The in-flight submit/finally closes over this
+        // object; replacing it here can strand a pending clone forever.
+        const adopted = current && present.has(current.id) ? current : entry
+        entries.set(key, adopted)
+        adopted.acknowledged = true
+        adopted.pending = false
+        adopted.failed = false
+        // Adoption is called while rendering the attachment projection. Do
+        // not notify subscribers synchronously here; their parent projection
+        // already renders from the authoritative attachment list.
       }
       return [...new Set(idsFor(scope))]
     },

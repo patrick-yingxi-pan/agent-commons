@@ -12,7 +12,7 @@ test('recursive local folder capture is an explicit desktop-only attach scope wi
   assert.match(source, /Hidden paths and symlinks are excluded/)
   assert.match(source, /24 readable text files, 64 KB each and 128 KB total/)
   assert.match(source, /includeSubfolders \? 'recursive' : 'flat'/)
-  assert.match(source, /opening, previewing and sending never reread files/)
+  assert.match(source, /Opening, previewing and sending never reread files/)
 })
 
 test('saved recursive folders disclose scope and preserve full relative names in the saved-copy preview', () => {

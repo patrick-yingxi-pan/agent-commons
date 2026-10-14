@@ -2,10 +2,11 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { GitBranch } from 'lucide-react'
 import type { AddedContext, Attachment } from '../types'
 import type { LocalGitConnection } from '../../contract/localGitCapture.ts'
+import type { PreparedLocalFileSavedCopy } from '../controller/localFileSavedCopyCore.ts'
 import { fsRecentKey } from '../../contract/fs.ts'
 import { accountGeneration } from '../api/account.ts'
 import { captureLocalGit } from '../api/localGit.ts'
-import { localGitSavedCopies, newLocalGitSavedCopyId } from '../controller/localGitSavedCopies.ts'
+import { localGitSavedCopies } from '../controller/localGitSavedCopies.ts'
 import { localGitConnections, useLocalGitConnections } from '../controller/localGitConnections.ts'
 import { useRelations } from '../controller/useRelations'
 import { UI_HOST_SOURCE } from '../lib/fsSources'
@@ -104,14 +105,12 @@ export function NativeLocalGitPicker({ onAdd, addedIds, attachments, intentScope
                 const id = localGitSavedCopies.id(intentScope, connection.id, receipt, sourceKind)
                 return id !== undefined && attachments.some(item => item.id === id)
               }}
-              onAttach={allowSavedCopy ? (path, text, receipt, documentImport, sourceKind = 'git') => {
-                const result = localGitSavedCopies.submit(intentScope, connection.id, receipt, newLocalGitSavedCopyId, id => {
-                  if (attachments.some(item => item.id === id)) return
-                  return onAdd({ kind: 'files', attachments: [{
-                    id, label: path, kind: 'file', source: UI_HOST_SOURCE, previewText: text, ...(documentImport && { documentImport }),
-                  }] })
-                }, sourceKind)
-                return result.promise
+              onAttach={allowSavedCopy ? (file: PreparedLocalFileSavedCopy) => {
+                if (attachments.some(item => item.id === file.id)) return
+                return onAdd({ kind: 'files', attachments: [{
+                  id: file.id, label: file.name, kind: file.kind, source: UI_HOST_SOURCE,
+                  ...(file.kind === 'file' ? { previewText: file.text } : { image: file.image }), ...(file.documentImport && { documentImport: file.documentImport }),
+                }] })
               } : undefined} />
           </Suspense></div>}
         </div>

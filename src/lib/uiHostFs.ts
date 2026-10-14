@@ -30,6 +30,7 @@ import type { ImageSnapshot } from '../../contract/imageInput.ts'
 import type { ImageAssetRef } from '../../contract/imageAssets.ts'
 import { imageOriginal, type ImageOriginal } from '../../contract/imageOriginal.ts'
 import { IMAGE_MAX_CONTAINER_BYTES } from '../../contract/imageInput.ts'
+import { IMAGE_FILE_MAX_BYTES, IMAGE_SELECTION_MAX_BYTES, isImageFileName } from '../../contract/imageFile.mjs'
 import { isArtifactDocumentFileName } from './artifactDocumentImport.ts'
 import { isArtifactSheetFileName } from './artifactSheetImport.ts'
 
@@ -56,8 +57,6 @@ export interface UiHostFile {
   pdfOcrFailure?: Exclude<PdfOcrFailureStatus, 'busy' | 'cancelled'>
 }
 
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'])
-const IMPORTABLE_IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'ico', 'svg'])
 const SHEET_EXTS = new Set(['csv', 'tsv', 'xlsx', 'xls'])
 const SLIDE_EXTS = new Set(['key', 'ppt', 'pptx'])
 
@@ -69,15 +68,15 @@ function extOf(name: string): string {
 /** The artifact kind for a file name (mirrors server/fs.ts `kindForExt`). */
 export function uiHostKind(name: string): ArtifactKind {
   const ext = extOf(name)
-  if (IMAGE_EXTS.has(ext)) return 'image'
+  if (isImageFileName(name)) return 'image'
   if (SHEET_EXTS.has(ext)) return 'sheet'
   if (SLIDE_EXTS.has(ext)) return 'slide'
   if (ext === 'eml') return 'email'
   return 'doc'
 }
 
-const isImage = (name: string) => IMAGE_EXTS.has(extOf(name))
-const isImportableImage = (name: string) => IMPORTABLE_IMAGE_EXTS.has(extOf(name))
+const isImage = isImageFileName
+const isImportableImage = isImageFileName
 type UiHostFileAccept = 'image' | 'any' | 'document' | 'slides' | 'sheet' | 'image-text' | 'pdf-text'
 function rejectedArtifactSelection(files: readonly { name: string }[], accept: UiHostFileAccept): boolean {
   if (accept === 'any' || accept === 'image') return false
@@ -86,12 +85,12 @@ function rejectedArtifactSelection(files: readonly { name: string }[], accept: U
 }
 
 function previewBytes(url: string): Uint8Array {
-  if (typeof url !== 'string' || url.length > Math.ceil(8 * 1024 * 1024 / 3) * 4 + 32 ||
+  if (typeof url !== 'string' || url.length > Math.ceil(IMAGE_FILE_MAX_BYTES / 3) * 4 + 32 ||
       !/^data:image\/(png|jpeg|gif|webp|bmp|x-icon|svg\+xml);base64,/.test(url)) throw new ImageImportError('invalid')
   const encoded = url.slice(url.indexOf(',') + 1)
   let binary: string
   try { binary = atob(encoded) } catch { throw new ImageImportError('invalid') }
-  if (binary.length > 8 * 1024 * 1024 || btoa(binary) !== encoded) throw new ImageImportError('invalid')
+  if (binary.length > IMAGE_FILE_MAX_BYTES || btoa(binary) !== encoded) throw new ImageImportError('invalid')
   return Uint8Array.from(binary, (char) => char.charCodeAt(0))
 }
 
@@ -138,10 +137,10 @@ async function toUiHostFile(file: File, documentBudget: { used: number }, imageB
   const name = file.name
   if (isImage(name)) {
     if (!isImportableImage(name)) throw new UiHostPickerError('unsupported-image')
-    if (file.size > IMAGE_MAX_CONTAINER_BYTES || imageBudget.used + file.size > 24 * 1024 * 1024) throw new UiHostPickerError('selection-too-large')
+    if (file.size > IMAGE_MAX_CONTAINER_BYTES || imageBudget.used + file.size > IMAGE_SELECTION_MAX_BYTES) throw new UiHostPickerError('selection-too-large')
     imageBudget.used += file.size
     try {
-      const bytes = new Uint8Array(await file.slice(0, 8 * 1024 * 1024 + 1).arrayBuffer())
+      const bytes = new Uint8Array(await file.slice(0, IMAGE_FILE_MAX_BYTES + 1).arrayBuffer())
       if (bytes.byteLength !== file.size) throw new ImageImportError('invalid')
       const imageInput = await importImage(bytes, signal)
       return selectedFile({ name, kind: 'photo', imageInput, ...(accept !== 'image-text' && { imageOriginal: imageOriginal(name, bytes) }) })
@@ -211,10 +210,10 @@ export async function pickUiHostFiles(
       if (!isImportableImage(file.name)) throw new UiHostPickerError('unsupported-image')
       if (!file.previewDataUrl) throw new ImageImportError('invalid')
       // Bound aggregate encoded work before retaining a decoded copy.
-      if (file.previewDataUrl.length > Math.ceil((24 * 1024 * 1024 - nativeImageBytes) / 3) * 4 + 32) throw new UiHostPickerError('selection-too-large')
+      if (file.previewDataUrl.length > Math.ceil((IMAGE_SELECTION_MAX_BYTES - nativeImageBytes) / 3) * 4 + 32) throw new UiHostPickerError('selection-too-large')
       const bytes = previewBytes(file.previewDataUrl)
       nativeImageBytes += bytes.byteLength
-      if (nativeImageBytes > 24 * 1024 * 1024) throw new UiHostPickerError('selection-too-large')
+      if (nativeImageBytes > IMAGE_SELECTION_MAX_BYTES) throw new UiHostPickerError('selection-too-large')
       nativeImages.set(file, bytes)
     }
     const files: UiHostFile[] = []
@@ -284,7 +283,7 @@ async function readSelectedFiles(files: File[], accept: UiHostFileAccept, signal
   if (accept === 'image' && files.some((file) => !isImportableImage(file.name))) throw new UiHostPickerError('unsupported-image')
   if (images.some((file) => !isImportableImage(file.name))) throw new UiHostPickerError('unsupported-image')
   if (images.some((file) => file.size > IMAGE_MAX_CONTAINER_BYTES)) throw new UiHostPickerError('image-too-large')
-  if (images.reduce((sum, file) => sum + file.size, 0) > 24 * 1024 * 1024) throw new UiHostPickerError('selection-too-large')
+  if (images.reduce((sum, file) => sum + file.size, 0) > IMAGE_SELECTION_MAX_BYTES) throw new UiHostPickerError('selection-too-large')
   const selected: UiHostFile[] = []
   const documentBudget = { used: 0 }
   const imageBudget = { used: 0 }

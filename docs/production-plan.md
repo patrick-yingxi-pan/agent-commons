@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-13. The standing goal remains production readiness for Agent
+Reviewed 2026-10-14. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -47,7 +47,56 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: explicit untracked Git intake
+## Current checkpoint: images inside connected sources
+
+Autonomous direction (2026-10-13): extend the existing explicit selected-file
+workflow to images in connected Folders, tracked Git and opted-in untracked Git.
+People should not need to reopen a second file chooser to use an image already
+visible in their source. Canonical detail and Project context stay browse-only;
+conversation Attach saves the exact reviewed image without rereading its path.
+
+The native host transports one detached source container up to 8 MiB and never
+decodes it. The renderer reuses the existing PNG/JPEG/GIF/WebP/BMP/ICO/static-SVG
+normalizer and displays only its bounded first-frame PNG (largest ICO image),
+at most 2,000 pixels per edge and 3 MiB. No upload, OCR or model call occurs on
+listing or preview. Explicit Attach reuses private original-image retention and
+the ordinary durable photo-attachment boundary. Shared views and conversation image input use
+the normalized copy; the exact original remains owner-download-only.
+
+Pre-context upload belongs to the account, connection and preview receipt.
+Dismiss, uncheck, Disconnect, selecting a replacement and account disposal fence
+late publication. A picker remount does not cancel an explicit pending Attach;
+the existing byte-free target-qualified receipt coalesces it. Once the context
+mutation is submitted, its ordinary acknowledgement/retry owner takes over.
+Bulk Folder/Git text snapshots and change-review scope remain unchanged.
+
+Acceptance matrix: Folder/tracked/untracked preview in canonical detail,
+conversation intake and descriptive Project context at all five canonical
+viewports; ordinary saved photo previews with shared-reader/foreign walls;
+invalid/oversized inputs, late native results and pre-context cancellation;
+real unsigned packaged image read, exact frozen Attach, source-absent relaunch,
+private original download and normalized model input. The complete local
+verifier, separate 135-cell shell sweep and desktop verifier remain mandatory.
+Actual OS-dialog, signed/notarized, native Intel and live-service evidence remain
+separate gates. The Mac was still unavailable to native UI control when the
+owner's unlock notification was checked; no actual chooser pass is inferred.
+
+First-pass acceptance found stale rendered consent allowing an untracked upload
+to attach after Dismiss, and a responsive pane collapse remounting the next
+picker after an earlier photo preview. Live receipt checks and an all-tier
+intake hold address these at shared boundaries. Review also caught acknowledgement
+replacing a pending receipt and permanent acknowledgement blocking reattachment;
+the receipt's current represented state must preserve both settlement and a
+later explicit reattach. These fixes require the same final frozen-tree gates,
+not an exemption based on the earlier partial passes.
+
+## Completed checkpoint: explicit untracked Git intake
+
+The complete user workflow landed as `be623c7e` after all five local verifier
+lanes and 707 browser tests passed in 725.3 seconds. The separate 135/135-cell
+UI sweep and unsigned arm64 desktop verifier passed on the same frozen tree.
+Native dialog review remains pending; deterministic packaged selection is not
+evidence of the actual OS chooser.
 
 Autonomous direction (2026-10-13): complete repository intake with a separate,
 unchecked untracked-file browser. New files should be reviewable and attachable

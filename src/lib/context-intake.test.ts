@@ -43,7 +43,10 @@ test('all conversation intake hosts use the same session-scoped overlay gate', (
   }
   const app = source('App.tsx')
   assert.match(app, /useContextIntakeOpen\(focusedSessionId\)/)
-  assert.match(app, /if \(!focusedSessionId \|\| \(tier === 'wide' && contextIntakeOpen\)\) return/)
+  assert.match(app, /if \(!focusedSessionId \|\| contextIntakeOpen\) return/,
+    'an active intake holds the focus-driven pane topology on every responsive tier')
+  assert.match(app, /\[setFocusDrivenContext, focusedSessionId, tier, activePanel, contextIntakeOpen\]/,
+    'the deferred topology change reconciles against the latest viewport after intake closes')
   assert.match(app, /inert=\{tier !== 'wide' && !!focusedFocus && !contextIntakeOpen\}/)
   assert.match(app, /tier !== 'wide' && !contextIntakeOpen && \(\s*<OverlayPanelDock/)
 })

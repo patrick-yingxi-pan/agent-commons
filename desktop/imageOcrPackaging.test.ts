@@ -33,5 +33,6 @@ test('native file selection never starts OCR and packaged UI acceptance exercise
   assert.match(smoke, /assert\.deepEqual\(restoredImageOcrBody, importedImage\.body/)
   for (const path of ['imageOcr.mjs', 'imageOcrHost.mjs', 'image-ocr-channels.cjs']) assert.equal(ignoreFromPackage(`/desktop/${path}`), false, path)
   assert.equal(ignoreFromPackage('/contract/imageOcr.mjs'), false)
+  assert.equal(ignoreFromPackage('/contract/imageFile.mjs'), false, 'shared filename and byte policy ships with the desktop')
   assert.equal(ignoreFromPackage('/desktop/artifactImageImportSmoke.mjs'), true)
 })

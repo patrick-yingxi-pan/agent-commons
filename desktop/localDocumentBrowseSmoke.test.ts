@@ -48,7 +48,8 @@ test('packaged document browsing is awaited for both native sources before sourc
   const gitClose = git.indexOf('await run.app.close()', gitHold)
   const gitRestart = git.indexOf('run = await relaunch(executable, userDataPath)', gitClose)
   const gitRelaunch = git.indexOf('await verifyLocalDocumentBrowseRelaunch(')
-  assert.ok(gitBrowse > git.indexOf("await send(run.page, 'Read only the selected saved file.'"), 'four-format Git walk follows existing text acceptance')
+  const gitFileBrowse = git.indexOf('const trackedImageReceipt = await smokeLocalImageBrowse(')
+  assert.ok(gitFileBrowse > 0 && gitBrowse > gitFileBrowse, 'four-format Git walk follows the selected text-and-image acceptance')
   assert.ok(gitHold > gitBrowse, 'Git document files are moved outside the connected source before relaunch')
   assert.ok(gitClose > gitHold, 'the packaged Git process exits after source removal')
   assert.ok(gitRestart > gitClose, 'the Git conversation is reopened by a new packaged process')
@@ -62,10 +63,12 @@ test('packaged document acceptance helpers never ship', () => {
   assert.equal(ignoreFromPackage('/desktop/localDocumentBrowseSmoke.test.ts'), true)
 })
 
-test('packaged document preview capture centers the selected text without relaxing containment', () => {
+test('packaged document preview capture centers disclosure and text without relaxing containment', () => {
   const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
-  assert.ok(source.includes("node.scrollIntoView({ block: 'center', inline: 'nearest' })"), 'short-landscape preview capture scrolls inward from the clipped ancestor edge')
-  assert.ok(source.includes('expect(preview).toBeInViewport({ ratio: 1 })'), 'every complete preview must remain fully visible')
+  for (const target of ['disclosure', 'preview']) {
+    assert.ok(source.includes(`await ${target}.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest' }))`), `${target} capture scrolls inward from the clipped ancestor edge`)
+    assert.ok(source.includes(`expect(${target}).toBeInViewport({ ratio: 1 })`), `${target} must remain fully visible`)
+  }
 })
 
 test('packaged document relaunch opens the grouped saved-file menu before each exact preview', () => {

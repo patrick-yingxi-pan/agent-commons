@@ -3,6 +3,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
+import { localImageBrowseFixture, smokeLocalImageBrowse, verifyLocalImageBrowseRelaunch } from './localImageBrowseSmoke.mjs'
 
 const TIMEOUT_MS = 30_000
 const SELECTED_PATH = 'src/local-note.md'
@@ -21,6 +22,8 @@ export async function smokeLocalFolderBrowse({ run, root, connectionId, provider
   const { page, origin } = run
   const original = await readFile(join(root, SELECTED_PATH), 'utf8')
   assert.equal(original, 'native-nested-source-body\n', 'the selected leaf has known distinct source bytes')
+  const image = localImageBrowseFixture('png')
+  await writeFile(join(root, 'src', image.name), image.bytes, { mode: 0o600 })
   const session = await page.evaluate(async id => {
     const response = await fetch('/api/v1/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
@@ -63,32 +66,36 @@ export async function smokeLocalFolderBrowse({ run, root, connectionId, provider
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
     await page.screenshot({ path: join(evidenceRoot, `saved-copy-${width}x${height}.png`) })
   }
-  await picker.getByRole('button', { name: 'Done', exact: true }).click()
+  const imageReceipt = await smokeLocalImageBrowse({
+    run, root, path: `src/${image.name}`, kind: 'png', source: 'folder', browser, picker,
+    sessionId: session.id, endpoint, listKind: 'File', previewSelector: '[data-local-folder-file-preview]',
+    pickerAddedCount: 2,
+  })
   const saved = await workspace(page, session.id)
-  assert.equal(saved.attachments.length, 1)
-  assert.equal(saved.attachments[0].label, SELECTED_PATH)
-  assert.equal(saved.attachments[0].previewText, original, 'Attach saves the shown bytes, not a newer source read')
+  assert.equal(saved.attachments.length, 2)
+  assert.equal(saved.attachments.find(item => item.label === SELECTED_PATH)?.previewText, original,
+    'Attach saves the shown text, not a newer source read')
+  assert.ok(saved.attachments.find(item => item.label === `src/${image.name}`)?.image,
+    'Attach saves the normalized selected image')
   assert.equal(JSON.stringify(saved).includes(root), false, 'no native absolute path crosses into saved state')
   assert.equal(JSON.stringify(saved).includes(changed.trim()), false)
-  assert.equal(endpoint.requests.length, requestsBefore, 'Attach itself does not dispatch a model call')
-  // This is a fresh conversation: assert its exact empty transcript before
-  // composing rather than sampling a potentially unhydrated history count.
-  const replies = page.locator('[data-turn]').filter({ hasText: original.trim() })
-  await expect(replies).toHaveCount(0)
-  await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Read only the selected saved folder file.')
-  await page.getByRole('textbox', { name: 'Message', exact: true }).press('Enter')
-  await expect(replies).toHaveCount(1, { timeout: TIMEOUT_MS })
-  await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0, { timeout: TIMEOUT_MS })
-  assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [{ name: SELECTED_PATH, status: 'ready', text: original }])
+  assert.equal(endpoint.requests.length, requestsBefore + 1, 'only explicit Send dispatches a model call')
+  // The shared image helper sent once after explicit attachment; the reply
+  // should include the selected image while the prior text copy stays attached.
+  assert.deepEqual(endpoint.documents.at(-1)?.attached_files, [
+    { name: SELECTED_PATH, status: 'ready', text: original },
+    { name: 'src/local-photo.png', status: 'image-ready', image_index: 1, width: 240, height: 120 },
+  ])
   assert.equal(JSON.stringify(endpoint.requests).includes(changed.trim()), false)
   assert.equal(JSON.stringify(endpoint.requests).includes('NESTED_HIDDEN_SECRET'), false)
   assert.equal(JSON.stringify(endpoint.requests).includes('SYMLINK_MUST_NOT_BE_READ'), false)
   console.log(`[desktop-local-folder-browse-smoke] real selected read + exact saved-copy input + five-viewport evidence: ${evidenceRoot}`)
-  return { sessionId: session.id, connectionId, saved: await workspace(page, session.id) }
+  return { sessionId: session.id, connectionId, saved: await workspace(page, session.id), imageReceipt }
 }
 
 export async function verifyLocalFolderBrowseRelaunch(page, receipt) {
-  assert.ok(receipt?.sessionId && receipt.saved?.attachments?.length === 1, 'the prior selected-file walk completed')
+  assert.ok(receipt?.sessionId && receipt.saved?.attachments?.length === 2, 'the prior selected-file and image walks completed')
   assert.deepEqual(await workspace(page, receipt.sessionId), receipt.saved,
     'the exact selected-file copy survives packaged relaunch after its source folder is removed')
+  if (receipt.imageReceipt) await verifyLocalImageBrowseRelaunch({ page }, receipt.imageReceipt)
 }

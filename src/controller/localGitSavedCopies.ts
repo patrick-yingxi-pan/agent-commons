@@ -22,3 +22,11 @@ export function useLocalGitSavedCopyPending(scope: string, connectionId: string,
     () => false,
   )
 }
+
+export function useLocalGitSavedCopyFailed(scope: string, connectionId: string, receipt: number | null, sourceKind: LocalSavedCopySourceKind = 'git') {
+  return useSyncExternalStore(
+    listener => receipt === null ? () => {} : localGitSavedCopies.subscribe(scope, connectionId, receipt, listener, sourceKind),
+    () => receipt !== null && localGitSavedCopies.isFailed(scope, connectionId, receipt, sourceKind),
+    () => false,
+  )
+}

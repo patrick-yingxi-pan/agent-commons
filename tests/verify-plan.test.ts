@@ -10,11 +10,12 @@
  *  by a real defect in the first cut of the runner (2026-08-11 review). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync, execSync } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
+import { createVerifyInterruptionFixture, removeVerifyInterruptionFixture, startFixtureVerifier } from './helpers/verifyInterruptionFixture.mjs'
 import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteConcurrency, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
 
 test('full verification can retain first-failure browser traces without enabling retries', () => {
@@ -37,64 +38,46 @@ test('CI rejects flaky E2E retries and exposes lane tails on coverage mismatch',
   assert.match(runner, /if \(failed\.length > 0 \|\| coverage\.shortfall\) process\.exitCode = 1/)
 })
 
-test('coverage mismatch emits the E2E lane tail and exits nonzero', () => {
-  const tmp = mkdtempSync(join(tmpdir(), 'verify-coverage-'))
+test('coverage mismatch emits the E2E lane tail and exits nonzero', { timeout: 15_000 }, async () => {
+  const fixture = await createVerifyInterruptionFixture()
+  let verifier: ReturnType<typeof startFixtureVerifier>
+  const run = async () => {
+    verifier = startFixtureVerifier(fixture, { reportedPasses: 1, runnerArgs: ['e2e'] })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        verifier.closed,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`fixture verifier exceeded 5s; output=${verifier.output().slice(-2_000)}`)), 5_000)
+        }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
   try {
-    mkdirSync(join(tmp, 'scripts'))
-    mkdirSync(join(tmp, 'e2e'))
-    mkdirSync(join(tmp, 'tests'))
-    mkdirSync(join(tmp, 'bin'))
-    const runnerPath = join(tmp, 'scripts', 'verify.mjs')
-    const runnerSource = readFileSync(join(ROOT, 'scripts', 'verify.mjs'), 'utf8')
-    for (const file of ['verify.mjs', 'verifyPlan.mjs', 'hostSpeed.mjs', 'childProcessLifecycle.mjs']) {
-      writeFileSync(join(tmp, 'scripts', file), file === 'verify.mjs' ? runnerSource : readFileSync(join(ROOT, 'scripts', file)))
-    }
-    writeFileSync(join(tmp, 'package.json'), JSON.stringify({ scripts: { test: 'node --test --test-concurrency=4 "tests/**/*.test.ts"' } }))
-    // The fake runner deliberately reports no passing tests for a manifest that
-    // declares one. This exercises the real verifier process and its exit code,
-    // without booting a browser or touching the repository's .data cache.
-    writeFileSync(join(tmp, 'e2e', 'fixture.spec.ts'), "test('fixture coverage subject', () => {})\n")
-    writeFileSync(join(tmp, 'bin', 'npx'), '#!/bin/sh\nprintf "fixture lane tail\\n0 passed\\n"\n', { mode: 0o755 })
-
-    const fixtureEnv = { ...process.env, PATH: `${join(tmp, 'bin')}:${process.env.PATH ?? ''}`, E2E_SHARDS: '1' }
-    delete fixtureEnv.VERIFY_E2E_PART
-    delete fixtureEnv.VERIFY_E2E_PARTS
-    const run = (source: string) => {
-      writeFileSync(runnerPath, source)
-      try {
-        const output = execFileSync(process.execPath, [runnerPath, 'e2e'], {
-          cwd: tmp,
-          env: fixtureEnv,
-          encoding: 'utf8',
-          timeout: 5_000,
-        })
-        return { status: 0, output }
-      } catch (error: any) {
-        return {
-          status: error.status ?? 1,
-          output: `${error.stdout ?? ''}${error.stderr ?? ''}`,
-        }
-      }
-    }
-    const result = run(runnerSource)
-    assert.equal(result.status, 1, 'a coverage shortfall remains a verification failure')
-    assert.match(result.output, /coverage mismatch diagnostics \(0 of 1\)/)
-    assert.match(result.output, /e2e output \(coverage mismatch\)/)
-    assert.match(result.output, /fixture lane tail/, 'the lane tail is not swallowed when the lane itself exits 0')
+    let result = await run()
+    assert.equal(result.code, 1, `a coverage shortfall remains a verification failure; output=${verifier.output().slice(-2_000)}`)
+    assert.match(verifier.output(), /coverage mismatch diagnostics \(1 of 2\)/)
+    assert.match(verifier.output(), /e2e output \(coverage mismatch\)/)
+    assert.match(verifier.output(), /e2e\/first\.spec\.ts:1:1/, 'the lane tail is not swallowed when the lane itself exits 0')
+    assert.match(verifier.output(), /1 passed/)
 
     // Watch the executable assertion distinguish the diagnostic block itself:
-    // remove only that block from the temporary copy and prove its output is
-    // absent, while the shortfall still fails. The production copy above is
-    // never modified.
+    // remove only that block from the fixture runner and prove its output is
+    // absent, while the shortfall still fails. The production runner is never
+    // modified.
+    const runnerSource = readFileSync(fixture.runner, 'utf8')
     const diagnosticStart = runnerSource.indexOf('if (coverage.shortfall) {')
     const diagnosticEnd = runnerSource.indexOf('}\nprocess.stdout.write(', diagnosticStart)
     assert.ok(diagnosticStart >= 0 && diagnosticEnd > diagnosticStart, 'fixture mutation found the diagnostic block')
     const withoutDiagnostics = `${runnerSource.slice(0, diagnosticStart)}${runnerSource.slice(diagnosticEnd + 2)}`
-    const degraded = run(withoutDiagnostics)
-    assert.equal(degraded.status, 1)
-    assert.doesNotMatch(degraded.output, /coverage mismatch diagnostics/)
+    writeFileSync(fixture.runner, withoutDiagnostics)
+    result = await run()
+    assert.equal(result.code, 1, `the shortfall still fails after mutating diagnostics; output=${verifier.output().slice(-2_000)}`)
+    assert.doesNotMatch(verifier.output(), /coverage mismatch diagnostics/)
   } finally {
-    rmSync(tmp, { recursive: true, force: true })
+    await removeVerifyInterruptionFixture(fixture, verifier)
   }
 })
 

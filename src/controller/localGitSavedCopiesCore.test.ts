@@ -6,8 +6,9 @@ const scope = (account: number, target: string) => JSON.stringify([account, targ
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>(yes => { resolve = yes })
-  return { promise, resolve }
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
 }
 
 test('an exact preview receipt coalesces across picker remounts until context acknowledgement', async () => {
@@ -81,6 +82,85 @@ test('draft identity adopts into the materialized session only when its exact ID
   assert.deepEqual(core.adoptAttachments(session, [receiptId]), [receiptId])
   assert.equal(core.id(session, 'connection', 12), receiptId, 'materialization aliases only the byte-free receipt identity')
   assert.deepEqual(core.adoptAttachments(unrelatedSession, ['another-file-id']), [])
+})
+
+test('authoritative adoption during a failure notification keeps the live entry and settles its pending state', async () => {
+  const core = createLocalGitSavedCopiesCore()
+  const target = scope(3, 'session')
+  let rejectWork!: (error: Error) => void
+  let calls = 0
+  const intent = core.submit(target, 'connection', 14, () => 'adopted-id', () => {
+    calls++
+    return new Promise<void>((_resolve, reject) => { rejectWork = reject })
+  })
+  await Promise.resolve()
+  let adoptedDuringFailure = false
+  core.subscribe(target, 'connection', 14, () => {
+    if (core.isFailed(target, 'connection', 14) && !adoptedDuringFailure) {
+      adoptedDuringFailure = true
+      assert.deepEqual(core.adoptAttachments(target, ['adopted-id']), ['adopted-id'])
+    }
+  })
+
+  rejectWork(new Error('lost acknowledgement'))
+  await assert.rejects(intent.promise, /lost acknowledgement/)
+  assert.equal(adoptedDuringFailure, true)
+  assert.equal(core.isPending(target, 'connection', 14), false)
+  assert.equal(core.isFailed(target, 'connection', 14), false)
+  const alreadyAttached = core.submit(target, 'connection', 14, () => 'wrong-id', () => { calls++ })
+  assert.equal(alreadyAttached.id, 'adopted-id')
+  assert.equal(alreadyAttached.coalesced, true)
+  await alreadyAttached.promise
+  assert.equal(calls, 1, 'an authoritative attachment suppresses retry of the same receipt')
+})
+
+test('attachment adoption mutates receipt state without notifying subscribers during render projection', async () => {
+  const core = createLocalGitSavedCopiesCore()
+  const target = scope(3, 'session')
+  const gate = deferred<void>()
+  const intent = core.submit(target, 'connection', 15, () => 'render-adopted-id', () => gate.promise)
+  await Promise.resolve()
+  let notifications = 0
+  core.subscribe(target, 'connection', 15, () => { notifications++ })
+
+  assert.deepEqual(core.adoptAttachments(target, ['render-adopted-id']), ['render-adopted-id'])
+  assert.equal(notifications, 0, 'render-time authoritative projection must not synchronously notify external-store subscribers')
+  assert.equal(core.isPending(target, 'connection', 15), false)
+  gate.resolve()
+  await intent.promise
+  assert.equal(notifications, 1, 'the settled in-flight submission still publishes its own completion')
+})
+
+test('removing an acknowledged attachment re-enables explicit attach with the same saved identity', async () => {
+  const core = createLocalGitSavedCopiesCore()
+  const target = scope(3, 'session')
+  let calls = 0
+  const first = core.submit(target, 'connection', 17, () => 'reattachable-id', () => { calls++ })
+  await first.promise
+  assert.deepEqual(core.acknowledgedIds(target, ['reattachable-id']), ['reattachable-id'])
+
+  assert.deepEqual(core.acknowledgedIds(target, []), [], 'an authoritative removal clears the Added projection')
+  const second = core.submit(target, 'connection', 17, () => 'wrong-id', () => { calls++ })
+  assert.equal(second.id, 'reattachable-id')
+  assert.equal(second.coalesced, false)
+  await second.promise
+  assert.equal(calls, 2, 'explicit reattach performs fresh work while preserving the opaque saved ID')
+})
+
+test('draft promotion aliases the live receipt entry so late failure cannot strand or revive the adopted target', async () => {
+  const core = createLocalGitSavedCopiesCore()
+  const draft = scope(4, 'draft')
+  const session = scope(4, 'session')
+  const gate = deferred<void>()
+  const intent = core.submit(draft, 'connection', 16, () => 'promoted-id', () => gate.promise)
+  await Promise.resolve()
+  assert.deepEqual(core.adoptAttachments(session, ['promoted-id']), ['promoted-id'])
+  assert.equal(core.isPending(session, 'connection', 16), false)
+  gate.reject(new Error('late lost acknowledgement'))
+  await assert.rejects(intent.promise, /late lost acknowledgement/)
+  assert.equal(core.isPending(session, 'connection', 16), false)
+  assert.equal(core.isFailed(session, 'connection', 16), false)
+  assert.equal(core.id(session, 'connection', 16), 'promoted-id')
 })
 
 test('acknowledged saved-copy projection counts only known IDs present in actual attachments', () => {

@@ -103,7 +103,7 @@ export async function waitForFixtureFile(path, timeoutMs = 5_000) {
   throw new Error(`Timed out waiting for fixture readiness: ${basename(path)}`)
 }
 
-export function startFixtureVerifier(fixture, { holdTypecheck = false, reportedPasses = 2 } = {}) {
+export function startFixtureVerifier(fixture, { holdTypecheck = false, reportedPasses = 2, runnerArgs = [] } = {}) {
   const env = { ...process.env }
   delete env.VERIFY_E2E_PART
   delete env.VERIFY_E2E_PARTS
@@ -114,7 +114,7 @@ export function startFixtureVerifier(fixture, { holdTypecheck = false, reportedP
     VERIFY_FIXTURE_PASSED: String(reportedPasses),
     E2E_SHARDS: '1',
   })
-  const child = spawn(process.execPath, [fixture.runner], {
+  const child = spawn(process.execPath, [fixture.runner, ...runnerArgs], {
     cwd: fixture.root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],

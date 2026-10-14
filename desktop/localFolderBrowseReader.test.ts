@@ -46,15 +46,31 @@ test('selected folder preview is admitted from a fresh tree and reads only one b
 }))
 
 test('unsupported entries, unsupported names, and oversized selected files never invoke the body reader', async () => fixture(async (root) => {
-  const descriptor = { rootVersion: 'private', visited: 1, directoryCount: 0, entries: [helperEntry('U', 8, 'u1', 'image.png')] }
+  const descriptor = { rootVersion: 'private', visited: 1, directoryCount: 0, entries: [helperEntry('U', 8, 'u1', 'archive.zip')] }
   let reads = 0
   const reader = createLocalFolderReader({ listTree: async () => descriptor, readFile: async () => { reads++; throw new Error('must not read') } })
-  assert.deepEqual((await reader.readLocalFolderFile(root, { path: 'image.png' })).snapshot, { omitted: 'unsupported' })
+  assert.deepEqual((await reader.readLocalFolderFile(root, { path: 'archive.zip' })).snapshot, { omitted: 'unsupported' })
 
   const tooLarge = { ...descriptor, entries: [helperEntry('F', 64 * 1024 + 1, 'large-v1')] }
   const largeReader = createLocalFolderReader({ listTree: async () => tooLarge, readFile: async () => { reads++; throw new Error('must not read') } })
   assert.deepEqual((await largeReader.readLocalFolderFile(root, { path: 'notes.txt' })).snapshot, { omitted: 'too-large' })
   assert.equal(reads, 0)
+}))
+
+test('folder image names list as metadata and one explicit selection returns exact bounded raw bytes', async () => fixture(async (root) => {
+  const bytes = new Uint8Array([0, 255, 1, 2])
+  const descriptor = { rootVersion: 'private', visited: 1, directoryCount: 0,
+    entries: [helperEntry('F', bytes.byteLength, 'image-v1', 'photo.PNG')] }
+  const reads: any[] = []
+  const reader = createLocalFolderReader({ listTree: async () => descriptor,
+    readFile: async (_root: any, path: string, options: any) => {
+      reads.push([path, options.maxBytes])
+      return { status: 'file', sizeBytes: bytes.byteLength, version: 'image-v1', bytes }
+    } })
+  assert.deepEqual((await reader.readLocalFolderFiles(root)).files, [{ path: 'photo.PNG', kind: 'file' }])
+  assert.deepEqual(reads, [])
+  assert.deepEqual((await reader.readLocalFolderFile(root, { path: 'photo.PNG' })).snapshot, { image: { bytes } })
+  assert.deepEqual(reads, [['photo.PNG', localBrowseFileByteLimit('photo.PNG')]])
 }))
 
 test('stale selection and tree changes before/after preview fail closed', async () => fixture(async (root) => {
@@ -109,6 +125,18 @@ test('oversized or nonregular folder documents are metadata-only omissions', asy
     assert.deepEqual((await reader.readLocalFolderFile(root, { path: 'notes.pdf' })).snapshot,
       { omitted: kind === 'F' ? 'too-large' : 'unsupported' })
   }
+  assert.equal(reads, 0)
+}))
+
+test('oversized folder images are listed as metadata and never invoke the selected body reader', async () => fixture(async (root) => {
+  const size = localBrowseFileByteLimit('photo.png') + 1
+  const descriptor = { rootVersion: 'private', visited: 1, directoryCount: 0,
+    entries: [helperEntry('F', size, 'v1', 'photo.png')] }
+  let reads = 0
+  const reader = createLocalFolderReader({ listTree: async () => descriptor,
+    readFile: async () => { reads++; throw new Error('must not read') } })
+  assert.deepEqual((await reader.readLocalFolderFiles(root)).files, [{ path: 'photo.png', kind: 'file' }])
+  assert.deepEqual((await reader.readLocalFolderFile(root, { path: 'photo.png' })).snapshot, { omitted: 'too-large' })
   assert.equal(reads, 0)
 }))
 

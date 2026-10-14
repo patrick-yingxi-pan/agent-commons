@@ -5,7 +5,7 @@ import type { LocalFolderConnection } from '../../contract/localFolderCapture.ts
 import { fsRecentKey } from '../../contract/fs.ts'
 import { accountGeneration } from '../api/account.ts'
 import { captureLocalFolder, localFolderTreeAvailable } from '../api/localFolders.ts'
-import { localGitSavedCopies, localGitSavedCopyScope, newLocalGitSavedCopyId } from '../controller/localGitSavedCopies.ts'
+import { localGitSavedCopies, localGitSavedCopyScope } from '../controller/localGitSavedCopies.ts'
 import { localFolderConnections, useLocalFolderConnections } from '../controller/localFolderConnections.ts'
 import { useRelations } from '../controller/useRelations'
 import { UI_HOST_SOURCE } from '../lib/fsSources'
@@ -87,7 +87,7 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, attachments = [], int
       </CheckboxRow>
       <p className="text-[11px] leading-snug text-ink-soft">{includeSubfolders ? 'Includes visible root-relative paths up to 16 levels, 64 folders and 500 entries.' : 'Unchecked: only top-level files are included.'} Hidden paths and symlinks are excluded.</p>
     </>}
-    {allowSavedCopies ? <p className="py-2 text-[11px] leading-snug text-ink-soft">Attach saves up to 24 readable text files, 64 KB each and 128 KB total. Hidden files are excluded{includeSubfolders ? '; subfolders follow the option above' : '; subfolders are excluded'}. Other entries stay listed without text. Only saved text feeds the model; opening, previewing and sending never reread files. Originals never change.</p>
+    {allowSavedCopies ? <p className="py-2 text-[11px] leading-snug text-ink-soft">Attach saves up to 24 readable text files, 64 KB each and 128 KB total. Hidden files are excluded{includeSubfolders ? '; subfolders follow the option above' : '; subfolders are excluded'}. Other entries stay listed without text. In this folder snapshot, only saved text feeds the model; a separately previewed image can be attached as an image copy from Browse files. Opening, previewing and sending never reread files. Originals never change.</p>
       : <p className="py-2 text-[11px] leading-snug text-ink-soft">Project context is descriptive. Browse and preview are read-only here; attaching saved folder copies is available only in a conversation.</p>}
     {reading && <p role="status" className="py-2 text-[12px] text-ink-soft">Reading folder… Close this picker to leave without attaching.</p>}
     {error && <p role="alert" className="py-2 text-[12px] text-danger-text">{error}</p>}
@@ -107,12 +107,9 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, attachments = [], int
                 const savedId = localGitSavedCopies.id(savedCopyScope, connection.id, receipt, 'folder')
                 return savedId !== undefined && attachments.some(item => item.id === savedId)
               }}
-              onAttach={allowSavedCopies ? (path, text, receipt, documentImport) => {
-                const result = localGitSavedCopies.submit(savedCopyScope, connection.id, receipt, newLocalGitSavedCopyId, savedId => {
-                  if (attachments.some(item => item.id === savedId)) return
-                  return onAdd({ kind: 'files', attachments: [{ id: savedId, label: path, kind: 'file', source: UI_HOST_SOURCE, previewText: text, ...(documentImport && { documentImport }) }] })
-                }, 'folder')
-                return result.promise
+              onAttach={allowSavedCopies ? file => {
+                if (attachments.some(item => item.id === file.id)) return
+                return onAdd({ kind: 'files', attachments: [{ id: file.id, label: file.name, kind: file.kind, source: UI_HOST_SOURCE, ...(file.kind === 'file' ? { previewText: file.text } : { image: file.image }), ...(file.documentImport && { documentImport: file.documentImport }) }] })
               } : undefined} />
           </Suspense></div>}
         </div>

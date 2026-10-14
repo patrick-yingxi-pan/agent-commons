@@ -3,6 +3,7 @@ import { isPdfFileName, MAX_PDF_FILE_BYTES } from './pdfImport.mjs'
 import { isDocxFileName, MAX_DOCX_FILE_BYTES } from './docxImport.mjs'
 import { isXlsxFileName, MAX_XLSX_FILE_BYTES } from './xlsxImport.mjs'
 import { isPptxFileName, MAX_PPTX_FILE_BYTES } from './pptxImport.mjs'
+import { IMAGE_FILE_MAX_BYTES, isImageFileName } from './imageFile.mjs'
 
 export const MAX_LOCAL_BROWSE_TEXT_BYTES = 64 * 1024
 const documents = [
@@ -37,15 +38,16 @@ export function localBrowseDocumentFormat(name) {
 }
 
 export function isLocalBrowseFileName(name) {
-  return isLocalTextFileName(name) || localBrowseDocumentFormat(name) !== undefined
+  return isLocalTextFileName(name) || localBrowseDocumentFormat(name) !== undefined || isImageFileName(name)
 }
 
 /** The byte budget is for one explicit selection, never a directory body scan. */
 export function localBrowseFileByteLimit(name) {
-  return documents.find(([, matches]) => matches(name))?.[2] ?? MAX_LOCAL_BROWSE_TEXT_BYTES
+  return isImageFileName(name) ? IMAGE_FILE_MAX_BYTES
+    : documents.find(([, matches]) => matches(name))?.[2] ?? MAX_LOCAL_BROWSE_TEXT_BYTES
 }
 
-function detachedDocumentBytes(value, sizeBytes, limit) {
+function detachedRawBytes(value, sizeBytes, limit) {
   if (!value || Object.getPrototypeOf(value) !== Uint8Array.prototype ||
     ['buffer', 'byteLength', 'byteOffset', 'length'].some(key => Object.hasOwn(value, key)) ||
     Object.getOwnPropertySymbols(value).length !== 0) return undefined
@@ -78,8 +80,15 @@ export function parseLocalBrowseFileSnapshot(path, sizeBytes, value) {
       const document = record(raw.document, ['format', 'bytes'])
       const format = localBrowseDocumentFormat(name)
       if (!format || !document || document.format !== format) return undefined
-      const bytes = detachedDocumentBytes(document.bytes, sizeBytes, localBrowseFileByteLimit(name))
+      const bytes = detachedRawBytes(document.bytes, sizeBytes, localBrowseFileByteLimit(name))
       return bytes ? { document: { format, bytes } } : undefined
+    }
+    const image = record(value, ['image'])
+    if (image) {
+      const payload = record(image.image, ['bytes'])
+      if (!isImageFileName(name) || !payload) return undefined
+      const bytes = detachedRawBytes(payload.bytes, sizeBytes, IMAGE_FILE_MAX_BYTES)
+      return bytes ? { image: { bytes } } : undefined
     }
     const omission = record(value, ['omitted'])
     if (!omission || !['unsupported', 'too-large', 'unreadable'].includes(omission.omitted) ||
@@ -88,9 +97,11 @@ export function parseLocalBrowseFileSnapshot(path, sizeBytes, value) {
   } catch { return undefined }
 }
 
-/** Native readers share name admission and whole-text decoding; no document
- * parser or implied extraction result enters the privileged host. */
+/** Native readers share name admission and whole-text decoding. Selected image
+ * and document bytes stay raw; no renderer decoder or inferred result enters
+ * the privileged host. */
 export function localBrowseSnapshotFromBytes(path, sizeBytes, bytes) {
+  if (isImageFileName(path)) return parseLocalBrowseFileSnapshot(path, sizeBytes, { image: { bytes } })
   const format = localBrowseDocumentFormat(path)
   if (format) return parseLocalBrowseFileSnapshot(path, sizeBytes, { document: { format, bytes } })
   const text = decodeLocalTextPreview(bytes)

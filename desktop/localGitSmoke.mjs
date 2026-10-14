@@ -6,6 +6,7 @@ import { expect } from '@playwright/test'
 import { bundledGitDirectory } from './bundledGit.mjs'
 import { localGitCommandEnvironment } from './localGitReader.mjs'
 import { smokeLocalDocumentBrowse, verifyLocalDocumentBrowseRelaunch } from './localDocumentBrowseSmoke.mjs'
+import { localImageBrowseFixture, smokeLocalImageBrowse, verifyLocalImageBrowseRelaunch } from './localImageBrowseSmoke.mjs'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -84,7 +85,9 @@ async function send(page, text, expectedReply, expectedPreviousReplies) {
 
 async function assertModelFiles(endpoint, expected) {
   const actual = endpoint.documents.at(-1)?.attached_files ?? []
-  assert.deepEqual(actual.map(file => [file.name.split('/').at(-1), file.status, file.text]), expected)
+  assert.deepEqual(actual.map(file => file.status === 'image-ready'
+    ? { name: file.name, status: file.status, image_index: file.image_index, width: file.width, height: file.height }
+    : [file.name.split('/').at(-1), file.status, file.text]), expected)
   assert.equal(JSON.stringify(endpoint.requests).includes('must-never-enter-model'), false,
     'untracked and ignored source markers never enter model requests')
 }
@@ -97,6 +100,8 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   const repository = join(fixtureRoot, 'local-git-smoke-repository')
   const heldRepository = `${repository}-held`
   const gitExecutable = join(bundledGitDirectory({ packaged: false }), 'git')
+  const trackedImage = localImageBrowseFixture('svg')
+  const untrackedImage = localImageBrowseFixture('ico')
   await mkdir(join(repository, '.config'), { recursive: true })
   await mkdir(join(repository, 'src'), { recursive: true })
   await writeFile(join(repository, '.gitignore'), 'ignored-secret.md\n')
@@ -342,6 +347,11 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
 
   // A selected working file is a separate portable attachment, not a live Git
   // handle. Only the explicit Attach action persists exactly the previewed text.
+  // Add the image fixtures after the original snapshot and review assertions so
+  // their coverage cannot dilute the pre-existing exact tracked-path baseline.
+  await writeFile(join(repository, 'src', trackedImage.name), trackedImage.bytes, { mode: 0o600 })
+  await writeFile(join(repository, untrackedImage.name), untrackedImage.bytes, { mode: 0o600 })
+  git(gitExecutable, repository, 'add', '--', `src/${trackedImage.name}`)
   const browseSession = await run.page.evaluate(async id => {
     const response = await fetch('/api/v1/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
@@ -375,15 +385,25 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await browser.getByRole('button', { name: 'Attach saved copy', exact: true }).click()
   await expect(browsePicker).toContainText('1 added')
   await run.page.screenshot({ path: join(fixtureRoot, 'local-git-browse.png') })
-  await browsePicker.getByRole('button', { name: 'Done', exact: true }).click()
+  const trackedImageReceipt = await smokeLocalImageBrowse({
+    run, root: repository, path: `src/${trackedImage.name}`, kind: 'svg', source: 'git-tracked',
+    browser, picker: browsePicker, sessionId: browseSession.id, endpoint, listKind: 'Tracked file',
+    previewSelector: '[data-local-git-file-preview]', pickerAddedCount: 2,
+    verifySourceMetadata: () => assertIndexUnchanged(repository, beforeBrowseIndex),
+  })
+  const heldTrackedImage = join(fixtureRoot, 'tracked-image-source-held.svg')
+  await rename(trackedImageReceipt.sourcePath, heldTrackedImage)
+  await assertIndexUnchanged(repository, beforeBrowseIndex)
   const savedBrowse = await readWorkspace(run.page, browseSession.id)
   assert.ok(JSON.stringify(savedBrowse).includes('review-working-only-v3'))
   assert.equal(JSON.stringify(savedBrowse).includes('browse-source-changed-after-preview-v4'), false)
   assert.equal(JSON.stringify(savedBrowse).includes(fixtureRoot), false)
-  assert.equal(endpoint.requests.length, beforeBrowseModel, 'attaching the saved copy does not itself call a model')
+  assert.equal(endpoint.requests.length, beforeBrowseModel + 1, 'only explicit Send calls a model after local image preview')
   await assertIndexUnchanged(repository, beforeBrowseIndex)
-  await send(run.page, 'Read only the selected saved file.', 'review-working-only-v3', 0)
-  await assertModelFiles(endpoint, [['nested.md', 'ready', 'review-working-only-v3\n']])
+  await assertModelFiles(endpoint, [
+    ['nested.md', 'ready', 'review-working-only-v3\n'],
+    { name: `src/${trackedImage.name}`, status: 'image-ready', image_index: 1, width: 180, height: 90 },
+  ])
 
   // Untracked browsing remains opt-in, with listing and each selected preview
   // separate from the conversation-only Attach action. The generated fixtures
@@ -461,9 +481,14 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await writeFile(join(repository, documentPath), docxFixture({ paragraphs: ['untracked-document-replaced-after-review-v2'] }))
   await untrackedBrowser.getByRole('button', { name: 'Attach saved copy', exact: true }).click()
   await expect(untrackedPicker).toContainText('2 added', { timeout: TIMEOUT_MS })
-  await untrackedPicker.getByRole('button', { name: 'Done', exact: true }).click()
+  const untrackedImageReceipt = await smokeLocalImageBrowse({
+    run, root: repository, path: untrackedImage.name, kind: 'ico', source: 'git-untracked',
+    browser: untrackedBrowser, picker: untrackedPicker, sessionId: untrackedSession.id, endpoint,
+    listKind: 'Untracked file', previewSelector: '[data-local-git-untracked-file-preview]',
+    pickerAddedCount: 3, verifySourceMetadata: () => assertIndexUnchanged(repository, untrackedIndexBefore),
+  })
   const untrackedSaved = await readWorkspace(run.page, untrackedSession.id)
-  assert.deepEqual(untrackedSaved.attachments.map(({ label, kind, source, previewText, documentImport }) => ({
+  assert.deepEqual(untrackedSaved.attachments.filter(item => item.kind === 'file').map(({ label, kind, source, previewText, documentImport }) => ({
     label, kind, source, previewText, documentImport,
   })), [
     { label: dotfilePath, kind: 'file', source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
@@ -471,21 +496,23 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     { label: documentPath, kind: 'file', source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
       previewText: documentText, documentImport: { format: 'docx', status: 'ready' } },
   ], 'Attach saves exactly the reviewed text and real worker outcome, not later source changes')
+  assert.ok(untrackedSaved.attachments.find(item => item.label === untrackedImage.name)?.image,
+    'the explicit untracked image Attach saves a normalized image reference')
   assert.equal(JSON.stringify(untrackedSaved).includes(fixtureRoot), false, 'untracked copies do not persist native paths')
   assert.equal(JSON.stringify(untrackedSaved).includes('untracked-dotfile-replaced-after-review-v2'), false)
   assert.equal(JSON.stringify(untrackedSaved).includes('untracked-document-replaced-after-review-v2'), false)
-  assert.equal(endpoint.requests.length, untrackedModelBefore, 'Attach saved copy does not call a model')
+  assert.equal(endpoint.requests.length, untrackedModelBefore + 1, 'only explicit Send calls a model after the untracked image preview')
   await assertIndexUnchanged(repository, untrackedIndexBefore)
-  await send(run.page, 'Read only the reviewed untracked saved copies.', 'untracked-dotfile-reviewed-v1', 0)
   await assertModelFiles(endpoint, [
     [dotfilePath, 'ready', 'untracked-dotfile-reviewed-v1\n'],
     [documentPath, 'ready', documentText],
+    { name: untrackedImage.name, status: 'image-ready', image_index: 1, width: 64, height: 32 },
   ])
   assert.equal(JSON.stringify(endpoint.requests.at(-1)).includes('must-never-enter-model'), false,
     'unselected untracked and ignored bodies never reach the model')
   assert.equal(JSON.stringify(endpoint.requests.at(-1)).includes('replaced-after-review'), false,
     'source changes after preview never replace the reviewed model input')
-  const untrackedSourcePaths = [join(repository, dotfilePath), join(repository, documentPath)]
+  const untrackedSourcePaths = [join(repository, dotfilePath), join(repository, documentPath), untrackedImageReceipt.sourcePath]
   for (const [index, path] of untrackedSourcePaths.entries()) {
     await rename(path, join(fixtureRoot, `untracked-source-held-${index}`))
   }
@@ -508,11 +535,14 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   for (const path of untrackedSourcePaths) await assert.rejects(stat(path), { code: 'ENOENT' }, 'untracked source is absent after full relaunch')
   assert.deepEqual(await readWorkspace(run.page, untrackedSession.id), untrackedSaved,
     'saved untracked copies survive packaged relaunch without their source files')
+  await verifyLocalImageBrowseRelaunch(run, trackedImageReceipt)
+  await verifyLocalImageBrowseRelaunch(run, untrackedImageReceipt)
   await run.page.goto(`${run.origin}/s/${encodeURIComponent(untrackedSession.id)}`)
-  await send(run.page, 'Read the reviewed untracked saved copies after relaunch.', 'untracked-dotfile-reviewed-v1', 1)
+  await send(run.page, 'Read the reviewed untracked saved copies after relaunch.', 'Received 1 supplied image(s).', 1)
   await assertModelFiles(endpoint, [
     [dotfilePath, 'ready', 'untracked-dotfile-reviewed-v1\n'],
     [documentPath, 'ready', documentText],
+    { name: untrackedImage.name, status: 'image-ready', image_index: 1, width: 64, height: 32 },
   ])
   await run.page.goto(`${run.origin}/s/${encodeURIComponent(session.id)}`)
   connections = await nativeGitConnections(run.page)

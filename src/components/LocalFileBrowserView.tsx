@@ -1,18 +1,22 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react'
 import type { LocalFileBrowserState } from '../controller/localFileBrowserCore.ts'
 import type { LocalSavedCopySourceKind } from '../controller/localGitSavedCopiesCore.ts'
-import { useLocalGitSavedCopyPending } from '../controller/localGitSavedCopies.ts'
+import { useLocalGitSavedCopyFailed, useLocalGitSavedCopyPending } from '../controller/localGitSavedCopies.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput.ts'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
-import { documentImportCopy, type DocumentImportOutcome } from '../../contract/documentImport.mjs'
+import { documentImportCopy } from '../../contract/documentImport.mjs'
+import type { LocalBrowsePreview } from '../lib/localFilePreview.ts'
+import type { PreparedLocalFileSavedCopy } from '../controller/localFileSavedCopyCore.ts'
+import { localFileSavedCopy } from '../controller/localFileSavedCopy.ts'
+import { IMAGE_ORIGINAL_PRIVACY_COPY } from '../lib/imageOriginalDownload.ts'
 
 const PAGE_SIZE = 100
 type Entry = { path: string; kind: string }
 type Listing = { files: Entry[] }
-type Preview = { path: string; sizeBytes: number; snapshot: { text: string } | { omitted: string }; documentImport?: DocumentImportOutcome }
+type Preview = LocalBrowsePreview
 
 export function LocalFileBrowserView<L extends Listing, P extends Preview>({
-  source, connectionId, name, enabled, intentScope, state, readListing, readPreview, dismiss, onAttach, isAttached, compact = false,
+  source, connectionId, name, enabled, intentScope, state, readListing, readPreview, dismiss, onAttach, isAttached, isCurrent, subscribeCurrent, compact = false,
   title, intro, listLabel, refreshLabel, listingNoun, loadingStatusCopy, outsideListingPrivacyCopy, searchPlaceholder, listAria, pageAria, limitsLabel, afterContent,
   entryLabel, entryMessage, listingSummary, limitsCopy, omittedCopy, headingLevel = 2,
 }: {
@@ -25,8 +29,10 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   readListing: () => unknown
   readPreview: (path: string) => unknown
   dismiss: () => void
-  onAttach?: (path: string, text: string, receipt: number, documentImport?: DocumentImportOutcome, sourceKind?: LocalSavedCopySourceKind) => void | Promise<unknown>
+  onAttach?: (file: PreparedLocalFileSavedCopy) => void | Promise<unknown>
   isAttached?: (receipt: number, sourceKind?: LocalSavedCopySourceKind) => boolean
+  isCurrent?: (receipt: number) => boolean
+  subscribeCurrent?: (listener: () => void) => () => void
   compact?: boolean
   limitsLabel?: string
   afterContent?: ReactNode
@@ -50,7 +56,6 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [attachingKey, setAttachingKey] = useState<string | null>(null)
-  const [attachError, setAttachError] = useState<string | null>(null)
   const attachingRef = useRef<string | null>(null)
   const listing = state.listing
   const filtered = useMemo(() => {
@@ -62,20 +67,32 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   const visible = filtered.slice(pageIndex * PAGE_SIZE, (pageIndex + 1) * PAGE_SIZE)
   const selected = listing?.files.find(file => file.path === state.selectedPath)
   const previewText = state.preview?.snapshot && 'text' in state.preview.snapshot ? state.preview.snapshot.text : null
+  const previewImage = state.preview?.snapshot && 'image' in state.preview.snapshot ? state.preview.snapshot.image : null
+  const previewIsImage = !!previewImage || state.preview?.imageFailure !== undefined || state.preview?.snapshot.omitted === 'image-import'
   const receipt = state.previewReceipt
-  const previewKey = previewText === null || receipt === null ? null : String(receipt)
+  const previewKey = previewText === null && previewImage === null || receipt === null ? null : String(receipt)
   const sourceKind = source
   const sharedPending = useLocalGitSavedCopyPending(intentScope, connectionId, receipt, sourceKind)
-  const previewAttached = previewText !== null && receipt !== null && !!isAttached?.(receipt, sourceKind)
+  const sharedFailed = useLocalGitSavedCopyFailed(intentScope, connectionId, receipt, sourceKind)
+  const previewAttached = (previewText !== null || previewImage !== null) && receipt !== null && !!isAttached?.(receipt, sourceKind)
   const attachWaiting = !!previewKey && (attachingKey === previewKey || sharedPending)
   const attachSavedCopy = async () => {
-    if (!onAttach || previewText === null || !state.preview || receipt === null || !previewKey || attachingRef.current || previewAttached || sharedPending) return
-    const { path } = state.preview
+    if (!onAttach || (previewText === null && previewImage === null) || !state.preview || receipt === null || !previewKey || attachingRef.current || previewAttached || sharedPending || !isCurrent || !subscribeCurrent) return
+    const preview = state.preview
     attachingRef.current = previewKey
     setAttachingKey(previewKey)
-    setAttachError(null)
-    try { await onAttach(path, previewText, receipt, state.preview.documentImport, sourceKind) }
-    catch { setAttachError('Could not confirm this saved copy. Check the context update before trying again.') }
+    try {
+      await localFileSavedCopy.submit({
+        scope: intentScope,
+        connectionId,
+        receipt,
+        sourceKind,
+        preview,
+        isCurrent: () => isCurrent(receipt),
+        subscribeCurrent,
+        onAttach,
+      })
+    } catch { /* the shared receipt registry exposes the failure across remounts */ }
     finally { attachingRef.current = null; setAttachingKey(null) }
   }
   const Header = headingLevel === 2 ? 'h2' : 'h3'
@@ -101,7 +118,7 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
       <summary className="cursor-pointer py-1">{limitsLabel ?? 'Browse limits and privacy'}</summary>
       <p className="py-1">{limitsCopy}</p>
     </details>}
-    {onAttach && !compact && <p className="text-[12px] leading-relaxed text-ink-soft">Browsing never attaches content. Attach saved copy adds exactly the text shown in this preview to conversation context. {outsideListingPrivacyCopy}</p>}
+    {onAttach && !compact && <p className="text-[12px] leading-relaxed text-ink-soft">Browsing never attaches content. Attach saved copy adds the exact selected preview to conversation context. Images are normalized to a PNG of at most 2,000 px per edge. {IMAGE_ORIGINAL_PRIVACY_COPY} Nothing uploads until you choose Attach. {outsideListingPrivacyCopy}</p>}
     {listing && <div className="min-w-0 space-y-3" data-local-folder-browser-listing={folder ? '' : undefined} data-local-git-browser-listing={source === 'git' ? '' : undefined} data-local-git-untracked-browser-listing={source === 'git-untracked' ? '' : undefined}>
       <p className="break-words text-[12px] text-ink-soft">{listingSummary(listing, state.listingReadAt)}</p>
       <label className="block min-w-0 space-y-1 text-[12px] text-ink-soft">Search paths
@@ -127,17 +144,34 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
       {state.previewStatus === 'error' && <p role="alert" className="text-[12px] text-danger-text">{state.previewError}</p>}
       {state.preview && <div {...(folder ? { 'data-local-folder-file-preview': '' } : source === 'git-untracked' ? { 'data-local-git-untracked-file-preview': '' } : { 'data-local-git-file-preview': '' })} className="min-w-0 space-y-2">
         <h3 className="break-all font-mono text-[13px] text-ink">{state.preview.path}</h3>
-        <p className="text-[12px] text-ink-soft">Read at {state.previewReadAt ? new Date(state.previewReadAt).toLocaleString() : 'this session'} · {state.preview.sizeBytes.toLocaleString()} {state.preview.documentImport ? 'source bytes · extracted-text limit 65,536 bytes. Original document bytes are not saved.' : 'bytes · whole-file limit 65,536 bytes.'} This is not live; select the path again after changes.</p>
+        <p className="text-[12px] text-ink-soft">Read at {state.previewReadAt ? new Date(state.previewReadAt).toLocaleString() : 'this session'} · {state.preview.sizeBytes.toLocaleString()} {previewIsImage ? 'source bytes · image import limit 8 MiB. Preview shows the normalized first frame; ICO uses its largest image.' : state.preview.documentImport ? 'source bytes · extracted-text limit 65,536 bytes. Original document bytes are not saved.' : 'bytes · whole-file limit 65,536 bytes.'} This is not live; select the path again after changes.</p>
         {state.preview.documentImport && <p data-local-document-preview={state.preview.documentImport.format} role="status" className="text-[12px] leading-relaxed text-ink-soft">{documentImportCopy(state.preview.documentImport)}</p>}
+        {previewImage && <div className="flex max-h-96 min-h-24 min-w-0 items-center justify-center overflow-hidden rounded-md border border-line bg-canvas p-2">
+          <img src={`data:image/png;base64,${previewImage.data}`} alt={`Preview of ${state.preview.path}`} width={previewImage.width} height={previewImage.height} className="max-h-80 max-w-full object-contain" />
+          <p className="sr-only">{previewImage.width} by {previewImage.height} pixels, normalized PNG.</p>
+        </div>}
+        {previewImage && onAttach && <p className="text-[12px] leading-relaxed text-ink-soft">{IMAGE_ORIGINAL_PRIVACY_COPY} The exact original is retained only after you choose Attach.</p>}
         {'text' in state.preview.snapshot ? <>
           {state.preview.sizeBytes === 0 && state.preview.snapshot.text === '' && <p role="status" className="text-[12px] text-ink-soft">Empty file (0 bytes).</p>}
           <pre role="region" aria-label={`Preview of ${state.preview.path}`} tabIndex={0} className="max-h-96 overflow-auto rounded-md border border-line bg-canvas p-3 font-mono text-[12px] leading-relaxed text-ink" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{state.preview.snapshot.text}</pre>
-          {onAttach && <button type="button" disabled={!enabled || state.pending || attachWaiting || previewAttached} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
-            onClick={() => void attachSavedCopy()}>{previewAttached ? 'Added' : attachWaiting ? 'Saving saved copy…' : 'Attach saved copy'}</button>}
-          {attachError && <p role="alert" className="text-[12px] text-danger-text">{attachError}</p>}
-        </> : !state.preview.documentImport && <p role="status" className="text-[12px] text-ink-soft">{omittedCopy(state.preview.snapshot.omitted)}</p>}
+        </> : 'omitted' in state.preview.snapshot && !state.preview.documentImport && <p role="status" className="text-[12px] text-ink-soft">{state.preview.snapshot.omitted === 'image-import' ? imageFailureCopy(state.preview.imageFailure) : omittedCopy(state.preview.snapshot.omitted ?? 'unreadable')}</p>}
+        {(previewImage || previewText !== null) && onAttach && <>
+          <button type="button" disabled={!enabled || state.pending || attachWaiting || previewAttached} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
+            onClick={() => void attachSavedCopy()}>{previewAttached ? 'Added' : attachWaiting ? 'Saving saved copy…' : 'Attach saved copy'}</button>
+          {sharedFailed && <p role="alert" className="text-[12px] text-danger-text">Could not confirm this saved copy. Check the context update before trying again.</p>}
+        </>}
       </div>}
     </div>}
     {afterContent}
   </section>
+}
+
+function imageFailureCopy(reason: LocalBrowsePreview['imageFailure']): string {
+  switch (reason) {
+    case 'too-large': return 'This image exceeds the 8 MiB source limit; no image was returned.'
+    case 'decode-failed': return 'This image could not be decoded safely; no image was returned.'
+    case 'timeout': return 'Image normalization did not finish in time; no image was returned.'
+    case 'unavailable': return 'Image normalization is unavailable on this device; no image was returned.'
+    default: return 'This image could not be imported; no image was returned.'
+  }
 }

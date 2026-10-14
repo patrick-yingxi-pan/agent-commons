@@ -13,3 +13,9 @@ test('packaged local folder browsing is awaited before source-absent relaunch ac
   assert.ok(restore > remove, 'saved-copy equality is checked after source removal and app relaunch')
   assert.equal(ignoreFromPackage('/desktop/localFolderBrowseSmoke.mjs'), true, 'the acceptance driver never ships')
 })
+
+test('folder browse model oracle asserts both the selected text and normalized image metadata', () => {
+  const helper = readFileSync(new URL('./localFolderBrowseSmoke.mjs', import.meta.url), 'utf8')
+  assert.ok(helper.includes("{ name: SELECTED_PATH, status: 'ready', text: original }"))
+  assert.ok(helper.includes("{ name: 'src/local-photo.png', status: 'image-ready', image_index: 1, width: 240, height: 120 }"))
+})

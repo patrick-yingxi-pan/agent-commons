@@ -251,17 +251,25 @@ test('selected untracked symlink is an explicit omission and never reads its tar
 test('untracked document previews return only selected bounded original bytes and unsupported names stay unavailable', native, async t => {
   const { root, reader, pinned, reads } = await fixture(t)
   const documentBytes = new Uint8Array(65_537).fill(255)
+  const imageBytes = new Uint8Array([0, 255, 1, 2])
   await fs.writeFile(join(root, 'document.pdf'), documentBytes)
+  await fs.writeFile(join(root, 'photo.WebP'), imageBytes)
   await fs.writeFile(join(root, 'archive.zip'), 'not supported')
   const listing = await reader.listLocalGitUntrackedFiles(pinned)
   assert.deepEqual(listing.files, [
     { path: 'archive.zip', kind: 'unsupported' },
     { path: 'document.pdf', kind: 'file' },
+    { path: 'photo.WebP', kind: 'file' },
   ])
+  assert.equal(reads.some(read => read.base === root && read.name === 'photo.WebP' && read.body), false)
   reads.length = 0
   const preview = await reader.readLocalGitUntrackedFile(pinned, { selection: { path: 'document.pdf' } })
   assert.deepEqual(preview.snapshot, { document: { format: 'pdf', bytes: documentBytes } })
   assert.deepEqual(reads.filter(read => read.base === root && read.body && !read.name.endsWith('.gitignore')).map(read => read.name), ['document.pdf'])
+  reads.length = 0
+  const image = await reader.readLocalGitUntrackedFile(pinned, { selection: { path: 'photo.WebP' } })
+  assert.deepEqual(image.snapshot, { image: { bytes: imageBytes } })
+  assert.deepEqual(reads.filter(read => read.base === root && read.body && !read.name.endsWith('.gitignore')).map(read => read.name), ['photo.WebP'])
   reads.length = 0
   const unsupported = await reader.readLocalGitUntrackedFile(pinned, { selection: { path: 'archive.zip' } })
   assert.deepEqual(unsupported.snapshot, { omitted: 'unsupported' })
@@ -269,6 +277,10 @@ test('untracked document previews return only selected bounded original bytes an
 
   await fs.writeFile(join(root, 'oversized.pdf'), new Uint8Array(localBrowseFileByteLimit('oversized.pdf') + 1))
   assert.deepEqual((await reader.readLocalGitUntrackedFile(pinned, { selection: { path: 'oversized.pdf' } })).snapshot, { omitted: 'too-large' })
+  await fs.writeFile(join(root, 'oversized.png'), new Uint8Array(localBrowseFileByteLimit('oversized.png') + 1))
+  reads.length = 0
+  assert.deepEqual((await reader.readLocalGitUntrackedFile(pinned, { selection: { path: 'oversized.png' } })).snapshot, { omitted: 'too-large' })
+  assert.equal(reads.some(read => read.base === root && read.name === 'oversized.png' && read.body), true)
 })
 
 for (const changed of ['body', 'index', 'ignore', 'root', 'cancel']) {
