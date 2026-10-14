@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
+import { settledOpaquePaint } from '../e2e/accessibility-helpers.ts'
 import { documentImportCopy } from '../contract/documentImport.mjs'
 import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
@@ -159,10 +160,30 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
     await verifySourceMetadata?.()
     for (const [width, height] of VIEWPORTS) {
       await page.setViewportSize({ width, height })
+      // The anchored shell updates this inner scrollport after a resize.
+      // Center against its settled bounds, not the previous viewport's height.
+      await settledOpaquePaint(picker.locator('[data-fs-picker-body]'))
       // Nearest-edge scrolling can leave a fractional line clipped by the
       // short scrollport. Center disclosures just like their text below.
       await disclosure.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest' }))
-      await expect(disclosure).toBeInViewport({ ratio: 1 })
+      await settledOpaquePaint(disclosure)
+      try { await expect(disclosure).toBeInViewport({ ratio: 1 }) }
+      catch (error) {
+        await page.screenshot({ path: join(evidenceRoot, `${item.format}-disclosure-failed-${width}x${height}.png`) })
+        console.error('[desktop-local-document-browse-smoke] disclosure containment', JSON.stringify({ source, format: item.format, width, height, evidenceRoot,
+          geometry: await disclosure.evaluate(element => {
+            const result = []
+            for (let node = element; node; node = node.parentElement) {
+              const rect = node.getBoundingClientRect(), style = getComputedStyle(node)
+              result.push({ tag: node.tagName, role: node.getAttribute('role'), rect: rect.toJSON(),
+                overflowX: style.overflowX, overflowY: style.overflowY, clientHeight: node.clientHeight,
+                scrollHeight: node.scrollHeight, scrollTop: node.scrollTop })
+            }
+            return result
+          }),
+        }))
+        throw error
+      }
       await expect(picker.getByRole('button', { name: 'Done', exact: true })).toBeInViewport({ ratio: 1 })
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await expectUncovered(disclosure)
@@ -171,6 +192,7 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
       // behind this short scrollport. Center the review target, then require
       // full containment; do not reduce the ratio or the visible-text claim.
       await preview.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest' }))
+      await settledOpaquePaint(preview)
       await expectUncovered(preview)
       await page.screenshot({ path: join(evidenceRoot, `${item.format}-text-${width}x${height}.png`) })
       try { await expect(preview).toBeInViewport({ ratio: 1 }) }

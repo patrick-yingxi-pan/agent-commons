@@ -23,7 +23,7 @@ export interface LocalFileSavedCopyArgs {
   onAttach(file: PreparedLocalFileSavedCopy): unknown | Promise<unknown>
 }
 
-/** Shared saved-copy path for folder, tracked Git and untracked Git previews.
+/** Shared saved-copy path for folder/Git previews and captured comparisons.
  * The registry supplies the existing target-qualified opaque ID and coalesces
  * duplicate clicks/remounts; this controller uploads an image only after an
  * explicit Attach and fences all work until context publication begins. */

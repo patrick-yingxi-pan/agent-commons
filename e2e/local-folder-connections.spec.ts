@@ -2,6 +2,7 @@
 import { mkdir } from 'node:fs/promises'
 import { test, expect, type Page, type TestInfo } from '@playwright/test'
 import { assertWcag22Aa, settledAttachmentPreview } from './accessibility-helpers.ts'
+import { assertLocalConnectionPickerRow } from './local-connection-picker-helpers.ts'
 import { newUser } from './social-helpers.ts'
 import { ms } from './budget.ts'
 
@@ -307,8 +308,10 @@ test('local connection controls and detail fit every viewport, including long na
   await expect(dialog.getByText('Remembered on this device', { exact: true })).toBeVisible()
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport)
-    await dialog.getByRole('button', { name: `Attach ${name}`, exact: true }).scrollIntoViewIfNeeded()
-    await expect(dialog.getByRole('button', { name: `Attach ${name}`, exact: true })).toBeVisible()
+    const row = dialog.locator('[data-local-connection-picker-row]')
+    await assertLocalConnectionPickerRow(row, viewport.width)
+    await row.getByRole('button', { name: `Attach ${name}`, exact: true }).scrollIntoViewIfNeeded()
+    await expect(row.getByRole('button', { name: `Attach ${name}`, exact: true })).toBeVisible()
     await expect.poll(async () => {
       const frame = await dialog.boundingBox()
       const done = await dialog.getByRole('button', { name: 'Done', exact: true }).boundingBox()

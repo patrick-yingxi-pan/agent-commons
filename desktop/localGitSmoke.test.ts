@@ -6,6 +6,16 @@ import { extractDocx } from '../src/lib/docxExtraction.ts'
 
 const source = readFileSync(new URL('./localGitSmoke.mjs', import.meta.url), 'utf8')
 
+test('packaged Git sends use the live hit-tested composer after picker transitions', () => {
+  const send = source.slice(source.indexOf('async function send('), source.indexOf('async function assertModelFiles('))
+  const click = send.indexOf('await composer.click()')
+  const fill = send.indexOf('await composer.fill(text)')
+  const retained = send.indexOf('await expect(composer).toHaveValue(text)')
+  const enter = send.indexOf("await composer.press('Enter')")
+  assert.ok(click > 0 && fill > click && retained > fill && enter > retained,
+    'message entry waits for a reachable current composer and retained text before Send')
+})
+
 test('packaged local Git sends wait for the exact hydrated transcript before composing', () => {
   const start = source.indexOf('async function send(')
   const end = source.indexOf('\nasync function assertModelFiles', start)

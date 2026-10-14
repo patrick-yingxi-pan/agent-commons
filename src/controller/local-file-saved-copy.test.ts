@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { createLocalFileSavedCopyCore } from './localFileSavedCopyCore.ts'
 import { createLocalGitSavedCopiesCore } from './localGitSavedCopiesCore.ts'
 import { imageAssetRef } from '../../contract/imageAssets.ts'
+import { createLocalGitConnections } from './localGitConnectionsCore.ts'
+import { createLocalGitReviewsCore } from './localGitReviewsCore.ts'
 
 const scope = JSON.stringify([4, 'session-1'])
 const image = { mimeType: 'image/png' as const, data: 'bm9ybWFsaXplZA==', width: 2, height: 1, byteLength: 10 }
@@ -151,4 +153,43 @@ test('a stale receipt at the first async boundary never starts image preparation
   })
   assert.equal(prepared, 0)
   assert.equal(published, 0)
+})
+
+test('Disconnect retires a captured comparison before native completion and cancels pre-context preparation', async () => {
+  let finishDisconnect!: () => void
+  let finishPrepare!: () => void
+  const disconnectGate = new Promise<void>(resolve => { finishDisconnect = resolve })
+  const prepareGate = new Promise<void>(resolve => { finishPrepare = resolve })
+  const connections = createLocalGitConnections({
+    list: async () => [{ id: `GIT_${'A'.repeat(32)}`, name: 'Review source', remembered: false }],
+    connect: async () => null, disconnect: async () => disconnectGate,
+  })
+  await connections.reload()
+  const id = connections.get().rows[0]!.id
+  const reviews = createLocalGitReviewsCore({
+    now: () => 1,
+    read: async () => ({ version: 1, comparison: 'raw', head: { oid: null, ref: null }, excludedCount: 0, unchangedCount: 0, files: [] }),
+  })
+  connections.subscribeDisconnect(sourceId => reviews.dismiss(sourceId))
+  await reviews.read(id)
+  const captured = reviews.get(id).result
+  const controller = new AbortController()
+  let published = 0
+  const work = createLocalFileSavedCopyCore().submit({
+    savedId: 'ui-host::comparison', preview: { version: 1, path: 'comparison.json', sizeBytes: 2, snapshot: { text: '{}' } }, controller,
+    isCurrent: () => reviews.get(id).result === captured,
+    subscribeCurrent: listener => reviews.subscribe(id, listener),
+    prepare: async file => { await prepareGate; return { id: file.id, name: file.name, kind: 'file', text: file.text! } },
+    onAttach: () => { published++ },
+  })
+  const disconnect = connections.disconnect(id)
+  assert.equal(connections.get().busy, true)
+  assert.equal(connections.get().rows.length, 1, 'the native disconnect is still pending')
+  assert.equal(reviews.get(id).result, null, 'explicit Disconnect clears the captured review immediately')
+  assert.equal(controller.signal.aborted, true, 'pre-context preparation is fenced before native acknowledgement')
+  finishPrepare()
+  await work
+  assert.equal(published, 0)
+  finishDisconnect()
+  await disconnect
 })

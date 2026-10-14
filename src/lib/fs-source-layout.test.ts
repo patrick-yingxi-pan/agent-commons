@@ -2,7 +2,15 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
-import { FS_SOURCE_GROUP_CLASS, FS_SOURCE_OPTION_CLASS } from './fsSourceLayout.ts'
+import {
+  FS_LOCAL_CONNECTION_ACTIONS_CLASS,
+  FS_LOCAL_CONNECTION_IDENTITY_CLASS,
+  FS_LOCAL_CONNECTION_NAME_CLASS,
+  FS_LOCAL_CONNECTION_ROW_CLASS,
+  FS_LOCAL_CONNECTION_STATUS_CLASS,
+  FS_SOURCE_GROUP_CLASS,
+  FS_SOURCE_OPTION_CLASS,
+} from './fsSourceLayout.ts'
 
 test('filesystem source switcher layout is shared, wrapping, and reachable', () => {
   const component = stripComments(read(join(ROOT, 'src/components/ContextPickerWorkflow.tsx')))
@@ -63,4 +71,39 @@ test('every filesystem intake scrolls one shared body while Done stays outside i
   assert.doesNotMatch(git, /max-h-\[|overflow-y-auto/, 'native Git rows share the outer intake scroll owner')
   const photos = component.slice(component.indexOf('function ServedPhotos(')).split('\nfunction ')[0]
   assert.doesNotMatch(photos, /overflow-y-auto/, 'photo catalogs share the outer intake scroll owner')
+})
+
+test('native connection pickers share a full-width identity then wrapping action funnel', () => {
+  const layout = read(join(ROOT, 'src/lib/fsSourceLayout.ts'))
+  assert.match(layout, /FS_LOCAL_CONNECTION_ROW_CLASS/)
+  assert.match(layout, /FS_LOCAL_CONNECTION_IDENTITY_CLASS/)
+  assert.match(layout, /FS_LOCAL_CONNECTION_ACTIONS_CLASS/)
+  assert.match(layout, /FS_LOCAL_CONNECTION_NAME_CLASS/)
+  assert.match(layout, /FS_LOCAL_CONNECTION_STATUS_CLASS/)
+  assert.match(FS_LOCAL_CONNECTION_ROW_CLASS, /min-w-0/)
+  assert.match(FS_LOCAL_CONNECTION_IDENTITY_CLASS, /w-full/)
+  assert.match(FS_LOCAL_CONNECTION_ACTIONS_CLASS, /flex-wrap/)
+  assert.match(FS_LOCAL_CONNECTION_NAME_CLASS, /break-words/)
+  assert.match(FS_LOCAL_CONNECTION_STATUS_CLASS, /whitespace-nowrap/)
+
+  for (const [path, marker] of [
+    ['src/components/LocalFolderConnections.tsx', 'data-native-folder-picker'],
+    ['src/components/LocalGitConnections.tsx', 'data-native-git-picker'],
+  ]) {
+    const picker = stripComments(read(join(ROOT, path)))
+    assert.match(picker, /from '\.\.\/lib\/fsSourceLayout\.ts'/, `${path} imports the shared picker layout`)
+    const rowStart = picker.indexOf('data-local-connection-picker-row')
+    assert.notEqual(rowStart, -1, `${path} stamps each connection row`)
+    const row = picker.slice(rowStart, rowStart + 1800)
+    assert.ok(row.indexOf('data-local-connection-picker-identity') < row.indexOf('data-local-connection-picker-actions'),
+      'identity is laid out before actions')
+    assert.match(row, /data-local-connection-picker-identity/, 'the identity occupies its own full-width row')
+    assert.match(row, /data-local-connection-picker-name/, 'the complete name can wrap in the identity row')
+    assert.match(row, /data-local-connection-picker-status/, 'persistence status stays on one line')
+    assert.match(row, /data-local-connection-picker-actions/, 'actions wrap in their own row')
+    assert.match(row, /FS_LOCAL_CONNECTION_ROW_CLASS/)
+    assert.match(row, /FS_LOCAL_CONNECTION_IDENTITY_CLASS/)
+    assert.match(row, /FS_LOCAL_CONNECTION_ACTIONS_CLASS/)
+    assert.match(picker, new RegExp(marker))
+  }
 })

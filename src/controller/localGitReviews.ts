@@ -3,6 +3,7 @@ import type { LocalGitConnectionId } from '../../contract/localGitCapture.ts'
 import { accountGeneration, onAccountSwitch } from '../api/account.ts'
 import { localGitConnections } from './localGitConnections.ts'
 import { createLocalGitReviewsCore } from './localGitReviewsCore.ts'
+import { createGitComparisonReceiptsCore } from './gitComparisonReceiptsCore.ts'
 
 async function commands() {
   const generation = accountGeneration()
@@ -16,7 +17,10 @@ export const localGitReviews = createLocalGitReviewsCore({
   now: () => Date.now(),
 })
 
+export const gitComparisonReceipts = createGitComparisonReceiptsCore()
+
 onAccountSwitch(() => localGitReviews.clear())
+localGitConnections.subscribeDisconnect(id => localGitReviews.dismiss(id))
 localGitConnections.subscribe(() => {
   const connections = localGitConnections.get()
   if (connections.status === 'ready') localGitReviews.retain(connections.rows.map(row => row.id))

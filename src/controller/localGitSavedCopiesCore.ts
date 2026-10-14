@@ -1,5 +1,5 @@
 /** Byte-free identity/lifetime owner for explicit saved-preview intents. */
-export type LocalSavedCopySourceKind = 'git' | 'git-untracked' | 'folder'
+export type LocalSavedCopySourceKind = 'git' | 'git-untracked' | 'git-review' | 'folder'
 
 export function createLocalGitSavedCopiesCore() {
   type Entry = { id: string; account: string; sourceKind: LocalSavedCopySourceKind; connectionId: string; receipt: number; pending: boolean; failed: boolean; acknowledged: boolean; promise: Promise<unknown> | null }

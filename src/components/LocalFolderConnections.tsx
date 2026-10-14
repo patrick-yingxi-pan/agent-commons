@@ -9,6 +9,13 @@ import { localGitSavedCopies, localGitSavedCopyScope } from '../controller/local
 import { localFolderConnections, useLocalFolderConnections } from '../controller/localFolderConnections.ts'
 import { useRelations } from '../controller/useRelations'
 import { UI_HOST_SOURCE } from '../lib/fsSources'
+import {
+  FS_LOCAL_CONNECTION_ACTIONS_CLASS,
+  FS_LOCAL_CONNECTION_IDENTITY_CLASS,
+  FS_LOCAL_CONNECTION_NAME_CLASS,
+  FS_LOCAL_CONNECTION_ROW_CLASS,
+  FS_LOCAL_CONNECTION_STATUS_CLASS,
+} from '../lib/fsSourceLayout.ts'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import type { NavLocation } from '../lib/nav'
@@ -95,12 +102,17 @@ export function NativeLocalFolderPicker({ onAdd, addedIds, attachments = [], int
       {state.rows.length === 0 && <p className="py-2 text-[12px] text-ink-soft">No local connections. Choose a folder above, then attach its snapshot.</p>}
       {state.rows.map(connection => {
         const added = addedIds.includes(fsRecentKey('ui-host', connection.id))
-        return <div key={connection.id} className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line py-2">
-          <span className="min-w-0 flex-1"><span title={connection.name} className="block truncate text-[13px] text-ink">{connection.name}</span><span className="text-[11px] text-ink-soft">{connection.remembered ? 'Remembered on this device' : 'Until app closes'}</span></span>
-          {allowSavedCopies && <button type="button" aria-label={`Attach ${connection.name}`} disabled={added || !!reading || state.busy} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => void attach(connection)}>{added ? 'Added' : 'Attach'}</button>}
-          <button type="button" aria-label={`Browse files in ${connection.name}`} disabled={!!reading || state.busy || state.status !== 'ready'} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} aria-expanded={browsingId === connection.id} onClick={() => setBrowsingId(current => current === connection.id ? null : connection.id)}>Browse files</button>
-          <button type="button" aria-label={`Manage ${connection.name}`} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => { onClose(); rel.navigate('contexts', connection.id) }}>Manage</button>
-          {browsingId === connection.id && <div className="basis-full"><Suspense fallback={<p role="status" className="py-2 text-[12px] text-ink-soft">Loading file browser…</p>}>
+        return <div key={connection.id} data-local-connection-picker-row="" className={FS_LOCAL_CONNECTION_ROW_CLASS}>
+          <div data-local-connection-picker-identity="" className={FS_LOCAL_CONNECTION_IDENTITY_CLASS}>
+            <span data-local-connection-picker-name="" title={connection.name} className={FS_LOCAL_CONNECTION_NAME_CLASS}>{connection.name}</span>
+            <span data-local-connection-picker-status="" className={FS_LOCAL_CONNECTION_STATUS_CLASS}>{connection.remembered ? 'Remembered on this device' : 'Until app closes'}</span>
+          </div>
+          <div data-local-connection-picker-actions="" className={FS_LOCAL_CONNECTION_ACTIONS_CLASS}>
+            {allowSavedCopies && <button type="button" aria-label={`Attach ${connection.name}`} disabled={added || !!reading || state.busy} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => void attach(connection)}>{added ? 'Added' : 'Attach'}</button>}
+            <button type="button" aria-label={`Browse files in ${connection.name}`} disabled={!!reading || state.busy || state.status !== 'ready'} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} aria-expanded={browsingId === connection.id} onClick={() => setBrowsingId(current => current === connection.id ? null : connection.id)}>Browse files</button>
+            <button type="button" aria-label={`Manage ${connection.name}`} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => { onClose(); rel.navigate('contexts', connection.id) }}>Manage</button>
+          </div>
+          {browsingId === connection.id && <div className="min-w-0"><Suspense fallback={<p role="status" className="py-2 text-[12px] text-ink-soft">Loading file browser…</p>}>
             <LocalFolderBrowser id={connection.id} name={connection.name} enabled={state.status === 'ready' && !state.busy && !reading} intentScope={savedCopyScope} headingLevel={3}
               isAttached={receipt => {
                 localGitSavedCopies.adoptAttachments(savedCopyScope, attachments.map(item => item.id))

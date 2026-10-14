@@ -18,12 +18,15 @@
 
 ## Themes (the cross-cutting shapes)
 
-Local Git review (2026-10-06): a time-bound observation with a change payload
+Local Git review (2026-10-06; explicit-copy policy 2026-10-14): a time-bound observation with a change payload
 belongs on its canonical repository page. Explicit read time, staged/unstaged
 selection and the shared full-text diff retain before/after truth; missing,
-empty and omitted sides stay distinct. Results are transient account-scoped
-memory, not a new resource or a saved model context (`LocalGitReview.tsx`,
-`TextDiff.tsx`; `e2e/local-git-review.spec.ts`).
+empty and omitted sides stay distinct. Passive results are transient
+account-scoped memory, not a saved context. A separate explicit conversation
+Attach can save one selected captured comparison as an ordinary bounded JSON
+text file; this does not make review, selection or rendering itself model input
+(`LocalGitReview.tsx`, `gitComparisonCopy.ts`, `TextDiff.tsx`;
+`e2e/local-git-review.spec.ts`, `e2e/local-git-comparison-copy.spec.ts`).
 
 1. **Diff — a change belongs in a diff, not prose.** The proposal's side-by-side field
    diff (`SectionView.tsx`, `ProposalsReviewDialog`) is already well-tuned. Extract it

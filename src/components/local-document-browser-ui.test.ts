@@ -33,12 +33,15 @@ test('both local source bindings normalize document bytes before browser state a
 
 test('shared document preview discloses format fidelity and distinct source/text bounds before exact saved-copy attachment', () => {
   const view = source('src/components/LocalFileBrowserView.tsx')
+  const savedCopyAction = source('src/components/LocalSavedCopyAction.tsx')
   assert.ok(view.includes('data-local-document-preview={state.preview.documentImport.format}'))
   assert.ok(view.includes('documentImportCopy(state.preview.documentImport)'))
   assert.ok(view.includes('source bytes · extracted-text limit 65,536 bytes. Original document bytes are not saved.'))
-  assert.ok(view.includes('await localFileSavedCopy.submit({'), 'explicit saved-copy intent centralizes upload and publication')
-  assert.ok(view.includes('previewText === null'), 'omitted/no-text document results cannot attach')
-  assert.ok(view.indexOf('documentImportCopy(state.preview.documentImport)') < view.indexOf('onClick={() => void attachSavedCopy()}'))
+  assert.ok(view.includes('<LocalSavedCopyAction'), 'document previews reuse the saved-copy action')
+  assert.ok(savedCopyAction.includes('localFileSavedCopy.submit({'), 'explicit saved-copy intent centralizes upload and publication')
+  assert.ok(view.includes('previewText !== null'), 'only an actual extracted-text preview reaches the action')
+  assert.ok(savedCopyAction.includes("typeof preview.snapshot.text === 'string'"), 'omitted/no-text document results cannot attach')
+  assert.ok(view.indexOf('documentImportCopy(state.preview.documentImport)') < view.indexOf('<LocalSavedCopyAction'), 'source fidelity disclosure precedes the shared action')
   for (const kind of ['Folder', 'Git']) {
     const picker = source(`src/components/Local${kind}Connections.tsx`)
     const wrapper = source(`src/components/Local${kind}Browser.tsx`)

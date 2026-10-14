@@ -1,14 +1,13 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import type { LocalFileBrowserState } from '../controller/localFileBrowserCore.ts'
 import type { LocalSavedCopySourceKind } from '../controller/localGitSavedCopiesCore.ts'
-import { useLocalGitSavedCopyFailed, useLocalGitSavedCopyPending } from '../controller/localGitSavedCopies.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput.ts'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
 import { documentImportCopy } from '../../contract/documentImport.mjs'
 import type { LocalBrowsePreview } from '../lib/localFilePreview.ts'
 import type { PreparedLocalFileSavedCopy } from '../controller/localFileSavedCopyCore.ts'
-import { localFileSavedCopy } from '../controller/localFileSavedCopy.ts'
 import { IMAGE_ORIGINAL_PRIVACY_COPY } from '../lib/imageOriginalDownload.ts'
+import { LocalSavedCopyAction } from './LocalSavedCopyAction.tsx'
 
 const PAGE_SIZE = 100
 type Entry = { path: string; kind: string }
@@ -55,8 +54,6 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
 }) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
-  const [attachingKey, setAttachingKey] = useState<string | null>(null)
-  const attachingRef = useRef<string | null>(null)
   const listing = state.listing
   const filtered = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase()
@@ -70,31 +67,8 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   const previewImage = state.preview?.snapshot && 'image' in state.preview.snapshot ? state.preview.snapshot.image : null
   const previewIsImage = !!previewImage || state.preview?.imageFailure !== undefined || state.preview?.snapshot.omitted === 'image-import'
   const receipt = state.previewReceipt
-  const previewKey = previewText === null && previewImage === null || receipt === null ? null : String(receipt)
   const sourceKind = source
-  const sharedPending = useLocalGitSavedCopyPending(intentScope, connectionId, receipt, sourceKind)
-  const sharedFailed = useLocalGitSavedCopyFailed(intentScope, connectionId, receipt, sourceKind)
   const previewAttached = (previewText !== null || previewImage !== null) && receipt !== null && !!isAttached?.(receipt, sourceKind)
-  const attachWaiting = !!previewKey && (attachingKey === previewKey || sharedPending)
-  const attachSavedCopy = async () => {
-    if (!onAttach || (previewText === null && previewImage === null) || !state.preview || receipt === null || !previewKey || attachingRef.current || previewAttached || sharedPending || !isCurrent || !subscribeCurrent) return
-    const preview = state.preview
-    attachingRef.current = previewKey
-    setAttachingKey(previewKey)
-    try {
-      await localFileSavedCopy.submit({
-        scope: intentScope,
-        connectionId,
-        receipt,
-        sourceKind,
-        preview,
-        isCurrent: () => isCurrent(receipt),
-        subscribeCurrent,
-        onAttach,
-      })
-    } catch { /* the shared receipt registry exposes the failure across remounts */ }
-    finally { attachingRef.current = null; setAttachingKey(null) }
-  }
   const Header = headingLevel === 2 ? 'h2' : 'h3'
   const folder = source === 'folder'
   const dataSource = source === 'git-untracked' ? { 'data-local-git-untracked-browser': '' }
@@ -155,11 +129,10 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
           {state.preview.sizeBytes === 0 && state.preview.snapshot.text === '' && <p role="status" className="text-[12px] text-ink-soft">Empty file (0 bytes).</p>}
           <pre role="region" aria-label={`Preview of ${state.preview.path}`} tabIndex={0} className="max-h-96 overflow-auto rounded-md border border-line bg-canvas p-3 font-mono text-[12px] leading-relaxed text-ink" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{state.preview.snapshot.text}</pre>
         </> : 'omitted' in state.preview.snapshot && !state.preview.documentImport && <p role="status" className="text-[12px] text-ink-soft">{state.preview.snapshot.omitted === 'image-import' ? imageFailureCopy(state.preview.imageFailure) : omittedCopy(state.preview.snapshot.omitted ?? 'unreadable')}</p>}
-        {(previewImage || previewText !== null) && onAttach && <>
-          <button type="button" disabled={!enabled || state.pending || attachWaiting || previewAttached} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
-            onClick={() => void attachSavedCopy()}>{previewAttached ? 'Added' : attachWaiting ? 'Saving saved copy…' : 'Attach saved copy'}</button>
-          {sharedFailed && <p role="alert" className="text-[12px] text-danger-text">Could not confirm this saved copy. Check the context update before trying again.</p>}
-        </>}
+        {(previewImage || previewText !== null) && onAttach && state.preview && receipt !== null && isCurrent && subscribeCurrent &&
+          <LocalSavedCopyAction source={sourceKind} connectionId={connectionId} intentScope={intentScope} receipt={receipt}
+            preview={state.preview} disabled={!enabled || state.pending} isAttached={previewAttached}
+            isCurrent={isCurrent} subscribeCurrent={subscribeCurrent} onAttach={onAttach} />}
       </div>}
     </div>}
     {afterContent}

@@ -3,6 +3,7 @@ import { GitBranch } from 'lucide-react'
 import type { AddedContext, Attachment } from '../types'
 import type { LocalGitConnection } from '../../contract/localGitCapture.ts'
 import type { PreparedLocalFileSavedCopy } from '../controller/localFileSavedCopyCore.ts'
+import type { LocalSavedCopySourceKind } from '../controller/localGitSavedCopiesCore.ts'
 import { fsRecentKey } from '../../contract/fs.ts'
 import { accountGeneration } from '../api/account.ts'
 import { captureLocalGit } from '../api/localGit.ts'
@@ -10,6 +11,13 @@ import { localGitSavedCopies } from '../controller/localGitSavedCopies.ts'
 import { localGitConnections, useLocalGitConnections } from '../controller/localGitConnections.ts'
 import { useRelations } from '../controller/useRelations'
 import { UI_HOST_SOURCE } from '../lib/fsSources'
+import {
+  FS_LOCAL_CONNECTION_ACTIONS_CLASS,
+  FS_LOCAL_CONNECTION_IDENTITY_CLASS,
+  FS_LOCAL_CONNECTION_NAME_CLASS,
+  FS_LOCAL_CONNECTION_ROW_CLASS,
+  FS_LOCAL_CONNECTION_STATUS_CLASS,
+} from '../lib/fsSourceLayout.ts'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button'
 import { PAGE_HEADER_CLASS, PAGE_TITLE_CLASS } from '../lib/pageHeader'
 import type { NavLocation } from '../lib/nav'
@@ -18,7 +26,7 @@ import { BackButton } from './BackButton'
 import { AtomicResourcePage, ResourcePageSynopsisRow, ResourceUnavailablePage } from './ResourcePage'
 import { GitSnapshotPolicy } from './GitSnapshotPolicy'
 
-// Optional native review is requested only on its canonical page. The existing
+// Optional native review is requested only on explicit review surfaces. The existing
 // DeferredLocalGit boundary contains module failure and preserves navigation.
 const LocalGitReview = lazy(() => import('./LocalGitReview.tsx').then(module => ({ default: module.LocalGitReview })))
 const LocalGitBrowser = lazy(() => import('./LocalGitBrowser.tsx').then(module => ({ default: module.LocalGitBrowser })))
@@ -41,7 +49,7 @@ export function LocalGitConnect() {
   const mounted = useRef(true)
   useEffect(() => { mounted.current = true; return () => { mounted.current = false } }, [])
   return <div data-local-git-connect className="space-y-2 py-2">
-    <p className="text-[12px] leading-snug text-ink-soft">Choose a repository on this device. Listing reads bounded Git metadata and applicable ignore files; tracked file contents are read only when you explicitly preview a path, attach or refresh a saved snapshot, or review changes on its page.</p>
+    <p className="text-[12px] leading-snug text-ink-soft">Choose a repository on this device. Listing reads bounded Git metadata and applicable ignore files; tracked file contents are read only when you explicitly preview a path, attach or refresh a saved snapshot, or review changes.</p>
     <CheckboxRow checked={remember} disabled={state.busy} onToggle={() => setRemember(value => !value)} className="text-[12px] text-ink">
       <span>Remember this connection<span className="block text-[11px] text-ink-soft">Keep access after relaunch until you disconnect. Otherwise select again next time.</span></span>
     </CheckboxRow>
@@ -61,7 +69,7 @@ export function NativeLocalGitPicker({ onAdd, addedIds, attachments, intentScope
   const rel = useRelations()
   const [reading, setReading] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [browsingId, setBrowsingId] = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<{ id: string; kind: 'files' | 'changes' } | null>(null)
   const active = useRef(true)
   const busy = useRef(false)
   useEffect(() => { active.current = true; return () => { active.current = false } }, [])
@@ -83,6 +91,13 @@ export function NativeLocalGitPicker({ onAdd, addedIds, attachments, intentScope
       if (active.current && generation === accountGeneration()) setReading(null)
     }
   }
+  const attachSavedCopy = allowSavedCopy ? (file: PreparedLocalFileSavedCopy) => {
+    if (attachments.some(item => item.id === file.id)) return
+    return onAdd({ kind: 'files', attachments: [{
+      id: file.id, label: file.name, kind: file.kind, source: UI_HOST_SOURCE,
+      ...(file.kind === 'file' ? { previewText: file.text } : { image: file.image }), ...(file.documentImport && { documentImport: file.documentImport }),
+    }] })
+  } : undefined
   return <section data-native-git-picker>
     <p className="px-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">This computer</p>
     <LocalGitConnect />
@@ -93,25 +108,29 @@ export function NativeLocalGitPicker({ onAdd, addedIds, attachments, intentScope
       {state.rows.length === 0 && <p className="py-2 text-[12px] text-ink-soft">No repository connections. Choose one above, then browse files.</p>}
       {state.rows.map(connection => {
         const added = addedIds.includes(fsRecentKey('ui-host', connection.id))
-        return <div key={connection.id} className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line py-2">
-          <span className="min-w-0 flex-1"><span title={connection.name} className="block truncate text-[13px] text-ink">{connection.name}</span><span className="text-[11px] text-ink-soft">{connection.remembered ? 'Remembered on this device' : 'Until app closes'}</span></span>
-          {allowSavedCopy && <button type="button" aria-label={`Attach ${connection.name}`} disabled={added || !!reading || state.busy} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => void attach(connection)}>{added ? 'Added' : 'Attach'}</button>}
-          <button type="button" aria-label={`Browse files in ${connection.name}`} disabled={!!reading || state.busy || state.status !== 'ready'} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} aria-expanded={browsingId === connection.id} onClick={() => setBrowsingId(current => current === connection.id ? null : connection.id)}>Browse files</button>
-          <button type="button" aria-label={`Manage ${connection.name}`} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => { onClose(); rel.navigate('contexts', connection.id) }}>Manage</button>
-          {browsingId === connection.id && <div className="basis-full"><Suspense fallback={<p role="status" className="py-2 text-[12px] text-ink-soft">Loading file browser…</p>}>
+        const isAttached = (receipt: number, sourceKind: LocalSavedCopySourceKind = 'git') => {
+          localGitSavedCopies.adoptAttachments(intentScope, attachments.map(item => item.id))
+          const id = localGitSavedCopies.id(intentScope, connection.id, receipt, sourceKind)
+          return id !== undefined && attachments.some(item => item.id === id)
+        }
+        return <div key={connection.id} data-local-connection-picker-row="" className={FS_LOCAL_CONNECTION_ROW_CLASS}>
+          <div data-local-connection-picker-identity="" className={FS_LOCAL_CONNECTION_IDENTITY_CLASS}>
+            <span data-local-connection-picker-name="" title={connection.name} className={FS_LOCAL_CONNECTION_NAME_CLASS}>{connection.name}</span>
+            <span data-local-connection-picker-status="" className={FS_LOCAL_CONNECTION_STATUS_CLASS}>{connection.remembered ? 'Remembered on this device' : 'Until app closes'}</span>
+          </div>
+          <div data-local-connection-picker-actions="" className={FS_LOCAL_CONNECTION_ACTIONS_CLASS}>
+            {allowSavedCopy && <button type="button" aria-label={`Attach ${connection.name}`} disabled={added || !!reading || state.busy} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => void attach(connection)}>{added ? 'Added' : 'Attach'}</button>}
+            <button type="button" aria-label={`Browse files in ${connection.name}`} disabled={!!reading || state.busy || state.status !== 'ready'} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} aria-expanded={expanded?.id === connection.id && expanded.kind === 'files'} onClick={() => setExpanded(current => current?.id === connection.id && current.kind === 'files' ? null : { id: connection.id, kind: 'files' })}>Browse files</button>
+            <button type="button" aria-label={`Review changes in ${connection.name}`} disabled={!!reading || state.busy || state.status !== 'ready'} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} aria-expanded={expanded?.id === connection.id && expanded.kind === 'changes'} onClick={() => setExpanded(current => current?.id === connection.id && current.kind === 'changes' ? null : { id: connection.id, kind: 'changes' })}>Review changes</button>
+            <button type="button" aria-label={`Manage ${connection.name}`} className={`${SECONDARY_BUTTON_CLASS} px-2 py-1 text-[12px]`} onClick={() => { onClose(); rel.navigate('contexts', connection.id) }}>Manage</button>
+          </div>
+          {expanded?.id === connection.id && expanded.kind === 'files' && <div className="min-w-0"><Suspense fallback={<p role="status" className="py-2 text-[12px] text-ink-soft">Loading file browser…</p>}>
             <LocalGitBrowser id={connection.id} name={connection.name} enabled={state.status === 'ready' && !state.busy && !reading} intentScope={intentScope}
-              isAttached={(receipt, sourceKind = 'git') => {
-                localGitSavedCopies.adoptAttachments(intentScope, attachments.map(item => item.id))
-                const id = localGitSavedCopies.id(intentScope, connection.id, receipt, sourceKind)
-                return id !== undefined && attachments.some(item => item.id === id)
-              }}
-              onAttach={allowSavedCopy ? (file: PreparedLocalFileSavedCopy) => {
-                if (attachments.some(item => item.id === file.id)) return
-                return onAdd({ kind: 'files', attachments: [{
-                  id: file.id, label: file.name, kind: file.kind, source: UI_HOST_SOURCE,
-                  ...(file.kind === 'file' ? { previewText: file.text } : { image: file.image }), ...(file.documentImport && { documentImport: file.documentImport }),
-                }] })
-              } : undefined} />
+              isAttached={isAttached} onAttach={attachSavedCopy} />
+          </Suspense></div>}
+          {expanded?.id === connection.id && expanded.kind === 'changes' && <div className="min-w-0"><Suspense fallback={<p role="status" className="py-2 text-[12px] text-ink-soft">Loading repository review…</p>}>
+            <LocalGitReview id={connection.id} name={connection.name} enabled={state.status === 'ready' && !state.busy && !reading} intentScope={intentScope}
+              isAttached={receipt => isAttached(receipt, 'git-review')} onAttach={attachSavedCopy} />
           </Suspense></div>}
         </div>
       })}
@@ -144,10 +163,10 @@ export function LocalGitDetail({ id, onBack, backTo }: { id: string; onBack: () 
       <LocalGitBrowser id={connection.id} name={connection.name} enabled={state.status === 'ready' && !state.busy} />
     </Suspense>
     <Suspense fallback={<p role="status" className="mt-6 text-[12px] text-ink-soft">Loading repository review…</p>}>
-      <LocalGitReview id={connection.id} enabled={state.status === 'ready' && !state.busy} />
+      <LocalGitReview id={connection.id} name={connection.name} enabled={state.status === 'ready' && !state.busy} />
     </Suspense>
     <div className="mt-6 space-y-3 text-[13px] leading-relaxed text-ink-soft">
-      <p>In a conversation, choose Add context → Repository → This computer. Use Browse files → Attach saved copy to add one explicitly previewed file, or Attach to save the whole tracked snapshot. Refresh an attached repository explicitly to save later tracked edits. Opening this page does not automatically list paths or preview files.</p>
+      <p>In a conversation, choose Add context → Repository → This computer. Use Browse files → Attach saved copy to add one explicitly previewed file, Review changes → Attach this comparison to save one captured comparison, or Attach to save the whole tracked snapshot. Refresh an attached repository explicitly to save later tracked edits. Opening this page does not automatically list paths or preview files.</p>
       <p>Disconnect ends future reads; saved snapshots in conversations remain available as model input until removed.</p>
       <GitSnapshotPolicy />
     </div>

@@ -47,7 +47,7 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: images inside connected sources
+## Completed checkpoint: images inside connected sources
 
 Autonomous direction (2026-10-13): extend the existing explicit selected-file
 workflow to images in connected Folders, tracked Git and opted-in untracked Git.
@@ -89,6 +89,44 @@ replacing a pending receipt and permanent acknowledgement blocking reattachment;
 the receipt's current represented state must preserve both settlement and a
 later explicit reattach. These fixes require the same final frozen-tree gates,
 not an exemption based on the earlier partial passes.
+
+The frozen checkpoint at `4bcf5a98` passed the complete browser verifier (713
+E2E tests), the separate 135/135-cell responsive sweep, and the desktop
+verifier. This closes the connected-source image workflow for that checkpoint;
+actual OS-dialog and signed/Intel release evidence remain separate.
+
+## Current checkpoint: explicitly attach a captured Git comparison
+
+Policy change: passive staged/unstaged review stays account-scoped and
+transient, but a separate explicit conversation **Attach this comparison** act
+may save the selected already-captured comparison as an ordinary JSON text
+file. It preserves repository/capture metadata, comparison direction, paths,
+change kind and exact before/after sides (including distinct missing, empty and
+omitted states); a possible rename remains labeled as a suggestion. The
+complete serialized UTF-8 file must fit the ordinary 64 KiB text-file limit.
+Oversize or unavailable selections are refused. No Git reread/write, server or
+native operation, new wire kind or model call is added; the resulting saved
+file follows ordinary conversation context and input limits. Canonical and
+Project views remain read-only.
+
+The focused browser journeys pass exact saved/model text, oversized refusal
+and same-identity context Retry. Visual review found a cramped connection name
+beside the growing action row, plus a shared-preview screenshot captured during
+its responsive transition. Folder and Git pickers now share a full-width
+identity above wrapping actions (UI-232); five-viewport geometry checks and
+settled shared-preview capture cover those findings. Pure serializer and byte-free receipt locks include
+watched regressions; Disconnect retires captured review before native
+acknowledgement and fences pre-context preparation. Packaged Git smoke follows
+one captured comparison through saved JSON and explicit model input while
+checking the source index remains unchanged. Native review also exposed
+resize/scroll timing and synthetic text entry into an outgoing composer. The
+acceptance helpers now wait for frame-stable scrollport geometry and a hit-tested
+current composer, preserving strict full-visibility checks, exact text, existing
+deadlines and zero retries. Their source locks were watched fail before repair.
+Landing requires the complete
+frozen-tree local verifier, UI sweep and desktop verifier; their final results
+are recorded in the checkpoint handoff. Real OS-dialog and signed/Intel
+acceptance remain separate.
 
 ## Completed checkpoint: explicit untracked Git intake
 
@@ -3399,16 +3437,21 @@ with separate staged (HEAD → index) and unstaged (index → working tree)
 comparisons. The shared diff primitive shows complete bounded before/after text,
 executable mode, absent/empty files and explicit omissions. Read time and raw-byte
 limits stay visible; this is neither live Git status nor a line-hunk/rename engine.
-Review is account-scoped memory only: no saved snapshot refresh, model input,
-HTTP mutation or Git write is implied. Dismiss, disconnect and account switches
-fence late replies. Native snapshot/review operations share capacity and shutdown
-revocation; the portable parser validates and detaches every publication.
+Passive review and selection are account-scoped memory only: they imply no
+saved snapshot refresh, model input, HTTP mutation or Git write. A separate,
+explicit conversation-only **Attach this comparison** action can save one
+already captured selection as a bounded ordinary JSON text attachment (CTX-FS-34);
+it does not reread or write Git. Dismiss, disconnect and account switches fence
+late review replies. Native snapshot/review operations share capacity and
+shutdown revocation; the portable parser validates and detaches every
+publication.
 
-This completes the user-facing read-only baseline workflow over the internal
-foundation below. Signed/notarized two-architecture release, external-service and
-paid-provider acceptance, OCR, and richer source/format workflows remain separate
-production milestones. Local verification and browser/native acceptance remain
-the checkpoint gate; GitHub Actions is not used.
+This completes the user-facing review workflow over the internal foundation
+below; captured review stays read-only until the separately explicit saved-copy
+action above. Signed/notarized two-architecture release, external-service and
+paid-provider acceptance, OCR, and richer source/format workflows remain
+separate production milestones. Local verification and browser/native
+acceptance remain the checkpoint gate; GitHub Actions is not used.
 
 Checkpoint evidence: all seven focused Git browser journeys pass, including
 five-viewport ready/empty/omitted/error/loading/dismissed states, bounded keyboard

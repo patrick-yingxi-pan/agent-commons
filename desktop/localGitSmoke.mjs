@@ -77,7 +77,11 @@ async function send(page, text, expectedReply, expectedPreviousReplies) {
   const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   const replies = page.locator('[data-turn]').filter({ hasText: expectedReply })
   await expect(replies).toHaveCount(expectedPreviousReplies, { timeout: TIMEOUT_MS })
+  // Picker dismissal may replace the composer while its preview pane opens.
+  // A hit-tested click waits for the reachable current field before typing.
+  await composer.click()
   await composer.fill(text)
+  await expect(composer).toHaveValue(text)
   await composer.press('Enter')
   await expect(replies).toHaveCount(expectedPreviousReplies + 1, { timeout: TIMEOUT_MS })
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0, { timeout: TIMEOUT_MS })
@@ -404,6 +408,89 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     ['nested.md', 'ready', 'review-working-only-v3\n'],
     { name: `src/${trackedImage.name}`, status: 'image-ready', image_index: 1, width: 180, height: 90 },
   ])
+
+  // A conversation can explicitly save one captured comparison as an ordinary
+  // text attachment. Mutating only the working file after preview proves Attach
+  // adopts that copy without taking another native review read.
+  const comparisonSession = await run.page.evaluate(async id => {
+    const response = await fetch('/api/v1/sessions', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
+    })
+    if (!response.ok) throw new Error('Could not create the isolated Git comparison conversation.')
+    return response.json()
+  }, providerId)
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(comparisonSession.id)}`)
+  await run.page.getByRole('button', { name: 'Add context' }).click()
+  const comparisonPicker = run.page.getByRole('dialog', { name: 'Add context' })
+  await comparisonPicker.getByRole('button', { name: /^Repository/ }).click()
+  await comparisonPicker.getByRole('button', { name: `Review changes in ${repositoryName}`, exact: true }).click()
+  const comparisonReview = comparisonPicker.locator('[data-local-git-review]')
+  await expect(comparisonReview).toBeVisible()
+  const comparisonModelBefore = endpoint.requests.length
+  const comparisonIndexBefore = await indexState(repository)
+  await comparisonReview.getByRole('button', { name: 'Review changes', exact: true }).click()
+  const comparisonResult = comparisonReview.locator('[data-local-git-review-result]')
+  await expect(comparisonResult).toBeVisible({ timeout: TIMEOUT_MS })
+  await expect(comparisonResult.getByLabel('Compare')).toHaveValue('staged', { timeout: TIMEOUT_MS })
+  await comparisonResult.getByLabel('Compare').selectOption('unstaged')
+  await comparisonResult.getByLabel('Changed file').selectOption('src/nested.md')
+  await expect(comparisonResult.getByLabel('Review view')).toHaveValue('changes')
+  const comparisonCopy = comparisonResult.locator('[data-git-comparison-copy]')
+  await expect(comparisonCopy).toBeVisible()
+  await comparisonCopy.getByText('Saved comparison contents', { exact: true }).click()
+  const comparisonTextRegion = comparisonCopy.locator('[data-git-comparison-copy-text]')
+  await expect(comparisonTextRegion).toBeVisible()
+  const comparisonText = await comparisonTextRegion.textContent()
+  assert.equal(typeof comparisonText, 'string')
+  const comparisonName = 'git-unstaged-src__nested.md.comparison.json'
+  const comparison = JSON.parse(comparisonText)
+  assert.deepEqual(comparison, {
+    version: 1,
+    kind: 'git-comparison-copy',
+    repositoryName,
+    capturedAt: comparison.capturedAt,
+    head: { ref: 'refs/heads/main', oid: git(gitExecutable, repository, 'rev-parse', 'HEAD').trim() },
+    comparison: 'unstaged',
+    paths: { before: 'src/nested.md', after: 'src/nested.md' },
+    change: 'modified',
+    before: { kind: 'text', text: 'captured-nested-index-v1\n', mode: '100644' },
+    after: { kind: 'text', text: 'browse-source-changed-after-preview-v4\n', mode: '100644' },
+  }, 'the saved comparison contains exact captured Index and Working tree sides')
+  assert.equal(new Date(comparison.capturedAt).toISOString(), comparison.capturedAt,
+    'saved comparison time is the captured read time in stable ISO form')
+  assert.equal(JSON.stringify(comparison, null, 2), comparisonText,
+    'the preview is the complete stable pretty-printed JSON copy')
+  assert.equal(endpoint.requests.length, comparisonModelBefore, 'reviewing a comparison never sends a model request')
+
+  await writeFile(join(repository, 'src', 'nested.md'), 'comparison-source-changed-after-preview-v5\n')
+  assert.equal(await comparisonTextRegion.textContent(), comparisonText,
+    'later source edits do not alter the explicit comparison preview')
+  await comparisonCopy.getByRole('button', { name: 'Attach this comparison', exact: true }).click()
+  await expect(comparisonPicker).toContainText('1 added', { timeout: TIMEOUT_MS })
+  const comparisonSaved = await readWorkspace(run.page, comparisonSession.id)
+  assert.deepEqual(comparisonSaved.attachments, [{
+    id: comparisonSaved.attachments[0].id,
+    label: comparisonName,
+    kind: 'file',
+    source: { id: 'ui-host', kind: 'ui-host', label: 'This computer' },
+    previewText: comparisonText,
+  }], 'Attach persists exactly the selected comparison JSON as ordinary file text')
+  assert.equal(JSON.stringify(comparisonSaved).includes(fixtureRoot), false,
+    'the saved comparison contains no native repository path')
+  assert.equal(endpoint.requests.length, comparisonModelBefore,
+    'explicit Attach persists the comparison without automatically sending it')
+  await assertIndexUnchanged(repository, comparisonIndexBefore)
+
+  await comparisonPicker.getByRole('button', { name: 'Done', exact: true }).click()
+  await expect(comparisonPicker).toHaveCount(0)
+  await send(run.page, 'Read the saved Git comparison.', 'Read supplied attachment:', 0)
+  assert.equal(endpoint.requests.length, comparisonModelBefore + 1,
+    'only the separate explicit Send makes a model request')
+  await assertModelFiles(endpoint, [[comparisonName, 'ready', comparisonText]])
+  assert.ok(endpoint.requests.at(-1).messages.some(message =>
+    typeof message.content === 'string' && message.content.includes(JSON.stringify(comparisonText))),
+  'the explicit model prompt contains the JSON-escaped exact saved comparison text')
+  await assertIndexUnchanged(repository, comparisonIndexBefore)
 
   // Untracked browsing remains opt-in, with listing and each selected preview
   // separate from the conversation-only Attach action. The generated fixtures

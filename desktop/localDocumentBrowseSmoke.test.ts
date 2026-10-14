@@ -65,8 +65,17 @@ test('packaged document acceptance helpers never ship', () => {
 
 test('packaged document preview capture centers disclosure and text without relaxing containment', () => {
   const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
+  const resize = source.indexOf('await page.setViewportSize({ width, height })')
+  const settleBody = source.indexOf("await settledOpaquePaint(picker.locator('[data-fs-picker-body]'))", resize)
+  const firstScroll = source.indexOf('await disclosure.evaluate(node => node.scrollIntoView', resize)
+  assert.ok(resize > 0 && settleBody > resize && firstScroll > settleBody,
+    'the resized inner scrollport settles before choosing a centered scroll position')
   for (const target of ['disclosure', 'preview']) {
     assert.ok(source.includes(`await ${target}.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest' }))`), `${target} capture scrolls inward from the clipped ancestor edge`)
+    const scroll = source.indexOf(`await ${target}.evaluate(node => node.scrollIntoView`)
+    const settle = source.indexOf(`await settledOpaquePaint(${target})`, scroll)
+    const containment = source.indexOf(`expect(${target}).toBeInViewport({ ratio: 1 })`, scroll)
+    assert.ok(settle > scroll && containment > settle, `${target} settles before strict visibility is judged`)
     assert.ok(source.includes(`expect(${target}).toBeInViewport({ ratio: 1 })`), `${target} must remain fully visible`)
   }
 })

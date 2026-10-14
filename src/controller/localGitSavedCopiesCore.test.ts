@@ -177,19 +177,22 @@ test('acknowledged saved-copy projection counts only known IDs present in actual
 test('acknowledged saved-copy counts stay isolated by source kind', () => {
   const core = createLocalGitSavedCopiesCore()
   const target = scope(9, 'session')
-  const create = (source: 'git' | 'git-untracked' | 'folder') => core.submit(
+  const create = (source: 'git' | 'git-untracked' | 'git-review' | 'folder') => core.submit(
     target, 'same-connection', 4, () => `${source}-copy-id`, () => undefined, source,
   ).id
   const gitId = create('git')
   const untrackedId = create('git-untracked')
+  const comparisonId = create('git-review')
   const folderId = create('folder')
 
   assert.notEqual(gitId, folderId, 'identical receipt coordinates from distinct sources remain distinct intents')
   assert.notEqual(gitId, untrackedId, 'tracked and untracked receipt counters cannot alias')
   assert.notEqual(untrackedId, folderId, 'untracked and folder receipt coordinates remain distinct intents')
+  assert.equal(new Set([gitId, untrackedId, comparisonId, folderId]).size, 4, 'comparison selections never alias file preview receipts')
   assert.deepEqual(core.acknowledgedIds(target, [gitId, folderId], 'git'), [gitId])
   assert.deepEqual(core.acknowledgedIds(target, [gitId, untrackedId], 'git-untracked'), [untrackedId])
   assert.deepEqual(core.acknowledgedIds(target, [gitId, folderId], 'folder'), [folderId])
+  assert.deepEqual(core.acknowledgedIds(target, [gitId, untrackedId, comparisonId, folderId], 'git-review'), [comparisonId])
 })
 
 test('adoption retains account fencing even when another account presents the same attachment ID', () => {
