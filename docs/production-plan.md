@@ -95,7 +95,34 @@ E2E tests), the separate 135/135-cell responsive sweep, and the desktop
 verifier. This closes the connected-source image workflow for that checkpoint;
 actual OS-dialog and signed/Intel release evidence remain separate.
 
-## Current checkpoint: explicitly attach a captured Git comparison
+## Current checkpoint: explicit single-file Git comparison
+
+The next complete workflow is explicit staged or unstaged comparison of one
+selected tracked path, including a HEAD-only staged deletion. Browsing already
+supports 10,000 paths, but whole-repository review has a separate 500-path cap
+and shared text budget. A selected comparison must not read unrelated file
+bodies first or claim that the whole repository is clean. Existing whole-repo
+capture/review limits and the ordinary bounded saved-comparison copy remain.
+
+PORT-34 is the native prerequisite: a narrow baseline transaction validates the
+copied index within browse metadata bounds, then resolves only the selected HEAD
+path. It retains the existing source-version, cancellation and private-store
+fences, denies unrelated blob/working reads and distinguishes sparse ancestry
+from a deleted index entry. Real generated repositories and the packaged Git
+smoke cover this boundary. File/directory transitions retain conservative
+ignore matching without granting descendant reads; both transition regressions
+were watched fail before the fix. This checkpoint does not yet add a renderer command
+or UI: the remaining work is a closed path/direction result, account-bound IPC,
+explicit controls, exact saved-copy integration and rendered/package acceptance.
+No UI files change in this prerequisite; the UI-review matrix applies when that
+workflow is connected. Full local verification and packaged-native regression
+remain required before landing this native boundary.
+
+## Completed checkpoint: explicitly attach a captured Git comparison
+
+Landed as `81c0c383` after the complete local verifier (715 browser tests),
+separate 135/135-cell responsive sweep and unsigned arm64 desktop verifier.
+Actual OS-dialog, signed/notarized and native Intel evidence remain separate.
 
 Policy change: passive staged/unstaged review stays account-scoped and
 transient, but a separate explicit conversation **Attach this comparison** act

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BUNDLED_GIT, bundledGitProbeEnvironment, verifyBundledGitDirectory } from './bundledGit.mjs'
-import { withLocalGitBaseline } from './gitBaselineReader.mjs'
+import { withLocalGitBaseline, withLocalGitFileBaseline } from './gitBaselineReader.mjs'
 import { gitFileExecutable } from './gitFilePaths.mjs'
 import { createLocalGitReader, runLocalGit } from './localGitReader.mjs'
 import { readLocalGitReview } from './localGitReview.mjs'
@@ -157,6 +157,21 @@ export async function smokePackagedBundledGit({ executable }) {
     })
     assert.equal(baseline, 'head/index verified')
     for (const cwd of new Set(privateGitCwds)) await assert.rejects(access(cwd))
+    const selectedBaseline = await withLocalGitFileBaseline(pinned, 'tracked.txt', {
+      gitExecutable: git, fileExecutable: fileHelper, includeWorkingTree: true,
+    }, async ({ selection, headEntries, indexEntries, readBlob, readWorkingFile }) => ({
+      selection,
+      headPaths: headEntries.map(entry => entry.name),
+      indexPaths: indexEntries.map(entry => entry.name),
+      head: Buffer.from(await readBlob(headEntries[0].oid)).toString('utf8'),
+      index: Buffer.from(await readBlob(indexEntries[0].oid)).toString('utf8'),
+      working: Buffer.from((await readWorkingFile('tracked.txt')).bytes).toString('utf8'),
+    }))
+    assert.deepEqual(selectedBaseline, {
+      selection: { path: 'tracked.txt', sparse: false },
+      headPaths: ['tracked.txt'], indexPaths: ['tracked.txt'],
+      head: 'HEAD baseline bytes\n', index: 'staged index bytes\n', working: 'uncommitted working text\n',
+    }, 'selected baseline returns only the exact path through shipped Git and descriptor binaries')
     assert.deepEqual(await readFile(indexPath), beforeIndex, 'the probe does not change split index bytes')
     assert.equal(await readFile(join(fixture, 'tracked.txt'), 'utf8'), 'uncommitted working text\n')
 
