@@ -23,9 +23,10 @@ covers clean onboarding, encrypted provider-key custody and signed-in relaunch.
 These are implemented-boundary checks against a local model peer, not evidence
 of a successful paid-provider call.
 
-The preceding landed revision's corrected frozen-tree verifier passed: all five
-lanes and 693 browser tests passed in 752.9 seconds before `fe98e2b7` landed.
-The earlier interrupted attempt remains failure evidence only. Actual native
+The preceding landed document-browse revision `fea7f307` passed the complete
+frozen-tree verifier: all five lanes and 702 browser tests in 765.6 seconds.
+Its separate 135-cell shell sweep and unsigned arm64 desktop verifier also
+passed; the earlier failed/interrupted attempts remain failure evidence only. Actual native
 local-MCP Cancel/Allow and the complete authored-peer workflow are separately
 accepted on the artifact named in the [native review](acceptance/native-mcp-stdio-2026-10-12.md).
 Neither result closes the following gates:
@@ -46,7 +47,65 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: review documents inside connected sources
+## Current checkpoint: explicit untracked Git intake
+
+Autonomous direction (2026-10-13): complete repository intake with a separate,
+unchecked untracked-file browser. New files should be reviewable and attachable
+without staging them in Git or reconnecting the repository as a Folder. Existing
+tracked browsing, whole-repository Attach/Refresh and staged/unstaged review keep
+their current admission rules. Project context remains browse-only; the later
+conversation Attach must preserve exactly the reviewed text and fidelity data.
+
+The first implementation checkpoint is the internal native boundary, not a
+shipped UI feature. A one-directory, no-follow metadata primitive enables ignore
+pruning before descent, including ignored trees too large to enumerate. Discovery
+subtracts all current index paths, does not enter Git metadata, submodules,
+sparse/indexed directories or nested repositories, and includes ordinary dotfiles
+only under the future explicit untracked action. Each selected preview repeats
+admission against a fresh copied index, current ignores and pinned directory
+metadata before reading that one supported regular file. Directory and file
+versions are rechecked before publication. No Git command runs in the source
+worktree. Only the existing bounded copied-config probe may read
+`extensions.objectformat`, with includes disabled; source configuration is never
+applied to commands. Neither listing nor preview writes to the source.
+
+Limits are explicit: 10,000 total raw entries across visited directories, 1,024
+visited directories including the root, depth 64 and 1 MiB aggregate candidate
+path bytes. Ignore evaluation remains private and bounded; copied index/ignore
+metadata shares the existing 16 MiB limit and the transaction retains its
+30-second deadline. Ignored directories count as one excluded candidate rather
+than claiming a count of unseen descendants. Overflow fails without partial
+results. Selected text/document bounds reuse the existing portable contracts.
+
+Remaining work for the complete workflow: distinct owner-bound native IPC and
+closed discriminated selections, opt-in transient UI state, exact saved-copy
+attachment, cancellation/account/disconnect fences, five-viewport browser review
+and packaged source-absent relaunch acceptance. The internal functions are not
+wired into existing renderer channels, persistence, model input or unattended
+execution. They do not close CTX-FS-32 or the external release gates above.
+New internal locks must be watched fail, reviewed and pass the full local and
+packaged-native gates before this foundation lands.
+
+Focused development evidence: the 26 directory/reader cases passed after a new
+race test exposed missing ancestor-version checks in the directory primitive.
+Both root and intermediate-ancestor changes are now refused; the legacy file
+reader is unchanged. Six pure discovery cases cover aggregate entry, empty
+directory, depth and path-byte limits and metadata/ignore pruning. Raising the
+aggregate entry cap by one was watched fail its boundary test, and removing the
+new module from packaged ASAR equivalence was watched fail the packaging lock;
+both mutations were restored. Packaged acceptance now additionally exercises the
+untracked list and exact selected text using the shipped helper, and proves that
+tracked preview and bulk capture retain their old scope. Final frozen-tree gate
+outcomes accompany the checkpoint handoff, not these pre-gate observations.
+
+The complete unsigned arm64 `npm run desktop:verify` passed all stages on the
+frozen 2,919-file source tree, including the new packaged internal reader checks
+and existing native workflows. Independent review found no remaining code defect;
+its documentation correction above clarifies the pre-existing copied object-format
+probe and changes no packaged runtime code. The complete local verifier is still
+required on this final documentation-inclusive revision before commit/push.
+
+## Completed checkpoint: review documents inside connected sources
 
 The previous goal turn clarified Apple enrollment using Apple's current
 mainland-China guidance: individual enrollment supports international Mac
@@ -147,8 +206,10 @@ frames. The capture source lock was watched fail before repair; no product CSS,
 timeout or retry policy changed. Both focused tests passed again (14.6 seconds),
 and all 16 fresh loading/error/loaded/footer captures were reviewed at original
 size. The blend disappeared with settled paint; the surface is solid and legible,
-so no product styling change was justified. Final landing still requires a new
-complete frozen-tree verifier run.
+so no product styling change was justified. The final frozen-tree verifier passed
+all five lanes and 702 browser tests in 765.6 seconds; `fea7f307` was committed
+and pushed to main after review. The earlier failed/interrupted runs do not
+substitute for that final acceptance.
 
 ## Completed checkpoint: select files from a connected local folder
 

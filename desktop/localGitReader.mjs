@@ -9,9 +9,10 @@ import { isLocalGitFileSelection, MAX_GIT_BROWSE_ENTRIES,
 import { isLocalBrowseFileName, localBrowseFileByteLimit, localBrowseSnapshotFromBytes } from '../contract/localFileBrowse.mjs'
 import { bundledGitProbeEnvironment } from './bundledGit.mjs'
 import { parseGitIndexStages, prepareGitIndex } from './gitIndex.mjs'
-import { readGitFile, listGitSharedIndexes } from './gitFileRead.mjs'
+import { readGitFile, listGitSharedIndexes, listLocalGitDirectory } from './gitFileRead.mjs'
 import { inspectLocalFolderRoot } from './localFolderReader.mjs'
 import { readGitIgnoredPaths } from './gitIgnore.mjs'
+import { discoverUntrackedGitFiles } from './gitUntracked.mjs'
 
 export { parseGitIndexStages } from './gitIndex.mjs'
 
@@ -92,6 +93,7 @@ export function isLocalGitRoot(value) {
 }
 
 export function createLocalGitReader({ gitExecutable, fileExecutable, readFile = readGitFile, listSharedIndexes = listGitSharedIndexes,
+  listDirectory = listLocalGitDirectory,
   runGit = (args, options) => runLocalGit(gitExecutable, args, options) } = {}) {
   const read = (root, name, maxBytes, signal) => readFile(root, name, { maxBytes, signal, executable: fileExecutable })
 
@@ -144,7 +146,9 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
       await mkdir(worktree, { mode: 0o700 })
       await writeFile(join(metadata, 'HEAD'), 'ref: refs/heads/main\n', { mode: 0o600 })
       const observed = new Map()
+      const observedDirectories = new Map()
       let metadataBytes = 0
+      let ignorePass = 0
       const signature = (value) => [value.status === 'too-large' ? 'file' : value.status, value.sizeBytes, value.version]
       const load = async (base, name, maxBytes) => {
         checkSignal(signal)
@@ -183,13 +187,39 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
         if (result.status !== 0) fail()
         return browse ? parseGitIndexStages(result.stdout, { tagged: true, maxEntries: MAX_GIT_BROWSE_ENTRIES }) : parseGitIndexEntries(result.stdout)
       }
-      const ignoredPaths = (entries, maxEntries) => readGitIgnoredPaths({ root, common, metadata, worktree, staging, maxEntries,
-        entries: entries.map(entry => ({ name: entry.name, mode: entry.mode === 'mixed' ? '100644' : entry.mode })),
-        load, runGit, signal, reserveMetadata: size => {
-          if (!Number.isSafeInteger(size) || size < 0 || size > MAX_METADATA_BYTES - metadataBytes) fail()
-          metadataBytes += size
-        } })
-      const result = await capture({ list, load, ignoredPaths })
+      const ignoredPaths = async (entries, maxEntries, { isolated = false, readCandidateDirectoryIgnores = true } = {}) => {
+        // Incremental discovery needs fresh private placeholders per batch.
+        // check-ignore --no-index needs no copied index or source configuration.
+        let ignoreMetadata = metadata, ignoreWorktree = worktree
+        if (isolated) {
+          const pass = join(staging, `ignore-${++ignorePass}`)
+          ignoreMetadata = join(pass, 'metadata')
+          ignoreWorktree = join(pass, 'worktree')
+          await mkdir(join(ignoreMetadata, 'objects'), { recursive: true, mode: 0o700 })
+          await mkdir(join(ignoreMetadata, 'refs'), { mode: 0o700 })
+          await mkdir(ignoreWorktree, { mode: 0o700 })
+          await writeFile(join(ignoreMetadata, 'HEAD'), 'ref: refs/heads/main\n', { mode: 0o600, flag: 'wx' })
+        }
+        return readGitIgnoredPaths({ root, common, metadata: ignoreMetadata, worktree: ignoreWorktree, staging,
+          maxEntries, readCandidateDirectoryIgnores,
+          entries: entries.map(entry => ({ name: entry.name, mode: entry.mode === 'mixed' ? '100644' : entry.mode })),
+          load, runGit, signal, reserveMetadata: size => {
+            if (!Number.isSafeInteger(size) || size < 0 || size > MAX_METADATA_BYTES - metadataBytes) fail()
+            metadataBytes += size
+          } })
+      }
+      const directory = async name => {
+        checkSignal(signal)
+        const value = await listDirectory(root, name, { signal, executable: fileExecutable })
+        if (observedDirectories.has(name) && !isDeepStrictEqual(observedDirectories.get(name), value)) fail()
+        observedDirectories.set(name, value)
+        return value
+      }
+      const result = await capture({ list, load, ignoredPaths, directory })
+      for (const [name, value] of observedDirectories) {
+        checkSignal(signal)
+        if (!isDeepStrictEqual(value, await listDirectory(root, name, { signal, executable: fileExecutable }))) fail()
+      }
       for (const observation of observed.values()) {
         checkSignal(signal)
         const current = await read(observation.base, observation.name, null, signal)
@@ -275,5 +305,35 @@ export function createLocalGitReader({ gitExecutable, fileExecutable, readFile =
       return result
     })
   }
-  return { inspectLocalGitRoot, readLocalGitSnapshot, listLocalGitFiles, readLocalGitFile }
+  // Internal foundations for the separately consented untracked browser. These
+  // are deliberately not wired to the existing tracked IPC or bulk capture.
+  async function listLocalGitUntrackedFiles(root, options = {}) {
+    return withIndex(root, options, async transaction => {
+      const discovery = await discoverUntrackedGitFiles(transaction)
+      const result = parseLocalGitFileListing({ version: 1, excludedCount: discovery.excludedCount,
+        files: discovery.files.map(({ path, kind }) => ({ path, kind })) })
+      if (!result) fail()
+      return result
+    })
+  }
+
+  async function readLocalGitUntrackedFile(root, { signal, selection } = {}) {
+    if (!isLocalGitFileSelection(selection)) fail()
+    const path = Object.getOwnPropertyDescriptor(selection, 'path').value
+    return withIndex(root, { signal }, async transaction => {
+      const discovery = await discoverUntrackedGitFiles(transaction)
+      const entry = discovery.files.find(entry => entry.path === path)
+      if (!entry) fail()
+      let snapshot = { omitted: 'unsupported' }
+      if (entry.kind === 'file') {
+        const value = await transaction.load(root, path, localBrowseFileByteLimit(path))
+        if (!['file', 'too-large'].includes(value.status) || value.version !== entry.version || value.sizeBytes !== entry.sizeBytes) fail()
+        snapshot = value.status === 'too-large' ? { omitted: 'too-large' } : localBrowseSnapshotFromBytes(path, value.sizeBytes, value.bytes)
+      }
+      const result = parseLocalGitFilePreview({ version: 1, path, sizeBytes: entry.sizeBytes, snapshot })
+      if (!result) fail()
+      return result
+    })
+  }
+  return { inspectLocalGitRoot, readLocalGitSnapshot, listLocalGitFiles, readLocalGitFile, listLocalGitUntrackedFiles, readLocalGitUntrackedFile }
 }

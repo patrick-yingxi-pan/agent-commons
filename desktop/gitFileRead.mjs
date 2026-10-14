@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
 import { isAbsolute } from 'node:path'
 import { gitFileExecutable } from './gitFilePaths.mjs'
+import { isGitSnapshotPath } from '../contract/localGitSnapshot.mjs'
+import { MAX_GIT_BROWSE_ENTRIES, MAX_GIT_BROWSE_PATH_BYTES } from '../contract/localGitBrowse.mjs'
 import {
   isFolderTreePath, MAX_FOLDER_TREE_DEPTH, MAX_FOLDER_TREE_DIRECTORIES,
   MAX_FOLDER_TREE_ENTRIES, MAX_FOLDER_TREE_PATH_BYTES,
@@ -167,6 +169,46 @@ export async function listLocalFolderTree(root, { signal, executable = gitFileEx
   }
   entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
   return { rootVersion: header[4], visited, directoryCount, entries }
+}
+
+/** One private metadata-only step, allowing the Git reader to prune ignored
+ * directories before descent. Dot names remain visible for metadata pruning;
+ * neither the names nor these versions grant reusable file-read authority. */
+export async function listLocalGitDirectory(root, relativeDirectory = '', { signal, executable = gitFileExecutable() } = {}) {
+  const invalid = () => new Error('The Git directory is unavailable or exceeds its read limits.')
+  if (!validRoot(root) || typeof executable !== 'string' || !isAbsolute(executable) ||
+      typeof relativeDirectory !== 'string' || (relativeDirectory !== '' &&
+      (!isGitSnapshotPath(relativeDirectory) || Buffer.byteLength(relativeDirectory) > 4096 ||
+       relativeDirectory.split('/').length > 64 || Buffer.from(relativeDirectory).toString('utf8') !== relativeDirectory))) throw invalid()
+  const output = await runHelper(executable, ['--list-directory', root.path, root.identity.dev, root.identity.ino, relativeDirectory], {
+    signal, outputLimit: MAX_OUTPUT_HEADER_BYTES + MAX_GIT_BROWSE_PATH_BYTES + MAX_GIT_BROWSE_ENTRIES * MAX_OUTPUT_HEADER_BYTES,
+  })
+  let text
+  try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(output) } catch { throw invalid() }
+  const lines = text.split('\n')
+  if (lines.pop() !== '') throw invalid()
+  const versionPattern = '[0-9]+:[0-9]+:[0-9]+:-?\\d+:-?\\d+:-?\\d+:-?\\d+:-?\\d+'
+  const header = new RegExp(`^L (0|[1-9]\\d*) (0|[1-9]\\d*) (${versionPattern})$`).exec(lines.shift() ?? '')
+  if (!header) throw invalid()
+  const count = Number(header[1]), visited = Number(header[2])
+  if (!Number.isSafeInteger(visited) || visited > MAX_GIT_BROWSE_ENTRIES || count > visited || count !== lines.length) throw invalid()
+  const entryPattern = new RegExp(`^([FDU]) (0|[1-9]\\d*) (${versionPattern})\\t(.+)$`)
+  const names = new Set(), entries = []
+  let nameBytes = 0
+  for (const line of lines) {
+    const item = entryPattern.exec(line)
+    if (!item) throw invalid()
+    const [, kind, size, version, name] = item
+    const bytes = Buffer.byteLength(name), sizeBytes = Number(size)
+    if (!name || ['.', '..'].includes(name) || /[\\/\x00-\x1f\x7f]/.test(name) || bytes > 255 ||
+        names.has(name) || !Number.isSafeInteger(sizeBytes)) throw invalid()
+    nameBytes += bytes
+    if (nameBytes > MAX_GIT_BROWSE_PATH_BYTES) throw invalid()
+    names.add(name)
+    entries.push({ name, kind, sizeBytes, version })
+  }
+  entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0)
+  return { version: header[3], visited, entries }
 }
 
 /** Read one regular file beneath a pinned directory without following path symlinks. */

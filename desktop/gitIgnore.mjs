@@ -81,7 +81,7 @@ function parseIgnored(result, candidates) {
  * Git; candidates travel only on stdin to fixed check-ignore invocations. */
 export async function readGitIgnoredPaths({
   root, common, metadata, worktree, staging, entries, load, runGit, signal, reserveMetadata,
-  maxEntries = MAX_ENTRIES,
+  maxEntries = MAX_ENTRIES, readCandidateDirectoryIgnores = true,
 }) {
   if (!root || !common || !metadata || !worktree || !staging || typeof load !== 'function' ||
     typeof runGit !== 'function' || typeof reserveMetadata !== 'function' || signal?.aborted) fail()
@@ -109,7 +109,12 @@ export async function readGitIgnoredPaths({
     await writeFile(join(worktree, name), new Uint8Array(), { mode: 0o600, flag: 'wx' })
   }
 
-  const orderedConfigDirs = ['', ...orderedDirectories]
+  // Discovery evaluates immediate child directories before descent. Their own
+  // ignore files cannot affect whether that directory is excluded by its parent,
+  // and must not be read before the directory is admitted.
+  const leafDirectories = new Set(admitted.filter(entry => DIRECTORY_MODES.has(entry.mode)).map(entry => entry.name))
+  const orderedConfigDirs = ['', ...orderedDirectories.filter(directory => readCandidateDirectoryIgnores ||
+    !leafDirectories.has(directory) || admitted.some(entry => entry.name.startsWith(`${directory}/`)))]
   const copiedIgnoreFiles = new Set()
   for (const directory of orderedConfigDirs) {
     check()

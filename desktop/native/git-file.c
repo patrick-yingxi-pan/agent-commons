@@ -181,6 +181,17 @@ static int validate_failed_leaf(const char *root_path, int root_fd, struct stat 
   return !observed && errno == expected_error;
 }
 
+static int validate_directory_versions(const char *root_path, int root_fd, struct stat root_info,
+                                       struct directory_step *steps, size_t directory_count) {
+  struct stat current;
+  if (!validate_directory_chain(root_path, root_fd, root_info, steps, directory_count) ||
+      fstat(root_fd, &current) != 0 || !same_directory_version(&root_info, &current)) return 0;
+  for (size_t index = 1; index <= directory_count; ++index) {
+    if (fstat(steps[index].fd, &current) != 0 || !same_directory_version(&steps[index].opened, &current)) return 0;
+  }
+  return 1;
+}
+
 #ifdef AGENT_COMMONS_GIT_FILE_TEST_HOOKS
 static void test_pause_before_open(void) {
   const char *ready = getenv("AGENT_COMMONS_GIT_FILE_TEST_READY");
@@ -490,7 +501,123 @@ static int list_folder_tree(const char *root_path, const char *device_text, cons
   return wrote ? 0 : 70;
 }
 
+/* One metadata-only directory step. The caller decides which child directories
+ * are admitted by repository ignore rules before requesting another step. */
+#define DIRECTORY_MAX_ENTRIES 10000U
+#define DIRECTORY_MAX_DEPTH 64U
+#define DIRECTORY_MAX_NAME_BYTES (1024U * 1024U)
+
+struct directory_entry {
+  char *name;
+  struct stat info;
+};
+
+static int list_directory(const char *root_path, const char *device_text, const char *inode_text,
+                          const char *relative_path) {
+  uint64_t pinned_device, pinned_inode;
+  size_t component_count = 0;
+  if (!parse_u64(device_text, &pinned_device) || !parse_u64(inode_text, &pinned_inode) ||
+      (*relative_path && (!valid_relative_path(relative_path, &component_count) ||
+                         strlen(relative_path) > 4096 || component_count > DIRECTORY_MAX_DEPTH))) return 64;
+  int root_fd = open(root_path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+  struct stat root_info, current, directory_info;
+  if (root_fd < 0 || fstat(root_fd, &root_info) != 0 || !S_ISDIR(root_info.st_mode) ||
+      (uint64_t)root_info.st_dev != pinned_device || (uint64_t)root_info.st_ino != pinned_inode) {
+    if (root_fd >= 0) close(root_fd);
+    return emit_status(RESULT_CHANGED, NULL) ? 0 : 70;
+  }
+  struct directory_step steps[DIRECTORY_MAX_DEPTH + 1];
+  memset(steps, 0, sizeof(steps));
+  size_t directory_count = 0, count = 0, visited = 0, name_bytes = 0;
+  int parent_fd = root_fd, stable = 0, wrote = 1;
+  struct directory_entry *entries = calloc(DIRECTORY_MAX_ENTRIES, sizeof(*entries));
+  DIR *directory = NULL;
+  if (!entries) goto report_directory;
+  const char *cursor = relative_path;
+  for (size_t index = 0; index < component_count; ++index) {
+    const char *slash = strchr(cursor, '/');
+    char *component = copy_component(cursor, slash ? (size_t)(slash - cursor) : strlen(cursor));
+    if (!component) goto report_directory;
+    struct stat before, opened;
+    if (fstatat(parent_fd, component, &before, AT_SYMLINK_NOFOLLOW) != 0 || !S_ISDIR(before.st_mode)) {
+      free(component);
+      goto report_directory;
+    }
+    int child_fd = openat(parent_fd, component, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    if (child_fd < 0 || fstat(child_fd, &opened) != 0 || !same_directory_version(&before, &opened)) {
+      if (child_fd >= 0) close(child_fd);
+      free(component);
+      goto report_directory;
+    }
+    steps[++directory_count] = (struct directory_step){ child_fd, parent_fd, component, opened };
+    parent_fd = child_fd;
+    if (slash) cursor = slash + 1;
+  }
+  if (fstat(parent_fd, &directory_info) != 0) goto report_directory;
+  int scan_fd = dup(parent_fd);
+  if (scan_fd < 0) goto report_directory;
+  directory = fdopendir(scan_fd);
+  if (!directory) { close(scan_fd); goto report_directory; }
+  for (;;) {
+    errno = 0;
+    struct dirent *item = readdir(directory);
+    if (!item) { if (errno) goto report_directory; break; }
+    const char *name = item->d_name;
+    if (!strcmp(name, ".") || !strcmp(name, "..")) continue;
+    if (++visited > DIRECTORY_MAX_ENTRIES) goto report_directory;
+    size_t parts;
+    if (!valid_relative_path(name, &parts) || parts != 1) continue;
+    name_bytes += strlen(name);
+    if (name_bytes > DIRECTORY_MAX_NAME_BYTES) goto report_directory;
+    struct stat info;
+    if (fstatat(parent_fd, name, &info, AT_SYMLINK_NOFOLLOW) != 0 || info.st_size < 0 ||
+        (uint64_t)info.st_size > MAX_SAFE_INTEGER) goto report_directory;
+    char *copy = strdup(name);
+    if (!copy) goto report_directory;
+    entries[count++] = (struct directory_entry){ copy, info };
+  }
+  closedir(directory);
+  directory = NULL;
+#ifdef AGENT_COMMONS_GIT_FILE_TEST_HOOKS
+  test_pause_before_open();
+#endif
+  if (fstat(parent_fd, &current) != 0 || !same_directory_version(&directory_info, &current) ||
+      !validate_directory_versions(root_path, root_fd, root_info, steps, directory_count)) goto report_directory;
+  for (size_t index = 0; index < count; ++index) {
+    if (fstatat(parent_fd, entries[index].name, &current, AT_SYMLINK_NOFOLLOW) != 0 ||
+        !same_file_version(&entries[index].info, &current)) goto report_directory;
+  }
+  if (fstat(parent_fd, &current) != 0 || !same_directory_version(&directory_info, &current) ||
+      !validate_directory_versions(root_path, root_fd, root_info, steps, directory_count)) goto report_directory;
+  stable = 1;
+
+report_directory:
+  if (directory) closedir(directory);
+  close_directories(root_fd, steps, directory_count);
+  if (!stable) wrote = emit_status(RESULT_CHANGED, NULL);
+  else {
+    char version[256], header[MAX_HEADER_BYTES];
+    file_version(&directory_info, version, sizeof(version));
+    int length = snprintf(header, sizeof(header), "L %zu %zu %s\n", count, visited, version);
+    wrote = length > 0 && (size_t)length < sizeof(header) && write_all(STDOUT_FILENO, header, (size_t)length);
+    for (size_t index = 0; wrote && index < count; ++index) {
+      struct directory_entry *entry = &entries[index];
+      file_version(&entry->info, version, sizeof(version));
+      char kind = S_ISREG(entry->info.st_mode) ? 'F' : S_ISDIR(entry->info.st_mode) ? 'D' : 'U';
+      length = snprintf(header, sizeof(header), "%c %jd %s\t", kind, (intmax_t)entry->info.st_size, version);
+      wrote = length > 0 && (size_t)length < sizeof(header) && write_all(STDOUT_FILENO, header, (size_t)length) &&
+        write_all(STDOUT_FILENO, entry->name, strlen(entry->name)) && write_all(STDOUT_FILENO, "\n", 1);
+    }
+  }
+  for (size_t index = 0; index < count; ++index) free(entries[index].name);
+  free(entries);
+  return wrote ? 0 : 70;
+}
+
 int main(int argc, char **argv) {
+  if (argc == 6 && strcmp(argv[1], "--list-directory") == 0 && argv[2][0] == '/') {
+    return list_directory(argv[2], argv[3], argv[4], argv[5]);
+  }
   if (argc == 5 && strcmp(argv[1], "--list-folder-tree") == 0 && argv[2][0] == '/') {
     return list_folder_tree(argv[2], argv[3], argv[4]);
   }

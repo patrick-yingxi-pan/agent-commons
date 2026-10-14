@@ -27,6 +27,7 @@ const BASELINE_MODULES = [
   'desktop/gitReviewPlan.mjs',
   'desktop/gitWorkingMode.mjs',
   'desktop/localGitReader.mjs',
+  'desktop/gitUntracked.mjs',
   'desktop/localFolderReader.mjs',
   'desktop/bundledGit.mjs',
   'contract/localGitSnapshot.mjs',
@@ -175,12 +176,22 @@ export async function smokePackagedBundledGit({ executable }) {
     assert.deepEqual(removedReview.working, { kind: 'missing' })
     assert.equal(review.files.some((entry) => ['untracked.txt', 'private.secret'].includes(entry.path)), false,
       'untracked and ignored private files are not review rows')
+    const untracked = await localReader.listLocalGitUntrackedFiles(pinned)
+    assert.deepEqual(untracked, { version: 1, files: [{ path: 'untracked.txt', kind: 'file' }], excludedCount: 1 },
+      'the packaged directory helper admits untracked metadata separately from tracked review')
+    const selected = await localReader.readLocalGitUntrackedFile(pinned, { selection: { path: 'untracked.txt' } })
+    assert.deepEqual(selected, { version: 1, path: 'untracked.txt', sizeBytes: 12, snapshot: { text: 'not tracked\n' } })
+    await assert.rejects(localReader.readLocalGitFile(pinned, { selection: { path: 'untracked.txt' } }),
+      'untracked admission does not widen the existing tracked reader')
+    const bulk = await localReader.readLocalGitSnapshot(pinned)
+    assert.equal(bulk.files.some(file => ['untracked.txt', 'private.secret'].includes(file.path)), false,
+      'whole-repository capture still excludes untracked and ignored files')
     assert.deepEqual(await metadataSnapshot(join(fixture, '.git')), beforeMetadata,
       'baseline and review do not change source refs, packs, index, or other repository metadata')
     assert.deepEqual((await readdir(bundle)).sort(), [
       BUNDLED_GIT.sourceArchive, 'COPYING', 'LGPL-2.1', 'build-recipe.json', 'git',
     ].sort())
-    console.log(`[desktop-smoke] bundled Git ${BUNDLED_GIT.version} · native architecture · system libraries only · exact source/licenses · packaged internal HEAD/index/review verified without source mutation or product IPC/UI`)
+    console.log(`[desktop-smoke] bundled Git ${BUNDLED_GIT.version} · native architecture · system libraries only · exact source/licenses · packaged internal HEAD/index/review/untracked reads verified without source mutation or new product IPC/UI`)
   } finally {
     await rm(fixture, { recursive: true, force: true })
   }

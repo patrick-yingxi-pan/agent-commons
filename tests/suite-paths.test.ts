@@ -79,6 +79,7 @@ const NOT_A_READ = new Set([
   // Browse selection traversal probes are refused data, not repository reads.
   `contract/local-git-browse.test.ts → '${'../'}x.ts'`,
   `desktop/localGitBrowseReader.test.ts → '${'../'}outside.md'`,
+  `desktop/localGitUntrackedReader.test.ts → '${'../'}outside.md'`,
   `server/routes/local-git-snapshot.test.ts → '${'../'}outside.md'`,
   `src/api/local-git.test.ts → '${'../'}secret.md'`,
   // A recursive folder traversal payload rejected before any read callback.

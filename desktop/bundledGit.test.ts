@@ -173,6 +173,7 @@ test('packaged Git smoke verifies the internal baseline against shipped ASAR dep
     'desktop/gitReviewPlan.mjs',
     'desktop/gitWorkingMode.mjs',
     'desktop/localGitReader.mjs',
+    'desktop/gitUntracked.mjs',
     'desktop/localFolderReader.mjs',
     'desktop/bundledGit.mjs',
     'contract/localGitSnapshot.mjs',
@@ -194,6 +195,10 @@ test('packaged Git smoke verifies the internal baseline against shipped ASAR dep
   assert.ok(smokeSource.includes('withLocalGitBaseline(pinned'))
   assert.ok(smokeSource.includes('readLocalGitReview(pinned, { gitExecutable: git, fileExecutable: fileHelper })'))
   assert.ok(smokeSource.includes("createLocalGitReader({ gitExecutable: git, fileExecutable: fileHelper })"))
+  assert.ok(smokeSource.includes('await localReader.listLocalGitUntrackedFiles(pinned)'))
+  assert.ok(smokeSource.includes("await localReader.readLocalGitUntrackedFile(pinned, { selection: { path: 'untracked.txt' } })"))
+  assert.ok(smokeSource.includes("await assert.rejects(localReader.readLocalGitFile(pinned, { selection: { path: 'untracked.txt' } })"))
+  assert.ok(smokeSource.includes('await localReader.readLocalGitSnapshot(pinned)'))
   assert.ok(smokeSource.includes("headBytes.toString('utf8'), 'HEAD baseline bytes\\n'"))
   assert.ok(smokeSource.includes("indexBytes.toString('utf8'), 'staged index bytes\\n'"))
   assert.ok(smokeSource.includes("'uncommitted working text\\n'"))
