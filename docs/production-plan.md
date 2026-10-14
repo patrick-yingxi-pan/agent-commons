@@ -47,6 +47,58 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
+## Current milestone: owner-reviewed Agent requests
+
+Autonomous direction (2026-10-14): finish D15 as a real request/consent/reply
+workflow. The current proxy route is a development fixture, not an executor or
+an owner inbox. A request asks for an outcome in ordinary prose; it never names
+or borrows another person's private connection. The receiving owner selects and
+reviews one exact MCP call under their Agent's current authority, explicitly
+runs it, then separately reviews the text to share. Raw results, arguments and
+connection identity remain owner-private. A tool result is not automatically a
+safe reply. Shared Project work still belongs to the Guardian channel.
+
+The first prerequisite is `server/proxyRequestState.ts`: a pure private state
+kernel with exact person/namespace anchors, closed bounded input, one immutable
+call receipt, owner-only Run/Share, either-party cancellation, and explicit
+restart uncertainty. Cancellation closes sharing without discarding an in-flight
+call or a late known result. The kernel performs no I/O or persistence and grants
+no authority; it is not wired into the current fixture, routes or UI. Its strict
+parser and hash detect malformed/mixed state, not tampering by a privileged host.
+The fifteen focused state tests were each watched fail across two deliberate
+negative-control runs, then pass after restoration. The full local verifier is
+still the mandatory landing gate for this prerequisite; its pass is not the
+end-to-end D15 acceptance described below.
+Review also found that a regex dependency lock missed multiline imports. The
+replacement uses TypeScript syntax parsing and was watched reject an actual
+multiline filesystem import; side-effect imports, dynamic loads and runtime
+re-exports are negative controls too. The earlier full-verifier attempt was
+cleanly interrupted before this test edit and is not passing revision evidence.
+
+Remaining work for this milestone, not optional polish:
+
+1. Integrate a private durable registry with authoritative Agent/person resolution,
+   current visibility and membership, exact keyed replay, capacity limits and
+   strict JSON/SQLite joins. Never infer a person from a shared tenant. Preserve
+   the two parties' history after a source Agent is unpublished or retired.
+2. Connect the real bound executor with commit-before-I/O, live authority checks
+   across waits, explicit native-program consent, shutdown recovery, and capacity
+   held until physical settlement. No automatic repeat after failure, uncertainty
+   or cancellation; unsupported connector/payment actions remain unavailable.
+3. Build the requester entry and canonical request history, owner inbox, exact-call
+   consent, explicit Run and separate Share reply, with private invalidations and
+   precise notification doors. Keep route-owned access projections consistent;
+   requests and model prose cannot substitute for human consent. Do not claim
+   that an Agent model reasoned unless a real model call actually ran.
+4. Verify the complete two-person workflow, including same-organization privacy,
+   revocation during waits, cancellation, response loss, relaunch and no replay.
+   Run the full local verifier, five-viewport feature review, separate 135-cell
+   sweep and unsigned packaged authored-peer walk before declaring it implemented.
+   Third-party, signing, Intel and actual native-dialog evidence remain separate.
+
+MOCK-9 remains open throughout the prerequisite work. No successful pure test is
+evidence that Agent proxy execution is available to an end user.
+
 ## Completed checkpoint: images inside connected sources
 
 Autonomous direction (2026-10-13): extend the existing explicit selected-file
@@ -95,7 +147,13 @@ E2E tests), the separate 135/135-cell responsive sweep, and the desktop
 verifier. This closes the connected-source image workflow for that checkpoint;
 actual OS-dialog and signed/Intel release evidence remain separate.
 
-## Current checkpoint: explicit single-file Git comparison
+## Completed checkpoint: explicit single-file Git comparison
+
+Landed as `a9aa70b3` after all five complete local verifier lanes (717 browser
+tests), the separate 135/135-cell shell sweep and unsigned arm64 desktop verifier
+passed on the frozen final tree. Native control still reported the Mac locked
+when the owner's unlock reply was checked; actual OS chooser acceptance remains
+pending and will not be polled again without fresh owner input.
 
 The next complete workflow is explicit staged or unstaged comparison of one
 selected tracked path, including a HEAD-only staged deletion. Browsing already
