@@ -656,6 +656,24 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   })
   await rename(documentBrowseReceipt.sourceDirectory, join(fixtureRoot, 'git-browse-documents-held'))
 
+  // These generated files must stay outside the index. Reuse the same real
+  // PDF/Office workflow through separate untracked consent and selection.
+  const untrackedDocumentIndex = await indexState(repository)
+  const untrackedDocumentReceipt = await smokeLocalDocumentBrowse({
+    run, root: repository, source: 'git-untracked', name: repositoryName, providerId, endpoint,
+    prepareFiles: async () => {
+      await assertIndexUnchanged(repository, untrackedDocumentIndex)
+      return () => assertIndexUnchanged(repository, untrackedDocumentIndex)
+    },
+  })
+  assert.notEqual(untrackedDocumentReceipt.sessionId, documentBrowseReceipt.sessionId)
+  assert.notEqual(untrackedDocumentReceipt.sourceDirectory, documentBrowseReceipt.sourceDirectory)
+  const authoredIds = [documentBrowseReceipt, untrackedDocumentReceipt]
+    .flatMap(receipt => [receipt.createdDocument, ...receipt.createdStructured].map(artifact => artifact.id))
+  assert.equal(new Set(authoredIds).size, 6, 'tracked and untracked runs created six independent authored artifacts')
+  await rename(untrackedDocumentReceipt.sourceDirectory, join(fixtureRoot, 'git-untracked-documents-held'))
+  await assertIndexUnchanged(repository, untrackedDocumentIndex)
+
   const heldTrackedOcr = join(fixtureRoot, 'tracked-ocr-source-held.png')
   await rename(trackedOcrReceipt.sourcePath, heldTrackedOcr)
 
@@ -687,6 +705,8 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   assert.deepEqual(await readWorkspace(run.page, browseSession.id), savedBrowse,
     'the exact separately attached file survives native relaunch without rereading its source')
   await verifyLocalDocumentBrowseRelaunch(run, documentBrowseReceipt, endpoint)
+  await verifyLocalDocumentBrowseRelaunch(run, untrackedDocumentReceipt, endpoint)
+  await assertIndexUnchanged(repository, untrackedDocumentIndex)
   await run.page.goto(run.origin + '/contexts/' + encodeURIComponent(connectionId))
   const reopenedReviewPanel = run.page.locator('[data-local-git-review]')
   await expect(reopenedReviewPanel).toBeVisible()

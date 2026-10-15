@@ -74,6 +74,15 @@ test('packaged untracked Git acceptance proves explicit listing, reviewed saves,
   const dotfile = '.ordinary-note.md'
   const document = 'untracked-document.docx'
   const flow = source.slice(source.indexOf('// Untracked browsing remains opt-in'), source.indexOf('const documentBrowseReceipt'))
+  const optOut = flow.indexOf("await expect(untrackedToggle).toHaveAttribute('aria-checked', 'false')")
+  const trackedList = flow.indexOf("getByRole('button', { name: 'List tracked paths', exact: true }).click()")
+  const consentOn = flow.indexOf("await untrackedToggle.click()", trackedList)
+  const noUntrackedList = flow.indexOf("toHaveCount(0,\n    'opting in alone does not enumerate paths')", consentOn)
+  const explicitUntrackedList = flow.indexOf("getByRole('button', { name: 'List untracked paths', exact: true }).click()", noUntrackedList)
+  const listingVisible = flow.indexOf("getByRole('list', { name: 'Untracked repository paths', exact: true })", explicitUntrackedList)
+  assert.ok(optOut >= 0 && trackedList > optOut && consentOn > trackedList && noUntrackedList > consentOn &&
+    explicitUntrackedList > noUntrackedList && listingVisible > explicitUntrackedList,
+  'the existing Git browse door proves default tracked listing, separate opt-in, and a distinct explicit untracked List action')
   assert.ok(flow.includes("getByRole('checkbox', { name: 'Browse untracked files', exact: true })"),
     'the packaged journey starts from the explicit opt-in checkbox')
   assert.ok(flow.includes("getByRole('button', { name: 'List untracked paths', exact: true }).click()"),
@@ -104,6 +113,33 @@ test('packaged untracked Git acceptance proves explicit listing, reviewed saves,
   const actual = await extractDocx(docxFixture({ paragraphs: [text] }))
   assert.deepEqual(actual, { text, documentImport: { format: 'docx', status: 'ready' } },
     'the packaged document workflow fixture is a real DOCX with a parser-verified exact text oracle')
+})
+
+test('packaged untracked PDF and Office drafts have an independent no-staging receipt lifecycle', () => {
+  const baseline = source.indexOf('const untrackedDocumentIndex = await indexState(repository)')
+  const call = source.indexOf('const untrackedDocumentReceipt = await smokeLocalDocumentBrowse(', baseline)
+  const move = source.indexOf("await rename(untrackedDocumentReceipt.sourceDirectory,", call)
+  const close = source.indexOf('await run.app.close()', move)
+  const restart = source.indexOf('run = await relaunch(executable, userDataPath)', close)
+  const verify = source.indexOf('await verifyLocalDocumentBrowseRelaunch(run, untrackedDocumentReceipt, endpoint)', restart)
+  assert.ok(baseline >= 0 && call > baseline && move > call && close > move && restart > close && verify > restart,
+    'a separate untracked source set is held outside Git before close and checked by the full relaunch verifier')
+  const phase = source.slice(call, move)
+  assert.ok(phase.includes("source: 'git-untracked'"), 'the receipt uses the dedicated untracked browser mode')
+  assert.doesNotMatch(phase, /git\(gitExecutable, repository, ['"]add['"]|prepareFiles\s*:\s*async\s*paths/,
+    'the untracked PDF and Office sources are never staged')
+  assert.ok(phase.includes('prepareFiles: async () =>') &&
+    phase.includes('await assertIndexUnchanged(repository, untrackedDocumentIndex)') &&
+    phase.includes('return () => assertIndexUnchanged(repository, untrackedDocumentIndex)'),
+  'the index and split-index byte/mtime baseline is checked before browsing and throughout the helper')
+  assert.ok(phase.includes('assert.notEqual(untrackedDocumentReceipt.sessionId, documentBrowseReceipt.sessionId)') &&
+    phase.includes('assert.notEqual(untrackedDocumentReceipt.sourceDirectory, documentBrowseReceipt.sourceDirectory)'),
+  'the untracked source tree and saved conversation are distinct from the tracked workflow')
+  assert.ok(phase.includes('assert.equal(new Set(authoredIds).size, 6'),
+    'tracked and untracked scanned-PDF, Sheet and Slides drafts have distinct saved identities')
+  assert.ok(source.indexOf('await assertIndexUnchanged(repository, untrackedDocumentIndex)', move) > move &&
+    source.indexOf('await assertIndexUnchanged(repository, untrackedDocumentIndex)', verify) > verify,
+  'the original Git index and shared index remain byte- and mtime-identical after source removal and relaunch')
 })
 
 test('Git model-file oracle preserves exact selected image metadata beside text rows', () => {

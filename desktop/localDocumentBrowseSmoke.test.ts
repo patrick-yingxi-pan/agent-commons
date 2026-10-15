@@ -10,7 +10,7 @@ import { extractPptx, extractPptxPreview } from '../src/lib/pptxExtraction.ts'
 
 test('packaged selected-document fixtures have exact real PDF and Office extraction oracles', async () => {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  for (const source of ['folder', 'git']) {
+  for (const source of ['folder', 'git', 'git-untracked']) {
     const fixtures = localDocumentBrowseFixtures(source)
     assert.deepEqual(fixtures.map(item => item.format), ['pdf', 'docx', 'xlsx', 'pptx'])
     for (const item of fixtures) {
@@ -50,17 +50,36 @@ test('packaged selected-document fixtures have exact real PDF and Office extract
 })
 
 test('packaged local-document fixture can append a captured image-only PDF with OCR projection metadata', () => {
-  for (const source of ['folder', 'git']) {
+  for (const source of ['folder', 'git', 'git-untracked']) {
     const fixtures = localDocumentBrowseFixtures(source, Buffer.from('%PDF-1.7\nfixture'))
     assert.equal(fixtures.length, 5)
     assert.deepEqual(fixtures.at(-1), {
-      format: 'pdf', path: 'browse-documents/scanned-source.pdf', marker: 'Scan Alpha 427',
+      format: 'pdf', path: `${source === 'git-untracked' ? 'browse-untracked-documents' : 'browse-documents'}/scanned-source.pdf`, marker: 'Scan Alpha 427',
       bytes: Buffer.from('%PDF-1.7\nfixture'),
       text: '[Page 1]\nScan Alpha 427\n\n[Page 2]\nScan Bravo 813',
       outcome: { format: 'pdf', status: 'ready', pages: 2, textPages: 2, method: 'ocr' },
       extraction: { format: 'pdf', pages: 2, text_pages: 2, method: 'ocr' }, ocr: true,
     })
   }
+})
+
+test('untracked document fixtures use isolated paths and source-specific markers', () => {
+  const tracked = localDocumentBrowseFixtures('git')
+  const untracked = localDocumentBrowseFixtures('git-untracked')
+  assert.deepEqual(untracked.map(item => item.path), [
+    'browse-untracked-documents/source.pdf',
+    'browse-untracked-documents/source.docx',
+    'browse-untracked-documents/source.xlsx',
+    'browse-untracked-documents/source.pptx',
+  ])
+  assert.ok(untracked.every(item => item.path.startsWith('browse-untracked-documents/')))
+  assert.ok(untracked.every(item => item.marker.includes('native-git-untracked-selected')))
+  assert.equal(new Set([...tracked, ...untracked].map(item => item.path)).size, tracked.length + untracked.length,
+    'tracked and untracked source paths cannot alias in the generated repository')
+  assert.equal(new Set([...tracked, ...untracked].map(item => item.marker)).size, tracked.length + untracked.length,
+    'tracked and untracked fixtures have distinct body markers')
+  assert.throws(() => localDocumentBrowseFixtures('git-untracked-ish'), /explicit source mode/,
+    'unknown source modes fail closed instead of silently browsing tracked files')
 })
 
 test('packaged local OCR overwrites the source before using the real native recognition bridge', () => {
@@ -116,6 +135,29 @@ test('packaged connected-source OCR adoption stays review-only until exact Docum
   assert.ok(source.includes('`pdf-ocr-new-document-${width}x${height}.png`'), 'the adopted form has five-viewport captures')
   assert.ok(sourceAbsentPath > savedBody && existingSend > sourceAbsentPath,
     'the smoke returns to the original conversation before its existing saved-copy Send continuation')
+})
+
+test('untracked document browsing requires a fresh consent boundary and explicit List action', () => {
+  const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
+  const reopen = source.slice(source.indexOf('const reopenSourceBrowser = async () => {'), source.indexOf('let { picker, browser } = await reopenSourceBrowser()'))
+  const mode = reopen.indexOf("if (source === 'git-untracked') {")
+  const checkbox = reopen.indexOf("getByRole('checkbox', { name: 'Browse untracked files', exact: true })", mode)
+  const falseState = reopen.indexOf("toHaveAttribute('aria-checked', 'false')", checkbox)
+  const hiddenBrowser = reopen.indexOf('await expect(nextBrowser).toHaveCount(0)', falseState)
+  const optIn = reopen.indexOf('await consent.click()', hiddenBrowser)
+  const trueState = reopen.indexOf("toHaveAttribute('aria-checked', 'true')", optIn)
+  const noListing = reopen.indexOf('`[data-local-${source}-browser-listing]`', trueState)
+  const list = reopen.indexOf('await nextBrowser.getByRole(\'button\', { name: listAction, exact: true }).click()', noListing)
+  const visible = reopen.indexOf('getByRole(\'list\', { name: listLabel, exact: true })', list)
+  assert.ok(mode >= 0 && checkbox > mode && falseState > checkbox && hiddenBrowser > falseState,
+    'the untracked path starts from a visibly disabled consent state with no browser or listing')
+  assert.ok(optIn > hiddenBrowser && trueState > optIn && noListing > trueState && list > noListing && visible > list,
+    'consent, absent listing, explicit List and the resulting untracked list occur in that order')
+  assert.ok(reopen.includes('await expect(nextBrowser.locator(`[data-local-${source}-file-preview]`)).toHaveCount(0)'),
+    'listing metadata remains separate from a selected file preview')
+  assert.ok(reopen.includes('assert.deepEqual(await workspace(page, session.id), before') &&
+    reopen.includes('assert.equal(endpoint.requests.length, requestCount'),
+  'consent and listing leave saved workspace and model request count unchanged')
 })
 
 test('packaged connected-source Document is rechecked after the full source-absent relaunch', () => {
@@ -184,6 +226,32 @@ test('packaged document browsing is awaited for both native sources before sourc
   assert.ok(gitRelaunch > gitRestart, 'saved Git document copies are exercised without their original paths')
   assert.match(git, /git\(gitExecutable, repository, 'add', '--', \.\.\.paths\)/, 'only generated fixtures are staged before product browsing')
   assert.match(git, /return \(\) => assertIndexUnchanged\(repository, documentIndex\)/, 'document browsing preserves split-index bytes and mtime')
+
+  const untrackedBrowse = git.indexOf('const untrackedDocumentReceipt = await smokeLocalDocumentBrowse(')
+  const untrackedIndex = git.lastIndexOf('const untrackedDocumentIndex = await indexState(repository)', untrackedBrowse)
+  const untrackedMove = git.indexOf("await rename(untrackedDocumentReceipt.sourceDirectory,", untrackedBrowse)
+  const close = git.indexOf('await run.app.close()', untrackedMove)
+  const restart = git.indexOf('run = await relaunch(executable, userDataPath)', close)
+  const untrackedRelaunch = git.indexOf('await verifyLocalDocumentBrowseRelaunch(run, untrackedDocumentReceipt, endpoint)', restart)
+  assert.ok(untrackedIndex >= 0 && untrackedIndex < untrackedBrowse,
+    'the untracked Git index baseline is captured before the helper creates its fixtures')
+  assert.ok(git.slice(untrackedBrowse, untrackedMove).includes("source: 'git-untracked'"),
+    'the scanned PDF and Office drafts use the explicit untracked browser mode')
+  const untrackedCall = git.slice(untrackedBrowse, untrackedMove)
+  assert.doesNotMatch(untrackedCall, /git\(gitExecutable, repository, ['"]add['"]|prepareFiles\s*:\s*async\s*paths/,
+    'the new untracked document phase never stages its generated source files')
+  assert.ok(untrackedCall.includes('prepareFiles: async () =>') &&
+    untrackedCall.includes('await assertIndexUnchanged(repository, untrackedDocumentIndex)') &&
+    untrackedCall.includes('return () => assertIndexUnchanged(repository, untrackedDocumentIndex)'),
+  'the generated untracked files are guarded by full index and shared-index byte/mtime comparisons')
+  assert.ok(untrackedMove > untrackedBrowse && close > untrackedMove && restart > close && untrackedRelaunch > restart,
+    'untracked generated sources are removed before the full process relaunch and receipt verification')
+  const identity = git.indexOf('assert.equal(new Set(authoredIds).size, 6', untrackedBrowse)
+  assert.ok(identity > untrackedBrowse && identity < untrackedMove,
+    'tracked and untracked OCR/Sheet/Slides drafts retain six distinct authored artifact identities')
+  assert.ok(git.indexOf('await assertIndexUnchanged(repository, untrackedDocumentIndex)', untrackedMove) > untrackedMove &&
+    git.indexOf('await assertIndexUnchanged(repository, untrackedDocumentIndex)', untrackedRelaunch) > untrackedRelaunch,
+  'index bytes and mtimes are rechecked after source removal and after relaunch')
 })
 
 test('packaged document acceptance helpers never ship', () => {

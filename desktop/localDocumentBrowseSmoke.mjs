@@ -14,10 +14,15 @@ import { docBlockId } from '../server/documentIdentity.ts'
 
 const TIMEOUT_MS = 30_000
 const VIEWPORTS = [[320, 700], [375, 812], [768, 1024], [844, 390], [1280, 800]]
-const DIRECTORY = 'browse-documents'
 const SOURCE = { id: 'ui-host', kind: 'ui-host', label: 'This computer' }
 
+function sourceDirectoryName(source) {
+  assert.ok(['folder', 'git', 'git-untracked'].includes(source), 'document browsing needs an explicit source mode')
+  return source === 'git-untracked' ? 'browse-untracked-documents' : 'browse-documents'
+}
+
 export function localDocumentBrowseFixtures(source, scannedPdfBytes) {
+  const directory = sourceDirectoryName(source)
   const marker = `native-${source}-selected`
   const pdf = `${marker}-pdf-body`
   const word = `${marker}-word-body · café 世界 😀`
@@ -25,20 +30,20 @@ export function localDocumentBrowseFixtures(source, scannedPdfBytes) {
   const slide = `${marker}-slide-body`
   const fixtures = [
     {
-      format: 'pdf', path: `${DIRECTORY}/source.pdf`, marker: pdf,
+      format: 'pdf', path: `${directory}/source.pdf`, marker: pdf,
       bytes: pdfFixture({ pages: [pdf, null, 'Final selected PDF page'], compress: true }),
       text: `[Page 1]\n${pdf}\n\n[Page 3]\nFinal selected PDF page`,
       outcome: { format: 'pdf', status: 'ready', pages: 3, textPages: 2 },
       extraction: { format: 'pdf', pages: 3, text_pages: 2 },
     },
     {
-      format: 'docx', path: `${DIRECTORY}/source.docx`, marker: word,
+      format: 'docx', path: `${directory}/source.docx`, marker: word,
       bytes: docxFixture({ paragraphs: [word, 'Second selected Word paragraph.'] }),
       text: `${word}\nSecond selected Word paragraph.`,
       outcome: { format: 'docx', status: 'ready' }, extraction: { format: 'docx' },
     },
     {
-      format: 'xlsx', path: `${DIRECTORY}/source.xlsx`, marker: workbook,
+      format: 'xlsx', path: `${directory}/source.xlsx`, marker: workbook,
       bytes: xlsxFixture({ sheets: [
         { name: 'Visible Data', rows: [[workbook, { formula: '40+2', cached: 42 }, 'selected-hidden-column'], ['selected-hidden-row']], hiddenRows: [2], hiddenColumns: ['C'] },
         { name: 'Hidden Sheet', hidden: true, rows: [['selected-hidden-sheet']] },
@@ -47,14 +52,14 @@ export function localDocumentBrowseFixtures(source, scannedPdfBytes) {
       outcome: { format: 'xlsx', status: 'ready' }, extraction: { format: 'xlsx' },
     },
     {
-      format: 'pptx', path: `${DIRECTORY}/source.pptx`, marker: slide,
+      format: 'pptx', path: `${directory}/source.pptx`, marker: slide,
       bytes: pptxFixture({ slides: [{ shapes: [slide], table: [['A', 'B']], notes: ['selected-hidden-speaker-note'] }] }),
       text: `Slide 1: ${slide}\nA\tB`,
       outcome: { format: 'pptx', status: 'ready' }, extraction: { format: 'pptx' },
     },
   ]
   if (scannedPdfBytes) fixtures.push({
-    format: 'pdf', path: `${DIRECTORY}/scanned-source.pdf`, marker: 'Scan Alpha 427',
+    format: 'pdf', path: `${directory}/scanned-source.pdf`, marker: 'Scan Alpha 427',
     bytes: scannedPdfBytes,
     text: '[Page 1]\nScan Alpha 427\n\n[Page 2]\nScan Bravo 813',
     outcome: { format: 'pdf', status: 'ready', pages: 2, textPages: 2, method: 'ocr' },
@@ -194,10 +199,13 @@ async function sendSaved(page, endpoint, expectedFiles, marker, previousReplies)
  * fixtures. Native selection admission, real IPC, emitted renderer workers,
  * saved-copy state, SQLite and model transport are unmodified packaged code. */
 export async function smokeLocalDocumentBrowse({ run, root, source, name, providerId, endpoint, prepareFiles }) {
-  assert.ok(source === 'folder' || source === 'git')
+  const directory = sourceDirectoryName(source)
+  const listAction = source === 'folder' ? 'List folder paths' : source === 'git' ? 'List tracked paths' : 'List untracked paths'
+  const listLabel = source === 'folder' ? 'Folder paths' : source === 'git' ? 'Tracked repository paths' : 'Untracked repository paths'
+  const listKind = source === 'folder' ? 'File' : source === 'git' ? 'Tracked file' : 'Untracked file'
   const scannedPdfBytes = process.platform === 'darwin' ? await pdfOcrFixture({ mode: 'scanned' }) : undefined
   const fixtures = localDocumentBrowseFixtures(source, scannedPdfBytes)
-  const sourceDirectory = join(root, DIRECTORY)
+  const sourceDirectory = join(root, directory)
   await mkdir(sourceDirectory)
   for (const item of fixtures) await writeFile(join(root, item.path), item.bytes, { mode: 0o600 })
   const verifySourceMetadata = await prepareFiles?.(fixtures.map(item => item.path))
@@ -210,23 +218,9 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
     if (!response.ok) throw new Error('Could not create the selected-document acceptance conversation.')
     return response.json()
   }, providerId)
-  await page.goto(`${origin}/s/${encodeURIComponent(session.id)}`)
-  await page.getByRole('button', { name: 'Add context', exact: true }).click()
-  let picker = page.getByRole('dialog', { name: 'Add context', exact: true })
-  await picker.getByRole('button', { name: source === 'folder' ? /^Folder/ : /^Repository/ }).click()
-  if (source === 'folder') await picker.getByRole('button', { name: 'This computer', exact: true }).click()
-  await picker.getByRole('button', { name: `Browse files in ${name}`, exact: true }).click()
-  let browser = picker.locator(`[data-local-${source}-browser]`)
-  await expect(browser.locator(`[data-local-${source}-browser-listing]`)).toHaveCount(0)
-  await expect(browser.locator(`[data-local-${source}-file-preview]`)).toHaveCount(0)
   let before = await workspace(page, session.id)
   assert.equal(before.attachments.length, 0, 'selected-document conversation starts with no attachments')
   const requestCount = endpoint.requests.length
-  await browser.getByRole('button', { name: source === 'folder' ? 'List folder paths' : 'List tracked paths', exact: true }).click()
-  await expect(browser.getByRole('list', { name: source === 'folder' ? 'Folder paths' : 'Tracked repository paths', exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
-  await expect(browser.locator(`[data-local-${source}-file-preview]`)).toHaveCount(0)
-  assert.deepEqual(await workspace(page, session.id), before, 'listing source metadata does not persist documents')
-  await verifySourceMetadata?.()
   const reopenSourceBrowser = async () => {
     await page.goto(`${origin}/s/${encodeURIComponent(session.id)}`)
     await page.getByRole('button', { name: 'Add context', exact: true }).click()
@@ -235,10 +229,31 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
     if (source === 'folder') await nextPicker.getByRole('button', { name: 'This computer', exact: true }).click()
     await nextPicker.getByRole('button', { name: `Browse files in ${name}`, exact: true }).click()
     const nextBrowser = nextPicker.locator(`[data-local-${source}-browser]`)
-    await nextBrowser.getByRole('button', { name: source === 'folder' ? 'List folder paths' : 'List tracked paths', exact: true }).click()
-    await expect(nextBrowser.getByRole('list', { name: source === 'folder' ? 'Folder paths' : 'Tracked repository paths', exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+    if (source === 'git-untracked') {
+      const intake = nextPicker.locator('[data-local-git-untracked-intake]')
+      const consent = intake.getByRole('checkbox', { name: 'Browse untracked files', exact: true })
+      // Consent can outlive a picker opening. Establish and observe an explicit
+      // off/on boundary instead of treating a new conversation as fresh consent.
+      await expect(consent).toHaveAttribute('aria-checked', /^(true|false)$/)
+      if (await consent.getAttribute('aria-checked') === 'true') await consent.click()
+      await expect(consent).toHaveAttribute('aria-checked', 'false')
+      await expect(nextBrowser).toHaveCount(0)
+      await consent.click()
+      await expect(consent).toHaveAttribute('aria-checked', 'true')
+      await expect(intake).toContainText('secrets')
+    }
+    await expect(nextBrowser.locator(`[data-local-${source}-browser-listing]`)).toHaveCount(0)
+    await expect(nextBrowser.locator(`[data-local-${source}-file-preview]`)).toHaveCount(0)
+    await nextBrowser.getByRole('button', { name: listAction, exact: true }).click()
+    await expect(nextBrowser.getByRole('list', { name: listLabel, exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+    await expect(nextBrowser.locator(`[data-local-${source}-file-preview]`)).toHaveCount(0)
+    for (const fixture of fixtures) await expect(nextBrowser).not.toContainText(fixture.marker)
+    assert.deepEqual(await workspace(page, session.id), before, 'listing source metadata does not persist documents')
+    assert.equal(endpoint.requests.length, requestCount, 'consent and path listing do not call a model')
+    await verifySourceMetadata?.()
     return { picker: nextPicker, browser: nextBrowser }
   }
+  let { picker, browser } = await reopenSourceBrowser()
   let createdDocument = null
   const createdStructured = []
   let pickerAdded = 0
@@ -246,7 +261,7 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
   for (const [index, item] of fixtures.entries()) {
     const evidenceKey = item.ocr ? 'pdf-ocr' : item.format
     await browser.getByRole('searchbox', { name: 'Search paths', exact: true }).fill(item.path)
-    await browser.getByRole('button', { name: `${item.path} ${source === 'folder' ? 'File' : 'Tracked file'}`, exact: true }).click()
+    await browser.getByRole('button', { name: `${item.path} ${listKind}`, exact: true }).click()
     const preview = browser.getByRole('region', { name: `Preview of ${item.path}`, exact: true })
     const disclosure = browser.locator(`[data-local-document-preview="${item.format}"]`)
     if (item.ocr) {
@@ -433,6 +448,7 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
   if (originalViewport) await page.setViewportSize(originalViewport)
   const expectedFiles = fixtures.map(item => ({ name: item.path, status: 'ready', text: item.text, extraction: item.extraction }))
   await sendSaved(page, endpoint, expectedFiles, fixtures[0].marker, 0)
+  await verifySourceMetadata?.()
   console.log(`[desktop-local-document-browse-smoke] ${source}: ${fixtures.length} real native document reads + packaged workers/OCR + exact saved/model metadata + five-viewport evidence: ${evidenceRoot}`)
   return { sessionId: session.id, saved: await workspace(page, session.id), fixtures: fixtures.map(({ bytes, ...item }) => item), expectedFiles, source, sourceDirectory, root, createdDocument, createdStructured }
 }
@@ -447,7 +463,7 @@ export async function verifyLocalDocumentBrowseRelaunch(run, receipt, endpoint) 
   }
   if (process.platform === 'darwin') {
     const ocr = receipt.fixtures.at(-1)
-    assert.equal(ocr?.path, `${DIRECTORY}/scanned-source.pdf`)
+    assert.equal(ocr?.path, `${sourceDirectoryName(receipt.source)}/scanned-source.pdf`)
     assert.equal(ocr?.marker, 'Scan Alpha 427')
     assert.deepEqual(ocr?.outcome, { format: 'pdf', status: 'ready', pages: 2, textPages: 2, method: 'ocr' })
     assert.deepEqual(receipt.expectedFiles.at(-1)?.extraction, { format: 'pdf', pages: 2, text_pages: 2, method: 'ocr' })

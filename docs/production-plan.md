@@ -6,7 +6,29 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current local checkpoint: selected Folder, tracked Git and opted-in untracked
+Current local checkpoint: packaged untracked Git PDF/Office acceptance now uses
+the same captured-preview workflow as Folder and tracked Git. Explicit off/on
+consent still leaves paths unlisted until List; metadata listing exposes no
+body text or model request. A separate generated untracked directory is never
+staged. The source PDF is replaced before native scanned-text recognition, and
+Office sources before explicit adoption/edit/Create. Six distinct tracked and
+untracked Document/Sheet/Slides identities and exact bodies survive full relaunch
+with both source directories absent. Index and shared-index names, bytes and
+nanosecond mtimes stay unchanged throughout the untracked phase and restart.
+
+The focused smoke locks pass 20/20, with directory-alias, skipped-consent and
+missing-relaunch regressions watched fail before restoration. The desktop suite
+passes 956/956 with no skips, and complete unsigned arm64 `npm run desktop:verify`
+exits zero. Thirty untracked screenshots were visually reviewed: XLSX/PPTX
+disclosure/text, PDF OCR text and the adopted Document form at all five sizes.
+Short surfaces scroll; the separate captures do not claim every control is
+simultaneously visible. No renderer or production runtime behavior changed.
+Complete local verification remains mandatory before landing. This uses
+generated profiles, substituted chooser results and local model peers; actual
+Office/PDF chooser interaction, signed/native-Intel and live-service acceptance
+remain separate. Paid-provider tests remain deferred.
+
+Previous local checkpoint: selected Folder, tracked Git and opted-in untracked
 Git images offer **Extract text to new document** only when the existing native
 on-device OCR boundary is available. OCR starts from the already captured
 normalized PNG, then presents a read-only Imported text review; explicit Use
