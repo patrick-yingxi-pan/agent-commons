@@ -7,6 +7,19 @@ mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
 Current local checkpoint: selected Folder, tracked Git and opted-in untracked
+Git images offer **Extract text to new document** only when the existing native
+on-device OCR boundary is available. OCR starts from the already captured
+normalized PNG, then presents a read-only Imported text review; explicit Use
+copies it into the editable ordinary Document and explicit Create alone saves.
+Current source-receipt/account guards, held-creation precedence, cancellation,
+format/discard and child Escape behavior remain part of the flow. It adds no
+source reread/write, image upload/original retention, autosave, sharing or model
+call. Focused browser acceptance, the 135/135-cell UI sweep and the complete
+unsigned arm64 desktop gate pass. Complete local verification is mandatory
+before landing. Actual OS-dialog, signed/Intel and live-service acceptance
+remain separate.
+
+Previous local checkpoint: selected Folder, tracked Git and opted-in untracked
 Git XLSX/PPTX previews seed separate ordinary Sheet or Slides authoring reviews.
 One parse yields exact attachment text and a detached bounded import; review,
 explicit Use and ordinary Create remain distinct. The Document path is
@@ -216,19 +229,21 @@ artifact form. Canonical, conversation and Project browsers offer the same act.
 The adoption itself does not attach context, create a resource or share
 anything. Explicit Create uses the existing account-owned acknowledgement and
 recovery path; the saved Document is independent of the source and can be
-shared normally.
+shared normally. These are separate authoring actions, not context Attach: the
+conversation picker does not acquire the image or recognized text as context.
 
 The existing complete-text importer and authored-document source limit are
 reused. Connected paths use their leaf filename for format admission while the
 full relative path remains the disclosure provenance and the reviewed text
 remains exact. No clipping, structured workbook/deck flattening, new file read,
-native bridge, source write, model call or paid-service permission is introduced.
+native bridge, source write, model call or paid-service permission is introduced
+by this text/PDF/DOCX path; selected-image OCR has its separate CTX-FS-38 path.
 Existing source receipt/pending guards apply before adoption; account changes
 clear the private unsaved draft. A held creation retains its own payload and
 never borrows the new source's provenance. The shared modal shell isolates
 dismissal from an underlying picker while retaining ordinary editing,
-cancellation and focus. CTX-FS-36 owns the feature. Wider structured-source
-import remains future work.
+cancellation and focus. CTX-FS-36 owns this text/PDF/DOCX feature; CTX-FS-37
+owns the separate structured Sheet/Slides authoring path.
 
 Targeted acceptance passed: focused source-adoption E2E 6/6; the separate UI
 sweep 135/135 with zero violations or skips; and the complete unsigned arm64
@@ -248,6 +263,49 @@ are unchanged. The timeout alone does not establish calibration as its sole
 cause; the complete frozen-tree gate must still pass.
 This evidence does not establish signed or Intel acceptance, an actual OS-dialog
 walk, live-service acceptance, or public hosting. No release gate is waived.
+
+## Implemented milestone: extract selected local-image text into a Document
+
+Folder, tracked Git and opted-in untracked Git previews expose a separate
+**Extract text to new document** action only when the existing on-device image
+OCR boundary is available. It passes the already captured, normalized PNG into
+the existing image-text OCR review; it does not reread the selected path or
+offer another chooser. The read-only Imported text candidate remains separate
+from the Document Content field until explicit **Use imported text**, after
+which the ordinary editable Document form still requires explicit **Create
+document**.
+
+The current source-receipt and account-generation guards apply. A held artifact
+creation retains precedence; one-shot image seeds use the existing review
+cancellation/format/discard lifecycle and are not reseeded after dismissal or
+discard. Child Escape remains isolated from an underlying picker. The OCR seed
+contains only normalized PNG data and a leaf name, not source authority or the
+private original. This authoring path adds no source reread/write, image upload,
+original retention, autosave, sharing or model call. The resulting Document is
+ordinary editable content; this is not context Attach, including when launched
+from conversation or Project browsing. CTX-FS-38 owns the feature.
+
+Implementation and focused locks are present in `localPreviewImageImport.ts`,
+`local-preview-image-import.test.ts`, `local-preview-image-ui.test.ts` and
+`local-source-image-create.spec.ts`. Packaged Folder/Git helpers now cover
+source replacement before OCR and exact edited Document content after
+source-absent relaunch via `localImageBrowseSmoke.mjs`,
+`localFolderBrowseSmoke.mjs` and `localGitSmoke.mjs`, with source-level smoke
+locks in `localImageBrowseSmoke.test.ts`. Acceptance passed: final focused E2E
+3/3, related import E2E 17/17, UI sweep 135/135 with zero violations/skips, and
+the complete unsigned arm64 `npm run desktop:verify` (exit 0). Ten five-viewport
+source-action/review screenshots were inspected. Packaged Folder, tracked Git
+and opted-in untracked Git each prove real on-device recognition after source
+replacement and exact edited Document persistence after source-absent relaunch.
+
+Removing the seed's image-text mode was watched fail in rendered acceptance.
+The first desktop run exposed a harness assumption that reopening a Folder
+picker clears its listing; its existing account-local listing is retained.
+The corrected harness checks that retained listing, with a fail-first source
+lock, and the complete desktop rerun passed. No production-code workaround,
+retry or timeout increase was added. Complete frozen-tree local verification
+is still mandatory before landing. Signed/Intel, actual OS-dialog and
+live-service acceptance remain separate; paid-provider tests remain deferred.
 
 ## Implemented milestone: recognize selected connected-source PDFs
 

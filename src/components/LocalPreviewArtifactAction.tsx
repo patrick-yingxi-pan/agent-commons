@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { accountGeneration, onAccountSwitch } from '../api/account.ts'
+import { desktopImageOcrAvailable } from '../api/desktopImageOcr.ts'
 import { useRelations } from '../controller/useRelations.tsx'
 import type { ArtifactDocumentImportResult } from '../lib/artifactDocumentImport.ts'
 import { localPreviewDocumentImport } from '../lib/localPreviewDocumentImport.ts'
+import { localPreviewImageImport } from '../lib/localPreviewImageImport.ts'
+import type { UiHostFile } from '../lib/uiHostFs.ts'
 import { localPreviewStructuredImport, type LocalStructuredImport } from '../lib/localPreviewStructuredImport.ts'
 import type { LocalBrowsePreview } from '../lib/localFilePreview.ts'
 import { SECONDARY_BUTTON_CLASS } from '../lib/button.ts'
@@ -10,10 +13,13 @@ import { DeferredNewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
 
 type Candidate = Extract<ArtifactDocumentImportResult, { status: 'ready' }>
 type Draft = { sourceName: string; generation: number } &
-  ({ candidate: Candidate; structured?: never } | { structured: LocalStructuredImport; candidate?: never })
+  ({ candidate: Candidate; structured?: never; image?: never } |
+    { structured: LocalStructuredImport; candidate?: never; image?: never } |
+    { image: UiHostFile; candidate?: never; structured?: never })
 
 /** Adoption detaches reviewed content into an ordinary account-local authoring
- * draft. It carries no source capability or bytes, and does not save anything. */
+ * draft. Image recognition carries only normalized pixels, never source
+ * authority or original bytes. Opening a review does not save anything. */
 export function LocalPreviewArtifactAction({ preview, receipt, disabled, isCurrent }: {
   preview: LocalBrowsePreview | null
   receipt: number | null
@@ -25,6 +31,8 @@ export function LocalPreviewArtifactAction({ preview, receipt, disabled, isCurre
   useEffect(() => onAccountSwitch(() => setDraft(null)), [])
   const candidate = useMemo(() => localPreviewDocumentImport(preview), [preview])
   const structured = useMemo(() => localPreviewStructuredImport(preview), [preview])
+  const image = useMemo(() => localPreviewImageImport(preview), [preview])
+  const imageOcrAvailable = desktopImageOcrAvailable()
   return <>
     {preview && candidate && <div data-local-preview-document className="space-y-2">
       <button type="button" className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
@@ -45,10 +53,20 @@ export function LocalPreviewArtifactAction({ preview, receipt, disabled, isCurre
         }}>Review as new {structured.kind === 'sheet' ? 'sheet' : 'slides'}</button>
       <p className="text-[12px] leading-relaxed text-ink-soft">Review the captured {structured.kind === 'sheet' ? 'worksheet values' : 'slide outline'}, then choose Use to start an editable draft. No file is reread or changed. Create saves your draft; sharing is separate.</p>
     </div>}
+    {preview && image && imageOcrAvailable && <div data-local-preview-image-document className="space-y-2">
+      <button type="button" className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`}
+        disabled={disabled || receipt === null || !isCurrent}
+        onClick={() => {
+          if (disabled || receipt === null || !isCurrent?.(receipt) || !desktopImageOcrAvailable()) return
+          setDraft({ image, sourceName: preview.path, generation: accountGeneration() })
+        }}>Extract text to new document</button>
+      <p className="text-[12px] leading-relaxed text-ink-soft">Recognize text from this captured image on your Mac, then review and edit it. No image upload or model call. The source stays unchanged; only Create document saves your edited text.</p>
+    </div>}
     {draft && draft.generation === accountGeneration() && <DeferredNewArtifactDialog
       projects={rel.allProjects()}
       initialDocument={draft.candidate ? { ...draft.candidate, sourceName: draft.sourceName, generation: draft.generation } : undefined}
       initialStructured={draft.structured ? { ...draft.structured, sourceName: draft.sourceName, generation: draft.generation } : undefined}
+      initialImage={draft.image ? { file: draft.image, sourceName: draft.sourceName, generation: draft.generation } : undefined}
       onClose={() => setDraft(null)} onCreated={id => {
         if (draft.generation !== accountGeneration()) return
         setDraft(null)

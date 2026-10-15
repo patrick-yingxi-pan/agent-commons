@@ -67,6 +67,49 @@ test('Git image browse keeps index bytes and mtime stable and source files absen
   assert.ok(smoke.includes("assert.rejects(stat(receipt.sourcePath), { code: 'ENOENT' }, 'the selected native image source is absent after relaunch')"))
 })
 
+test('Folder and tracked/untracked Git image OCR starts from the captured normalized preview and saves an edited Document', () => {
+  for (const [source, fileText] of [
+    ['folder', folder], ['git-tracked', git], ['git-untracked', git],
+  ]) {
+    assert.ok(fileText.includes(`source: '${source}'`), `packaged browse workflow covers ${source}`)
+  }
+  assert.ok(smoke.includes("import { imageOcrFixture } from './imageOcrFixture.mjs'"))
+  assert.ok(smoke.includes("import { docBlockId } from '../server/documentIdentity.ts'"))
+  const sourceOverwrite = smoke.indexOf('source replaced before OCR:')
+  const nativeAction = smoke.indexOf("name: 'Extract text to new document'", sourceOverwrite)
+  const importedText = smoke.indexOf("getByLabel('Imported text', { exact: true })", nativeAction)
+  const adoption = smoke.indexOf("name: 'Use imported text'", importedText)
+  const create = smoke.indexOf("name: 'Create document'", adoption)
+  const exactBody = smoke.indexOf("p: LOCAL_IMAGE_OCR_EDITED_TEXT", create)
+  const relaunchAbsent = smoke.indexOf("'the selected image source is absent after relaunch'", exactBody)
+  assert.ok(sourceOverwrite >= 0 && nativeAction > sourceOverwrite && importedText > nativeAction &&
+    adoption > importedText && create > adoption && exactBody > create && relaunchAbsent > exactBody,
+  'source replacement, captured-preview OCR, explicit adoption/edit/Create and absent-source exact-body relaunch stay ordered')
+  assert.ok(smoke.includes("assert.match(capturedPreview.src, /^data:image\\/png;base64,/"),
+    'the action is reached only from a normalized PNG preview')
+  assert.ok(smoke.includes("assert.equal(endpoint.requests.length, modelRequestsBefore, 'on-device image OCR does not call the model')"))
+  assert.ok(folder.includes('local-ocr-photo.png') && folder.includes('smokeLocalImageOcrDocument({'))
+  assert.ok(git.includes('tracked-ocr.png') && git.includes('untracked-ocr.png'))
+  assert.ok(git.includes('verifyLocalImageOcrDocumentRelaunch(run, trackedOcrReceipt)'))
+  assert.ok(git.includes('verifyLocalImageOcrDocumentRelaunch(run, untrackedOcrReceipt)'))
+  assert.equal((smoke.match(/await run\.page\.goto\(returnUrl\)/g) ?? []).length, 2,
+    'both the creation walk and source-absent relaunch verifier restore their caller route')
+  assert.ok(folder.indexOf('const { native: ocrNative } = await openPicker(page)') >
+    folder.indexOf("assert.equal(endpoint.requests.length, requestsBefore + 1, 'only explicit Send dispatches a model call')"),
+  'Folder OCR opens a fresh picker after the original saved-copy/send walk')
+  const reopenedFolder = folder.slice(folder.indexOf('const { native: ocrNative } = await openPicker(page)'),
+    folder.indexOf('const imageOcrReceipt = await smokeLocalImageOcrDocument'))
+  assert.ok(reopenedFolder.includes("getByRole('list', { name: 'Folder paths', exact: true })).toBeVisible"),
+    'reopening the picker verifies the existing account-local listing')
+  assert.doesNotMatch(reopenedFolder, /name: 'List folder paths'/,
+    'reopening does not assume the retained listing returned to its initial unread state')
+  assert.ok(git.indexOf('const trackedOcrPicker = run.page.getByRole') > git.indexOf('await assertModelFiles(endpoint, [', git.indexOf('trackedImageReceipt')),
+    'tracked Git OCR opens a fresh picker after the original image send assertions')
+  assert.ok(git.indexOf('const untrackedOcrPicker = run.page.getByRole') > git.indexOf('await assertModelFiles(endpoint, [', git.indexOf('untrackedImageReceipt')),
+    'untracked Git OCR opens a fresh opt-in picker after the original image send assertions')
+  assert.ok(git.includes("getByRole('checkbox', { name: 'Browse untracked files', exact: true })"))
+})
+
 test('native image smoke helpers are excluded from the packaged application', () => {
   assert.equal(ignoreFromPackage('/desktop/localImageBrowseSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/localImageBrowseSmoke.test.ts'), true)

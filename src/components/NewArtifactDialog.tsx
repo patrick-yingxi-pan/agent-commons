@@ -22,6 +22,7 @@ import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { KIND_LABEL } from './artifactPreview'
 import type { LocalStructuredImport } from '../lib/localPreviewStructuredImport.ts'
+import type { ArtifactFileImportSeed } from '../lib/useArtifactFileImport.ts'
 
 export function NewArtifactDialog({
   projects,
@@ -29,17 +30,20 @@ export function NewArtifactDialog({
   onClose,
   initialDocument,
   initialStructured,
+  initialImage,
 }: {
   projects: Project[]
   onCreated: (id: string) => void
   onClose: () => void
   initialDocument?: { name: string; text: string; disclosure?: string; sourceName: string; generation: number }
   initialStructured?: LocalStructuredImport & { sourceName: string; generation: number }
+  initialImage?: ArtifactFileImportSeed & { sourceName: string }
 }) {
   const mutation = useArtifactCreationStatus()
   const held = heldArtifactCreation()
   const identity = useMe().data
   const [structuredSource] = useState(() => !held && initialStructured?.generation === accountGeneration() ? initialStructured : null)
+  const [imageSource] = useState(() => !held && initialImage?.generation === accountGeneration() ? initialImage : null)
   const [initial] = useState(() => held?.intent.request ?? (initialDocument && initialDocument.generation === accountGeneration()
     ? { name: initialDocument.name, kind: 'doc' as const, body: initialDocument.text, projectId: null } : undefined))
   const [generation] = useState(accountGeneration)
@@ -63,7 +67,7 @@ export function NewArtifactDialog({
   const [error, setError] = useState<string | null>(null)
   const tenantId = identity?.tenant.id
   const busy = held !== null
-  const documentImport = useArtifactDocumentImport(draftKind === 'doc' && !busy)
+  const documentImport = useArtifactDocumentImport(draftKind === 'doc' && !busy, imageSource ?? undefined)
   const presentationImport = useArtifactPresentationImport(draftKind === 'slide' && !busy, structuredSource?.kind === 'slide' ? structuredSource : undefined)
   const sheetImport = useArtifactSheetImport(draftKind === 'sheet' && !busy, structuredSource?.kind === 'sheet' ? structuredSource : undefined)
   const documentBodyId = useId()
@@ -123,7 +127,7 @@ export function NewArtifactDialog({
       onSubmit={submit}
       onClose={close}
       busy={busy}
-      isolateEscape={initialDocument !== undefined || initialStructured !== undefined}
+      isolateEscape={initialDocument !== undefined || initialStructured !== undefined || initialImage !== undefined}
       error={error}
     >
       {sourceDisclosure && !heldRequest && <div data-local-document-draft className="space-y-1 break-words [overflow-wrap:anywhere] text-[12px] leading-relaxed text-ink-soft">
@@ -132,6 +136,9 @@ export function NewArtifactDialog({
       </div>}
       {structuredSource && !heldRequest && <div data-local-structured-draft className="space-y-1 break-words [overflow-wrap:anywhere] text-[12px] leading-relaxed text-ink-soft">
         <p>Review the captured structure from {structuredSource.sourceName}. Use copies the reviewed values into an independent editable draft. Create saves only your edited content; it does not reread or change the source or share the artifact.</p>
+      </div>}
+      {imageSource && !heldRequest && <div data-local-image-draft className="space-y-1 break-words [overflow-wrap:anywhere] text-[12px] leading-relaxed text-ink-soft">
+        <p>Extract text from the captured image preview of {imageSource.sourceName} on this Mac. Review recognition errors, then choose Use imported text to start an editable draft. Create saves only your edited text; it does not reread or change the source, save the image, or share the document.</p>
       </div>}
       <FormField label="Name">
         <input

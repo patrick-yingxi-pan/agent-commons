@@ -6,7 +6,10 @@ import { expect } from '@playwright/test'
 import { bundledGitDirectory } from './bundledGit.mjs'
 import { localGitCommandEnvironment } from './localGitReader.mjs'
 import { smokeLocalDocumentBrowse, verifyLocalDocumentBrowseRelaunch } from './localDocumentBrowseSmoke.mjs'
-import { localImageBrowseFixture, smokeLocalImageBrowse, verifyLocalImageBrowseRelaunch } from './localImageBrowseSmoke.mjs'
+import {
+  localImageBrowseFixture, localImageOcrFixture, smokeLocalImageBrowse, smokeLocalImageOcrDocument,
+  verifyLocalImageBrowseRelaunch, verifyLocalImageOcrDocumentRelaunch,
+} from './localImageBrowseSmoke.mjs'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 
 const TIMEOUT_MS = 30_000
@@ -106,6 +109,10 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   const gitExecutable = join(bundledGitDirectory({ packaged: false }), 'git')
   const trackedImage = localImageBrowseFixture('svg')
   const untrackedImage = localImageBrowseFixture('ico')
+  const trackedOcrPath = 'src/tracked-ocr.png'
+  const untrackedOcrPath = 'untracked-ocr.png'
+  const trackedOcrBytes = await localImageOcrFixture()
+  const untrackedOcrBytes = await localImageOcrFixture()
   await mkdir(join(repository, '.config'), { recursive: true })
   await mkdir(join(repository, 'src'), { recursive: true })
   await writeFile(join(repository, '.gitignore'), 'ignored-secret.md\n')
@@ -354,8 +361,9 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   // Add the image fixtures after the original snapshot and review assertions so
   // their coverage cannot dilute the pre-existing exact tracked-path baseline.
   await writeFile(join(repository, 'src', trackedImage.name), trackedImage.bytes, { mode: 0o600 })
+  await writeFile(join(repository, trackedOcrPath), trackedOcrBytes, { mode: 0o600 })
   await writeFile(join(repository, untrackedImage.name), untrackedImage.bytes, { mode: 0o600 })
-  git(gitExecutable, repository, 'add', '--', `src/${trackedImage.name}`)
+  git(gitExecutable, repository, 'add', '--', `src/${trackedImage.name}`, trackedOcrPath)
   const browseSession = await run.page.evaluate(async id => {
     const response = await fetch('/api/v1/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
@@ -408,6 +416,20 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     ['nested.md', 'ready', 'review-working-only-v3\n'],
     { name: `src/${trackedImage.name}`, status: 'image-ready', image_index: 1, width: 180, height: 90 },
   ])
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(browseSession.id)}`)
+  await run.page.getByRole('button', { name: 'Add context' }).click()
+  const trackedOcrPicker = run.page.getByRole('dialog', { name: 'Add context', exact: true })
+  await trackedOcrPicker.getByRole('button', { name: /^Repository/ }).click()
+  await trackedOcrPicker.getByRole('button', { name: `Browse files in ${repositoryName}`, exact: true }).click()
+  const trackedOcrBrowser = trackedOcrPicker.locator('[data-local-git-browser]')
+  await trackedOcrBrowser.getByRole('button', { name: 'List tracked paths', exact: true }).click()
+  await expect(trackedOcrBrowser.getByRole('list', { name: 'Tracked repository paths', exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+  const trackedOcrReceipt = await smokeLocalImageOcrDocument({
+    run, root: repository, path: trackedOcrPath, bytes: trackedOcrBytes, source: 'git-tracked',
+    browser: trackedOcrBrowser, endpoint, listKind: 'Tracked file', previewSelector: '[data-local-git-file-preview]',
+    verifySourceMetadata: () => assertIndexUnchanged(repository, beforeBrowseIndex),
+  })
+  await writeFile(trackedOcrReceipt.sourcePath, trackedOcrBytes, { mode: 0o600 })
 
   // A conversation can explicitly save one captured comparison as an ordinary
   // text attachment. Mutating only the working file after preview proves Attach
@@ -530,6 +552,7 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   await expect(untrackedToggle).toHaveAttribute('aria-checked', 'true')
   await expect(untrackedBrowser.getByRole('list', { name: 'Untracked repository paths', exact: true })).toHaveCount(0,
     'opting in alone does not enumerate paths')
+  await writeFile(join(repository, untrackedOcrPath), untrackedOcrBytes, { mode: 0o600 })
   await untrackedBrowser.getByRole('button', { name: 'List untracked paths', exact: true }).click()
   const untrackedListing = untrackedBrowser.getByRole('list', { name: 'Untracked repository paths', exact: true })
   await expect(untrackedListing).toBeVisible({ timeout: TIMEOUT_MS })
@@ -595,11 +618,29 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     [documentPath, 'ready', documentText],
     { name: untrackedImage.name, status: 'image-ready', image_index: 1, width: 64, height: 32 },
   ])
+  await run.page.goto(`${run.origin}/s/${encodeURIComponent(untrackedSession.id)}`)
+  await run.page.getByRole('button', { name: 'Add context' }).click()
+  const untrackedOcrPicker = run.page.getByRole('dialog', { name: 'Add context', exact: true })
+  await untrackedOcrPicker.getByRole('button', { name: /^Repository/ }).click()
+  await untrackedOcrPicker.getByRole('button', { name: `Browse files in ${repositoryName}`, exact: true }).click()
+  const untrackedOcrToggle = untrackedOcrPicker.getByRole('checkbox', { name: 'Browse untracked files', exact: true })
+  await untrackedOcrToggle.click()
+  await expect(untrackedOcrToggle).toHaveAttribute('aria-checked', 'true')
+  const untrackedOcrBrowser = untrackedOcrPicker.locator('[data-local-git-untracked-browser]')
+  await untrackedOcrBrowser.getByRole('button', { name: 'List untracked paths', exact: true }).click()
+  await expect(untrackedOcrBrowser.getByRole('list', { name: 'Untracked repository paths', exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+  const untrackedOcrReceipt = await smokeLocalImageOcrDocument({
+    run, root: repository, path: untrackedOcrPath, bytes: untrackedOcrBytes, source: 'git-untracked',
+    browser: untrackedOcrBrowser, endpoint, listKind: 'Untracked file',
+    previewSelector: '[data-local-git-untracked-file-preview]',
+    verifySourceMetadata: () => assertIndexUnchanged(repository, untrackedIndexBefore),
+  })
   assert.equal(JSON.stringify(endpoint.requests.at(-1)).includes('must-never-enter-model'), false,
     'unselected untracked and ignored bodies never reach the model')
   assert.equal(JSON.stringify(endpoint.requests.at(-1)).includes('replaced-after-review'), false,
     'source changes after preview never replace the reviewed model input')
-  const untrackedSourcePaths = [join(repository, dotfilePath), join(repository, documentPath), untrackedImageReceipt.sourcePath]
+  const untrackedSourcePaths = [join(repository, dotfilePath), join(repository, documentPath),
+    untrackedOcrReceipt.sourcePath, untrackedImageReceipt.sourcePath]
   for (const [index, path] of untrackedSourcePaths.entries()) {
     await rename(path, join(fixtureRoot, `untracked-source-held-${index}`))
   }
@@ -615,6 +656,9 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
   })
   await rename(documentBrowseReceipt.sourceDirectory, join(fixtureRoot, 'git-browse-documents-held'))
 
+  const heldTrackedOcr = join(fixtureRoot, 'tracked-ocr-source-held.png')
+  await rename(trackedOcrReceipt.sourcePath, heldTrackedOcr)
+
   // A full packaged-process relaunch proves the remembered native grant and
   // durable saved snapshot are separate: reopening access does not auto-attach.
   await run.app.close()
@@ -624,6 +668,8 @@ export async function smokePackagedLocalGit({ executable, fixtureRoot, userDataP
     'saved untracked copies survive packaged relaunch without their source files')
   await verifyLocalImageBrowseRelaunch(run, trackedImageReceipt)
   await verifyLocalImageBrowseRelaunch(run, untrackedImageReceipt)
+  await verifyLocalImageOcrDocumentRelaunch(run, trackedOcrReceipt)
+  await verifyLocalImageOcrDocumentRelaunch(run, untrackedOcrReceipt)
   await run.page.goto(`${run.origin}/s/${encodeURIComponent(untrackedSession.id)}`)
   await send(run.page, 'Read the reviewed untracked saved copies after relaunch.', 'Received 1 supplied image(s).', 1)
   await assertModelFiles(endpoint, [

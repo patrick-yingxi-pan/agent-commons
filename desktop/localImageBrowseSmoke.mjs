@@ -7,8 +7,16 @@ import { settledAttachmentPreview } from '../e2e/accessibility-helpers.ts'
 import { imageFixture } from '../tests/helpers/imageFixture.mjs'
 import { iconFixture } from '../tests/helpers/bitmapFixture.mjs'
 import { svgFixture } from '../tests/helpers/svgFixture.mjs'
+import { imageOcrFixture } from './imageOcrFixture.mjs'
+import { docBlockId } from '../server/documentIdentity.ts'
 
 const TIMEOUT_MS = 30_000
+const LOCAL_IMAGE_OCR_TEXT = 'Folder image text 427'
+const LOCAL_IMAGE_OCR_EDITED_TEXT = 'Folder image text 427 — verified'
+
+export async function localImageOcrFixture() {
+  return imageOcrFixture({ text: LOCAL_IMAGE_OCR_TEXT })
+}
 
 export function localImageBrowseFixture(kind) {
   if (kind === 'png') return { name: 'local-photo.png', bytes: imageFixture(240, 120), width: 240, height: 120 }
@@ -23,6 +31,111 @@ async function workspace(page, sessionId) {
     if (!response.ok) throw new Error(`Could not read the local image-browse workspace: HTTP ${response.status}`)
     return (await response.json()).workspace
   }, sessionId)
+}
+
+async function savedDocuments(page) {
+  return page.evaluate(async () => {
+    const [artifactsResponse, contentsResponse] = await Promise.all([
+      fetch('/api/v1/artifacts'), fetch('/api/v1/artifact-content'),
+    ])
+    if (!artifactsResponse.ok || !contentsResponse.ok) throw new Error('Local image OCR document reads failed.')
+    return { artifacts: await artifactsResponse.json(), bodies: await contentsResponse.json() }
+  })
+}
+
+/** Runs OCR from the already-rendered normalized preview. The generated source
+ * is replaced after preview selection and before OCR, so recognition can only
+ * succeed when the renderer retained the selected image bytes. */
+export async function smokeLocalImageOcrDocument({
+  run, browser, root, path, bytes, source, listKind, previewSelector, endpoint, verifySourceMetadata,
+}) {
+  const sourcePath = join(root, path)
+  assert.ok(Buffer.isBuffer(bytes), 'the OCR source is generated PNG fixture bytes')
+  assert.deepEqual(await readFile(sourcePath), bytes, `${source} OCR fixture has exact generated PNG bytes`)
+
+  const initial = await savedDocuments(run.page)
+  const returnUrl = run.page.url()
+  const modelRequestsBefore = endpoint.requests.length
+  const writeRequests = []
+  const captureWrite = request => {
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method())) writeRequests.push(new URL(request.url()).pathname)
+  }
+  run.page.on('request', captureWrite)
+  try {
+    await browser.getByRole('button', { name: `${path} ${listKind}`, exact: true }).click()
+    const preview = browser.locator(previewSelector)
+    await expect(preview).toContainText(path, { timeout: TIMEOUT_MS })
+    const image = browser.getByRole('img', { name: `Preview of ${path}`, exact: true })
+    await expect.poll(() => image.evaluate(node => node.complete && node.naturalWidth > 0)).toBe(true)
+    const capturedPreview = await image.evaluate(node => ({
+      src: node.getAttribute('src'), width: node.naturalWidth, height: node.naturalHeight,
+    }))
+    assert.equal(capturedPreview.width, 1000)
+    assert.equal(capturedPreview.height, 240)
+    assert.match(capturedPreview.src, /^data:image\/png;base64,/,
+      'OCR selection is a normalized PNG preview, regardless of the source connection')
+
+    const changedBytes = Buffer.from(`source replaced before OCR: ${source}:${path}`)
+    await writeFile(sourcePath, changedBytes, { mode: 0o600 })
+    await verifySourceMetadata?.()
+    const extract = browser.getByRole('button', { name: 'Extract text to new document', exact: true })
+    await expect(extract).toBeVisible()
+    await extract.click()
+
+    const dialog = run.page.getByRole('dialog', { name: 'New artifact', exact: true })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.locator('[data-local-image-draft]')).toBeVisible()
+    const documentName = `${source}-image-ocr.md`
+    await dialog.getByLabel('Name', { exact: true }).fill(documentName)
+    await expect(dialog.getByLabel('Imported text', { exact: true })).toHaveValue(LOCAL_IMAGE_OCR_TEXT, { timeout: TIMEOUT_MS })
+    await expect(dialog.getByLabel('Content', { exact: true })).toHaveValue('')
+    await expect(dialog.getByRole('button', { name: 'Create document', exact: true })).toBeDisabled()
+    assert.deepEqual(await savedDocuments(run.page), initial,
+      'captured-preview OCR remains a review draft and creates no document before adoption')
+    assert.equal(endpoint.requests.length, modelRequestsBefore, 'on-device image OCR does not call the model')
+    assert.deepEqual(writeRequests, [], 'selection and on-device OCR make no product write request')
+
+    await dialog.getByRole('button', { name: 'Use imported text', exact: true }).click()
+    await expect(dialog.getByLabel('Content', { exact: true })).toHaveValue(LOCAL_IMAGE_OCR_TEXT)
+    await dialog.getByLabel('Content', { exact: true }).fill(LOCAL_IMAGE_OCR_EDITED_TEXT)
+    assert.deepEqual(await savedDocuments(run.page), initial, 'adoption and correction remain an unsaved draft')
+    await dialog.getByRole('button', { name: 'Create document', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(run.page.getByRole('heading', { name: documentName, exact: true })).toBeVisible()
+
+    const saved = await savedDocuments(run.page)
+    const artifact = saved.artifacts.find(candidate => candidate.name === documentName)
+    assert.ok(artifact, 'explicit Create document persists the corrected OCR text')
+    assert.equal(artifact.kind, 'doc')
+    const body = {
+      type: 'doc', title: documentName.slice(0, -3),
+      blocks: [{ id: docBlockId(artifact.id, 0, 0), p: LOCAL_IMAGE_OCR_EDITED_TEXT }], revision: 0,
+    }
+    assert.deepEqual(saved.bodies[artifact.id], body, 'saved Document contains the exact edited OCR text')
+    assert.equal(endpoint.requests.length, modelRequestsBefore, 'creating the OCR-derived Document makes no model call')
+    assert.equal(JSON.stringify(saved).includes(root), false, 'native image paths never enter saved Document state')
+    assert.deepEqual(await readFile(sourcePath), changedBytes, 'OCR did not restore or reread the overwritten source')
+    await run.page.goto(returnUrl)
+    console.log(`[desktop-local-image-ocr-smoke] ${source} selected normalized PNG · source replaced before on-device OCR · explicit adoption/edit/Create · exact Document body`)
+    return { sourcePath, id: artifact.id, name: documentName, body }
+  } finally {
+    run.page.off('request', captureWrite)
+  }
+}
+
+export async function verifyLocalImageOcrDocumentRelaunch(run, receipt) {
+  assert.ok(receipt?.id && receipt.name && receipt.body, 'the local image OCR document was explicitly created')
+  const returnUrl = run.page.url()
+  await assert.rejects(stat(receipt.sourcePath), { code: 'ENOENT' }, 'the selected image source is absent after relaunch')
+  const saved = await savedDocuments(run.page)
+  assert.deepEqual(saved.bodies[receipt.id], receipt.body,
+    'the exact edited OCR Document survives source-absent packaged relaunch')
+  const artifact = saved.artifacts.find(candidate => candidate.id === receipt.id)
+  assert.equal(artifact?.name, receipt.name)
+  await run.page.goto(`${run.origin}/artifacts/${encodeURIComponent(receipt.id)}`)
+  await expect(run.page.getByRole('heading', { name: receipt.name, exact: true })).toBeVisible()
+  await expect(run.page.getByText(LOCAL_IMAGE_OCR_EDITED_TEXT, { exact: true })).toBeVisible()
+  await run.page.goto(returnUrl)
 }
 
 function bytesBase64(bytes) { return Buffer.from(bytes).toString('base64') }

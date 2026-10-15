@@ -67,7 +67,7 @@ test('structured preview seeds the shared explicit review without source reads o
   assert.ok(form.includes('!held && initialStructured?.generation === accountGeneration() ? initialStructured : null'))
   assert.ok(form.includes("initial?.kind ?? structuredSource?.kind ?? 'doc'"))
   assert.ok(intake.includes('seed.generation !== accountGeneration() || operation.current'))
-  assert.ok(intake.includes('review([seed.file], current.abort.signal, current.mode)'))
+  assert.ok(intake.includes('review([seed.file], current.abort.signal, current.selectionMode)'))
   assert.ok(intake.includes("if (result.status !== 'ready') operation.current = null"))
   assert.ok(intake.includes('apply(state)') && intake.includes('current.generation !== accountGeneration()'))
   assert.ok(!intake.includes('readPreview(') && !intake.includes('enqueueArtifactCreation('))

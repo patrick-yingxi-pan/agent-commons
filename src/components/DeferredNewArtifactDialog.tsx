@@ -34,7 +34,7 @@ class LoadBoundary extends Component<{ children: ReactNode; onClose: () => void;
 }
 
 export function DeferredNewArtifactDialog(props: Props) {
-  const isolateEscape = props.initialDocument !== undefined || props.initialStructured !== undefined
+  const isolateEscape = props.initialDocument !== undefined || props.initialStructured !== undefined || props.initialImage !== undefined
   return <LoadBoundary onClose={props.onClose} isolateEscape={isolateEscape}>
     <Suspense fallback={<LoadState onClose={props.onClose} isolateEscape={isolateEscape} />}>
       <Dialog {...props} />

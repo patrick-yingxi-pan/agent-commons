@@ -7,7 +7,7 @@ type ReviewResult<Candidate> = Candidate | { status: 'cancelled' } | { status: '
 type ImportState<Candidate> = { status: 'idle' | 'reading' } | { status: 'error'; message: string } | Candidate
 type Mode = 'document' | 'slides' | 'sheet' | 'image-text' | 'pdf-text'
 
-export interface ArtifactFileImportSeed { file: UiHostFile; generation: number }
+export interface ArtifactFileImportSeed { file: UiHostFile; generation: number; selectionMode?: Mode }
 
 /** Every artifact format shares one local review lifetime. Neither extraction
  * nor adoption writes; account generation and operation identity own both. */
@@ -69,12 +69,12 @@ export function useArtifactFileImport<Candidate extends { status: 'ready' }>(
   useEffect(() => {
     const seed = initialRef.current
     if (!seed || !mode || seed.generation !== accountGeneration() || operation.current) return
-    const current = { abort: new AbortController(), generation: seed.generation, mode, selectionMode: mode }
+    const current = { abort: new AbortController(), generation: seed.generation, mode, selectionMode: seed.selectionMode ?? mode }
     operation.current = current
     setState({ status: 'reading' })
     const live = () => operation.current === current && modeRef.current === current.mode &&
       !current.abort.signal.aborted && current.generation === accountGeneration()
-    void Promise.resolve().then(() => live() ? review([seed.file], current.abort.signal, current.mode) : null).then(result => {
+    void Promise.resolve().then(() => live() ? review([seed.file], current.abort.signal, current.selectionMode) : null).then(result => {
       if (!live() || !result) return
       if (result.status !== 'ready') operation.current = null
       setState(result.status === 'cancelled' ? { status: 'idle' } : result)

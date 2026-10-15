@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { expect } from '@playwright/test'
-import { localImageBrowseFixture, smokeLocalImageBrowse, verifyLocalImageBrowseRelaunch } from './localImageBrowseSmoke.mjs'
+import {
+  localImageBrowseFixture, localImageOcrFixture, smokeLocalImageBrowse, smokeLocalImageOcrDocument,
+  verifyLocalImageBrowseRelaunch, verifyLocalImageOcrDocumentRelaunch,
+} from './localImageBrowseSmoke.mjs'
 
 const TIMEOUT_MS = 30_000
 const SELECTED_PATH = 'src/local-note.md'
@@ -24,6 +27,9 @@ export async function smokeLocalFolderBrowse({ run, root, connectionId, provider
   assert.equal(original, 'native-nested-source-body\n', 'the selected leaf has known distinct source bytes')
   const image = localImageBrowseFixture('png')
   await writeFile(join(root, 'src', image.name), image.bytes, { mode: 0o600 })
+  const ocrPath = 'src/local-ocr-photo.png'
+  const ocrBytes = await localImageOcrFixture()
+  await writeFile(join(root, ocrPath), ocrBytes, { mode: 0o600 })
   const session = await page.evaluate(async id => {
     const response = await fetch('/api/v1/sessions', {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ providerId: id }),
@@ -89,8 +95,17 @@ export async function smokeLocalFolderBrowse({ run, root, connectionId, provider
   assert.equal(JSON.stringify(endpoint.requests).includes(changed.trim()), false)
   assert.equal(JSON.stringify(endpoint.requests).includes('NESTED_HIDDEN_SECRET'), false)
   assert.equal(JSON.stringify(endpoint.requests).includes('SYMLINK_MUST_NOT_BE_READ'), false)
+  const { native: ocrNative } = await openPicker(page)
+  await ocrNative.getByRole('button', { name: `Browse files in ${basename(root)}`, exact: true }).click()
+  const ocrBrowser = ocrNative.locator('[data-local-folder-browser]')
+  // Reopening the picker preserves this account's already-read listing.
+  await expect(ocrBrowser.getByRole('list', { name: 'Folder paths', exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+  const imageOcrReceipt = await smokeLocalImageOcrDocument({
+    run, root, path: ocrPath, bytes: ocrBytes, source: 'folder', browser: ocrBrowser, endpoint,
+    listKind: 'File', previewSelector: '[data-local-folder-file-preview]',
+  })
   console.log(`[desktop-local-folder-browse-smoke] real selected read + exact saved-copy input + five-viewport evidence: ${evidenceRoot}`)
-  return { sessionId: session.id, connectionId, saved: await workspace(page, session.id), imageReceipt }
+  return { sessionId: session.id, connectionId, saved: await workspace(page, session.id), imageReceipt, imageOcrReceipt }
 }
 
 export async function verifyLocalFolderBrowseRelaunch(page, receipt) {
@@ -98,4 +113,7 @@ export async function verifyLocalFolderBrowseRelaunch(page, receipt) {
   assert.deepEqual(await workspace(page, receipt.sessionId), receipt.saved,
     'the exact selected-file copy survives packaged relaunch after its source folder is removed')
   if (receipt.imageReceipt) await verifyLocalImageBrowseRelaunch({ page }, receipt.imageReceipt)
+  if (receipt.imageOcrReceipt) {
+    await verifyLocalImageOcrDocumentRelaunch({ page, origin: new URL(page.url()).origin }, receipt.imageOcrReceipt)
+  }
 }
