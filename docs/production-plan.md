@@ -383,9 +383,13 @@ Focused acceptance and delivery gates:
 3. The unsigned arm64 Agent Requests package walk passed in an isolated profile:
    real authenticated people, OS-backed custody, an authored local child, exact
    private result, separately shared reply, shutdown/relaunch uncertainty and no
-   repeated child call. Its disposable source-hash-checked ASAR substitutes
-   setup dialog answers only; this is not actual native-dialog acceptance.
-   Evidence is retained under `.data/desktop-agent-requests-smoke/`.
+   repeated child call. Its default disposable source-hash-checked ASAR
+   substitutes setup dialog answers only. The separate
+   [native Agent Requests review](acceptance/native-agent-requests-2026-10-15.md)
+   passed actual Cancel/fresh Allow on the unchanged original app, then explicit
+   argument Draft/Use/Review/Run, private results, separate Share and full
+   signed-in model/tool uncertainty recovery without replay. Both modes retain
+   their distinct evidence under `.data/desktop-agent-requests-smoke/`.
 4. Code review found that an imported unbound Agent could borrow default-provider
    connection reach. A regression test reproduced it; request execution now
    requires an explicit current provider binding, and the same test verifies

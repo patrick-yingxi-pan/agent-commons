@@ -1,10 +1,12 @@
 /** Packaged private Agent Requests acceptance. The signed accounts, renderer,
  * server routes, stdio supervisor and SQLite are real. Only the isolated copy's
- * exact native setup decisions are fixture-approved. The repository-authored
- * peer is deterministic and makes no network calls; it still runs as a normal OS
- * process, so the renderer's separate unchecked local-program consent matters. */
+ * exact native setup decisions are fixture-approved by default. --native-review
+ * uses the unchanged original app and actual Cancel/fresh Allow dialogs instead.
+ * The repository-authored peer is deterministic and makes no network calls;
+ * it still runs as a normal OS process, so the renderer's separate unchecked
+ * local-program consent matters. */
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createServer } from 'node:http'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -29,6 +31,17 @@ const ENV_KEYS = ['DATA_FILE', 'DATABASE_PATH', GATE, 'AC_MCP_STDIO_FIXTURE_EXEC
 const SECRET = 'Local fixture result for: agent-request-smoke-success'
 const REPLY = 'The owner reviewed the local lookup and confirms the requested record is available.'
 const MODEL = 'agent-request-authored-model'
+
+export function parseAgentRequestSmokeOptions(argv) {
+  if (!Array.isArray(argv) || argv.length > 1 || argv.some(argument => argument !== '--native-review')) {
+    throw new Error('Usage: node desktop/agentRequestSmoke.mjs [--native-review]')
+  }
+  return Object.freeze({ nativeReview: argv.includes('--native-review') })
+}
+
+async function asarSha256(path) {
+  return createHash('sha256').update(await readFile(path)).digest('hex')
+}
 
 /** Local-only model peer; a captured request is the proof of an actual Messages
  * call. The interrupted branch intentionally never sends a model response. */
@@ -180,8 +193,14 @@ async function ownerRun(page, origin, requestId, query, expectedResult, model) {
   }
 }
 
-export async function smokePackagedAgentRequests({ executable = packagedExecutable() } = {}) {
+export async function smokePackagedAgentRequests({ executable = packagedExecutable(), nativeReview = false } = {}) {
+  if (typeof nativeReview !== 'boolean') throw new Error('Invalid native review mode')
   if (process.platform !== 'darwin') throw new Error('Packaged Agent Requests stdio acceptance requires macOS')
+  const sourceAsar = join(dirname(dirname(executable)), 'Resources', 'app.asar')
+  const sourceAsarSha256 = await asarSha256(sourceAsar)
+  const assertOriginalPackageUnmodified = async () => {
+    assert.equal(await asarSha256(sourceAsar), sourceAsarSha256, 'Original packaged ASAR must remain unchanged')
+  }
   const profile = await mkdtemp(join(tmpdir(), 'ac-agent-requests-smoke-'))
   const evidenceRoot = join(ROOT, '.data', 'desktop-agent-requests-smoke')
   await mkdir(evidenceRoot, { recursive: true })
@@ -194,18 +213,20 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
   for (const key of ENV_KEYS) delete process.env[key]
   process.env.DATA_FILE = join(profile, 'unused-store.json')
   process.env.DATABASE_PATH = join(profile, 'store.db')
-  process.env[GATE] = '1'
-  process.env.AC_MCP_STDIO_FIXTURE_EXECUTABLE = launch.executable
-  process.env.AC_MCP_STDIO_FIXTURE_CWD = launch.cwd
-  process.env.AC_MCP_STDIO_FIXTURE_ARGS = JSON.stringify(launch.args)
-  process.env.AC_MCP_STDIO_FIXTURE_ENV = JSON.stringify(launch.env)
+  if (!nativeReview) {
+    process.env[GATE] = '1'
+    process.env.AC_MCP_STDIO_FIXTURE_EXECUTABLE = launch.executable
+    process.env.AC_MCP_STDIO_FIXTURE_CWD = launch.cwd
+    process.env.AC_MCP_STDIO_FIXTURE_ARGS = JSON.stringify(launch.args)
+    process.env.AC_MCP_STDIO_FIXTURE_ENV = JSON.stringify(launch.env)
+  }
 
   let fixture, run, model
-  let stage = 'fixture-package-and-owner-signup'
+  let stage = 'package-and-owner-signup'
   try {
-    fixture = await createMcpFixturePackage(executable, mcpStdioSmokePatches())
+    if (!nativeReview) fixture = await createMcpFixturePackage(executable, mcpStdioSmokePatches())
     model = await startArgumentModel()
-    run = await launchPackagedDesktop(fixture.executable, profile)
+    run = await launchPackagedDesktop(fixture?.executable ?? executable, profile)
     let { page, origin } = run
     const owner = await api(page, '/auth/signup', {
       name: 'Agent Request owner', email: `agent-request-owner-${randomUUID()}@example.test`, password: 'isolated-agent-request-owner-password',
@@ -233,22 +254,32 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
       await setup.getByRole('textbox', { name: 'Environment (JSON object)', exact: true }).fill(JSON.stringify(launch.env))
       return setup
     }
+    const ownerGrant = join(profile, MCP_STDIO_GRANT_FILE)
+    const assertNoLaunch = async () => {
+      await assert.rejects(readFile(tracePath), { code: 'ENOENT' }, 'Cancel never starts the authored child')
+      await assert.rejects(readFile(ownerGrant), { code: 'ENOENT' }, 'Cancel never publishes encrypted launch custody')
+    }
+    await assertNoLaunch()
     let setup = await configure()
+    if (nativeReview) console.log(`[desktop-agent-request-smoke] native-review-ready pid=${run.child.pid} profile=${profile}; choose Cancel in the first native review dialog`)
     await setup.getByRole('button', { name: 'Review & inspect', exact: true }).click({ timeout: WAIT })
     await expect(setup.locator('[data-mcp-stdio-phase="cancelled"]')).toBeVisible({ timeout: WAIT })
     assert.deepEqual(await api(page, `/mcp-connections/${connectionId}`), connection,
       'Cancel leaves the exact owner connection unchanged')
     assert.deepEqual(await peerTrace(tracePath), [], 'native setup cancellation never starts the child')
+    await assertNoLaunch()
+    await page.screenshot({ path: join(evidence, 'native-review-cancelled.png'), fullPage: true })
     await setup.getByRole('button', { name: 'Close', exact: true }).click()
     setup = await configure()
+    if (nativeReview) console.log(`[desktop-agent-request-smoke] native-review-ready pid=${run.child.pid} profile=${profile}; inspect and approve the exact authored local fixture in the fresh native review dialog`)
     await setup.getByRole('button', { name: 'Review & inspect', exact: true }).click({ timeout: WAIT })
     await expect(setup.locator('[data-mcp-stdio-phase="connected"]')).toBeVisible({ timeout: WAIT })
     const inspected = await api(page, `/mcp-connections/${connectionId}`)
     assert.equal(inspected.status, 'connected')
     assert.deepEqual(inspected.tools.map(tool => tool.name), ['records.search'])
-    const ownerGrant = join(profile, MCP_STDIO_GRANT_FILE)
     assert.equal((await readFile(ownerGrant)).includes(Buffer.from(launch.executable)), false,
       'the real OS-encrypted local grant does not persist plaintext launch authority')
+    await page.screenshot({ path: join(evidence, 'inspected-catalog.png'), fullPage: true })
     await setup.getByRole('button', { name: 'Close', exact: true }).click()
 
     stage = 'owner-and-requester-agent-setup'
@@ -305,6 +336,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.deepEqual(firstCalls[0].params.arguments, { query: 'agent-request-smoke-success' })
     const storedCompleted = storedRequest(profile, first.id)
     assert.deepEqual(storedCompleted.execution, completedOwner.execution, 'SQLite preserves the owner receipt exactly')
+    await page.screenshot({ path: join(evidence, 'owner-private-result.png'), fullPage: true })
 
     await switchAccount(page, origin, requester.user.id, requester.user.name)
     const privateRequester = await api(page, `/agent-requests/${first.id}`)
@@ -342,6 +374,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await expect(page.getByRole('region', { name: 'Shared reply', exact: true })).toContainText(REPLY)
     await expect(page.getByRole('region', { name: 'Private execution receipt', exact: true })).toHaveCount(0)
     await expect(page.locator('body')).not.toContainText(SECRET)
+    await page.screenshot({ path: join(evidence, 'requester-shared-reply.png'), fullPage: true })
 
     stage = 'pending-interruption-and-same-profile-relaunch-without-replay'
     const secondTask = `Please inspect one more record (${randomUUID().slice(0, 8)}).`
@@ -374,7 +407,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
       'process exit retains unresolved truth without inventing a successful result')
     assert.equal(interrupted.execution.result, undefined)
 
-    run = await launchPackagedDesktop(fixture.executable, profile)
+    run = await launchPackagedDesktop(fixture?.executable ?? executable, profile)
     ;({ page, origin } = run)
     assert.equal((await api(page, '/me')).user.id, owner.user.id, 'the real owner session survives the same-profile relaunch')
     assert.deepEqual(await readFile(join(profile, AUTH_ROOT_FILE)), authRoot, 'relaunch retains the exact OS authentication root')
@@ -398,6 +431,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     const afterRestart = await peerTrace(tracePath)
     assert.equal(toolCalls(afterRestart).length, 2, 'startup and reading the interrupted request never replay the call')
     assert.equal(processStarts(afterRestart).length, 3, 'startup and request history never launch the local program')
+    await page.screenshot({ path: join(evidence, 'owner-recovered-uncertainty.png'), fullPage: true })
 
     await switchAccount(page, origin, requester.user.id, requester.user.name)
     await page.goto(`${origin}/agents/requests/${encodeURIComponent(second.id)}`)
@@ -417,17 +451,21 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.equal(traceText.includes(launch.executable), false, 'private executable paths never enter the peer protocol trace')
     assert.equal(traceText.includes('AC_MCP_STDIO_FIXTURE_ALLOW'), false, 'fixture approval variables never enter the child protocol')
     assert.equal(traceText.includes(SECRET), false, 'the raw peer result exists only in owner-private request history')
+    await assertOriginalPackageUnmodified()
     await writeFile(join(evidence, 'evidence.json'), `${JSON.stringify({
-      checkedAt: new Date().toISOString(), sourceAsarSha256: fixture.sourceAsarSha256, fixtureAsarSha256: fixture.fixtureAsarSha256,
+      checkedAt: new Date().toISOString(), sourceAsarSha256, fixtureAsarSha256: fixture?.fixtureAsarSha256,
+      mode: nativeReview ? 'native-review' : 'fixture-dialogs',
       originalPackagedAppUnmodified: true, realSignedPeople: [owner.user.id, requester.user.id],
       crossTenantPublishedTarget: true, ownerOnlyRawReceipt: true, separatelyReviewedReply: true,
       pendingRestartRecoveredUncertainWithoutReplay: true, exactToolCalls: toolCalls(finalTrace).length,
       argumentDraft: { explicitUseBeforeReview: true, calls: model.requests.length, interruptedStatus: recoveredDraft.argumentDraft.status,
         knownReceiptRetained: storedShared.argumentDraft.status === 'done', requesterRedacted: privateRequester.argumentDraft === undefined },
       sqliteRows: [storedShared, storedRecovered].map(row => ({ id: row.intent.id, status: row.status, revision: row.revision })),
-      scope: 'Disposable unsigned macOS app copy with exact local stdio setup approvals; no source ASAR or shipped startup changes. Not signing/notarization, public MCP, or Intel acceptance.',
+      scope: nativeReview
+        ? 'Original unsigned macOS app with actual Cancel/fresh Allow setup dialogs and an authored local peer. Not signing/notarization, third-party MCP, paid-provider, or Intel acceptance.'
+        : 'Disposable unsigned macOS app copy with exact local stdio setup approvals; no source ASAR or shipped startup changes. Not actual dialogs, signing/notarization, third-party MCP, paid-provider, or Intel acceptance.',
     }, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
-    console.log(`[desktop-agent-request-smoke] real signed owner/requester · one-shot argument draft · explicit Use/Review/Run · exact local MCP call · private owner receipt · reviewed share · model/tool uncertainty without replay · evidence ${evidence}`)
+    console.log(`[desktop-agent-request-smoke] ${nativeReview ? 'actual native review' : 'fixture native review'} · real signed owner/requester · one-shot argument draft · explicit Use/Review/Run · exact local MCP call · private owner receipt · reviewed share · model/tool uncertainty without replay · evidence ${evidence}`)
   } catch (error) {
     if (run?.page && !run.page.isClosed()) {
       await run.page.screenshot({ path: join(evidence, 'failure.png'), fullPage: true }).catch(() => undefined)
@@ -441,7 +479,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     } finally {
       try {
         // Preserve fixture close failures (especially source-hash mismatches).
-        await fixture?.close()
+        try { await fixture?.close() } finally { await assertOriginalPackageUnmodified() }
       } finally {
         try {
           await rm(profile, { recursive: true, force: true })
@@ -457,5 +495,6 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  smokePackagedAgentRequests().catch(error => { console.error(error.message); process.exitCode = 1 })
+  Promise.resolve().then(() => smokePackagedAgentRequests(parseAgentRequestSmokeOptions(process.argv.slice(2))))
+    .catch(error => { console.error(error.message); process.exitCode = 1 })
 }
