@@ -21,10 +21,31 @@ try {
   const modulePath = process.argv.at(-1)
   if (!process.parentPort || !modulePath) throw new Error('missing utility-process authority')
   const { pathToFileURL } = await import('node:url')
+  const { createRequire } = await import('node:module')
   const { validateMcpSchema } = await import(pathToFileURL(modulePath).href)
+  // Resolve from the shipped validator's ASAR path so this probes the exact
+  // dependency the packaged worker uses, never the harness or checkout tree.
+  const fastUri = createRequire(modulePath)('fast-uri')
+  const encodedHost = '//%41.example'
+  const plainHost = '//a.example'
+  const uriNormalization = {
+    parsedHost: fastUri.parse(encodedHost).host,
+    plainParsedHost: fastUri.parse(plainHost).host,
+    normalizedEqual: fastUri.normalize(encodedHost) === fastUri.normalize(plainHost),
+    equal: fastUri.equal(encodedHost, plainHost),
+  }
   const objectSchema = { type: 'object', properties: { count: { type: 'integer' } }, required: ['count'] }
   const valid = await validateMcpSchema(objectSchema, { value: { count: 7 } })
   const invalid = await validateMcpSchema(objectSchema, { value: { count: '7' } })
+  const schemeRelativeSchema = {
+    $id: 'https://schemas.example/root',
+    type: 'object', required: ['value'],
+    properties: { value: { $ref: '//schemas.example/embedded/integer' } },
+    $defs: { integer: { $id: '//%53chemas.example/embedded/integer', type: 'integer' } },
+  }
+  const schemeRelativeValid = await validateMcpSchema(schemeRelativeSchema, { value: { value: 7 } })
+  const schemeRelativeInvalid = await validateMcpSchema(schemeRelativeSchema, { value: { value: '7' } })
+  const unregisteredSchemeRelative = await validateMcpSchema({ $ref: '//remote.example/unregistered-schema' })
   const pathological = { type: 'string', pattern: '^(a+)+$' }
   const attack = { value: 'a'.repeat(42) + '!' }
   const timeout = await validateMcpSchema(pathological, attack, { timeoutMs: 100 })
@@ -38,8 +59,9 @@ try {
   const terminating = await validateMcpSchema(objectSchema, { value: { count: 10 } })
   const cancelled = await Promise.all(occupied)
   const recovered = await validateMcpSchema(objectSchema, { value: { count: 11 } })
-  send({ type: '${RESULT_TYPE}', ok: true, results: {
-    valid, invalid, timeout, afterTimeout, saturated, terminating, cancelled, recovered,
+  send({ type: '${RESULT_TYPE}', ok: true, runtimeUndici: process.versions.undici, results: {
+    uriNormalization, valid, invalid, schemeRelativeValid, schemeRelativeInvalid,
+    unregisteredSchemeRelative, timeout, afterTimeout, saturated, terminating, cancelled, recovered,
   } })
 } catch (error) {
   send({ type: '${RESULT_TYPE}', ok: false, stage: 'driver', message: error instanceof Error ? error.message.slice(0, 512) : 'unknown' })
@@ -85,6 +107,16 @@ async function runPackagedDriver(app, driverPath) {
   }, { driverPath, modulePath, resultType: RESULT_TYPE, timeoutMs: TIMEOUT_MS })
 }
 
+export function assertReviewedEmbeddedUndici(runtimeUndici) {
+  assert.match(runtimeUndici, /^\d+\.\d+\.\d+$/, 'the packaged utility process reports its embedded Undici version')
+  const [major, minor, patch] = runtimeUndici.split('.').map(Number)
+  assert.equal(runtimeUndici, [major, minor, patch].join('.'), 'the embedded version is canonical')
+  // Electron 44 embeds the reviewed 7.x line. Larger majors need a fresh
+  // advisory review: GHSA-w293-vg96-wgc3 also affects 8.x before 8.10.2.
+  assert.ok(major === 7 && (minor > 29 || (minor === 29 && patch >= 1)),
+    'the packaged Node runtime must include the Undici 7.29.1 security fixes')
+}
+
 export async function smokePackagedMcpSchema({ executable = packagedExecutable() } = {}) {
   if (!existsSync(executable)) throw new Error(`Packaged desktop executable is missing: ${executable}`)
   const fixtureRoot = await mkdtemp(join(tmpdir(), 'agent-commons-schema-worker-'))
@@ -103,12 +135,23 @@ export async function smokePackagedMcpSchema({ executable = packagedExecutable()
     await page.waitForURL(/^http:\/\/127\.0\.0\.1:\d+\//, { timeout: TIMEOUT_MS })
     const actual = await runPackagedDriver(app, driverPath)
     assert.equal(actual.packaged, true, 'schema acceptance must launch the packaged application')
+    // npm audit cannot see Node's embedded copy. Probe the executable, not the
+    // separate npm package used by the Electron downloader.
+    const runtimeUndici = actual.result.runtimeUndici
+    assertReviewedEmbeddedUndici(runtimeUndici)
     assert.deepEqual(actual.result, {
       type: RESULT_TYPE,
       ok: true,
+      runtimeUndici,
       results: {
+        uriNormalization: {
+          parsedHost: 'a.example', plainParsedHost: 'a.example', normalizedEqual: true, equal: true,
+        },
         valid: { ok: true },
         invalid: { ok: false, code: 'invalid_value' },
+        schemeRelativeValid: { ok: true },
+        schemeRelativeInvalid: { ok: false, code: 'invalid_value' },
+        unregisteredSchemeRelative: { ok: false, code: 'invalid_schema' },
         timeout: { ok: false, code: 'limit' },
         afterTimeout: { ok: true },
         saturated: { ok: false, code: 'unavailable' },
@@ -117,7 +160,7 @@ export async function smokePackagedMcpSchema({ executable = packagedExecutable()
         recovered: { ok: true },
       },
     })
-    console.log('[desktop-schema-smoke] packaged ASAR validator · Ajv 2020-12 · timeout/cancellation · bounded-capacity recovery')
+    console.log(`[desktop-schema-smoke] packaged ASAR validator · canonical URI hosts · embedded Undici ${runtimeUndici} · Ajv 2020-12 · timeout/cancellation · bounded-capacity recovery`)
   } finally {
     await app?.close().catch(() => {})
     await rm(fixtureRoot, { recursive: true, force: true })

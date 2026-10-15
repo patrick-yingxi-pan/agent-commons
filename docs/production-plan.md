@@ -47,7 +47,44 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current milestone: a reviewed local file becomes a Document
+## Current checkpoint: runtime and build dependency security
+
+The 2026-10-15 advisory audit found four affected npm dependency entries:
+runtime `fast-uri` 3.1.7 and build-only `brace-expansion` 5.0.9,
+`source-map-js` 1.2.1 and npm `undici` 7.29.0. Compatible updates lock them to
+3.1.8, 5.0.12, 1.2.2 and 7.29.1 respectively. The full npm audit then reported
+zero known vulnerabilities; this does not prove the absence of undisclosed
+issues or replace runtime acceptance.
+
+Electron 44.0.0 separately embedded Node 24.18.1 with Undici 7.29.0. Updating
+the downloader's npm dependency does not change that runtime. The compatible
+Electron 44.7.2 update is therefore included, and packaged acceptance now reads
+the actual utility process's embedded Undici version and requires the 7.29.1
+security fixes. The old executable was watched fail that check. The existing
+official archive-checksum verification remains unchanged.
+Review also caught an overly broad newer-major allowance: the embedded check
+now admits only the reviewed 7.x line at or above 7.29.1. Behavioral boundaries
+reject older, malformed and unreviewed-major versions; the initial predicate
+was watched fail the 8.0.0 refusal. A future major update requires a fresh
+advisory review rather than assuming a larger number includes the same fixes.
+
+The [fast-uri maintainer advisory](https://github.com/fastify/fast-uri/security/advisories/GHSA-hrr3-gc8f-f4qj)
+describes inconsistent host normalization. Direct parse/normalize/equality and
+packaged-ASAR checks were watched fail on 3.1.7. The schema integration fixture
+uses an explicit root URI, an encoded embedded identifier, valid/invalid
+instances and a refused unregistered reference. An initial fixture omitted its
+root URI and failed even after the dependency patch; that was a test correction,
+not evidence of a product exploit. This dependency resolves local schema
+identities, not outbound endpoint authority; the separate HTTPS/DNS/address
+policy is unchanged, and no endpoint-authority bypass has been demonstrated.
+
+The complete local verifier and unsigned arm64 desktop verifier are mandatory
+before landing; the handoff records their final-tree results. Signed/notarized,
+Intel, two-version update, live-provider and third-party-service gates remain
+open. The release audit found no candidate receipts or configured download
+destination, so owner enrollment/configuration remains the next release input.
+
+## Implemented milestone: a reviewed local file becomes a Document
 
 Autonomous direction (2026-10-15): connect source browsing to ordinary resource
 authoring, removing a second chooser/read from a common collaboration workflow.
