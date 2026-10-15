@@ -47,6 +47,49 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
+## Current milestone: a reviewed local file becomes a Document
+
+Autonomous direction (2026-10-15): connect source browsing to ordinary resource
+authoring, removing a second chooser/read from a common collaboration workflow.
+**Use text in new document** adopts a reviewed text/PDF/DOCX preview from Folder,
+tracked Git or explicitly opted-in untracked Git into the existing editable
+artifact form. Canonical, conversation and Project browsers offer the same act.
+The adoption itself does not attach context, create a resource or share
+anything. Explicit Create uses the existing account-owned acknowledgement and
+recovery path; the saved Document is independent of the source and can be
+shared normally.
+
+The existing complete-text importer and authored-document source limit are
+reused. Connected paths use their leaf filename for format admission while the
+full relative path remains the disclosure provenance and the reviewed text
+remains exact. No clipping, structured workbook/deck flattening, new file read,
+native bridge, source write, model call or paid-service permission is introduced.
+Existing source receipt/pending guards apply before adoption; account changes
+clear the private unsaved draft. A held creation retains its own payload and
+never borrows the new source's provenance. The shared modal shell isolates
+dismissal from an underlying picker while retaining ordinary editing,
+cancellation and focus. CTX-FS-36 owns the feature. Wider structured-source
+import remains future work.
+
+Targeted acceptance passed: focused source-adoption E2E 6/6; the separate UI
+sweep 135/135 with zero violations or skips; and the complete unsigned arm64
+`npm run desktop:verify` exited 0. Five-viewport source-action captures and ten
+packaged Folder/Git document-form captures were reviewed. The packaged walk
+created an edited Document, removed its source, relaunched, and verified the
+exact saved Document. The rebuilt app.asar SHA-256 was
+`d63068e516e788126445acd904769f36858edd6586651c327af67dbd879cdc36`.
+
+The complete final-tree verifier is required before landing; the delivery handoff
+records its result.
+An initial full run passed all browser lanes but timed out in the verifier's
+own five-second coverage-diagnostic fixture. The fixture now uses a fixed host
+profile, removing irrelevant CPU calibration; a deliberate calibration failure
+proves that boundary. Production calibration, coverage, deadlines and retries
+are unchanged. The timeout alone does not establish calibration as its sole
+cause; the complete frozen-tree gate must still pass.
+This evidence does not establish signed or Intel acceptance, an actual OS-dialog
+walk, live-service acceptance, or public hosting. No release gate is waived.
+
 ## Implemented milestone: recognize selected connected-source PDFs
 
 Autonomous direction (2026-10-15): close a core source-intake gap without
@@ -55,7 +98,8 @@ untracked Git previews offer a separate **Recognize scanned text** action on
 supported macOS desktop builds. It uses the already captured bounded bytes,
 not another source read or chooser. Recognition replaces the preview for
 review; the existing separate conversation-only Attach saves exact text and
-OCR provenance. Canonical and Project views remain browse-only.
+OCR provenance. Canonical and Project views offer no context Attach; CTX-FS-36
+separately offers independent Document-draft adoption there.
 
 The existing sandboxed native recognizer keeps its 8 MiB, 100-page, 2,000-pixel,
 64 KiB and 120-second bounds. Failure/cancellation preserves the prior preview;
@@ -67,7 +111,7 @@ introduced. CTX-FS-35 owns this refinement; broader FWD-9 remains open.
 Focused state/provenance/byte-retention locks pass, including deliberate
 regressions watched fail for source identity, detached bytes, model provenance
 and raw-byte exclusion from saved copies. Six rendered browser tests pass:
-Folder/tracked/untracked recognition, canonical/Project browse-only behavior,
+Folder/tracked/untracked recognition, canonical/Project no-context-Attach behavior,
 explicit retry, cancellation/disposal, account walls and shared saved copies.
 Twenty captures cover pending, success, failure and canonical pending at five
 viewports. The separate shell sweep passes all 135 cells with zero violations
@@ -3434,7 +3478,7 @@ CoreGraphics/Vision decoder; it has no user-file or network entitlement. The
 Document form keeps recognized text in a read-only candidate until explicit
 adoption, correction and ordinary Create. Limits are 8 MiB input, 100 pages, a
 2,000-pixel rendered edge, 64 KiB whole text, one job and a 120-second deadline.
-The existing 19,980-character source limit refuses larger candidates without
+The existing authored-document source limit refuses larger candidates without
 clipping. Every admitted page is processed sequentially, including blank pages.
 
 The isolated browser bridge-fixture workflow now passes all 22 focused artifact

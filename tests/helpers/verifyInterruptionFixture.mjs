@@ -113,6 +113,9 @@ export function startFixtureVerifier(fixture, { holdTypecheck = false, reportedP
     VERIFY_FIXTURE_HOLD: holdTypecheck ? '1' : '0',
     VERIFY_FIXTURE_PASSED: String(reportedPasses),
     E2E_SHARDS: '1',
+    // Synthetic lanes test lifecycle and coverage, not CPU calibration. Their
+    // host profile must be deterministic even under the full verifier load.
+    E2E_HOST_FACTOR: '1',
   })
   const child = spawn(process.execPath, [fixture.runner, ...runnerArgs], {
     cwd: fixture.root,

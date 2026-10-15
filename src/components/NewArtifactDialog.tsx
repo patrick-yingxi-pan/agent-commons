@@ -9,6 +9,7 @@ import {
   type StructuredArtifactBody,
 } from '../../contract/index.ts'
 import { useMe } from '../api/hooks'
+import { accountGeneration } from '../api/account.ts'
 import { enqueueArtifactCreation, heldArtifactCreation, useArtifactCreationStatus, type ArtifactCreationResult } from '../controller/artifactCreationMutations'
 import { ArtifactDocumentImport } from './ArtifactDocumentImport.tsx'
 import { ArtifactPresentationImport } from './ArtifactPresentationImport.tsx'
@@ -25,15 +26,20 @@ export function NewArtifactDialog({
   projects,
   onCreated,
   onClose,
+  initialDocument,
 }: {
   projects: Project[]
   onCreated: (id: string) => void
   onClose: () => void
+  initialDocument?: { name: string; text: string; disclosure?: string; sourceName: string; generation: number }
 }) {
   const mutation = useArtifactCreationStatus()
   const held = heldArtifactCreation()
   const identity = useMe().data
-  const [initial] = useState(() => held?.intent.request)
+  const [initial] = useState(() => held?.intent.request ?? (initialDocument && initialDocument.generation === accountGeneration()
+    ? { name: initialDocument.name, kind: 'doc' as const, body: initialDocument.text, projectId: null } : undefined))
+  const [generation] = useState(accountGeneration)
+  const [sourceDisclosure] = useState(() => held ? null : initialDocument)
   const [draftName, setName] = useState(initial?.name ?? '')
   const [draftKind, setKind] = useState<CreateArtifactRequest['kind']>(initial?.kind ?? 'doc')
   const [draftBody, setBody] = useState(typeof initial?.body === 'string' ? initial.body : '')
@@ -97,7 +103,7 @@ export function NewArtifactDialog({
   const canFileProject = projectId === null || projects.some((project) => project.id === projectId && project.own === true)
   const canCreate = !!authored && !!tenantId && canFileProject && !busy && !documentImport.reviewing && !presentationImport.reviewing && !sheetImport.reviewing && !(kind === 'sheet' && pendingSheetRenames.length > 0) && (kind !== 'doc' || body.length <= MAX_AUTHORED_DOCUMENT_SOURCE_CHARS)
   const submit = () => {
-    if (canCreate && authored && normalizedName && tenantId) {
+    if (generation === accountGeneration() && canCreate && authored && normalizedName && tenantId) {
       setError(null)
       follow(enqueueArtifactCreation({ tenantId, sourceUserId: identity?.via === 'session' ? identity.user.id : null, request: { name: normalizedName, kind, body: authored.draftBody, projectId } }))
     }
@@ -113,8 +119,13 @@ export function NewArtifactDialog({
       onSubmit={submit}
       onClose={close}
       busy={busy}
+      isolateEscape={initialDocument !== undefined}
       error={error}
     >
+      {sourceDisclosure && !heldRequest && <div data-local-document-draft className="space-y-1 break-words [overflow-wrap:anywhere] text-[12px] leading-relaxed text-ink-soft">
+        <p>Started from reviewed text in {sourceDisclosure.sourceName}. This is an independent editable draft, not a live file. Create saves the edited content under your account; it does not change the source or share the document.</p>
+        {sourceDisclosure.disclosure && <p>{sourceDisclosure.disclosure}</p>}
+      </div>}
       <FormField label="Name">
         <input
           value={name}

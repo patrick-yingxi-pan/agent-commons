@@ -26,14 +26,17 @@ function getFocusable(root: HTMLElement | null): HTMLElement[] {
  * @param options.closeOnEscape bind Escape → onClose (default true); pass false when
  *                              the dialog handles Escape itself (e.g. a capture-phase
  *                              handler that must run before an ancestor's)
+ * @param options.isolateEscape capture keyboard events before a parent popover's
+ *                              dismissal listener; Escape closes only this dialog
  */
 export function useFocusTrap<T extends HTMLElement, F extends HTMLElement = HTMLElement>(
   dialogRef: RefObject<T | null>,
   onClose: () => void,
-  options?: { initialFocus?: RefObject<F | null>; closeOnEscape?: boolean },
+  options?: { initialFocus?: RefObject<F | null>; closeOnEscape?: boolean; isolateEscape?: boolean },
 ): void {
   const initialFocus = options?.initialFocus
   const closeOnEscape = options?.closeOnEscape ?? true
+  const isolateEscape = options?.isolateEscape ?? false
 
   // Focus-in on open, focus-restore on close. Deliberately a mount-only effect:
   // it must NOT re-run when `onClose` is re-created each render (callers pass
@@ -52,6 +55,7 @@ export function useFocusTrap<T extends HTMLElement, F extends HTMLElement = HTML
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (closeOnEscape && e.key === 'Escape') {
+        if (isolateEscape) e.stopImmediatePropagation()
         onClose()
         return
       }
@@ -63,7 +67,7 @@ export function useFocusTrap<T extends HTMLElement, F extends HTMLElement = HTML
         }
       }
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [dialogRef, onClose, closeOnEscape])
+    document.addEventListener('keydown', onKey, isolateEscape)
+    return () => document.removeEventListener('keydown', onKey, isolateEscape)
+  }, [dialogRef, onClose, closeOnEscape, isolateEscape])
 }

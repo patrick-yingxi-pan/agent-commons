@@ -14,10 +14,10 @@ type Props = ComponentProps<typeof NewArtifactDialog>
 
 /** Admission is before the first editable field. A rejected browser module URL
  * needs a real navigation; closing never accepts intent or opens a late form. */
-function LoadState({ failed = false, onClose }: { failed?: boolean; onClose: () => void }) {
+function LoadState({ failed = false, onClose, isolateEscape }: { failed?: boolean; onClose: () => void; isolateEscape?: boolean }) {
   return <FormDialog title="New artifact" icon={<FileText size={18} className="text-cap-workspace" />}
     kind="artifact-form-load" submitLabel={failed ? 'Reload app' : 'Loading…'}
-    canSubmit={failed} onSubmit={() => window.location.reload()} onClose={onClose}>
+    canSubmit={failed} onSubmit={() => window.location.reload()} onClose={onClose} isolateEscape={isolateEscape}>
     <div role={failed ? 'alert' : 'status'} data-artifact-form-load={failed ? 'failed' : 'loading'} className="space-y-2 text-[13px] text-ink-soft">
       <p>{failed ? 'The artifact form could not be loaded.' : 'Loading artifact form…'}</p>
       {failed && <p className="text-[12px]">The app may have updated, or the connection was interrupted. Copy any unsent workspace text before reloading.</p>}
@@ -25,17 +25,17 @@ function LoadState({ failed = false, onClose }: { failed?: boolean; onClose: () 
   </FormDialog>
 }
 
-class LoadBoundary extends Component<{ children: ReactNode; onClose: () => void }, { failed: boolean }> {
+class LoadBoundary extends Component<{ children: ReactNode; onClose: () => void; isolateEscape?: boolean }, { failed: boolean }> {
   state = { failed: false }
   static getDerivedStateFromError() { return { failed: true } }
   render() {
-    return this.state.failed ? <LoadState failed onClose={this.props.onClose} /> : this.props.children
+    return this.state.failed ? <LoadState failed onClose={this.props.onClose} isolateEscape={this.props.isolateEscape} /> : this.props.children
   }
 }
 
 export function DeferredNewArtifactDialog(props: Props) {
-  return <LoadBoundary onClose={props.onClose}>
-    <Suspense fallback={<LoadState onClose={props.onClose} />}>
+  return <LoadBoundary onClose={props.onClose} isolateEscape={props.initialDocument !== undefined}>
+    <Suspense fallback={<LoadState onClose={props.onClose} isolateEscape={props.initialDocument !== undefined} />}>
       <Dialog {...props} />
     </Suspense>
   </LoadBoundary>

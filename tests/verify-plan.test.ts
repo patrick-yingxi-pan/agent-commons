@@ -56,7 +56,17 @@ test('coverage mismatch emits the E2E lane tail and exits nonzero', { timeout: 1
     }
   }
   try {
+    // This subprocess tests coverage reporting, not host speed. Make accidental
+    // calibration observable without timing an arbitrary amount of CPU work.
+    const hostPath = join(fixture.root, 'scripts', 'hostSpeed.mjs')
+    const hostSource = readFileSync(hostPath, 'utf8')
+    const calibration = 'export function calibrationMs(rounds = 5, iterations = CALIBRATION_ITERATIONS) {'
+    assert.ok(hostSource.includes(calibration), 'the fixture mutation found the real calibration entry')
+    writeFileSync(hostPath, hostSource.replace(calibration,
+      `${calibration}\n  throw new Error('Unexpected fixture calibration')`))
     let result = await run()
+    assert.doesNotMatch(verifier.output(), /Unexpected fixture calibration/,
+      'coverage fixtures use a fixed host profile, not unrelated CPU calibration')
     assert.equal(result.code, 1, `a coverage shortfall remains a verification failure; output=${verifier.output().slice(-2_000)}`)
     assert.match(verifier.output(), /coverage mismatch diagnostics \(1 of 2\)/)
     assert.match(verifier.output(), /e2e output \(coverage mismatch\)/)

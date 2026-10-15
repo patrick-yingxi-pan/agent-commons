@@ -15,6 +15,7 @@
  *  verified in the running app, per the repo's testing convention. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { nextTrapFocus } from './focusTrap.ts'
 import { ROOT, filesUnder, read, stripComments } from '../../tests/helpers/source.ts'
 
@@ -79,4 +80,27 @@ test('every component that declares aria-modal="true" wires useFocusTrap', () =>
     [],
     `aria-modal dialogs must trap focus via useFocusTrap (WCAG 2.4.3) but don't: ${untrapped.join(', ')}`,
   )
+})
+
+test('the shared form dialog can isolate Escape through loaded and deferred modal states', () => {
+  const trap = stripComments(read(join(ROOT, 'src/lib/useFocusTrap.ts')))
+  const form = stripComments(read(join(ROOT, 'src/components/FormDialog.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src/components/DeferredNewArtifactDialog.tsx')))
+
+  assert.ok(trap.includes('isolateEscape?: boolean'), 'the common focus trap exposes the opt-in behavior')
+  assert.ok(trap.includes('if (isolateEscape) e.stopImmediatePropagation()'),
+    'isolated Escape closes this modal without reaching a parent modal listener')
+  assert.ok(trap.includes("document.addEventListener('keydown', onKey, isolateEscape)"),
+    'isolated handling runs in capture phase before ancestor bubble handlers')
+  assert.ok(trap.includes("document.removeEventListener('keydown', onKey, isolateEscape)"),
+    'cleanup uses the same capture setting')
+  assert.ok(form.includes('isolateEscape = false') && form.includes('isolateEscape?: boolean') && form.includes('useFocusTrap(dialogRef, close, { isolateEscape })'),
+    'the shared modal shell defaults unchanged and passes the opt-in to its one trap')
+  assert.ok(form.includes('onMouseDown={event => { event.stopPropagation(); close() }}'),
+    'backdrop dismissal does not also dismiss the parent picker')
+  assert.ok(deferred.includes('isolateEscape={isolateEscape}') && deferred.includes('isolateEscape={this.props.isolateEscape}'),
+    'both loading fallback and error boundary forward the isolated Escape contract')
+  assert.ok(deferred.includes('<LoadState onClose={props.onClose} isolateEscape={props.initialDocument !== undefined} />') &&
+    deferred.includes('<LoadBoundary onClose={props.onClose} isolateEscape={props.initialDocument !== undefined}>'),
+  'the local-document modal keeps isolation while loading, failed, and loaded')
 })

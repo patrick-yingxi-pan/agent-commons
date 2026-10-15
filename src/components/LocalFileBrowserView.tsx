@@ -8,6 +8,7 @@ import type { LocalBrowsePreview } from '../lib/localFilePreview.ts'
 import type { PreparedLocalFileSavedCopy } from '../controller/localFileSavedCopyCore.ts'
 import { IMAGE_ORIGINAL_PRIVACY_COPY } from '../lib/imageOriginalDownload.ts'
 import { LocalSavedCopyAction } from './LocalSavedCopyAction.tsx'
+import { LocalPreviewDocumentAction } from './LocalPreviewDocumentAction.tsx'
 
 const PAGE_SIZE = 100
 type Entry = { path: string; kind: string }
@@ -98,7 +99,7 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
       <summary className="cursor-pointer py-1">{limitsLabel ?? 'Browse limits and privacy'}</summary>
       <p className="py-1">{limitsCopy}</p>
     </details>}
-    {onAttach && !compact && <p className="text-[12px] leading-relaxed text-ink-soft">Browsing never attaches content. Attach saved copy adds the exact selected preview to conversation context. Images are normalized to a PNG of at most 2,000 px per edge. {IMAGE_ORIGINAL_PRIVACY_COPY} Nothing uploads until you choose Attach. {outsideListingPrivacyCopy}</p>}
+    {onAttach && !compact && <p className="text-[12px] leading-relaxed text-ink-soft">Browsing never attaches or uploads content. Attach saved copy adds the exact selected preview to conversation context. Images are normalized to a PNG of at most 2,000 px per edge. {IMAGE_ORIGINAL_PRIVACY_COPY} {outsideListingPrivacyCopy}</p>}
     {listing && <div className="min-w-0 space-y-3" data-local-folder-browser-listing={folder ? '' : undefined} data-local-git-browser-listing={source === 'git' ? '' : undefined} data-local-git-untracked-browser-listing={source === 'git-untracked' ? '' : undefined}>
       <p className="break-words text-[12px] text-ink-soft">{listingSummary(listing, state.listingReadAt)}</p>
       <label className="block min-w-0 space-y-1 text-[12px] text-ink-soft">Search paths
@@ -151,6 +152,7 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
             isCurrent={isCurrent} subscribeCurrent={subscribeCurrent} onAttach={onAttach} />}
       </div>}
     </div>}
+    <LocalPreviewDocumentAction preview={state.preview} receipt={receipt} disabled={!enabled || state.pending} isCurrent={isCurrent} />
     {afterContent}
   </section>
 }

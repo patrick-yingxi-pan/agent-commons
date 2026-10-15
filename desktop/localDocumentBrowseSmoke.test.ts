@@ -58,6 +58,59 @@ test('packaged local OCR overwrites the source before using the real native reco
     'the packaged workflow does not replace or mock the native OCR bridge')
 })
 
+test('packaged connected-source OCR adoption stays review-only until exact Document creation', () => {
+  const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
+  const lifecycle = source.slice(source.indexOf('export async function smokeLocalDocumentBrowse('), source.indexOf('export async function verifyLocalDocumentBrowseRelaunch('))
+  const lastSavedAttachment = lifecycle.lastIndexOf("name: 'Attach saved copy', exact: true")
+  const adoptionBlock = lifecycle.indexOf('let createdDocument = null')
+  const guard = lifecycle.indexOf('if (ocrFixture?.ocr) {')
+  const open = lifecycle.indexOf("name: 'Use text in new document'")
+  const cancel = lifecycle.indexOf("name: 'Cancel', exact: true", open)
+  const pickerAlive = lifecycle.indexOf('await expect(picker).toBeVisible()', cancel)
+  const reAdopt = lifecycle.indexOf('const adopted = await openDraft()', pickerAlive)
+  const edit = lifecycle.indexOf("getByLabel('Content', { exact: true }).fill(editedText)", reAdopt)
+  const create = lifecycle.indexOf("name: 'Create document', exact: true", edit)
+  const savedBody = lifecycle.indexOf('assert.deepEqual(savedDocuments.bodies[artifact.id], expectedBody', create)
+  const sourceAbsentPath = lifecycle.indexOf('await page.goto(`${origin}/s/${encodeURIComponent(session.id)}`)', savedBody)
+  const existingSend = lifecycle.indexOf('await sendSaved(page, endpoint, expectedFiles', sourceAbsentPath)
+  const pickerClose = lifecycle.indexOf("name: 'Done', exact: true", adoptionBlock)
+  assert.ok(lastSavedAttachment >= 0 && adoptionBlock > lastSavedAttachment && pickerClose > savedBody,
+    'the OCR workflow runs after every saved copy and while the source picker is still open')
+  assert.ok(guard > adoptionBlock && open > guard && cancel > open && pickerAlive > cancel && reAdopt > pickerAlive,
+    'only the actual macOS OCR result is adopted; Cancel leaves its picker and preview available for re-adoption')
+  assert.ok(edit > reAdopt && create > edit && savedBody > create,
+    'the second adoption is edited and explicitly created before the exact canonical Document is checked')
+  assert.ok(source.includes("await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('scanned-source.md')") &&
+    source.includes('await expect(dialog.getByLabel(\'Content\', { exact: true })).toHaveValue(ocrFixture.text)'),
+    'the form is seeded with the exact reviewed name and OCR text')
+  assert.ok(source.includes('documentImportCopy(ocrFixture.outcome)'), 'the form retains the exact OCR disclosure')
+  assert.ok(source.includes('endpoint.requests.length, modelRequestCount'), 'the create path proves no model call')
+  assert.ok(source.includes('docBlockId(artifact.id, 0, index)'), 'saved canonical paragraphs have exact artifact block identities')
+  assert.ok(source.includes("'[Page 1] Scan Alpha 427'") && source.includes("'[Page 2] Scan Bravo 813'") &&
+    source.includes("'Created from reviewed connected preview.'"),
+  'the canonical oracle spells out ordinary authored paragraph line-wrap normalization without calling the production parser')
+  assert.ok(source.includes('await expect(panel).toBeInViewport({ ratio: 1 })') &&
+    source.includes('await expect(footer).toBeInViewport({ ratio: 1 })') &&
+    source.includes('await expectUncovered(panel)') && source.includes('await expectUncovered(footer)'),
+  'every viewport checks full panel and footer containment plus painted hit ownership')
+  assert.ok(source.includes('creating a private Document'), 'creation copy does not imply the artifact is shared')
+  assert.ok(source.includes('`pdf-ocr-new-document-${width}x${height}.png`'), 'the adopted form has five-viewport captures')
+  assert.ok(sourceAbsentPath > savedBody && existingSend > sourceAbsentPath,
+    'the smoke returns to the original conversation before its existing saved-copy Send continuation')
+})
+
+test('packaged connected-source Document is rechecked after the full source-absent relaunch', () => {
+  const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
+  const relaunch = source.slice(source.indexOf('export async function verifyLocalDocumentBrowseRelaunch('))
+  const sourceGone = relaunch.indexOf("await assert.rejects(stat(receipt.sourceDirectory), { code: 'ENOENT' }")
+  const identity = relaunch.indexOf('receipt.createdDocument.id', sourceGone)
+  const body = relaunch.indexOf('authored.bodies[receipt.createdDocument.id]', identity)
+  assert.ok(sourceGone >= 0 && identity > sourceGone && body > identity,
+    'after the generated source directory is absent, relaunch checks the exact authored Document identity and body')
+  assert.ok(relaunch.includes('assert.deepEqual(authored.bodies[receipt.createdDocument.id], receipt.createdDocument.body'),
+    'relaunch compares the full canonical Document body, including paragraph IDs and edited text')
+})
+
 test('packaged document browsing is awaited for both native sources before source-absent relaunch', () => {
   const folder = readFileSync(new URL('./attachmentSmoke.mjs', import.meta.url), 'utf8')
   const git = readFileSync(new URL('./localGitSmoke.mjs', import.meta.url), 'utf8')

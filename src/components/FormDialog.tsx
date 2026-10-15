@@ -37,6 +37,7 @@ export function FormDialog({
   busy = false,
   fieldsDisabled = busy,
   cancelLabel = 'Cancel',
+  isolateEscape = false,
   children,
 }: {
   title: string
@@ -51,6 +52,7 @@ export function FormDialog({
   busy?: boolean
   fieldsDisabled?: boolean
   cancelLabel?: string
+  isolateEscape?: boolean
   children: ReactNode
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
@@ -58,7 +60,7 @@ export function FormDialog({
   const close = () => {
     if (!busy) onClose()
   }
-  useFocusTrap(dialogRef, close)
+  useFocusTrap(dialogRef, close, { isolateEscape })
   // Land focus on the first field, not the close button useFocusTrap would otherwise
   // pick (this mount effect runs after the trap's, so it wins).
   useEffect(() => {
@@ -68,7 +70,7 @@ export function FormDialog({
     <div
       data-form-dialog={kind}
       className={BOUNDED_DIALOG_LAYER_CLASS}
-      onMouseDown={close}
+      onMouseDown={event => { event.stopPropagation(); close() }}
       role="dialog"
       aria-modal="true"
       aria-label={title}

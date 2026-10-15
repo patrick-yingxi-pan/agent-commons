@@ -10,6 +10,7 @@ import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
 import { pptxFixture } from '../tests/helpers/pptxFixture.mjs'
 import { pdfOcrFixture } from './pdfOcrFixture.mjs'
+import { docBlockId } from '../server/documentIdentity.ts'
 
 const TIMEOUT_MS = 30_000
 const VIEWPORTS = [[320, 700], [375, 812], [768, 1024], [844, 390], [1280, 800]]
@@ -69,6 +70,15 @@ async function workspace(page, sessionId) {
     if (!response.ok) throw new Error('Could not read the selected-document acceptance workspace.')
     return (await response.json()).workspace
   }, sessionId)
+}
+
+async function authoredDocuments(page) {
+  return page.evaluate(async () => {
+    const artifactsResponse = await fetch('/api/v1/artifacts')
+    const contentsResponse = await fetch('/api/v1/artifact-content')
+    if (!artifactsResponse.ok || !contentsResponse.ok) throw new Error('Could not read authored-document acceptance state.')
+    return { artifacts: await artifactsResponse.json(), bodies: await contentsResponse.json() }
+  })
 }
 
 function assertSaved(saved, fixtures, root) {
@@ -255,19 +265,101 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
     assert.equal(endpoint.requests.length, requestCount, 'Attach itself never dispatches a model call')
     await verifySourceMetadata?.()
   }
-  await picker.getByRole('button', { name: 'Done', exact: true }).click()
-  await expect(picker).toHaveCount(0)
+
+  let createdDocument = null
+  const ocrFixture = fixtures.at(-1)
+  if (ocrFixture?.ocr) {
+    const preview = browser.getByRole('region', { name: `Preview of ${ocrFixture.path}`, exact: true })
+    const artifactBaseline = await authoredDocuments(page)
+    const modelRequestCount = endpoint.requests.length
+    const openDraft = async () => {
+      await browser.getByRole('button', { name: 'Use text in new document', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: 'New artifact', exact: true })
+      await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('scanned-source.md')
+      await expect(dialog.getByLabel('Content', { exact: true })).toHaveValue(ocrFixture.text)
+      const disclosure = dialog.locator('[data-local-document-draft]')
+      await expect(disclosure).toContainText(`Started from reviewed text in ${ocrFixture.path}.`)
+      await expect(disclosure).toContainText(documentImportCopy(ocrFixture.outcome))
+      return { dialog, disclosure }
+    }
+
+    const firstDraft = await openDraft()
+    await firstDraft.dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(firstDraft.dialog).toHaveCount(0)
+    await expect(picker).toBeVisible()
+    await expect(preview).toHaveText(ocrFixture.text)
+    assert.deepEqual(await authoredDocuments(page), artifactBaseline, 'Cancel leaves the connected-source picker and saved artifacts unchanged')
+    assert.equal(endpoint.requests.length, modelRequestCount, 'opening and cancelling an adopted text draft does not call the model')
+
+    const adopted = await openDraft()
+    const name = `${source}-connected-scan.md`
+    const editedText = `${ocrFixture.text}\n\nCreated from reviewed connected preview.`
+    const expectedParagraphs = [
+      '[Page 1] Scan Alpha 427',
+      '[Page 2] Scan Bravo 813',
+      'Created from reviewed connected preview.',
+    ]
+    for (const [width, height] of VIEWPORTS) {
+      await page.setViewportSize({ width, height })
+      await settledOpaquePaint(adopted.dialog)
+      const panel = adopted.dialog.locator('[data-bounded-dialog="resource-form"]')
+      const footer = panel.locator(':scope > div').nth(2)
+      await expect(panel).toBeInViewport({ ratio: 1 })
+      await expect(footer).toBeInViewport({ ratio: 1 })
+      await expectUncovered(panel)
+      await expectUncovered(footer)
+      await expect(adopted.dialog.getByLabel('Name', { exact: true })).toHaveValue('scanned-source.md')
+      await expect(adopted.dialog.getByLabel('Content', { exact: true })).toHaveValue(ocrFixture.text)
+      await expect(adopted.disclosure).toContainText(documentImportCopy(ocrFixture.outcome))
+      await page.screenshot({ path: join(evidenceRoot, `pdf-ocr-new-document-${width}x${height}.png`) })
+    }
+    await adopted.dialog.getByLabel('Name', { exact: true }).fill(name)
+    await adopted.dialog.getByLabel('Content', { exact: true }).fill(editedText)
+    await expect(adopted.dialog.getByRole('button', { name: 'Create document', exact: true })).toBeEnabled()
+    assert.deepEqual(await authoredDocuments(page), artifactBaseline, 'adoption and editing remain an unsaved local draft')
+    assert.equal(endpoint.requests.length, modelRequestCount, 'reviewing and editing a new-document draft never calls the model')
+    await adopted.dialog.getByRole('button', { name: 'Create document', exact: true }).click()
+    await expect(adopted.dialog).toHaveCount(0)
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+    const savedDocuments = await authoredDocuments(page)
+    const artifact = savedDocuments.artifacts.find(item => item.name === name)
+    assert.ok(artifact, 'Create document writes the reviewed connected-source draft')
+    assert.equal(artifact.kind, 'doc')
+    const expectedBody = {
+      type: 'doc', title: name.slice(0, -3),
+      blocks: expectedParagraphs.map((p, index) => ({ id: docBlockId(artifact.id, 0, index), p })), revision: 0,
+    }
+    assert.deepEqual(savedDocuments.bodies[artifact.id], expectedBody,
+      'the canonical Document contains exact edited page text and stable block identities')
+    assert.equal(JSON.stringify(savedDocuments.bodies[artifact.id]).includes('%PDF-'), false,
+      'the saved Document contains no original PDF bytes')
+    assert.deepEqual(await workspace(page, session.id), before,
+      'creating a private Document does not change the conversation attachment snapshot')
+    assert.equal(endpoint.requests.length, modelRequestCount, 'creating the authored Document does not call the model')
+    createdDocument = { id: artifact.id, name, body: expectedBody }
+    await page.goto(`${origin}/s/${encodeURIComponent(session.id)}`)
+    await expect(picker).toHaveCount(0)
+  }
+
+  if (!createdDocument) {
+    await picker.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(picker).toHaveCount(0)
+  }
   if (originalViewport) await page.setViewportSize(originalViewport)
   const expectedFiles = fixtures.map(item => ({ name: item.path, status: 'ready', text: item.text, extraction: item.extraction }))
   await sendSaved(page, endpoint, expectedFiles, fixtures[0].marker, 0)
   console.log(`[desktop-local-document-browse-smoke] ${source}: ${fixtures.length} real native document reads + packaged workers/OCR + exact saved/model metadata + five-viewport evidence: ${evidenceRoot}`)
-  return { sessionId: session.id, saved: await workspace(page, session.id), fixtures: fixtures.map(({ bytes, ...item }) => item), expectedFiles, sourceDirectory, root }
+  return { sessionId: session.id, saved: await workspace(page, session.id), fixtures: fixtures.map(({ bytes, ...item }) => item), expectedFiles, source, sourceDirectory, root, createdDocument }
 }
 
 export async function verifyLocalDocumentBrowseRelaunch(run, receipt, endpoint) {
   const expectedFixtureCount = process.platform === 'darwin' ? 5 : 4
   assert.equal(receipt?.fixtures?.length, expectedFixtureCount, 'all platform-supported document fixtures completed before relaunch')
   assert.equal(receipt?.expectedFiles?.length, expectedFixtureCount, 'the model projection includes every document fixture')
+  if (process.platform === 'darwin') {
+    assert.ok(receipt.createdDocument, 'the scanned-PDF review created an authored Document before relaunch')
+    assert.equal(receipt.createdDocument.name, `${receipt.source}-connected-scan.md`)
+  }
   if (process.platform === 'darwin') {
     const ocr = receipt.fixtures.at(-1)
     assert.equal(ocr?.path, `${DIRECTORY}/scanned-source.pdf`)
@@ -278,6 +370,14 @@ export async function verifyLocalDocumentBrowseRelaunch(run, receipt, endpoint) 
   await assert.rejects(stat(receipt.sourceDirectory), { code: 'ENOENT' }, 'the original connected-source document directory is absent')
   assert.deepEqual(await workspace(run.page, receipt.sessionId), receipt.saved, 'exact document text, import outcomes and attachment identities survive a real packaged relaunch')
   assertSaved(receipt.saved, receipt.fixtures, receipt.root)
+  if (receipt.createdDocument) {
+    const authored = await authoredDocuments(run.page)
+    const artifact = authored.artifacts.find(item => item.id === receipt.createdDocument.id)
+    assert.equal(artifact?.name, receipt.createdDocument.name, 'the exact created Document identity survives relaunch without the PDF source')
+    assert.equal(artifact?.kind, 'doc')
+    assert.deepEqual(authored.bodies[receipt.createdDocument.id], receipt.createdDocument.body,
+      'the exact canonical edited Document body survives full relaunch')
+  }
   const requestCount = endpoint.requests.length
   const route = `${run.origin}/s/${encodeURIComponent(receipt.sessionId)}`
   for (const item of receipt.fixtures) {
