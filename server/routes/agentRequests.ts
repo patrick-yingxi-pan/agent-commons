@@ -67,7 +67,7 @@ export function registerAgentRequestRoutes(router: Router, sourceMatches: (req: 
     try { sendJson(res, store.createAgentRequest(actor, headerValue(req.headers, 'idempotency-key'), input)) }
     catch (error) { refuse(res, error) }
   })
-  router.intrinsicPost('/agent-requests/:id/decision', 'the receiving person reviews execution and sharing separately; a model cannot approve its own private-resource request', async ({ req, res, params, body }) => {
+  router.intrinsicPost('/agent-requests/:id/decision', 'the receiving person separately requests model advice, approves execution and reviews sharing; a model cannot approve its own private-resource request', async ({ req, res, params, body }) => {
     res.setHeader('Cache-Control', 'no-store')
     if (!sourceMatches(req, res)) return
     const actor = store.agentRequestActor(req.headers)
@@ -86,8 +86,10 @@ export function registerAgentRequestRoutes(router: Router, sourceMatches: (req: 
       return !!current && current.userId === actor.userId && current.tenantId === actor.tenantId && store.identity(req.headers).via === via
     }
     try {
-      const run = input !== null && typeof input === 'object' && !Array.isArray(input) && 'action' in input && input.action === 'run'
-      const view = run ? store.runAgentRequest(params.id, actor, input, authenticated) : store.decideAgentRequest(params.id, actor, input)
+      const action = input !== null && typeof input === 'object' && !Array.isArray(input) && 'action' in input ? input.action : undefined
+      const view = action === 'run' ? store.runAgentRequest(params.id, actor, input, authenticated) :
+        action === 'draft-arguments' ? store.draftAgentRequestArguments(params.id, actor, input, authenticated) :
+        store.decideAgentRequest(params.id, actor, input)
       if (!view) return refuse(res, new ProxyRequestError('unavailable'))
       sendJson(res, view)
     }

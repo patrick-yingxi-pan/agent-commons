@@ -78,6 +78,7 @@ import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnecti
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
 import { parseAgentOwnership, validateAgentOwnershipJoins, type AgentOwnership } from '../agentOwnership.ts'
 import { parseProxyRequests, validateProxyRequestJoins } from '../proxyRequestRegistry.ts'
+import { proxyArgumentReservationId } from '../proxyArgumentDraftState.ts'
 import type { StoredProxyRequest } from '../proxyRequestState.ts'
 import { parseMcpInputFlows, validateMcpInputFlows, type McpInputFlow } from '../mcpInputState.ts'
 import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
@@ -1140,17 +1141,42 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     try {
       const reservations = parseUsageReservations(state.usageReservations)
       const claims = new Map((state.commissionMcp?.claims ?? []).map(claim => [claim.id, claim]))
-      if (reservations.length !== claims.size) return false
+      const requests = parseProxyRequests(state.agentRequests)
+      const draftRows = requests.filter(row => row.argumentDraft !== undefined)
+      const drafts = new Map(draftRows.map(row => [proxyArgumentReservationId(row.intent.id), row]))
+      if (drafts.size !== draftRows.length ||
+          reservations.length !== claims.size + drafts.size) return false
       for (const reservation of reservations) {
         const claim = claims.get(reservation.id)
-        if (!claim || reservation.tenantId !== claim.permission.tenantId ||
-            (reservation.status === 'active' && (claim.phase !== 'preparing'))) return false
+        if (claim) {
+          if (reservation.tenantId !== claim.permission.tenantId ||
+              (reservation.status === 'active' && claim.phase !== 'preparing')) return false
+          continue
+        }
+        const request = drafts.get(reservation.id)
+        const draft = request?.argumentDraft
+        if (!request || !draft || reservation.id !== proxyArgumentReservationId(request.intent.id) ||
+            reservation.tenantId !== request.intent.owner.tenantId) return false
+        if (draft.status === 'pending') {
+          // The model response may be durable before output validation/receipt
+          // settlement, but a request hold cannot be detached from its draft.
+          if (reservation.status === 'active') continue
+          if (reservation.status === 'settled' && !reservation.report) return false
+        } else if (draft.status === 'done') {
+          if (reservation.status !== 'settled' || !reservation.report) return false
+        } else if (reservation.status === 'active' ||
+            (reservation.status === 'settled' && !reservation.report)) return false
       }
     } catch { return false }
-  } else if ((state?.commissionMcp?.claims.length ?? 0) > 0) {
-    // Current snapshots with claims must retain their model usage receipt or
-    // uncertainty hold; the v6 migration materializes legacy zero-usage rows.
-    return false
+  } else {
+    try {
+      if ((state?.commissionMcp?.claims.length ?? 0) > 0 ||
+          parseProxyRequests(state?.agentRequests).some(row => row.argumentDraft !== undefined)) {
+        // Current snapshots with claims must retain their model usage receipt or
+        // uncertainty hold; the v6 migration materializes legacy zero-usage rows.
+        return false
+      }
+    } catch { return false }
   }
   if (state?.modelPreferences !== undefined) {
     try { parsePersistedModelPreferences(state.modelPreferences) } catch { return false }

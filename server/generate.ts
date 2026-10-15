@@ -39,6 +39,17 @@ import {
   type PreparedCommissionMcpInput,
 } from './commissionMcpPreparation.ts'
 import {
+  parseProxyArgumentDraft,
+  PROXY_ARGUMENT_PREPARATION_MAX_OUTPUT_TOKENS,
+  ProxyArgumentPreparationInputError,
+  ProxyArgumentPreparationOutputError,
+  ProxyArgumentPreparationTransportError,
+  ProxyArgumentPreparationUsageError,
+  snapshotPreparedProxyArgumentInput,
+  type PreparedProxyArgumentInput,
+  type ProxyArgumentDraft,
+} from './proxyArgumentPreparation.ts'
+import {
   delegatedJudgmentSnapshot,
   DelegatedJudgmentGenerationError,
   DelegatedJudgmentTransportError,
@@ -559,6 +570,49 @@ export async function generateCommissionMcpArguments(
   const parsed = parseProjectWorkMcpDraftReply(response.content[0].text, frozen.toolPermission.toolName)
   if (!parsed.ok) throw new CommissionMcpPreparationOutputError()
   return commissionMcpDraftCall(frozen, parsed.arguments)
+}
+
+/** One tool-free Messages request for an owner-requested argument suggestion.
+ * The model receives no conversation history and cannot select another tool or
+ * execute the suggested effect. Human Run consent remains a separate operation. */
+export async function generateAgentRequestArguments(
+  prepared: PreparedProxyArgumentInput,
+  provider: ProviderConfig,
+  signal: AbortSignal | undefined,
+  onUsage: ModelUsageHandler,
+): Promise<ProxyArgumentDraft> {
+  let frozen: PreparedProxyArgumentInput
+  try { frozen = snapshotPreparedProxyArgumentInput(prepared) }
+  catch (cause) {
+    if (cause instanceof ProxyArgumentPreparationInputError) throw cause
+    throw new ProxyArgumentPreparationInputError()
+  }
+  let response: Anthropic.Message
+  try {
+    response = await clientFor(provider, 0).messages.create({
+      model: provider.model ?? MODEL,
+      max_tokens: PROXY_ARGUMENT_PREPARATION_MAX_OUTPUT_TOKENS,
+      system: frozen.system,
+      messages: [{ role: 'user', content: frozen.prompt }],
+    }, { signal })
+  } catch (cause) {
+    throw new ProxyArgumentPreparationTransportError({ cause })
+  }
+
+  // A completed response is accounted before output-shape or JSON validation.
+  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
+  const inputTokens = usage?.input_tokens
+  const outputTokens = usage?.output_tokens
+  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
+      !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
+      !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) {
+    throw new ProxyArgumentPreparationUsageError()
+  }
+  createModelUsageRecorder(onUsage).record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  if (response.stop_reason !== 'end_turn' || !Array.isArray(response.content) || response.content.length !== 1 || response.content[0]?.type !== 'text') {
+    throw new ProxyArgumentPreparationOutputError()
+  }
+  return parseProxyArgumentDraft(response.content[0].text, frozen.toolName)
 }
 
 /** Stream an assistant reply through the Messages API tool-use loop. Fires the

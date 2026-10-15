@@ -289,8 +289,12 @@ and interrupted uncertainty across signed-in relaunch without replay; its
 disposable copy substitutes native setup answers, not per-call consent. Complete
 local and desktop verification remain mandatory before landing; actual native
 dialogs, third-party peers and signed/Intel release evidence remain separate. The legacy
-`/agents/:id/proxy` route remains release-refused, and MOCK-9 stays open. No
-Agent model reasoning is part of this workflow. PERSIST-57 separately records
+`/agents/:id/proxy` route remains release-refused, and MOCK-9 stays open. The
+optional COMMONS-47 argument draft is a separately requested, tool-free model
+advice call; it is not autonomous Agent reasoning or proxy execution. The
+bounded local workflow and focused locks are exercised; complete verification
+on the exact delivered revision remains mandatory, while live-provider,
+third-party, signed and Intel evidence remain separate. PERSIST-57 separately records
 authenticated Agent creation provenance in private durable state; that identity
 anchor is not a request, approval, or executor.
 

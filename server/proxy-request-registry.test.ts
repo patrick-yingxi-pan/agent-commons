@@ -18,12 +18,15 @@ import {
   PROXY_REPLY_MAX_BYTES,
   PROXY_RESULT_MAX_BYTES,
   beginProxyRequest,
+  beginProxyArgumentDraft,
   cancelProxyRequest,
   createProxyRequest,
   denyProxyRequest,
+  settleProxyArgumentDraft,
   settleProxyRequest,
   shareProxyReply,
 } from './proxyRequestState.ts'
+import { proxyArgumentReservationId } from './proxyArgumentDraftState.ts'
 
 const requester = { tenantId: 'tenant-requester', userId: 'person-requester', agentId: 'agent-requester' }
 const owner = { tenantId: 'tenant-owner', userId: 'person-owner', agentId: 'agent-owner' }
@@ -54,6 +57,11 @@ function settled(row = running()) {
     status: 'done', summary: 'Private executor summary.',
     result: { resultType: 'complete', content: [{ type: 'text', text: 'PRIVATE MCP RESULT' }], isError: false },
   }, createdAt + 2)
+}
+function draftBinding(transport: 'http' | 'stdio' = 'http') {
+  return { agentRevision: 0, providerId: 'provider-owner', providerRevision: 0, providerConnectionRevision: 0,
+    model: 'model-owner', connectionId: 'mcp-connection-owner', connectionRevision: 3,
+    toolName: 'invoice_lookup', schemaHash: 'b'.repeat(64), transport }
 }
 function ownership(): AgentOwnership[] {
   return [
@@ -119,6 +127,51 @@ test('history parser is strict, detached, bounded, and enforces duplicate and ac
     create({ id: proxyRequestId(requesterActor, `row-${index}`) }))))
 })
 
+test('pre-draft near-capacity waiting history remains readable after optional draft support', () => {
+  const rows = Array.from({ length: 130 }, (_, index) => create({
+    id: `agent-request-${index.toString(16).padStart(32, '0')}`,
+    requester: { tenantId: `requester-tenant-${index}`, userId: `requester-user-${index}`, agentId: `requester-agent-${index}` },
+    owner: { tenantId: `owner-tenant-${index}`, userId: `owner-user-${index}`, agentId: `owner-agent-${index}` },
+  }))
+  const actual = rows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row), 'utf8') + 1, 2)
+  const oldWaitingHeadroom = 65_536 + PROXY_RESULT_MAX_BYTES + 2 * PROXY_REPLY_MAX_BYTES + 8_192
+  const oldReserved = actual + rows.length * oldWaitingHeadroom
+  assert.ok(oldReserved < MAX_PROXY_HISTORY_BYTES, 'this snapshot fits the pre-draft reservation policy')
+  assert.deepEqual(parseProxyRequests(rows).length, rows.length)
+
+  const atLimitRows = Array.from({ length: 143 }, (_, index) => create({
+    id: `agent-request-${(index + 1_000).toString(16).padStart(32, '0')}`,
+    requester: { tenantId: `requester-tenant-${index}`, userId: `requester-user-${index}`, agentId: `requester-agent-${index}` },
+    owner: { tenantId: `owner-tenant-${index}`, userId: `owner-user-${index}`, agentId: `owner-agent-${index}` },
+    task: index < 30 ? 'x'.repeat(8_000) : 'A bounded task.',
+  }))
+  const atLimitActual = atLimitRows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row), 'utf8') + 1, 2)
+  const atLimitOldReserved = atLimitActual + atLimitRows.length * oldWaitingHeadroom
+  assert.ok(atLimitOldReserved < MAX_PROXY_HISTORY_BYTES, 'the larger snapshot also fits before draft headroom')
+  assert.ok(atLimitOldReserved + 53_248 > MAX_PROXY_HISTORY_BYTES, 'adding one pending draft reservation exceeds the cap')
+  const registry = new ProxyRequestRegistry()
+  registry.rehydrate(atLimitRows)
+  const first = atLimitRows[0]!
+  const pending = beginProxyArgumentDraft(first,
+    { tenantId: first.intent.owner.tenantId, userId: first.intent.owner.userId }, first.revision,
+    draftBinding(), 'a'.repeat(64), createdAt + 1)
+  assert.throws(() => registry.put(pending),
+    (error: unknown) => error instanceof ProxyRequestError && error.code === 'limit',
+    'a draft that cannot reserve its bounded final receipt is refused before mutation')
+  assert.equal(registry.get(first.intent.id)?.argumentDraft, undefined)
+
+  const one = create({ id: 'agent-request-ffffffffffffffffffffffffffffffff' })
+  const isolated = new ProxyRequestRegistry()
+  isolated.put(one)
+  const onePending = beginProxyArgumentDraft(one, ownerActor, one.revision, draftBinding(), 'b'.repeat(64), createdAt + 1)
+  isolated.put(onePending)
+  const complete = settleProxyArgumentDraft(onePending, 'b'.repeat(64),
+    { status: 'done', arguments: { value: 'x'.repeat(48 * 1_024 - 12) } }, createdAt + 2)
+  isolated.put(complete)
+  assert.equal(isolated.get(one.intent.id)?.argumentDraft?.status, 'done',
+    'pending headroom covers the maximum bounded detached argument receipt')
+})
+
 test('live and retired Agent ownership plus exact MCP connection provenance are required for structural joins', () => {
   const done = settled()
   const retiredOwnership = ownership().map(row => ({ ...row, retired: true as const }))
@@ -158,6 +211,54 @@ test('live and retired Agent ownership plus exact MCP connection provenance are 
   assert.equal(validateProxyRequestJoins([stdioRun], ownership(), {
     ...emptyConnections, connections: [httpConnection],
   }), false, 'approved transport must match the frozen connection transport')
+})
+
+test('draft receipts reserve bounded result headroom, join their exact historical connection, and recover without replay', () => {
+  const pending = beginProxyArgumentDraft(create(), ownerActor, 1, draftBinding(), 'c'.repeat(64), createdAt + 1)
+  const connections = { ...emptyConnections, connections: [httpConnection] }
+  assert.equal(validateProxyRequestJoins([pending], ownership(), connections), true)
+  assert.equal(validateProxyRequestJoins([pending], ownership(), {
+    ...emptyConnections, retired: [{ tenantId: owner.tenantId, id: httpConnection.id }],
+  }), true, 'historical connection retirement does not invalidate the private receipt')
+  for (const invalidConnections of [
+    { ...emptyConnections, connections: [{ ...httpConnection, tenantId: 'tenant-wrong' }] },
+    { ...emptyConnections, connections: [{ ...httpConnection, ownerUserId: 'person-wrong' }] },
+    { ...emptyConnections, connections: [{ ...httpConnection, transport: 'stdio' as const }] },
+    { ...emptyConnections, connections: [httpConnection], retired: [{ tenantId: owner.tenantId, id: httpConnection.id }] },
+  ]) assert.equal(validateProxyRequestJoins([pending], ownership(), invalidConnections), false)
+  assert.equal(proxyArgumentReservationId(pending.intent.id), `${pending.intent.id}:arguments`)
+
+  const registry = new ProxyRequestRegistry()
+  registry.put(pending)
+  assert.equal(registry.recover(createdAt + 2), true)
+  const uncertain = registry.get(pending.intent.id)!
+  assert.equal(uncertain.argumentDraft?.status, 'uncertain')
+  assert.equal(uncertain.revision, pending.revision + 1)
+  assert.equal(registry.recover(createdAt + 3), false)
+  assert.throws(() => beginProxyArgumentDraft(uncertain, ownerActor, uncertain.revision, draftBinding(), 'd'.repeat(64), createdAt + 4))
+
+  const cancelledId = proxyRequestId(requesterActor, 'cancelled-draft')
+  const cancelledWaiting = create({ id: cancelledId })
+  const cancelledDraftPending = beginProxyArgumentDraft(cancelledWaiting, ownerActor, 1,
+    draftBinding(), 'e'.repeat(64), createdAt + 1)
+  const cancelledPending = cancelProxyRequest(cancelledDraftPending, requesterActor, 2, createdAt + 2)
+  const afterCancel = new ProxyRequestRegistry()
+  afterCancel.put(cancelledWaiting)
+  afterCancel.put(cancelledDraftPending)
+  afterCancel.put(cancelledPending)
+  assert.equal(afterCancel.recover(createdAt + 3), true, 'a late model completion remains recoverable after requester cancellation')
+  assert.equal(afterCancel.get(cancelledPending.intent.id)?.status, 'cancelled')
+  assert.equal(afterCancel.get(cancelledPending.intent.id)?.argumentDraft?.status, 'uncertain')
+
+  const atCapacity = new ProxyRequestRegistry()
+  for (let index = 0; index < MAX_PROXY_ACTIVE_REQUESTS; index += 1) {
+    const row = beginProxyArgumentDraft(create({ id: proxyRequestId(requesterActor, `draft-capacity-${index}`) }), ownerActor, 1,
+      draftBinding(), 'f'.repeat(64), createdAt + 1)
+    atCapacity.put(row)
+  }
+  assert.throws(() => atCapacity.put(create({ id: proxyRequestId(requesterActor, 'reserved-draft-capacity') })),
+    (error: unknown) => error instanceof ProxyRequestError && error.code === 'limit',
+    'a pending draft still consumes the per-person active request budget')
 })
 
 test('registry keeps intent immutable, requires adjacent revision, and exposes history only to exact parties', () => {

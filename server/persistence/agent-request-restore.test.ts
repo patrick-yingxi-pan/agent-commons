@@ -12,6 +12,8 @@ import { restoreBackendSnapshot } from './portable.ts'
 import { prepareAgentRequestRestoreState } from './agentRequestRestore.ts'
 import { beginProxyRequest, cancelProxyRequest, createProxyRequest, denyProxyRequest,
   settleProxyRequest, shareProxyReply, type StoredProxyRequest } from '../proxyRequestState.ts'
+import { proxyArgumentReservationId } from '../proxyArgumentDraftState.ts'
+import { beginProxyArgumentDraft } from '../proxyRequestState.ts'
 
 const root = join(tmpdir(), `agent-request-restore-${process.pid}`)
 const portable = join(root, 'source.json')
@@ -26,6 +28,9 @@ const approval = { transport: 'http' as const, call: {
   connectionId: 'mcp-connection-owner', connectionRevision: 3, toolName: 'invoice_lookup',
   schemaHash: 'b'.repeat(64), arguments: { invoice: 'INV-42' },
 } }
+const draftBinding = { agentRevision: 0, providerId: 'provider-owner', providerRevision: 0, providerConnectionRevision: 0,
+  model: 'model-owner', connectionId: 'mcp-connection-owner', connectionRevision: 3,
+  toolName: 'invoice_lookup', schemaHash: 'b'.repeat(64), transport: 'http' as const }
 
 function request(suffix = 'a'): StoredProxyRequest {
   return createProxyRequest({ id: `agent-request-${suffix.repeat(32)}`, requester, owner,
@@ -55,9 +60,21 @@ function seedPortableSnapshot(): void {
       'tenant-acme', { logicalId: fromAgentId, ownerUserId: 'user-ada' })
     store.createAgent({ label: 'Restore owner', systemPrompt: 'Test.', tools: [], instructions: '', published: true },
       'tenant-beta', { logicalId: toAgentId, ownerUserId: 'user-grace' })
+    const connectionId = 'mcp-connection-${'a'.repeat(32)}'
+    store.createMcpConnection({ id: connectionId, label: 'Historical model tool', endpoint: 'https://mcp.example.invalid', authentication: 'none' },
+      'tenant-beta', false, 'user-grace')
     store.createAgentRequest({ tenantId: 'tenant-acme', userId: 'user-ada' }, 'restore-waiting-request', {
       fromAgentId, toAgentId, task: 'A request restored from portable data.' })
-    writePortableSnapshot(${JSON.stringify(portable)}, loadState())
+    const { beginProxyArgumentDraft } = await import(${href('../proxyRequestState.ts')})
+    const { proxyArgumentReservationId } = await import(${href('../proxyArgumentDraftState.ts')})
+    const state = loadState(), row = state.agentRequests[0]
+    state.agentRequests[0] = beginProxyArgumentDraft(row, { tenantId: 'tenant-beta', userId: 'user-grace' }, 1,
+      { agentRevision: 0, providerId: 'removed-provider', providerRevision: 0, providerConnectionRevision: 0,
+        model: 'historical-model', connectionId, connectionRevision: 0, toolName: 'historical_tool',
+        schemaHash: '${'a'.repeat(64)}', transport: 'http' }, '${'b'.repeat(64)}', ${now} + 1)
+    state.usageReservations.push({ id: proxyArgumentReservationId(row.intent.id), tenantId: 'tenant-beta', allowance: 1000,
+      fiveHourStart: 0, weeklyStart: 0, status: 'active', report: null })
+    writePortableSnapshot(${JSON.stringify(portable)}, state)
     console.log('portable source ready')
     closePersistence()
   `)
@@ -116,6 +133,29 @@ test('ordinary restart state and snapshots with no request slice remain untouche
     'a legacy snapshot with no private request slice stays absent')
 })
 
+test('portable restore interrupts pending argument drafts before fencing and preserves usage uncertainty', () => {
+  const waiting = beginProxyArgumentDraft(request('a'), ownerActor, 1, draftBinding, 'c'.repeat(64), now + 1)
+  const cancelled = cancelProxyRequest(
+    beginProxyArgumentDraft(request('c'), ownerActor, 1, draftBinding, 'd'.repeat(64), now + 1),
+    requesterActor, 2, now + 2)
+  const state = restoreFixture([waiting, cancelled])
+  const usage = (id: string, status: 'active' | 'settled' | 'uncertain') => ({ id, tenantId: owner.tenantId,
+    allowance: 10_000, fiveHourStart: now, weeklyStart: now, status,
+    report: status === 'settled' ? { inputTokens: 4, outputTokens: 3 } : null })
+  state.usageReservations = [usage(proxyArgumentReservationId(waiting.intent.id), 'active'),
+    usage(proxyArgumentReservationId(cancelled.intent.id), 'active')]
+  const restored = prepareAgentRequestRestoreState(structuredClone(state), now + 10)
+  const [restoredWaiting, restoredCancelled] = restored.agentRequests!
+  assert.equal(restoredWaiting?.status, 'waiting')
+  assert.equal(restoredWaiting?.executionBlockedByRestore, true)
+  assert.equal(restoredWaiting?.argumentDraft?.status, 'uncertain')
+  assert.equal(restoredWaiting?.revision, 3, 'the interrupted model attempt advances the request revision before the non-human fence')
+  assert.equal(restoredCancelled?.status, 'cancelled')
+  assert.equal(restoredCancelled?.argumentDraft?.status, 'uncertain')
+  assert.deepEqual(restored.usageReservations?.map(row => row.status), ['uncertain', 'uncertain'])
+  assert.equal(restored.usageReservations?.[0]?.report, null, 'restore does not invent model usage')
+})
+
 for (const backendKind of ['json', 'sqlite'] as const) {
   test(`${backendKind}: portable rollback fences old waiting work and malformed fences do not write`, () => {
     seedPortableSnapshot()
@@ -139,8 +179,10 @@ for (const backendKind of ['json', 'sqlite'] as const) {
       const restored = restoreBackendSnapshot(backend, portable)
       const row = restored.agentRequests?.[0]
       assert.equal(row?.status, 'waiting')
-      assert.equal(row?.revision, 1)
+      assert.equal(row?.revision, 3)
       assert.equal(row?.executionBlockedByRestore, true)
+      assert.equal(row?.argumentDraft?.status, 'uncertain')
+      assert.equal(restored.usageReservations?.[0]?.status, 'uncertain')
       assert.throws(() => beginProxyRequest(row!, ownerActor, row!.revision, approval, now + 2),
         'an old waiting request stays unexecutable even with fresh explicit approval input')
 

@@ -5,6 +5,7 @@
  * process, so the renderer's separate unchecked local-program consent matters. */
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { createServer } from 'node:http'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -27,6 +28,45 @@ const ENV_KEYS = ['DATA_FILE', 'DATABASE_PATH', GATE, 'AC_MCP_STDIO_FIXTURE_EXEC
   'AC_MCP_STDIO_FIXTURE_CWD', 'AC_MCP_STDIO_FIXTURE_ARGS', 'AC_MCP_STDIO_FIXTURE_ENV']
 const SECRET = 'Local fixture result for: agent-request-smoke-success'
 const REPLY = 'The owner reviewed the local lookup and confirms the requested record is available.'
+const MODEL = 'agent-request-authored-model'
+
+/** Local-only model peer; a captured request is the proof of an actual Messages
+ * call. The interrupted branch intentionally never sends a model response. */
+async function startArgumentModel() {
+  const requests = [], sockets = new Set()
+  const server = createServer(async (req, res) => {
+    const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)) }
+    if (req.method === 'GET' && req.url === '/v1/models') return json(200, { data: [{ id: MODEL, display_name: MODEL }] })
+    if (req.method !== 'POST' || req.url !== '/v1/messages') return json(404, {})
+    const chunks = []; let size = 0
+    try {
+      for await (const chunk of req) {
+        size += chunk.length
+        if (size > 256 * 1024) { json(413, {}); req.resume(); return }
+        chunks.push(chunk)
+      }
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+      const probe = body.tools?.some(tool => tool.name === 'probe_noop')
+      if (!probe) {
+        assert.equal(body.tools, undefined)
+        assert.equal(body.model, MODEL)
+        assert.match(body.system, /You draft arguments for one owner-reviewed Agent request/)
+        assert.equal(body.messages.length, 1)
+        assert.equal(body.messages[0].role, 'user')
+        assert.equal(JSON.stringify(body).includes(SECRET), false, 'private results never enter drafting input')
+        requests.push(body)
+        if (body.messages[0].content.includes('hold-model-until-relaunch')) return
+      }
+      json(200, { id: `msg_${randomUUID()}`, type: 'message', role: 'assistant', model: MODEL,
+        content: [{ type: 'text', text: probe ? 'ok' : JSON.stringify({ toolName: 'records.search', arguments: { query: 'agent-request-smoke-success' } }) }],
+        stop_reason: 'end_turn', usage: { input_tokens: 17, output_tokens: 9 } })
+    } catch { if (!res.destroyed) json(400, { error: { type: 'invalid_request_error', message: 'Invalid authored fixture request' } }) }
+  })
+  server.on('connection', socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)) })
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
+  return { origin: `http://127.0.0.1:${server.address().port}`, requests,
+    close: () => new Promise(resolve => { server.close(resolve); for (const socket of sockets) socket.destroy() }) }
+}
 
 async function api(page, path, body, { method = body === undefined ? 'GET' : 'POST', status = 200, key = randomUUID() } = {}) {
   const response = await page.evaluate(async ({ path, body, method, key }) => {
@@ -75,10 +115,10 @@ async function creationDefaults(page) {
   return { providerId: provider.id, systemPromptId: prompt.id }
 }
 
-async function createAgent(page, label, authority) {
+async function createAgent(page, label, authority, providerId) {
   const defaults = await creationDefaults(page)
   return api(page, '/agents', {
-    label, ...defaults, tools: [], instructions: '',
+    label, ...defaults, ...(providerId ? { providerId } : {}), tools: [], instructions: '',
     ...(authority ? { authority } : {}),
   })
 }
@@ -106,13 +146,24 @@ async function createRequestThroughUi(page, origin, fromAgentId, toAgentId, task
   return row
 }
 
-async function ownerRun(page, origin, requestId, query, expectedResult) {
+async function ownerRun(page, origin, requestId, query, expectedResult, model) {
   await page.goto(`${origin}/agents/requests/${encodeURIComponent(requestId)}`)
   await expect(page.getByRole('heading', { name: 'Choose one call', exact: true })).toBeVisible({ timeout: WAIT })
   const tool = page.getByLabel('Inspected tool', { exact: true })
   await expect(tool).toContainText('Native private request fixture · records.search', { timeout: WAIT })
   await tool.selectOption({ label: 'Native private request fixture · records.search · Local program' })
-  await page.getByLabel('Arguments (JSON)', { exact: true }).fill(JSON.stringify({ query }))
+  if (model) {
+    const suggestion = page.getByRole('region', { name: 'Optional argument draft', exact: true })
+    await expect(suggestion).toContainText(MODEL)
+    await expect(suggestion).toContainText('Your workspace pays for model usage')
+    await suggestion.getByRole('button', { name: 'Draft arguments', exact: true }).click()
+    await expect(suggestion.getByRole('button', { name: 'Use draft', exact: true })).toBeEnabled({ timeout: WAIT })
+    assert.equal(model.requests.length, 1, 'one explicitly started model call')
+    await expect(page.getByLabel('Arguments (JSON)', { exact: true })).toHaveValue('{}', { timeout: WAIT })
+    assert.equal((await api(page, `/agent-requests/${requestId}`)).execution, undefined, 'the suggested arguments do not execute a tool')
+    await suggestion.getByRole('button', { name: 'Use draft', exact: true }).click()
+    await expect.poll(async () => JSON.parse(await page.getByLabel('Arguments (JSON)', { exact: true }).inputValue())).toEqual({ query })
+  } else await page.getByLabel('Arguments (JSON)', { exact: true }).fill(JSON.stringify({ query }))
   await page.getByRole('button', { name: 'Review call', exact: true }).click()
   const acknowledgement = page.getByRole('checkbox', { name: /I understand this local program has normal OS access/ })
   const run = page.getByRole('button', { name: 'Run once', exact: true })
@@ -149,10 +200,11 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
   process.env.AC_MCP_STDIO_FIXTURE_ARGS = JSON.stringify(launch.args)
   process.env.AC_MCP_STDIO_FIXTURE_ENV = JSON.stringify(launch.env)
 
-  let fixture, run
+  let fixture, run, model
   let stage = 'fixture-package-and-owner-signup'
   try {
     fixture = await createMcpFixturePackage(executable, mcpStdioSmokePatches())
+    model = await startArgumentModel()
     run = await launchPackagedDesktop(fixture.executable, profile)
     let { page, origin } = run
     const owner = await api(page, '/auth/signup', {
@@ -200,7 +252,14 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await setup.getByRole('button', { name: 'Close', exact: true }).click()
 
     stage = 'owner-and-requester-agent-setup'
-    const receiver = await createAgent(page, 'Private receiving Agent', { connectors: [connectionId] })
+    const provider = await api(page, '/providers', {
+      label: 'Private argument model', modelFamily: 'claude', effortLevels: ['Low'],
+      models: [{ id: MODEL, label: 'Authored argument model' }],
+      authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] }, config: { baseURL: model.origin, model: MODEL },
+    })
+    const receiver = await createAgent(page, 'Private receiving Agent', { connectors: [connectionId] }, provider.id)
+    const draftReceiver = await createAgent(page, 'Interrupted model Agent', { connectors: [connectionId] }, provider.id)
+    await api(page, `/agents/${draftReceiver.id}`, { published: true, expectedRevision: draftReceiver.revision ?? 0 }, { method: 'PATCH' })
     const published = await api(page, `/agents/${receiver.id}`, { published: true, expectedRevision: receiver.revision ?? 0 },
       { method: 'PATCH' })
     assert.equal(published.published, true, 'only the Agent definition is published for cross-tenant discovery')
@@ -232,12 +291,14 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.equal(processStarts(firstTrace).length, 1, 'setup inspection is the only child start before Run')
     assert.equal(toolCalls(firstTrace).length, 0, 'creating a request and opening owner review never runs a tool')
 
-    await ownerRun(page, origin, first.id, 'agent-request-smoke-success', SECRET)
+    await ownerRun(page, origin, first.id, 'agent-request-smoke-success', SECRET, model)
     const completedOwner = await api(page, `/agent-requests/${first.id}`)
     assert.equal(completedOwner.status, 'awaiting-reply')
     assert.equal(completedOwner.execution.status, 'done')
     assert.equal(completedOwner.execution.result.content[0].text, SECRET)
     assert.deepEqual(completedOwner.execution.approval.call.arguments, { query: 'agent-request-smoke-success' })
+    assert.equal(completedOwner.argumentDraft.status, 'done')
+    assert.deepEqual(completedOwner.argumentDraft.arguments, { query: 'agent-request-smoke-success' })
     const firstCalls = toolCalls(await peerTrace(tracePath))
     assert.equal(firstCalls.length, 1)
     assert.equal(firstCalls[0].params.name, 'records.search')
@@ -248,6 +309,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await switchAccount(page, origin, requester.user.id, requester.user.name)
     const privateRequester = await api(page, `/agent-requests/${first.id}`)
     assert.equal(privateRequester.execution, undefined)
+    assert.equal(privateRequester.argumentDraft, undefined)
     assert.equal(privateRequester.reply, undefined)
     assert.equal(JSON.stringify(privateRequester).includes(SECRET), false)
     await page.goto(`${origin}/agents/requests/${encodeURIComponent(first.id)}`)
@@ -293,6 +355,15 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.deepEqual(pendingOwner.execution.approval.call.arguments, { query: 'contribution-smoke-interrupt' })
     const pendingSaved = storedRequest(profile, second.id)
     assert.equal(pendingSaved.execution.status, 'pending')
+    await switchAccount(page, origin, requester.user.id, requester.user.name)
+    const third = await createRequestThroughUi(page, origin, source.id, draftReceiver.id, 'hold-model-until-relaunch')
+    await switchAccount(page, origin, owner.user.id, owner.user.name)
+    await page.goto(`${origin}/agents/requests/${encodeURIComponent(third.id)}`)
+    await page.getByLabel('Inspected tool', { exact: true }).selectOption({ label: 'Native private request fixture · records.search · Local program' })
+    await page.getByRole('button', { name: 'Draft arguments', exact: true }).click()
+    await expect.poll(() => model.requests.length, { timeout: WAIT }).toBe(2)
+    await expect(page.getByRole('region', { name: 'Optional argument draft', exact: true })).toContainText('Drafting arguments')
+    assert.equal(storedRequest(profile, third.id).argumentDraft.status, 'pending', 'the provider attempt is durable before process exit')
     const authRoot = await readFile(join(profile, AUTH_ROOT_FILE))
     const oldOrigin = origin
     await page.screenshot({ path: join(evidence, 'owner-pending-request.png'), fullPage: true })
@@ -308,6 +379,10 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.equal((await api(page, '/me')).user.id, owner.user.id, 'the real owner session survives the same-profile relaunch')
     assert.deepEqual(await readFile(join(profile, AUTH_ROOT_FILE)), authRoot, 'relaunch retains the exact OS authentication root')
     const recovered = await api(page, `/agent-requests/${second.id}`)
+    const recoveredDraft = await api(page, `/agent-requests/${third.id}`)
+    assert.equal(recoveredDraft.argumentDraft.status, 'uncertain')
+    assert.equal(recoveredDraft.execution, undefined, 'interrupted advice cannot become a tool execution')
+    assert.equal(model.requests.length, 2, 'relaunch never repeats either model request')
     assert.equal(recovered.status, 'awaiting-reply')
     assert.equal(recovered.execution.status, 'uncertain', 'shutdown or startup closes an interrupted call without replay')
     assert.equal(recovered.execution.result, undefined)
@@ -347,10 +422,12 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
       originalPackagedAppUnmodified: true, realSignedPeople: [owner.user.id, requester.user.id],
       crossTenantPublishedTarget: true, ownerOnlyRawReceipt: true, separatelyReviewedReply: true,
       pendingRestartRecoveredUncertainWithoutReplay: true, exactToolCalls: toolCalls(finalTrace).length,
+      argumentDraft: { explicitUseBeforeReview: true, calls: model.requests.length, interruptedStatus: recoveredDraft.argumentDraft.status,
+        knownReceiptRetained: storedShared.argumentDraft.status === 'done', requesterRedacted: privateRequester.argumentDraft === undefined },
       sqliteRows: [storedShared, storedRecovered].map(row => ({ id: row.intent.id, status: row.status, revision: row.revision })),
       scope: 'Disposable unsigned macOS app copy with exact local stdio setup approvals; no source ASAR or shipped startup changes. Not signing/notarization, public MCP, or Intel acceptance.',
     }, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
-    console.log(`[desktop-agent-request-smoke] real signed owner/requester · exact local MCP call · private owner receipt · reviewed share · uncertain restart without replay · evidence ${evidence}`)
+    console.log(`[desktop-agent-request-smoke] real signed owner/requester · one-shot argument draft · explicit Use/Review/Run · exact local MCP call · private owner receipt · reviewed share · model/tool uncertainty without replay · evidence ${evidence}`)
   } catch (error) {
     if (run?.page && !run.page.isClosed()) {
       await run.page.screenshot({ path: join(evidence, 'failure.png'), fullPage: true }).catch(() => undefined)
@@ -360,7 +437,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     throw new Error(`Packaged Agent Requests acceptance failed during ${stage}: ${error instanceof Error ? error.message : 'unavailable'} · evidence ${evidence}`)
   } finally {
     try {
-      await closePackagedDesktop(run)
+      try { await closePackagedDesktop(run) } finally { await model?.close() }
     } finally {
       try {
         // Preserve fixture close failures (especially source-hash mismatches).

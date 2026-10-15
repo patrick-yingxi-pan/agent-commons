@@ -79,6 +79,24 @@ test('duplicate begin calls coalesce while the original acknowledgement is pendi
   assert.equal(h.accepted.length, 1)
 })
 
+test('lost argument-draft acknowledgement recovers through GET without another model decision', async () => {
+  const action: AgentRequestAction = { kind: 'decision', id: decisionAction.id, input: {
+    action: 'draft-arguments', expectedRevision: 1, binding: {
+      agentRevision: 1, providerId: 'private-provider', providerRevision: 1, providerConnectionRevision: 1,
+      model: 'private-model', connectionId: 'private-connection', connectionRevision: 1,
+      toolName: 'private-tool', schemaHash: 'a'.repeat(64), transport: 'http',
+    },
+  } }
+  const h = harness({ submit: async () => { throw new Error('acknowledgement lost') },
+    read: async () => view(action, { status: 'waiting', revision: 2 }) })
+  await h.actions.begin(action)
+  assert.deepEqual(h.submitted, [action])
+  assert.deepEqual(h.reads, [action.id])
+  assert.deepEqual(h.actions.get(action.id), { id: action.id, state: 'settled' })
+  assert.ok(h.remembered.every(ids => ids.every(id => id === action.id)))
+  assert.doesNotMatch(JSON.stringify(h.remembered), /private-provider|private-model|private-connection|private-tool/)
+})
+
 test('wrong and malformed acknowledgements cannot settle; unchanged decision revision remains uncertain', async () => {
   for (const [name, acknowledgement] of [
     ['wrong identity', view(decisionAction, { id: 'agent-request-cccccccccccccccccccccccccccccccc', revision: 4 })],

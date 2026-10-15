@@ -42,7 +42,7 @@ export class ProxyRequestHost {
     return this.port.registry.forActor(actor).flatMap(row => {
       const view = this.project(row, actor)
       if (!view) return []
-      const { execution: _execution, reply: _reply, ...summary } = view
+      const { execution: _execution, reply: _reply, argumentDraft: _argumentDraft, ...summary } = view
       return [summary]
     })
   }

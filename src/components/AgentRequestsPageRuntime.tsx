@@ -11,6 +11,7 @@ import { CheckboxRow } from './Checkbox.tsx'
 import { FORM_ACTION_GROUP_CLASS, SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput.ts'
 import { useRelations } from '../controller/useRelations.tsx'
+import { AgentRequestArgumentDraft } from './AgentRequestArgumentDraft.tsx'
 
 const button = `${SOFT_BUTTON_CLASS} px-3 py-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`
 const secondary = `${SECONDARY_BUTTON_CLASS} px-3 py-2 text-[13px]`
@@ -66,7 +67,7 @@ function OwnerRun({ row, held }: { row: AgentRequestView; held: boolean }) {
   const formId = useId(), query = useAgentRequestReview(row.id, true), state = useAgentRequestActions(), draft = state.draft(row.id)
   const [reviewed, setReviewed] = useState<AgentRequestApproval | null>(null), [local, setLocal] = useState(false), [error, setError] = useState<string | null>(null)
   const chosen = query.data?.tools.find(tool => toolKey(tool) === draft.tool)
-  const fresh = query.status === 'success' && query.data?.request.revision === row.revision && !query.data.blockedReason
+  const fresh = query.status === 'success' && query.data?.request.revision === row.revision && !query.data.blockedReason && row.argumentDraft?.status !== 'pending'
   const matches = !!reviewed && query.data?.tools.some(tool => tool.connectionId === reviewed.call.connectionId &&
     tool.connectionRevision === reviewed.call.connectionRevision && tool.tool.name === reviewed.call.toolName &&
     tool.schemaHash === reviewed.call.schemaHash && tool.transport === reviewed.transport)
@@ -85,12 +86,14 @@ function OwnerRun({ row, held }: { row: AgentRequestView; held: boolean }) {
   if (!query.data) return <p role="status">Loading your private call review…</p>
   return <section className="space-y-3" aria-label="Owner call review">
     <h2 className="font-medium text-ink">Choose one call</h2>
-    <p className="text-[13px] text-ink-soft">You choose the exact tool and arguments. No model is making this choice. Arguments and raw results stay private to you; running never shares a reply.</p>
+    <p className="text-[13px] text-ink-soft">You choose the exact tool and review its arguments, with optional help from your Agent. Arguments and raw results are never shared with the requester; running never shares a reply.</p>
     {query.data.blockedReason && <p role="status" className="text-[13px] text-ink-soft">{query.data.blockedReason}</p>}
     {!reviewed ? <>
       <div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-tool`}>Inspected tool</label><select id={`${formId}-tool`} className={FORM_INPUT_CLASS} value={draft.tool ?? ''} disabled={held || !fresh}
         onChange={event => setAgentRequestDraft(row.id, { ...draft, tool: event.target.value })}><option value="">Choose an exact tool</option>{query.data.tools.map(tool => <option key={toolKey(tool)} value={toolKey(tool)}>{tool.connectionLabel} · {tool.tool.name} · {tool.transport === 'stdio' ? 'Local program' : 'HTTP service'}</option>)}</select></div>
       {chosen && <details className="text-[12px] text-ink-soft"><summary>Tool description and input schema</summary><p className="whitespace-pre-wrap break-words">{chosen.tool.description}</p><pre className="whitespace-pre-wrap break-words">{literal(chosen.tool.inputSchema)}</pre></details>}
+      <AgentRequestArgumentDraft row={row} review={query.data} chosen={chosen} held={held || !fresh}
+        onUse={argumentsJson => setAgentRequestDraft(row.id, { ...draft, arguments: argumentsJson })} />
       <div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-arguments`}>Arguments (JSON)</label><textarea id={`${formId}-arguments`} className={`${FORM_INPUT_CLASS} font-mono`} rows={5} value={draft.arguments ?? '{}'} disabled={held || !fresh} onChange={event => setAgentRequestDraft(row.id, { ...draft, arguments: event.target.value })} /></div>
       {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
       <button className={button} disabled={!chosen || !fresh || held} onClick={prepare}>Review call</button>
@@ -125,7 +128,7 @@ function RequestDetail({ id, onOpenRequest, onBack, backTo }: { id: string; onOp
   const query = useAgentRequest(id), { attempts } = useAgentRequestActions(), row = query.data
   const [cancelReview, setCancelReview] = useState(false)
   const held = attempts.some(attempt => attempt.id === id && !['settled', 'refused'].includes(attempt.state))
-  useEffect(() => { if (row?.status !== 'running') return; const timer = setInterval(() => refreshAgentRequests(id), 5_000); return () => clearInterval(timer) }, [id, row?.status])
+  useEffect(() => { if (row?.status !== 'running' && row?.argumentDraft?.status !== 'pending') return; const timer = setInterval(() => refreshAgentRequests(id), 5_000); return () => clearInterval(timer) }, [id, row?.status, row?.argumentDraft?.status])
   if (!row) return <ResourceUnavailablePage title="Agent request" state={resolveResourceUnavailable([query])} message="This request is unavailable to this person." backTo={backTo} onBack={onBack} onRetry={() => refreshAgentRequests(id)} />
   const editable = !held && query.status === 'success'
   return <AtomicResourcePage data-agent-request={id}>
@@ -138,11 +141,12 @@ function RequestDetail({ id, onOpenRequest, onBack, backTo }: { id: string; onOp
       {row.role === 'owner' && row.status === 'waiting' && <OwnerRun key={id} row={row} held={!editable} />}
       {row.execution && <section className="space-y-2" aria-label="Private execution receipt"><h2 className="font-medium text-ink">Private execution receipt</h2><p className="text-[13px] text-ink-soft">{row.execution.status === 'pending' ? 'The call is still settling. A cancellation cannot undo its effects.' : row.execution.summary}</p>
         <details className="text-[12px] text-ink-soft"><summary>Exact call and raw result · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.execution)}</pre></details></section>}
+      {row.role === 'owner' && row.argumentDraft && row.status !== 'waiting' && <section className="space-y-2 text-[13px] text-ink-soft" aria-label="Private argument draft receipt"><h2 className="font-medium text-ink">Private argument draft receipt</h2><p>Model draft: {row.argumentDraft.status}. This is not a tool-execution receipt or consent to share.</p><details className="text-[12px]"><summary>Saved model draft · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.argumentDraft)}</pre></details></section>}
       {row.role === 'owner' && row.status === 'awaiting-reply' && <ShareReply key={id} row={row} held={!editable} />}
       {row.reply !== undefined && <section className="space-y-2" aria-label="Shared reply"><h2 className="font-medium text-ink">Shared reply</h2><p className="whitespace-pre-wrap break-words text-[13px] text-ink">{row.reply}</p></section>}
       {['waiting', 'running', 'awaiting-reply'].includes(row.status) && <div className="space-y-3">
         {cancelReview ? <><p className="text-[13px] text-ink-soft">Cancel this request and close sharing? An in-flight call may still finish and cannot be undone.</p><div className={FORM_ACTION_GROUP_CLASS}><button className={secondary} disabled={!editable} onClick={() => { decideRequest(id, { action: 'cancel', expectedRevision: row.revision }); setCancelReview(false) }}>Confirm cancellation</button><button className={secondary} onClick={() => setCancelReview(false)}>Keep request</button></div></> :
-          <div className={FORM_ACTION_GROUP_CLASS}>{row.role === 'owner' && row.status === 'waiting' && <button className={secondary} disabled={!editable} onClick={() => decideRequest(id, { action: 'deny', expectedRevision: row.revision })}>Decline request</button>}<button className={secondary} disabled={!editable} onClick={() => setCancelReview(true)}>Cancel request</button></div>}
+          <div className={FORM_ACTION_GROUP_CLASS}>{row.role === 'owner' && row.status === 'waiting' && <button className={secondary} disabled={!editable || row.argumentDraft?.status === 'pending'} title={row.argumentDraft?.status === 'pending' ? 'Cancel the request to stop a pending draft.' : undefined} onClick={() => decideRequest(id, { action: 'deny', expectedRevision: row.revision })}>Decline request</button>}<button className={secondary} disabled={!editable} onClick={() => setCancelReview(true)}>Cancel request</button></div>}
       </div>}
     </div>
   </AtomicResourcePage>

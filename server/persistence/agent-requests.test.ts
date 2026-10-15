@@ -6,6 +6,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { after, test } from 'node:test'
 import { ROOT } from '../../tests/helpers/source.ts'
+import { hasCorePersistedShape } from './format.ts'
+import { settleProxyArgumentDraft } from '../proxyRequestState.ts'
+import { proxyArgumentReservationId } from '../proxyArgumentDraftState.ts'
 
 const root = mkdtempSync(join(tmpdir(), 'ac-agent-requests-'))
 after(() => rmSync(root, { recursive: true, force: true }))
@@ -124,6 +127,90 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(legacy.status, 0, legacy.stderr || legacy.stdout)
     const admitted = result(boot(legacyFile, backend, `console.log(JSON.stringify(store.agentRequests({ tenantId: 'tenant-acme', userId: 'user-ada' })))`))
     assert.deepEqual(admitted, [], 'an absent additive request-history slice is a valid old snapshot')
+  })
+
+  test(`${backend}: private argument-draft receipt and exact usage reservation survive restart; pending becomes uncertain`, () => {
+    const file = join(root, `argument-draft-${backend}${backend === 'json' ? '.json' : '.sqlite'}`)
+    const initial = result(boot(file, backend, `${create}
+      const { JsonFileBackend } = await import(${href('./json.ts')})
+      const { SqliteBackend } = await import(${href('./sqlite.ts')})
+      const { beginProxyArgumentDraft } = await import(${href('../proxyRequestState.ts')})
+      const { proxyArgumentReservationId } = await import(${href('../proxyArgumentDraftState.ts')})
+      store.createMcpConnection({ id: 'mcp-connection-${'c'.repeat(32)}', label: 'Retired historical endpoint',
+        endpoint: 'https://mcp.example.invalid', authentication: 'none' }, 'tenant-beta', false, 'user-grace')
+      const state = loadState()
+      const row = state.agentRequests[0]
+      const binding = { agentRevision: 0, providerId: 'provider-retired', providerRevision: 0,
+        providerConnectionRevision: 0, model: 'model-retired', connectionId: 'mcp-connection-${'c'.repeat(32)}',
+        connectionRevision: 0, toolName: 'historical_tool', schemaHash: '${'a'.repeat(64)}', transport: 'http' }
+      const pending = beginProxyArgumentDraft(row, { tenantId: 'tenant-beta', userId: 'user-grace' }, 1,
+        binding, '${'b'.repeat(64)}', Date.now())
+      state.agentRequests[0] = pending
+      state.usageReservations.push({ id: proxyArgumentReservationId(row.intent.id), tenantId: 'tenant-beta', allowance: 1000,
+        fiveHourStart: 0, weeklyStart: 0, status: 'active', report: null })
+      const storage = ${JSON.stringify(backend)} === 'json' ? new JsonFileBackend() : new SqliteBackend(${JSON.stringify(file)})
+      storage.save(state); storage.close()
+      console.log(JSON.stringify({ id: row.intent.id, state }))
+    `))
+    assert.equal(hasCorePersistedShape(initial.state), true)
+    const reservationId = proxyArgumentReservationId(initial.id)
+    const malformedStates = [
+      { ...structuredClone(initial.state), usageReservations: [] },
+      { ...structuredClone(initial.state), usageReservations: initial.state.usageReservations.map((item: any) =>
+        item.id === reservationId ? { ...item, tenantId: 'tenant-acme' } : item) },
+      { ...structuredClone(initial.state), usageReservations: initial.state.usageReservations.map((item: any) =>
+        item.id === reservationId ? { ...item, id: `${reservationId}:orphan` } : item) },
+    ]
+    const completedDraftState = structuredClone(initial.state)
+    completedDraftState.agentRequests[0] = settleProxyArgumentDraft(completedDraftState.agentRequests[0], 'b'.repeat(64),
+      { status: 'done', arguments: { private: 'completed' } }, Date.now() + 1)
+    malformedStates.push(completedDraftState)
+    for (const invalid of malformedStates) assert.equal(hasCorePersistedShape(invalid), false,
+      'draft reservation must join one exact owner request in the matching lifecycle state')
+    const meteredPending = structuredClone(initial.state)
+    meteredPending.usageReservations[0] = { ...meteredPending.usageReservations[0], status: 'settled',
+      report: { inputTokens: 7, outputTokens: 4 } }
+    assert.equal(hasCorePersistedShape(meteredPending), true,
+      'usage may be durable before a pending response is validated and its private receipt settles')
+    const id = JSON.stringify(initial.id)
+    const recovered = result(boot(file, backend, `
+      const state = loadState()
+      console.log(JSON.stringify({ row: state.agentRequests[0], reservation: state.usageReservations.find(item => item.id === ${JSON.stringify(initial.id)} + ':arguments'),
+        requester: store.agentRequest(${id}, { tenantId: 'tenant-acme', userId: 'user-ada' }),
+        owner: store.agentRequest(${id}, { tenantId: 'tenant-beta', userId: 'user-grace' }) }))
+    `))
+    assert.equal(recovered.row.argumentDraft.status, 'uncertain')
+    assert.equal(recovered.row.revision, 3)
+    assert.equal(recovered.reservation.status, 'uncertain')
+    assert.equal(recovered.reservation.report, null)
+    assert.equal(Object.hasOwn(recovered.requester, 'argumentDraft'), false)
+    assert.equal(recovered.owner.argumentDraft.status, 'uncertain')
+
+    const terminalFile = join(root, `argument-draft-done-${backend}${backend === 'json' ? '.json' : '.sqlite'}`)
+    const completed = result(boot(terminalFile, backend, `${create}
+      const { JsonFileBackend } = await import(${href('./json.ts')})
+      const { SqliteBackend } = await import(${href('./sqlite.ts')})
+      const { beginProxyArgumentDraft, settleProxyArgumentDraft } = await import(${href('../proxyRequestState.ts')})
+      const { proxyArgumentReservationId } = await import(${href('../proxyArgumentDraftState.ts')})
+      store.createMcpConnection({ id: 'mcp-connection-${'d'.repeat(32)}', label: 'Known historical endpoint',
+        endpoint: 'https://mcp.example.invalid', authentication: 'none' }, 'tenant-beta', false, 'user-grace')
+      const state = loadState(), row = state.agentRequests[0]
+      const binding = { agentRevision: 0, providerId: 'provider-removed', providerRevision: 0, providerConnectionRevision: 0,
+        model: 'known-model', connectionId: 'mcp-connection-${'d'.repeat(32)}', connectionRevision: 0,
+        toolName: 'historical_tool', schemaHash: '${'d'.repeat(64)}', transport: 'http' }
+      const pending = beginProxyArgumentDraft(row, { tenantId: 'tenant-beta', userId: 'user-grace' }, 1,
+        binding, '${'e'.repeat(64)}', Date.now())
+      state.agentRequests[0] = settleProxyArgumentDraft(pending, '${'e'.repeat(64)}',
+        { status: 'done', arguments: { private: 'known result' } }, Date.now() + 1)
+      state.usageReservations.push({ id: proxyArgumentReservationId(row.intent.id), tenantId: 'tenant-beta', allowance: 1000,
+        fiveHourStart: 0, weeklyStart: 0, status: 'settled', report: { inputTokens: 10, outputTokens: 5 } })
+      const storage = ${JSON.stringify(backend)} === 'json' ? new JsonFileBackend() : new SqliteBackend(${JSON.stringify(terminalFile)})
+      storage.save(state); storage.close()
+      console.log(JSON.stringify({ id: row.intent.id, expected: state.agentRequests[0] }))
+    `))
+    const terminal = result(boot(terminalFile, backend, `console.log(JSON.stringify(loadState().agentRequests[0]))`))
+    assert.deepEqual(terminal, completed.expected, 'terminal private arguments and their settled report remain exact across restart')
+    assert.equal(JSON.stringify(terminal).includes('known result'), true, 'the canonical private state retains the validated receipt')
   })
 }
 

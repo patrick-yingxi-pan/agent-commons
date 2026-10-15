@@ -3,12 +3,13 @@
 import type { AgentRequestApproval } from '../contract/agentRequests.ts'
 import type { McpBoundExecutionOutcome } from './mcpBoundExecution.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
-import { beginProxyRequest, settleProxyRequest, type ProxyActor, type StoredProxyRequest } from './proxyRequestState.ts'
+import { beginProxyRequest, settleProxyRequest, type ProxyActor, type ProxyParty, type StoredProxyRequest } from './proxyRequestState.ts'
 import { ProxyRequestError, ProxyRequestRegistry } from './proxyRequestRegistry.ts'
 
 export interface ProxyRequestExecutionPort {
   registry: ProxyRequestRegistry
   ready(): boolean
+  otherWorkers?(): ProxyParty[]
   /** Current exact people/Agents, visibility, reach, connection and transport. */
   permitted(row: StoredProxyRequest, approval: AgentRequestApproval): boolean
   execute(row: StoredProxyRequest, allowed: () => boolean, signal: AbortSignal): Promise<McpBoundExecutionOutcome>
@@ -41,14 +42,14 @@ export class ProxyRequestExecution {
           !Number.isSafeInteger(copy.expectedRevision) || Number(copy.expectedRevision) < 1) throw new Error()
       input = copy
     } catch { throw new ProxyRequestError('invalid') }
-    if (row.revision !== input.expectedRevision || row.status !== 'waiting' || row.executionBlockedByRestore) throw new ProxyRequestError('conflict')
+    if (row.revision !== input.expectedRevision || row.status !== 'waiting' || row.executionBlockedByRestore || row.argumentDraft?.status === 'pending') throw new ProxyRequestError('conflict')
     let pending: StoredProxyRequest
     try { pending = beginProxyRequest(row, actor, row.revision, input.approval as AgentRequestApproval, Math.max(p.now(), row.updatedAt)) }
     catch { throw new ProxyRequestError('invalid') }
     if (this.stopped || !p.ready() || authenticated() !== true || !p.permitted(pending, pending.execution!.approval)) {
       throw new ProxyRequestError('unavailable')
     }
-    const active = [...this.workers.values()].map(worker => worker.row.intent.owner)
+    const active = [...this.activeActors(), ...(p.otherWorkers?.() ?? [])]
     if (active.length >= 4 || active.filter(owner => owner.tenantId === actor.tenantId).length >= 2 ||
         active.some(owner => owner.tenantId === actor.tenantId && owner.agentId === row.intent.owner.agentId)) throw new ProxyRequestError('limit')
     p.registry.prepare(pending)
@@ -85,6 +86,7 @@ export class ProxyRequestExecution {
   }
 
   cancel(id: string): void { this.workers.get(id)?.controller.abort() }
+  activeActors(): ProxyParty[] { return [...this.workers.values()].map(worker => ({ ...worker.row.intent.owner })) }
   activeCount(): number { return this.workers.size }
   async stop(): Promise<void> {
     this.stopped = true

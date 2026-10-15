@@ -16,14 +16,19 @@ import { join } from 'node:path'
 import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
-test('Agent requests share portable intent and reuse bound execution without model or launch authority', () => {
+test('Agent requests share portable intent and keep human execution separate from model advice', () => {
   for (const path of ['server/proxyRequestState.ts', 'server/proxyRequestExecution.ts',
+    'server/proxyArgumentExecution.ts', 'src/components/AgentRequestArgumentDraft.tsx',
     'src/api/agentRequests.ts', 'src/controller/agentRequestActionsCore.ts']) {
     assert.match(stripComments(read(join(ROOT, path))), /contract\/agentRequests\.ts/)
   }
   const store = stripComments(read(join(ROOT, 'server/store/index.ts')))
-  const start = store.indexOf('const proxyRequestExecution ='), end = store.indexOf('let retiredAgentCreationIds', start)
-  assert.ok(start >= 0 && end > start)
+  const start = store.indexOf('const proxyRequestExecution'), advice = store.indexOf('const proxyArgumentExecution', start)
+  const end = store.indexOf('let retiredAgentCreationIds', advice)
+  assert.ok(start >= 0 && advice > start && end > advice)
+  assert.doesNotMatch(store.slice(start, advice), /\bgenerateAgentRequestArguments\b/,
+    'the human execution worker cannot independently request model advice')
+  assert.match(store.slice(advice, end), /generate: generateAgentRequestArguments/)
   const check = (source: string) => {
     assert.match(source, /executeBoundMcpCall\(store, row\.intent\.owner\.tenantId/)
     assert.match(source, /mcpRuntimeCapabilities\(\)\.localProcesses === true/)
@@ -31,6 +36,12 @@ test('Agent requests share portable intent and reuse bound execution without mod
   }
   check(store.slice(start, end))
   assert.throws(() => check(`${store.slice(start, end)}\nspawn('unreviewed')`))
+  const toolFree = (source: string) => assert.doesNotMatch(source,
+    /\b(?:executeBoundMcpCall|executeContributionMcpEffect|createMcpStdioClient|spawn|execFile|fetch)\s*\(/,
+    'argument advice cannot acquire direct tool, launch or network authority')
+  for (const path of ['server/proxyArgumentPreparation.ts', 'server/proxyArgumentExecution.ts',
+    'src/components/AgentRequestArgumentDraft.tsx']) toolFree(stripComments(read(join(ROOT, path))))
+  assert.throws(() => toolFree('executeBoundMcpCall()'), /cannot acquire/)
 })
 
 test('local Commission execution reuses the native-gated bound executor without owning a process launcher', () => {

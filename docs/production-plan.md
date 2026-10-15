@@ -47,7 +47,7 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current milestone: owner-reviewed Agent requests — local workflow implemented
+## Current milestone: owner-reviewed Agent requests with optional argument drafting — local implementation
 
 Autonomous direction (2026-10-14): finish D15 as a real request/consent/reply
 workflow. The new Agent Requests path now has a private durable registry and
@@ -60,23 +60,44 @@ share. Raw results, arguments and connection identity remain owner-private. A
 tool result is not automatically a safe reply. Shared Project work still
 belongs to the Guardian channel.
 
-The implementation uses `server/proxyRequestState.ts` as its strict private
-state kernel, with exact person/namespace anchors, bounded input, one immutable
-call receipt, owner-only Run/Share, either-party cancellation, and explicit
-restart uncertainty. The registry, host and executor add strict JSON/SQLite
-joins, exact keyed replay, commit-before-I/O, live authority checks across
-waits, and capacity held until physical settlement. Ordinary restart interrupts
-pending work without replay. Explicit portable restore fences old waiting work
-without inventing a human denial/cancellation; fresh approval cannot run that
-restored request. Cancellation closes sharing without discarding an in-flight
-call or a late known result. The strict parser and hash detect malformed/mixed
-state, not tampering by a privileged host. Local focused tests cover these
-boundaries, including portable and comprehensive snapshot history, but do not
-establish complete product or release acceptance.
+The strict private request kernel uses exact person/namespace anchors, bounded
+input, one immutable call receipt, owner-only Run/Share, either-party
+cancellation, and explicit restart uncertainty. The registry, host and executor
+add strict JSON/SQLite joins, exact keyed replay, commit-before-I/O, live
+authority checks across waits, and capacity held until physical settlement.
+Ordinary restart interrupts pending work without replay. Explicit portable
+restore fences old waiting work without inventing a human denial/cancellation;
+fresh approval cannot run that restored request. Cancellation closes sharing
+without discarding an in-flight call or a late known result. The strict parser
+and hash detect malformed/mixed state, not tampering by a privileged host.
 
-The legacy `/agents/:id/proxy` route remains release-refused, and no Agent model
-reasoning is involved in the new request workflow. Do not report that an Agent
-reasoned unless an actual model call ran.
+This revision adds an optional owner-initiated model draft for arguments to the
+already selected tool. The prompt contains only the task, Agent instructions,
+and selected tool name, description and input schema; no MCP discovery or
+execution, prior model-written reply, private raw result or connection secret
+enters the drafting call. A single durable pending attempt precedes model I/O;
+interruption becomes uncertain and cannot automatically retry. The draft is
+private and only seeds editable JSON after a separate explicit Use action.
+Review and Run remain required, and Share remains a distinct manual act. Draft
+and MCP work in the request-worker pool share 4/process, 2/paying-tenant and
+1/Agent physical capacity limits, with model reservation and late-settlement accounting. Draft receipt metadata
+is owner-only; requester and history projections omit it. This is optional
+tool-free argument advice, not autonomous Agent reasoning. The draft binding
+is durably recovered with request state, and a retained suggestion is usable
+only while its Agent, model and selected-tool binding still matches. Suggested
+JSON is exposed in a named keyboard-readable region and requires explicit Use
+before editing and Review.
+
+Upgrade review found that reserving optional draft space on every old waiting
+row could refuse a previously valid near-capacity history. Draft headroom is
+instead admitted with the explicit pending attempt, before model I/O; existing
+waiting rows remain readable and can still use their previously reserved Run
+capacity. A full history can refuse a new draft without changing the request.
+
+The legacy `/agents/:id/proxy` route remains release-refused. The workflow has
+no autonomous Agent reasoning or model-written reply; the optional argument
+draft is an explicit tool-free model call. Do not report that an Agent reasoned
+unless an actual model call ran.
 At the pure-kernel checkpoint, the fifteen focused state tests were each watched
 fail across two deliberate negative-control runs, then pass after restoration.
 That evidence covers the state kernel only. Complete local and desktop
@@ -142,15 +163,19 @@ Focused acceptance and delivery gates:
    records now follow the extracted form, portable limits and human-only routes;
    all six loading tests are explicit top-level cases. The native helper remains
    package-excluded and forbidden from creating or opening launch authority.
-5. Run the complete local verifier, separate shell sweep and desktop verifier
-   on the frozen final tree before landing. Focused tests are not substitutes.
-   Keep third-party peer, signing/notarization, Intel and actual native-dialog
-   evidence separate. Unsupported connector/payment actions remain unavailable.
+5. Feature-specific pure, model, worker, route and persistence locks have been
+   exercised, along with a preliminary 30-cell browser pass. The complete local
+   verifier, separate shell sweep and desktop verifier on the exact delivered
+   revision remain mandatory. Keep third-party peer, signing/notarization,
+   Intel and actual native-dialog evidence separate. Unsupported
+   connector/payment actions remain unavailable.
 
 MOCK-9 remains open: the legacy proxy route is still release-refused, and the
-broader legacy collaboration automation remains fixture-only. The new Agent
-Requests implementation has local authored-peer acceptance, not unrestricted
-third-party or signed-release acceptance.
+broader legacy collaboration automation remains fixture-only. The bounded
+argument-drafting workflow and focused locks are exercised locally; complete
+verification on the exact delivered revision remains mandatory. Authored-peer
+evidence does not establish live-provider, unrestricted third-party or signed
+release acceptance.
 
 ## Completed checkpoint: images inside connected sources
 

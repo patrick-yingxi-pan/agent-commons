@@ -6,6 +6,7 @@ import type { AgentRequestCreate } from '../contract/agentRequests.ts'
 import type { AgentOwnership } from './agentOwnership.ts'
 import type { McpConnectionState } from './mcpConnections.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
+import { PROXY_ARGUMENT_DRAFT_MAX_BYTES } from './proxyArgumentDraftState.ts'
 import { parseStoredProxyRequest, interruptProxyRequest, PROXY_RESULT_MAX_BYTES, PROXY_REPLY_MAX_BYTES,
   type ProxyActor, type StoredProxyRequest } from './proxyRequestState.ts'
 
@@ -25,14 +26,18 @@ function reservedBytes(row: StoredProxyRequest): number {
   // Accepted prose can double in JSON (quotes, backslashes, CR/LF and tabs);
   // controls with six-byte JSON escapes are rejected by the state parser.
   const replyBytes = 2 * PROXY_REPLY_MAX_BYTES
+  const draftHeadroom = PROXY_ARGUMENT_DRAFT_MAX_BYTES + 4_096
   const extra = row.status === 'waiting' && !row.executionBlockedByRestore
-    ? 65_536 + PROXY_RESULT_MAX_BYTES + replyBytes + 8_192
+    ? 65_536 + PROXY_RESULT_MAX_BYTES + replyBytes + 8_192 +
+      (row.argumentDraft?.status === 'pending' ? draftHeadroom : 0)
+    : row.argumentDraft?.status === 'pending' ? draftHeadroom
     : row.execution?.status === 'pending' ? PROXY_RESULT_MAX_BYTES + replyBytes + 8_192
     : row.status === 'awaiting-reply' ? replyBytes + 4_096
     : row.status === 'waiting' ? 4_096 : 0
   return bytes(row) + 1 + extra
 }
-const active = (row: StoredProxyRequest) => ['waiting', 'running', 'awaiting-reply'].includes(row.status) || row.execution?.status === 'pending'
+const active = (row: StoredProxyRequest) => ['waiting', 'running', 'awaiting-reply'].includes(row.status) ||
+  row.execution?.status === 'pending' || row.argumentDraft?.status === 'pending'
 const sameActor = (left: ProxyActor, right: ProxyActor) => left.tenantId === right.tenantId && left.userId === right.userId
 
 export function proxyRequestId(actor: ProxyActor, key: unknown): string {
@@ -86,14 +91,20 @@ export function validateProxyRequestJoins(rows: StoredProxyRequest[], ownership:
       const bound = owners.get(party.agentId)
       if (!bound || bound.tenantId !== party.tenantId || bound.ownerUserId !== party.userId) return false
     }
-    if (!row.execution) continue
-    const call = row.execution.approval.call
-    const found = [...connections.connections, ...connections.retired].filter(connection => connection.id === call.connectionId)
-    if (found.length !== 1) return false
-    const connection = found[0]!
-    if (connection.tenantId !== row.intent.owner.tenantId ||
-        (connection.ownerUserId !== undefined && connection.ownerUserId !== row.intent.owner.userId) ||
-        (connection.transport === 'stdio' ? 'stdio' : 'http') !== row.execution.approval.transport) return false
+    const anchors = [
+      ...(row.execution ? [{ connectionId: row.execution.approval.call.connectionId,
+        transport: row.execution.approval.transport }] : []),
+      ...(row.argumentDraft ? [{ connectionId: row.argumentDraft.binding.connectionId,
+        transport: row.argumentDraft.binding.transport }] : []),
+    ]
+    for (const anchor of anchors) {
+      const found = [...connections.connections, ...connections.retired].filter(connection => connection.id === anchor.connectionId)
+      if (found.length !== 1) return false
+      const connection = found[0]!
+      if (connection.tenantId !== row.intent.owner.tenantId ||
+          (connection.ownerUserId !== undefined && connection.ownerUserId !== row.intent.owner.userId) ||
+          (connection.transport === 'stdio' ? 'stdio' : 'http') !== anchor.transport) return false
+    }
   }
   return true
 }
@@ -142,7 +153,7 @@ export class ProxyRequestRegistry {
   /** Only after an old process/worker is gone. The Store commits before serving. */
   recover(at: number): boolean {
     let changed = false
-    for (const row of [...this.rows.values()]) if (row.execution?.status === 'pending') {
+    for (const row of [...this.rows.values()]) if (row.execution?.status === 'pending' || row.argumentDraft?.status === 'pending') {
       this.put(interruptProxyRequest(row, Math.max(at, row.updatedAt)))
       changed = true
     }

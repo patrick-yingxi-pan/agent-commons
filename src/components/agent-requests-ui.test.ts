@@ -81,3 +81,45 @@ test('Agent request decision controls stay behind the lazy page boundary', () =>
   assert.doesNotMatch(shareReply.slice(0, shareReply.indexOf('>Review reply</')), /decideRequest\(/,
     'editing or reviewing reply text does not itself disclose it')
 })
+
+test('argument advice is explicitly requested, private, stale-bound and only copied into the editable review flow', () => {
+  const draft = stripComments(read(join(ROOT, 'src/components/AgentRequestArgumentDraft.tsx')))
+  const runtime = stripComments(read(join(ROOT, 'src/components/AgentRequestsPageRuntime.tsx')))
+  const ownerRun = runtime.slice(runtime.indexOf('function OwnerRun('), runtime.indexOf('function ShareReply('))
+
+  assert.match(draft, /action: 'draft-arguments', expectedRevision: row\.revision, binding/,
+    'the model runs only after an explicit owner action against a frozen current binding')
+  assert.match(draft, /This sends the requested outcome, this Agent’s instructions and the selected tool’s description and schema/)
+  assert.match(draft, /no conversation history, connection credentials or tool results/)
+  assert.match(draft, /One attempt per request; local token limits are not a billing cap/)
+  assert.match(draft, /Drafting does not run the tool or share a reply/)
+  assert.match(draft, /Drafting arguments… No tool is running/)
+  assert.match(draft, /data-agent-request-draft-binding[^\n]*draft\.binding\.toolName[^\n]*draft\.binding\.model/,
+    'every saved draft shows its bound tool and model independently of the editable selector')
+  assert.match(draft, /Suggested arguments · private to you/)
+  assert.match(draft, /<pre \{\.\.\.namedReadRegionProps\('Suggested arguments', 'agent-request'\)\}/,
+    'bounded model suggestions use the shared named keyboard-readable region')
+  assert.match(draft, /onUse\(JSON\.stringify\(draft\.arguments, null, 2\)\)/,
+    'Use draft copies into the controlled arguments editor instead of dispatching a tool')
+  assert.doesNotMatch(draft.slice(draft.indexOf('onUse(')), /decideRequest\(.*action: 'run'/s)
+  assert.match(draft, /Object\.keys\(binding\)\.every\(key =>[\s\S]*draft\.binding/,
+    'a retained suggestion is usable only when every model/tool coordinate still matches')
+  assert.match(draft, /suggestion is retained as history; enter arguments manually/)
+  assert.match(draft, /attempt will not repeat/)
+
+  assert.match(ownerRun, /row\.argumentDraft\?\.status !== 'pending'/,
+    'pending model work blocks the exact-call review/Run path')
+  assert.match(ownerRun, /<AgentRequestArgumentDraft row=\{row\} review=\{query\.data\} chosen=\{chosen\}/)
+  assert.match(ownerRun, /onUse=\{argumentsJson => setAgentRequestDraft\(row\.id, \{ \.\.\.draft, arguments: argumentsJson \}\)\}/)
+  assert.match(ownerRun, /decideRequest\(row\.id, \{ action: 'run', expectedRevision: row\.revision, approval: reviewed \}\)/,
+    'execution remains a separate later human-reviewed decision')
+
+  const explicit = /onClick=\{\(\) => \{\s*if \(binding && !held\) decideRequest\(row\.id, \{ action: 'draft-arguments'/
+  assert.match(draft, explicit)
+  assert.throws(() => assert.match(draft.replace('if (binding && !held)', 'if (binding)'), explicit), assert.AssertionError,
+    'a disabled/in-flight held page cannot start another model request')
+  const use = /onClick=\{\(\) => \{ if \(!held\) onUse\(JSON\.stringify\(draft\.arguments, null, 2\)\) \}\}/
+  assert.match(draft, use)
+  assert.throws(() => assert.match(draft.replace('if (!held) onUse(', 'onUse('), use), assert.AssertionError,
+    'a held request cannot replace the editable arguments')
+})

@@ -6,13 +6,16 @@ import type { McpBoundToolCall } from '../contract/mcpExecution.ts'
 import type { McpBoundExecutionOutcome } from './mcpBoundExecution.ts'
 import {
   beginProxyRequest,
+  beginProxyArgumentDraft,
   cancelProxyRequest,
   createProxyRequest,
   denyProxyRequest,
   interruptProxyRequest,
+  interruptPendingProxyArgumentDraft,
   parseStoredProxyRequest,
   proxyRequestView,
   settleProxyRequest,
+  settleProxyArgumentDraft,
   shareProxyReply,
 } from './proxyRequestState.ts'
 
@@ -49,6 +52,23 @@ function call(overrides: Partial<McpBoundToolCall> = {}): McpBoundToolCall {
 function httpApproval() {
   return { transport: 'http' as const, call: call() }
 }
+
+function draftBinding(overrides: Record<string, unknown> = {}) {
+  return {
+    agentRevision: 2,
+    providerId: 'provider-anthropic',
+    providerRevision: 0,
+    providerConnectionRevision: 3,
+    model: 'claude-test-model',
+    connectionId: 'mcp-connection-owner',
+    connectionRevision: 3,
+    toolName: 'invoice_lookup',
+    schemaHash: 'b'.repeat(64),
+    transport: 'http',
+    ...overrides,
+  } as const
+}
+const draftHash = 'c'.repeat(64)
 
 function outcome(status: McpBoundExecutionOutcome['status'] = 'done'): McpBoundExecutionOutcome {
   if (status === 'uncertain') return { status, summary: 'The remote result is uncertain.' }
@@ -118,6 +138,95 @@ test('owner may use either explicitly selected transport, with local execution o
   assert.throws(() => beginProxyRequest(row, ownerActor, 1, {
     transport: 'stdio', localPrograms: false, call: approvedCall,
   } as never, createdAt + 1))
+})
+
+test('one owner-only argument draft is a private receipt, waits before Run, and never supplies consent', () => {
+  const waiting = createProxyRequest(input())
+  assert.throws(() => beginProxyArgumentDraft(waiting, requesterActor, 1, draftBinding(), draftHash, createdAt + 1))
+  assert.throws(() => beginProxyArgumentDraft(waiting, outsider, 1, draftBinding(), draftHash, createdAt + 1))
+  assert.throws(() => beginProxyArgumentDraft(waiting, ownerActor, 0, draftBinding(), draftHash, createdAt + 1))
+
+  const pending = beginProxyArgumentDraft(waiting, ownerActor, 1, draftBinding(), draftHash, createdAt + 1)
+  assert.equal(pending.status, 'waiting')
+  assert.equal(pending.revision, 2)
+  assert.equal(pending.argumentDraft?.status, 'pending')
+  assert.throws(() => beginProxyRequest(pending, ownerActor, pending.revision, httpApproval(), createdAt + 2),
+    'a model draft receipt cannot authorize or race an MCP call')
+  assert.throws(() => beginProxyArgumentDraft(pending, ownerActor, pending.revision, draftBinding(), draftHash, createdAt + 2),
+    'only one draft attempt may exist')
+
+  const args = { invoice: 'INV-42', include_history: true }
+  const settled = settleProxyArgumentDraft(pending, draftHash, { status: 'done', arguments: args }, createdAt + 2)
+  assert.equal(settled.status, 'waiting')
+  assert.equal(settled.revision, 3)
+  assert.equal(settled.updatedAt, createdAt + 2)
+  assert.deepEqual(settled.argumentDraft?.arguments, args)
+  const ownerView = proxyRequestView(settled, ownerActor)!
+  const requesterView = proxyRequestView(settled, requesterActor)!
+  assert.deepEqual(ownerView.argumentDraft?.arguments, args)
+  assert.equal(Object.hasOwn(requesterView, 'argumentDraft'), false)
+  assert.equal(JSON.stringify(requesterView).includes('INV-42'), false)
+
+  const run = beginProxyRequest(settled, ownerActor, settled.revision, {
+    transport: 'http', call: call({ arguments: args }),
+  }, createdAt + 3)
+  assert.equal(run.status, 'running')
+  assert.equal(run.revision, 4)
+  assert.deepEqual(run.execution?.approval.call.arguments, args,
+    'the separate explicit Run freezes the exact arguments the owner chose')
+  assert.deepEqual(run.argumentDraft?.arguments, args, 'the private draft receipt remains historical')
+  const awaiting = settleProxyRequest(run, run.execution!.callHash, outcome(), createdAt + 4)
+  assert.throws(() => parseStoredProxyRequest({ ...awaiting, argumentDraft: { ...awaiting.argumentDraft, finishedAt: createdAt + 4 } }),
+    'an MCP call cannot have begun before the prior model attempt finished')
+  assert.equal(awaiting.revision, 5, 'the terminal draft revision contributes to later request phase revisions')
+  const replied = shareProxyReply(awaiting, ownerActor, awaiting.revision, 'Reviewed separately.', createdAt + 5)
+  assert.equal(replied.revision, 6)
+  assert.deepEqual(replied.argumentDraft?.arguments, args)
+})
+
+test('draft failure and uncertainty are terminal attempts; cancellation keeps a late result private', () => {
+  const pending = beginProxyArgumentDraft(createProxyRequest(input()), ownerActor, 1, draftBinding(), draftHash, createdAt + 1)
+  const cancelled = cancelProxyRequest(pending, requesterActor, pending.revision, createdAt + 2)
+  assert.throws(() => parseStoredProxyRequest({ ...cancelled, cancelledAt: createdAt, updatedAt: createdAt + 1 }),
+    'a draft cannot be started after its request was cancelled')
+  assert.equal(cancelled.status, 'cancelled')
+  assert.equal(cancelled.revision, 3)
+  assert.equal(cancelled.argumentDraft?.status, 'pending')
+  const late = settleProxyArgumentDraft(cancelled, draftHash, {
+    status: 'done', arguments: { private: 'late model draft' },
+  }, createdAt + 3)
+  assert.equal(late.status, 'cancelled')
+  assert.equal(late.revision, 4)
+  assert.equal(late.argumentDraft?.status, 'done')
+  assert.equal(proxyRequestView(late, requesterActor)?.argumentDraft, undefined)
+  assert.equal(proxyRequestView(late, ownerActor)?.argumentDraft?.status, 'done')
+  assert.throws(() => beginProxyRequest(late, ownerActor, late.revision, httpApproval(), createdAt + 4))
+
+  const failedPending = beginProxyArgumentDraft(createProxyRequest(input({ id: `agent-request-${'d'.repeat(32)}` })), ownerActor, 1,
+    draftBinding(), 'd'.repeat(64), createdAt + 1)
+  const failed = settleProxyArgumentDraft(failedPending, 'd'.repeat(64), { status: 'failed' }, createdAt + 2)
+  assert.equal(failed.argumentDraft?.status, 'failed')
+  assert.equal(failed.argumentDraft && 'arguments' in failed.argumentDraft, false)
+  assert.throws(() => beginProxyArgumentDraft(failed, ownerActor, failed.revision, draftBinding(), 'e'.repeat(64), createdAt + 3))
+})
+
+test('pending draft recovery becomes uncertainty without replay and malformed receipts fail strict parsing', () => {
+  const pending = beginProxyArgumentDraft(createProxyRequest(input()), ownerActor, 1, draftBinding(), draftHash, createdAt + 1)
+  const recovered = interruptProxyRequest(parseStoredProxyRequest(JSON.parse(JSON.stringify(pending))), createdAt + 2)
+  assert.equal(recovered.argumentDraft?.status, 'uncertain')
+  assert.equal(recovered.revision, 3)
+  assert.throws(() => beginProxyArgumentDraft(recovered, ownerActor, recovered.revision, draftBinding(), 'f'.repeat(64), createdAt + 3))
+  assert.equal(interruptPendingProxyArgumentDraft(recovered, createdAt + 4).revision, recovered.revision)
+
+  const done = settleProxyArgumentDraft(pending, draftHash, { status: 'done', arguments: { value: 1 } }, createdAt + 2)
+  const reject = (patch: Record<string, unknown>) => assert.throws(() => parseStoredProxyRequest({ ...done, argumentDraft: patch }))
+  reject({ ...done.argumentDraft, unexpected: true })
+  reject({ ...done.argumentDraft, inputHash: 'not-a-hash' })
+  reject({ ...done.argumentDraft, binding: { ...done.argumentDraft!.binding, providerRevision: -1 } })
+  reject({ ...done.argumentDraft, arguments: 'not-object' })
+  reject({ ...done.argumentDraft, status: 'pending', revision: 1, finishedAt: undefined, arguments: undefined })
+  assert.throws(() => settleProxyArgumentDraft(pending, '0'.repeat(64), { status: 'uncertain' }, createdAt + 2))
+  assert.throws(() => settleProxyArgumentDraft(pending, draftHash, { status: 'uncertain' }, createdAt))
 })
 
 test('only the exact owner may begin or deny, either exact party may cancel, and stale revisions do nothing', () => {
@@ -426,8 +535,8 @@ test('pure state kernel has no runtime, store, authentication, or route dependen
       assert.ok(ts.isStringLiteral(node.moduleSpecifier))
       return node.moduleSpecifier.text
     }).sort()
-    assert.deepEqual(valueImports, ['../contract/agentRequests.ts', './mcpBoundCall.ts', './mcpJson.ts', './mcpToolResult.ts', 'node:crypto'].sort(),
-      'only portable contract limits, deterministic crypto and inert MCP parsing/snapshot helpers may be loaded at runtime')
+    assert.deepEqual(valueImports, ['../contract/agentRequests.ts', './mcpBoundCall.ts', './mcpJson.ts', './mcpToolResult.ts', './proxyArgumentDraftState.ts', 'node:crypto'].sort(),
+      'only portable contract limits, deterministic crypto and inert MCP/draft receipt parsing helpers may be loaded at runtime')
     function visit(node: ts.Node): void {
       assert.equal(ts.isImportEqualsDeclaration(node), false, 'no import-equals runtime escape')
       if (ts.isExportDeclaration(node) && node.moduleSpecifier) assert.equal(node.isTypeOnly, true, 'no runtime re-exports')
