@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import packagerConfig, { DESKTOP_BUNDLE_ID, DESKTOP_PRODUCT_NAME } from './packager.config.mjs'
 import { assertUpdateBaseUrl, parseStableVersion } from './updateMetadata.mjs'
 import { BUNDLED_GIT } from './bundledGit.mjs'
+import { validateNativeMacReleaseHost } from './releaseHost.mjs'
 
 export const DIRECT_DOWNLOAD_ENV = Object.freeze({
   signingIdentity: 'APPLE_SIGNING_IDENTITY',
@@ -282,7 +283,7 @@ export function checksumLine(digest, archiveName) {
   return `${digest}  ${archiveName}\n`
 }
 
-export function releaseReceiptJson({ productName, version, platform, architecture, archiveName, bytes, sha256, bundleIdentity }) {
+export function releaseReceiptJson({ productName, version, platform, architecture, archiveName, bytes, sha256, bundleIdentity, nativeHost }) {
   if (productName !== DESKTOP_PRODUCT_NAME) throw new Error('Release receipt product identity must remain Agent Commons.')
   if (!SAFE_VERSION.test(version ?? '')) throw new Error('Release receipt requires a safe semantic package version.')
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(platform ?? '')) throw new Error('Release receipt requires a safe platform name.')
@@ -304,9 +305,10 @@ export function releaseReceiptJson({ productName, version, platform, architectur
     updateBaseUrl: assertUpdateBaseUrl(bundleIdentity?.updateBaseUrl),
     binaryArchitectures: [architecture === 'x64' ? 'x86_64' : architecture],
   })
+  const verifiedNativeHost = validateNativeMacReleaseHost(nativeHost, architecture)
 
   return `${JSON.stringify({
-    schemaVersion: 3,
+    schemaVersion: 4,
     product: productName,
     version,
     platform,
@@ -317,6 +319,7 @@ export function releaseReceiptJson({ productName, version, platform, architectur
       sha256,
     },
     bundle: verifiedBundleIdentity,
+    nativeHost: verifiedNativeHost,
     verification: {
       bundleIdentity: 'verified',
       codeSignature: 'verified',
@@ -342,6 +345,7 @@ export function validateReleaseReceipt(receipt, { version, architecture, archive
       bytes,
       sha256,
       bundleIdentity: receipt.bundle,
+      nativeHost: receipt.nativeHost,
     }))
   } catch (error) {
     throw new Error('Direct release candidate receipt does not match its artifact.', { cause: error })

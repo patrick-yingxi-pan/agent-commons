@@ -30,6 +30,10 @@ const validEnv = {
   AGENT_COMMONS_UPDATE_BASE_URL: 'https://updates.example.com/releases/',
 }
 
+function nativeHost(architecture: string) {
+  return { platform: 'darwin', architecture, translated: false }
+}
+
 test('direct download release fails before packaging without every macOS release prerequisite', () => {
   assert.throws(
     () => directDownloadReleasePlan({ root, manifest, env: validEnv, platform: 'linux', arch: 'x64' }),
@@ -276,6 +280,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
     version: '0.1.0',
     platform: 'macos',
     architecture: 'arm64',
+    nativeHost: nativeHost('arm64'),
     archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
     bytes: 12_345,
     sha256: digest,
@@ -283,11 +288,12 @@ test('release receipt binds artifact identity, size, digest, and completed verif
   })
   assert.equal(json.endsWith('\n'), true)
   assert.deepEqual(JSON.parse(json), {
-    schemaVersion: 3,
+    schemaVersion: 4,
     product: 'Agent Commons',
     version: '0.1.0',
     platform: 'macos',
     architecture: 'arm64',
+    nativeHost: nativeHost('arm64'),
     artifact: {
       file: 'Agent-Commons-0.1.0-macos-arm64.zip',
       bytes: 12_345,
@@ -308,6 +314,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
       version: '0.1.0',
       platform: 'macos',
       architecture: 'arm64',
+      nativeHost: nativeHost('arm64'),
       archiveName: 'different.zip',
       bytes: 12_345,
       sha256: digest,
@@ -321,6 +328,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
       version: '0.1.0',
       platform: 'macos',
       architecture: 'arm64',
+      nativeHost: nativeHost('arm64'),
       archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
       bytes: 0,
       sha256: digest,
@@ -334,6 +342,7 @@ test('release receipt binds artifact identity, size, digest, and completed verif
       version: '0.1.0',
       platform: 'macos',
       architecture: 'arm64',
+      nativeHost: nativeHost('arm64'),
       archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
       bytes: 12_345,
       sha256: digest,
@@ -362,6 +371,25 @@ test('release receipt binds artifact identity, size, digest, and completed verif
     }),
     /does not match its artifact/,
   )
+  const expectedArtifact = {
+    updateBaseUrl: validEnv.AGENT_COMMONS_UPDATE_BASE_URL,
+    version: '0.1.0',
+    architecture: 'arm64',
+    archiveName: 'Agent-Commons-0.1.0-macos-arm64.zip',
+    bytes: 12_345,
+    sha256: digest,
+  }
+  for (const invalid of [
+    { ...receipt, schemaVersion: 3 },
+    { ...receipt, nativeHost: undefined },
+    { ...receipt, nativeHost: { ...receipt.nativeHost, translated: true } },
+    { ...receipt, nativeHost: { ...receipt.nativeHost, architecture: 'x64' } },
+    { ...receipt, nativeHost: { ...receipt.nativeHost, platform: 'linux' } },
+    { ...receipt, nativeHost: { ...receipt.nativeHost, extra: true } },
+    { ...receipt, extra: true },
+  ]) {
+    assert.throws(() => validateReleaseReceipt(invalid, expectedArtifact))
+  }
 })
 
 test('release-set manifest is deterministic, ordered, and incomplete pairs fail closed', () => {
@@ -586,6 +614,7 @@ test('release-set finalizer verifies both candidates before exposing either publ
         version: manifest.version,
         platform: 'macos',
         architecture: candidate.architecture,
+        nativeHost: nativeHost(candidate.architecture),
         archiveName: candidate.archiveName,
         bytes: Buffer.byteLength(contents),
         sha256: digest,
@@ -694,6 +723,37 @@ test('release-set finalizer verifies both candidates before exposing either publ
   }
 })
 
+test('release-set finalizer rejects legacy and invalid native-host receipt evidence before publishing', async () => {
+  const { root, plan } = await validReleaseSetFixture()
+  const baseUrl = 'https://updates.example.com/releases/'
+  const intel = plan.artifacts.find((candidate) => candidate.architecture === 'x64')
+  assert.ok(intel)
+  const original = await readFile(intel.candidateReceiptPath, 'utf8')
+  const valid = JSON.parse(original)
+  const invalidReceipts = [
+    { ...valid, schemaVersion: 3, nativeHost: undefined },
+    { ...valid, nativeHost: undefined },
+    { ...valid, nativeHost: { ...valid.nativeHost, translated: true } },
+    { ...valid, nativeHost: { ...valid.nativeHost, architecture: 'arm64' } },
+    { ...valid, nativeHost: { ...valid.nativeHost, platform: 'linux' } },
+    { ...valid, nativeHost: { ...valid.nativeHost, extra: true } },
+    { ...valid, extra: true },
+  ]
+  try {
+    for (const invalid of invalidReceipts) {
+      await writeFile(intel.candidateReceiptPath, `${JSON.stringify(invalid)}\n`)
+      await assert.rejects(finalizeMacDirectDownloadSet({ root, baseUrl }))
+      assert.equal(existsSync(plan.manifestPath), false, 'invalid host evidence must not publish a completion marker')
+      assert.equal(plan.artifacts.every((candidate) => (
+        !existsSync(candidate.archivePath) && !existsSync(candidate.receiptPath) && !existsSync(candidate.updatePath)
+      )), true, 'invalid host evidence must publish neither candidate nor feed')
+    }
+  } finally {
+    await writeFile(intel.candidateReceiptPath, original)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 async function validReleaseSetFixture() {
   const root = await mkdtemp(join(tmpdir(), 'agent-commons-release-set-cleanup-test-'))
   await writeFile(join(root, 'package.json'), `${JSON.stringify(manifest)}\n`)
@@ -716,6 +776,7 @@ async function validReleaseSetFixture() {
       version: manifest.version,
       platform: 'macos',
       architecture: candidate.architecture,
+      nativeHost: nativeHost(candidate.architecture),
       archiveName: candidate.archiveName,
       bytes: Buffer.byteLength(contents),
       sha256: digest,
@@ -817,6 +878,12 @@ test('release-set finalizer preserves candidate validation and private snapshot 
 
 test('release orchestration verifies the extracted download and runs the executable smoke', () => {
   const source = readFileSync(new URL('./release.mjs', import.meta.url), 'utf8')
+  const hostInspection = source.indexOf('const nativeHost = await inspectNativeMacReleaseHost()')
+  const releasePlanning = source.indexOf('const plan = directDownloadReleasePlan(')
+  const packaging = source.indexOf('const artifacts = await packageDesktop(')
+  assert.ok(hostInspection >= 0 && releasePlanning > hostInspection && packaging > releasePlanning)
+  assert.ok(source.includes('platform: nativeHost.platform, arch: nativeHost.architecture'))
+  assert.match(source, /bundleIdentity: downloadedBundleIdentity,\s*nativeHost,/)
   assert.match(source, /directDownloadReleasePlan/)
   assert.match(source, /packageDesktop\(\{/)
   assert.match(source, /artifacts\.length !== 1/)

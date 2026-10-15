@@ -51,7 +51,33 @@ authorized by this review. Paid-provider acceptance is deferred while unsigned
 release preparation continues. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: unsigned Intel cross-build preflight
+## Current checkpoint: native release-host enforcement
+
+The 2026-10-15 release review found that the candidate command used Node's
+process architecture without checking translation. An actual x64 Node running
+under Rosetta reached the missing-signing-identity gate; it was not refused as
+non-native. This was a demonstrated release-evidence gap, not a startup fix.
+
+The candidate command now compiles a small temporary native probe, forces it
+to the exact Node architecture and checks `sysctl.proc_translated` before
+packaging or credential use. Compilation/probing have 30/5-second deadlines,
+bounded output and a minimal environment. Only Intel admits Apple's documented
+ENOENT result; Rosetta, other errors, invalid sizes/values and mismatched output
+fail closed. Probe sources and tooling are excluded from the shipped app.
+Schema-v4 receipts bind matching untranslated host evidence; finalization rejects
+older receipts and missing, translated or mismatched host records. This remains
+operator audit metadata, not hardware attestation or Apple signature trust.
+
+Actual Node 26.3.0 arm64 inspection returned native evidence and proceeded only
+to the empty-credentials refusal. The verified disposable x64 Node on the same
+Apple Silicon host now refused Rosetta before credentials or packaging. Neither
+run used Keychain credentials, built a candidate or accessed an app profile.
+Controlled regressions were watched fail the translation parser, exact C errno
+classification, receipt/finalizer, early orchestration and package-exclusion
+locks before restoration. Native Intel hardware, signed/notarized candidates,
+real update installation and deferred paid-provider acceptance remain open.
+
+## Unsigned Intel cross-build preflight
 
 On 2026-10-15, the unchanged `3287b73e` source produced an unsigned macOS x64
 application using Electron 44.7.2 on an Apple Silicon host. An interrupted

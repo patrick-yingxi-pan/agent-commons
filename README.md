@@ -307,8 +307,13 @@ boots use explicit profiles:
   These gates are local unsigned fixture evidence, separate from ordinary
   signed-candidate smoke, not public-service/TLS or signed two-architecture acceptance.
 - `npm run desktop:release:mac` is the fail-closed candidate lane for the chosen
-  two-download macOS release. Run it once on Apple Silicon and once on Intel. It
-  accepts only a Developer ID Application identity and a
+  two-download macOS release. Run it once natively on Apple Silicon and once
+  natively on Intel, with Node matching that architecture. Before packaging or
+  credentials are used, a bounded temporary native probe checks
+  `sysctl.proc_translated` under the exact Node architecture. Rosetta, unknown
+  results and inspection failures refuse; a missing sysctl key is accepted only
+  for Intel. The probe and its compiler inputs never ship. The lane accepts only
+  a Developer ID Application identity and a
   `notarytool` Keychain profile; plaintext Apple passwords are not a supported
   input. Electron Packager signs every nested code object with hardened runtime,
   uses a repository-owned least-privilege entitlement for generic app code,
@@ -319,11 +324,11 @@ boots use explicit profiles:
   architecture-specific ZIP, extracts that ZIP into a fresh directory, repeats
   the identity and trust checks, and runs the full packaged-app smoke against the
   extracted executable. Only then does it write the adjacent SHA-256 manifest
-  and a deterministic machine-readable schema-v3 release receipt that records
-  those verified bundle facts alongside the archive name, byte size, digest, and
+  and a deterministic machine-readable schema-v4 release receipt that records
+  matching native-host evidence and those verified bundle facts alongside the archive name, byte size, digest, and
   completed verification stages. The receipt is publishing/audit metadata, not
   a substitute for the app's Apple code signature or an authenticated download
-  channel.
+  channel or hardware attestation.
   Configure the machine once with `xcrun notarytool store-credentials`, then run:
 
   ```bash
@@ -336,7 +341,7 @@ boots use explicit profiles:
   Set `APPLE_KEYCHAIN` only when both the certificate and notary profile live in
   a non-default Keychain. Each run writes an immutable candidate under
   `release/candidates/<version>/<arch>/`: an
-  `Agent-Commons-<version>-macos-<arch>.zip`, its `.sha256`, and its schema-v3
+  `Agent-Commons-<version>-macos-<arch>.zip`, its `.sha256`, and its schema-v4
   `.release.json` receipt. Transfer the candidate directory from the other native
   Mac into the same version tree without renaming files, then run:
 
@@ -348,7 +353,8 @@ boots use explicit profiles:
   Finalization requires exactly `arm64` (shown to people as **Apple Silicon**) and
   `x64` (shown as **Intel**) for the current package version. It recomputes each
   archive's size and SHA-256 from a private snapshot, validates its adjacent
-  checksum and exact receipt, then publishes those exact bytes as both ZIPs,
+  checksum and exact receipt (legacy receipts without native-host evidence must
+  be regenerated), then publishes those exact bytes as both ZIPs,
   both checksums, both receipts, both
   architecture-specific `Agent-Commons-<version>-macos-<arch>.update.json` feeds, and
   `Agent-Commons-<version>-macos.release.json` into `release/`. That manifest is

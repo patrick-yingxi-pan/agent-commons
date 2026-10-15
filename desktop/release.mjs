@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream, existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { arch, platform, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { packageDesktop } from './package.mjs'
@@ -18,6 +18,7 @@ import {
 } from './release-plan.mjs'
 import { publishImmutableRelease } from './release-publish.mjs'
 import { smokePackagedDesktop } from './smoke.mjs'
+import { inspectNativeMacReleaseHost } from './releaseHost.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -77,9 +78,10 @@ async function preflightAppleTools() {
 }
 
 export async function releaseMacDirectDownload({ env = process.env } = {}) {
+  const nativeHost = await inspectNativeMacReleaseHost()
   const manifest = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8'))
   // Resolve all credentials and output names before a build writes anything.
-  const plan = directDownloadReleasePlan({ root: ROOT, manifest, env, platform: platform(), arch: arch() })
+  const plan = directDownloadReleasePlan({ root: ROOT, manifest, env, platform: nativeHost.platform, arch: nativeHost.architecture })
   if (existsSync(plan.archivePath) || existsSync(plan.checksumPath) || existsSync(plan.receiptPath)) {
     throw new Error('This version already has a direct-download output. Bump the package version before publishing again.')
   }
@@ -138,6 +140,7 @@ export async function releaseMacDirectDownload({ env = process.env } = {}) {
       bytes: archiveBytes,
       sha256: digest,
       bundleIdentity: downloadedBundleIdentity,
+      nativeHost,
     }), { encoding: 'utf8', mode: 0o644 })
     await mkdir(plan.releaseDirectory, { recursive: true })
     await publishImmutableRelease({

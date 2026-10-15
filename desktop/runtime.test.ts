@@ -434,6 +434,8 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.equal(ignoreFromPackage('/desktop/release-publish.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release-set.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/release.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/releaseHost.mjs'), true)
+  assert.equal(ignoreFromPackage('/desktop/native/release-host.c'), true)
   assert.equal(ignoreFromPackage('/desktop/updateFeed.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/updateMenuSmoke.mjs'), true)
   for (const module of ['updateMetadata', 'updateArchive', 'updateConfiguration', 'updateController', 'updateLifecycle']) {
