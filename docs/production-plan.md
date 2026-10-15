@@ -16,8 +16,12 @@ format/discard and child Escape behavior remain part of the flow. It adds no
 source reread/write, image upload/original retention, autosave, sharing or model
 call. Focused browser acceptance, the 135/135-cell UI sweep and the complete
 unsigned arm64 desktop gate pass. Complete local verification is mandatory
-before landing. Actual OS-dialog, signed/Intel and live-service acceptance
-remain separate.
+before landing. The [native connected-image review](acceptance/native-connected-image-documents-2026-10-15.md)
+additionally passed actual Folder/Repository chooser Cancel/selection and
+Folder/tracked/untracked PNG OCR review, editing, Create and exact source-absent
+relaunch on the unchanged unsigned arm64 artifact. Temporary connections expired;
+saved Documents remained. This is one desktop-local account and native wide
+window, not broader OS-dialog, signed/Intel or live-service acceptance.
 
 Previous local checkpoint: selected Folder, tracked Git and opted-in untracked
 Git XLSX/PPTX previews seed separate ordinary Sheet or Slides authoring reviews.
