@@ -47,7 +47,24 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current milestone: owner-reviewed Agent requests with optional argument drafting — local implementation
+## Completed checkpoint: actual connected-source chooser and text review
+
+Fresh owner unlock input enabled the [2026-10-15 native walk](acceptance/native-connected-sources-2026-10-15.md)
+on the unchanged unsigned arm64 artifact from `76e78b47`. Real Folder and
+Repository cancellation, exact generated-directory selection, unchecked
+Remember defaults, nested folder/tracked text previews, explicit untracked
+opt-in/preview retirement and one unstaged single-file comparison passed.
+Normal Quit/relaunch cleared both temporary connections. The source ASAR and
+repository index hash/timestamps stayed unchanged; both isolated backends
+stopped. No model was configured and no Attach, Send or external call occurred.
+
+This supersedes the earlier locked-screen blocker for these tested paths only.
+It does not close remembered-access, document/image, saved-copy, account-wall,
+signed/Intel or live-service acceptance as a whole. Those evidence boundaries
+remain explicit in the native record. No product change was needed. The
+complete local verifier remains required before landing this evidence update.
+
+## Completed milestone: owner-reviewed Agent requests with optional argument drafting — local implementation
 
 Autonomous direction (2026-10-14): finish D15 as a real request/consent/reply
 workflow. The new Agent Requests path now has a private durable registry and
