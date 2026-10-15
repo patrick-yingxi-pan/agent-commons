@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { mapArtifactSheetImport, reviewArtifactSheetImport } from './artifactSheetImport.ts'
-import { useArtifactFileImport } from './useArtifactFileImport.ts'
+import { useArtifactFileImport, type ArtifactFileImportSeed } from './useArtifactFileImport.ts'
 
 /** Header interpretation is a review choice, never content-type inference. */
-export function useArtifactSheetImport(enabled: boolean) {
-  const intake = useArtifactFileImport(enabled ? 'sheet' : null, reviewArtifactSheetImport)
+export function useArtifactSheetImport(enabled: boolean, initial?: ArtifactFileImportSeed) {
+  const intake = useArtifactFileImport(enabled ? 'sheet' : null, reviewArtifactSheetImport, initial)
   const [firstRowHeaders, setFirstRowHeaders] = useState(true)
   const [allVisibleCandidate, setAllVisibleCandidate] = useState<typeof intake.state | null>(null)
   // A selection belongs to the reviewed candidate, never a later file that

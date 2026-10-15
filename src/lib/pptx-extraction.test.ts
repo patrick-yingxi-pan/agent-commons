@@ -1,7 +1,7 @@
 import { deflateRawSync } from 'node:zlib'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { extractPresentation, extractPptx } from './pptxExtraction.ts'
+import { extractPresentation, extractPptx, extractPptxPreview } from './pptxExtraction.ts'
 import { MAX_PRESENTATION_PARAGRAPHS } from '../../contract/presentationImport.ts'
 import { MAX_PPTX_ENTRIES, MAX_PPTX_FILE_BYTES, MAX_PPTX_PART_BYTES, MAX_PPTX_TEXT_BYTES } from '../../contract/pptxImport.mjs'
 import { pptxFixture as sharedPptxFixture } from '../../tests/helpers/pptxFixture.mjs'
@@ -90,6 +90,27 @@ test('visible slide order, exact original numbers, ordinary textboxes, tables an
 test('strict namespaces, no visible text and auxiliary parts do not become input', async () => {
   assert.deepEqual(await extractPptx(pptxFixture({ strict: true, slides: [{ show: 'false', body: '<p:sp><p:nvSpPr><p:cNvPr id="1" name="hidden" hidden="1"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:r><a:t>hidden</a:t></a:r></a:p></p:txBody></p:sp>' }] })), { documentImport: { format: 'pptx', status: 'no-text' } })
   assert.deepEqual(await extractPptx(pptxFixture({ strict: true, slides: [{ body: table([['strict one', 'strict two']]) }] })), { documentImport: { format: 'pptx', status: 'ready' }, text: 'Slide 1: strict one\tstrict two' })
+})
+
+test('single-pass preview preserves legacy attachment text and presentation structure', async () => {
+  const bytes = pptxFixture({ slides: [{ body: `${shape('Title')}${shape('First bullet')}` }, { body: shape('hidden slide'), show: 'false' }] })
+  const [legacyText, legacyStructure, preview] = await Promise.all([extractPptx(bytes), extractPresentation(bytes), extractPptxPreview(bytes)])
+  assert.deepEqual({ text: preview.text, documentImport: preview.documentImport }, legacyText)
+  assert.deepEqual(preview.presentationImport, legacyStructure)
+})
+
+test('single-pass PPTX preview keeps structure paragraph failure independent from attachment text', async () => {
+  const paragraphs = '<a:p><a:r><a:t>x</a:t></a:r></a:p>'.repeat(MAX_PRESENTATION_PARAGRAPHS + 1)
+  const preview = await extractPptxPreview(pptxFixture({ slides: [{ body: `<p:sp><p:txBody>${paragraphs}</p:txBody></p:sp>` }] }))
+  assert.equal(preview.documentImport.status, 'ready')
+  assert.equal(preview.presentationImport.documentImport.status, 'structure-limit')
+  assert.equal(preview.text?.includes('Slide 1: x'), true)
+})
+
+test('single-pass PPTX preview keeps a text-limit independent from a fitting outline', async () => {
+  const preview = await extractPptxPreview(pptxFixture({ slides: [{ body: shape('x'.repeat(MAX_PPTX_TEXT_BYTES - 1)) }] }))
+  assert.equal(preview.documentImport.status, 'text-limit')
+  assert.equal(preview.presentationImport.documentImport.status, 'ready')
 })
 
 test('presentation relationship order, not ZIP or target filename order, labels visible slides', async () => {

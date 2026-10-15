@@ -6,6 +6,18 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
+Current local checkpoint: selected Folder, tracked Git and opted-in untracked
+Git XLSX/PPTX previews seed separate ordinary Sheet or Slides authoring reviews.
+One parse yields exact attachment text and a detached bounded import; review,
+explicit Use and ordinary Create remain distinct. The Document path is
+preserved. No raw Office bytes are kept in state, and the flow adds no source
+reread/write, autosave, sharing or model call. Focused browser acceptance passed
+5/5, the UI sweep passed 135/135 with no violations/skips, and the complete
+unsigned arm64 desktop verifier passed. Packaged Folder/Git checks replace the
+source before adoption and verify exact edited bodies after source-absent
+relaunch. Complete local verification remains mandatory before landing.
+Actual OS-dialog, signed/Intel and live-service acceptance remain separate.
+
 On 2026-10-11 the owner delegated future product and architecture recommendations
 for autonomous selection and implementation. Record consequential choices here
 and proceed without routine approval pauses. This does not authorize paid or
@@ -51,7 +63,7 @@ authorized by this review. Paid-provider acceptance is deferred while unsigned
 release preparation continues. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: exact external-tool text
+## Previous checkpoint: exact external-tool text
 
 The 2026-10-15 static interoperability audit found a concrete result-admission
 gap: a valid file-text result containing a form feed, NUL or another Unicode

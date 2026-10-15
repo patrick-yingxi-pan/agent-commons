@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { extractWorkbook, extractXlsx } from './xlsxExtraction.ts'
+import { extractWorkbook, extractXlsx, extractXlsxPreview } from './xlsxExtraction.ts'
 import { workbookRelationships, workbookSheets, workbookStrings, worksheetValues } from './xlsxText.ts'
 import {
   MAX_XLSX_CELLS, MAX_XLSX_EXPANDED_BYTES, MAX_XLSX_PART_BYTES, MAX_XLSX_SHEETS, MAX_XLSX_TEXT_BYTES, MAX_XLSX_SHARED_STRINGS,
@@ -129,6 +129,31 @@ test('structured workbook mode preserves visible sheet identity, empties, sparse
   assert.equal(serialized.includes('IF(A1'), false, 'formula code is never returned')
   assert.equal(serialized.includes('hidden-value'), false, 'hidden worksheet content is never returned')
   assert.equal(serialized.includes('not workbook cell data'), false, 'chart sheet content is never returned')
+})
+
+test('single-pass preview preserves legacy text and the same detached structured workbook', async () => {
+  const bytes = structuredWorkbookFixture()
+  const [legacy, workbook, preview] = await Promise.all([extractXlsx(bytes), extractWorkbook(bytes), extractXlsxPreview(bytes)])
+  assert.deepEqual({ text: preview.text, documentImport: preview.documentImport }, legacy)
+  assert.deepEqual(preview.workbookImport, workbook)
+  assert.deepEqual(preview.workbookImport.workbook?.worksheets[0]?.cells, workbook.workbook?.worksheets[0]?.cells)
+  assert.equal(JSON.stringify(preview).includes('IF(A1'), false, 'formula source is not returned')
+})
+
+test('single-pass preview applies attachment and workbook limits independently', async () => {
+  const preview = await extractXlsxPreview(xlsxFixture({ sheets: [{ name: 'Data', rows: [[`x`.repeat(MAX_XLSX_TEXT_BYTES - 10)]] }] }))
+  assert.equal(preview.documentImport.status, 'text-limit', 'attachment labels make its text exceed the limit')
+  assert.equal(preview.workbookImport.documentImport.status, 'ready', 'structured values independently fit')
+  assert.equal(preview.workbookImport.workbook?.worksheets[0]?.cells[0]?.value.length, MAX_XLSX_TEXT_BYTES - 10)
+})
+
+test('single-pass preview preserves an earlier text-limit when a later sheet is malformed', async () => {
+  const preview = await extractXlsxPreview(xlsxFixture({
+    sheets: [{ name: 'First', rows: [[`x`.repeat(MAX_XLSX_TEXT_BYTES - 20)]] }, { name: 'Later', rows: [['ignored']] }],
+    entries: { 'xl/worksheets/sheet2.xml': '<broken>' },
+  }))
+  assert.equal(preview.documentImport.status, 'text-limit')
+  assert.equal(preview.workbookImport.documentImport.status, 'invalid')
 })
 
 test('structured workbook mode rejects duplicate cell coordinates and unsafe relationships without partial data', async () => {

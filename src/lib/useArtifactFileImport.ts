@@ -7,16 +7,20 @@ type ReviewResult<Candidate> = Candidate | { status: 'cancelled' } | { status: '
 type ImportState<Candidate> = { status: 'idle' | 'reading' } | { status: 'error'; message: string } | Candidate
 type Mode = 'document' | 'slides' | 'sheet' | 'image-text' | 'pdf-text'
 
+export interface ArtifactFileImportSeed { file: UiHostFile; generation: number }
+
 /** Every artifact format shares one local review lifetime. Neither extraction
  * nor adoption writes; account generation and operation identity own both. */
 export function useArtifactFileImport<Candidate extends { status: 'ready' }>(
   mode: Mode | null,
   review: (files: readonly UiHostFile[], signal: AbortSignal, selectionMode: Mode) => ReviewResult<Candidate> | Promise<ReviewResult<Candidate>>,
+  initial?: ArtifactFileImportSeed,
 ) {
   const picker = useUiHostFs(mode !== null)
   const [state, setState] = useState<ImportState<Candidate>>({ status: 'idle' })
   const operation = useRef<{ abort: AbortController; generation: number; mode: Mode; selectionMode: Mode } | null>(null)
   const modeRef = useRef(mode)
+  const initialRef = useRef(initial)
   modeRef.current = mode
   const discard = useCallback(() => {
     operation.current?.abort.abort()
@@ -59,6 +63,27 @@ export function useArtifactFileImport<Candidate extends { status: 'ready' }>(
     apply(state)
     discard()
   }
+  // The source already crossed intake. Seed only this mount's ordinary review;
+  // later format changes/discard never reopen it or reread its source. The same
+  // operation/account fences as a picker result still govern explicit Use.
+  useEffect(() => {
+    const seed = initialRef.current
+    if (!seed || !mode || seed.generation !== accountGeneration() || operation.current) return
+    const current = { abort: new AbortController(), generation: seed.generation, mode, selectionMode: mode }
+    operation.current = current
+    setState({ status: 'reading' })
+    const live = () => operation.current === current && modeRef.current === current.mode &&
+      !current.abort.signal.aborted && current.generation === accountGeneration()
+    void Promise.resolve().then(() => live() ? review([seed.file], current.abort.signal, current.mode) : null).then(result => {
+      if (!live() || !result) return
+      if (result.status !== 'ready') operation.current = null
+      setState(result.status === 'cancelled' ? { status: 'idle' } : result)
+    }, () => {
+      if (!live()) return
+      operation.current = null
+      setState({ status: 'error', message: 'The reviewed source could not be imported. Your draft is unchanged.' })
+    })
+  }, [])
   // Zero-argument actions cannot accidentally treat a DOM click as a mode.
   const pick = () => { if (mode) pickAs(mode) }
   return { state, picker, pick, pickAs, discard, accept, selectionMode: operation.current?.selectionMode, reviewing: state.status === 'reading' || state.status === 'ready' }

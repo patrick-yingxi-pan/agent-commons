@@ -1,6 +1,6 @@
 import { reviewArtifactPresentationImport } from './artifactPresentationImport.ts'
-import { useArtifactFileImport } from './useArtifactFileImport.ts'
+import { useArtifactFileImport, type ArtifactFileImportSeed } from './useArtifactFileImport.ts'
 
-export function useArtifactPresentationImport(enabled: boolean) {
-  return useArtifactFileImport(enabled ? 'slides' : null, reviewArtifactPresentationImport)
+export function useArtifactPresentationImport(enabled: boolean, initial?: ArtifactFileImportSeed) {
+  return useArtifactFileImport(enabled ? 'slides' : null, reviewArtifactPresentationImport, initial)
 }

@@ -21,27 +21,31 @@ import { useArtifactSheetImport } from '../lib/useArtifactSheetImport.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { KIND_LABEL } from './artifactPreview'
+import type { LocalStructuredImport } from '../lib/localPreviewStructuredImport.ts'
 
 export function NewArtifactDialog({
   projects,
   onCreated,
   onClose,
   initialDocument,
+  initialStructured,
 }: {
   projects: Project[]
   onCreated: (id: string) => void
   onClose: () => void
   initialDocument?: { name: string; text: string; disclosure?: string; sourceName: string; generation: number }
+  initialStructured?: LocalStructuredImport & { sourceName: string; generation: number }
 }) {
   const mutation = useArtifactCreationStatus()
   const held = heldArtifactCreation()
   const identity = useMe().data
+  const [structuredSource] = useState(() => !held && initialStructured?.generation === accountGeneration() ? initialStructured : null)
   const [initial] = useState(() => held?.intent.request ?? (initialDocument && initialDocument.generation === accountGeneration()
     ? { name: initialDocument.name, kind: 'doc' as const, body: initialDocument.text, projectId: null } : undefined))
   const [generation] = useState(accountGeneration)
   const [sourceDisclosure] = useState(() => held ? null : initialDocument)
   const [draftName, setName] = useState(initial?.name ?? '')
-  const [draftKind, setKind] = useState<CreateArtifactRequest['kind']>(initial?.kind ?? 'doc')
+  const [draftKind, setKind] = useState<CreateArtifactRequest['kind']>(initial?.kind ?? structuredSource?.kind ?? 'doc')
   const [draftBody, setBody] = useState(typeof initial?.body === 'string' ? initial.body : '')
   const [draftSheet, setSheet] = useState<StructuredArtifactBody>(initial?.kind === 'sheet' && typeof initial.body !== 'string' ? initial.body : { type: 'sheet', columns: [''], rows: [['']] })
   const [draftSlides, setSlides] = useState<StructuredArtifactBody>(initial?.kind === 'slide' && typeof initial.body !== 'string' ? initial.body : { type: 'slides', slides: [{ title: '', bullets: [] }] })
@@ -60,8 +64,8 @@ export function NewArtifactDialog({
   const tenantId = identity?.tenant.id
   const busy = held !== null
   const documentImport = useArtifactDocumentImport(draftKind === 'doc' && !busy)
-  const presentationImport = useArtifactPresentationImport(draftKind === 'slide' && !busy)
-  const sheetImport = useArtifactSheetImport(draftKind === 'sheet' && !busy)
+  const presentationImport = useArtifactPresentationImport(draftKind === 'slide' && !busy, structuredSource?.kind === 'slide' ? structuredSource : undefined)
+  const sheetImport = useArtifactSheetImport(draftKind === 'sheet' && !busy, structuredSource?.kind === 'sheet' ? structuredSource : undefined)
   const documentBodyId = useId()
   const documentBodyRef = useRef<HTMLTextAreaElement>(null)
   const structuredFieldsRef = useRef<HTMLFieldSetElement>(null)
@@ -119,12 +123,15 @@ export function NewArtifactDialog({
       onSubmit={submit}
       onClose={close}
       busy={busy}
-      isolateEscape={initialDocument !== undefined}
+      isolateEscape={initialDocument !== undefined || initialStructured !== undefined}
       error={error}
     >
       {sourceDisclosure && !heldRequest && <div data-local-document-draft className="space-y-1 break-words [overflow-wrap:anywhere] text-[12px] leading-relaxed text-ink-soft">
         <p>Started from reviewed text in {sourceDisclosure.sourceName}. This is an independent editable draft, not a live file. Create saves the edited content under your account; it does not change the source or share the document.</p>
         {sourceDisclosure.disclosure && <p>{sourceDisclosure.disclosure}</p>}
+      </div>}
+      {structuredSource && !heldRequest && <div data-local-structured-draft className="space-y-1 break-words [overflow-wrap:anywhere] text-[12px] leading-relaxed text-ink-soft">
+        <p>Review the captured structure from {structuredSource.sourceName}. Use copies the reviewed values into an independent editable draft. Create saves only your edited content; it does not reread or change the source or share the artifact.</p>
       </div>}
       <FormField label="Name">
         <input

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect } from '@playwright/test'
@@ -81,6 +81,67 @@ async function authoredDocuments(page) {
   })
 }
 
+async function adoptStructuredPreview({ page, browser, item, source, root, endpoint, sessionId }) {
+  const kind = item.format === 'xlsx' ? 'sheet' : item.format === 'pptx' ? 'slide' : null
+  if (!kind) return null
+  const name = `${source}-captured-${kind === 'sheet' ? 'workbook.xlsx' : 'deck.slides'}`
+  const artifactBaseline = await authoredDocuments(page)
+  const workspaceBaseline = await workspace(page, sessionId)
+  const modelRequestCount = endpoint.requests.length
+  await expect(browser.getByRole('button', { name: `Review as new ${kind === 'sheet' ? 'sheet' : 'slides'}`, exact: true })).toBeVisible()
+  await browser.getByRole('button', { name: `Review as new ${kind === 'sheet' ? 'sheet' : 'slides'}`, exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'New artifact', exact: true })
+  await expect(dialog.locator('[data-local-structured-draft]')).toContainText(`Review the captured structure from ${item.path}.`)
+  await expect(dialog.getByRole('combobox', { name: 'Format', exact: true })).toHaveValue(kind)
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('')
+  if (kind === 'sheet') {
+    const importReview = dialog.getByRole('region', { name: 'Imported sheet', exact: true })
+    await expect(dialog.getByLabel('Worksheet', { exact: true })).toHaveValue('1')
+    await expect(importReview.getByRole('alert')).toContainText('at least one data row')
+    await expect(dialog.getByRole('button', { name: 'Use imported sheet', exact: true })).toBeDisabled()
+    const headers = dialog.getByRole('checkbox', { name: 'First row contains column names', exact: true })
+    await expect(headers).toHaveAttribute('aria-checked', 'true')
+    await headers.click()
+    await expect(headers).toHaveAttribute('aria-checked', 'false')
+    await expect(importReview).toContainText('Visible Data')
+    await expect(dialog.getByRole('button', { name: 'Use imported sheet', exact: true })).toBeEnabled()
+    await dialog.getByRole('button', { name: 'Use imported sheet', exact: true }).click()
+    await expect(dialog.getByLabel('Sheet row 1 value 1', { exact: true })).toHaveValue(item.marker)
+    await expect(dialog.getByLabel('Sheet row 1 value 2', { exact: true })).toHaveValue('42')
+    await dialog.getByLabel('Name', { exact: true }).fill(name)
+    await dialog.getByLabel('Sheet row 1 value 1', { exact: true }).fill('Edited from captured workbook')
+  } else {
+    const importReview = dialog.getByRole('region', { name: 'Imported slides', exact: true })
+    await expect(importReview).toContainText(item.marker)
+    await expect(importReview).toContainText('A\tB')
+    await dialog.getByRole('button', { name: 'Use imported slides', exact: true }).click()
+    await expect(dialog.getByLabel('Slide 1 title', { exact: true })).toHaveValue(item.marker)
+    await expect(dialog.getByLabel('Slide 1 bullet 1', { exact: true })).toHaveValue('A\tB')
+    await dialog.getByLabel('Name', { exact: true }).fill(name)
+    await dialog.getByLabel('Slide 1 bullet 1', { exact: true }).fill('Edited from captured deck')
+  }
+  await expect(dialog.getByRole('button', { name: `Create ${kind === 'sheet' ? 'sheet' : 'slides'}`, exact: true })).toBeEnabled()
+  assert.deepEqual(await authoredDocuments(page), artifactBaseline,
+    'opening structured review, choosing Use and editing do not autosave an artifact')
+  assert.equal(endpoint.requests.length, modelRequestCount, 'structured review and edits make no model call')
+  assert.equal(await readFile(join(root, item.path), 'utf8'), 'selected-source-replaced-after-preview',
+    'the source path contains only replacement bytes while the structured preview is adopted')
+  await dialog.getByRole('button', { name: `Create ${kind === 'sheet' ? 'sheet' : 'slides'}`, exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+  const saved = await authoredDocuments(page)
+  const artifact = saved.artifacts.find(candidate => candidate.name === name)
+  assert.ok(artifact, 'ordinary Create saves the reviewed structured draft')
+  assert.equal(artifact.kind, kind)
+  const body = kind === 'sheet'
+    ? { type: 'sheet', columns: ['Column A', 'Column B'], rows: [['Edited from captured workbook', '42']], revision: 0 }
+    : { type: 'slides', slides: [{ title: item.marker, bullets: ['Edited from captured deck'] }], revision: 0 }
+  assert.deepEqual(saved.bodies[artifact.id], body, 'the saved body is the exact edited structured projection')
+  assert.deepEqual(await workspace(page, sessionId), workspaceBaseline, 'artifact creation does not alter conversation state')
+  assert.equal(endpoint.requests.length, modelRequestCount, 'ordinary Create is local and never dispatches a model call')
+  return { id: artifact.id, name, kind, body }
+}
+
 function assertSaved(saved, fixtures, root) {
   assert.equal(saved.attachments.length, fixtures.length, 'only separately attached reviewed documents are saved')
   assert.equal(new Set(saved.attachments.map(item => item.id)).size, fixtures.length, 'each reviewed document has a distinct stable identity')
@@ -151,11 +212,11 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
   }, providerId)
   await page.goto(`${origin}/s/${encodeURIComponent(session.id)}`)
   await page.getByRole('button', { name: 'Add context', exact: true }).click()
-  const picker = page.getByRole('dialog', { name: 'Add context', exact: true })
+  let picker = page.getByRole('dialog', { name: 'Add context', exact: true })
   await picker.getByRole('button', { name: source === 'folder' ? /^Folder/ : /^Repository/ }).click()
   if (source === 'folder') await picker.getByRole('button', { name: 'This computer', exact: true }).click()
   await picker.getByRole('button', { name: `Browse files in ${name}`, exact: true }).click()
-  const browser = picker.locator(`[data-local-${source}-browser]`)
+  let browser = picker.locator(`[data-local-${source}-browser]`)
   await expect(browser.locator(`[data-local-${source}-browser-listing]`)).toHaveCount(0)
   await expect(browser.locator(`[data-local-${source}-file-preview]`)).toHaveCount(0)
   let before = await workspace(page, session.id)
@@ -166,6 +227,21 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
   await expect(browser.locator(`[data-local-${source}-file-preview]`)).toHaveCount(0)
   assert.deepEqual(await workspace(page, session.id), before, 'listing source metadata does not persist documents')
   await verifySourceMetadata?.()
+  const reopenSourceBrowser = async () => {
+    await page.goto(`${origin}/s/${encodeURIComponent(session.id)}`)
+    await page.getByRole('button', { name: 'Add context', exact: true }).click()
+    const nextPicker = page.getByRole('dialog', { name: 'Add context', exact: true })
+    await nextPicker.getByRole('button', { name: source === 'folder' ? /^Folder/ : /^Repository/ }).click()
+    if (source === 'folder') await nextPicker.getByRole('button', { name: 'This computer', exact: true }).click()
+    await nextPicker.getByRole('button', { name: `Browse files in ${name}`, exact: true }).click()
+    const nextBrowser = nextPicker.locator(`[data-local-${source}-browser]`)
+    await nextBrowser.getByRole('button', { name: source === 'folder' ? 'List folder paths' : 'List tracked paths', exact: true }).click()
+    await expect(nextBrowser.getByRole('list', { name: source === 'folder' ? 'Folder paths' : 'Tracked repository paths', exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+    return { picker: nextPicker, browser: nextBrowser }
+  }
+  let createdDocument = null
+  const createdStructured = []
+  let pickerAdded = 0
   const evidenceRoot = await mkdtemp(join(tmpdir(), `agent-commons-${source}-document-browse-`))
   for (const [index, item] of fixtures.entries()) {
     const evidenceKey = item.ocr ? 'pdf-ocr' : item.format
@@ -258,15 +334,24 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
     // OCR above). Attach saves the reviewed text without another source read.
     if (!item.ocr) await writeFile(join(root, item.path), 'selected-source-replaced-after-preview')
     await browser.getByRole('button', { name: 'Attach saved copy', exact: true }).click()
-    await expect(picker).toContainText(`${index + 1} added`, { timeout: TIMEOUT_MS })
+    await expect(picker).toContainText(`${++pickerAdded} added`, { timeout: TIMEOUT_MS })
     await expect(browser.getByRole('button', { name: 'Added', exact: true })).toBeDisabled()
     before = await workspace(page, session.id)
     assertSaved(before, fixtures.slice(0, index + 1), root)
     assert.equal(endpoint.requests.length, requestCount, 'Attach itself never dispatches a model call')
     await verifySourceMetadata?.()
+    if (item.format === 'xlsx' || item.format === 'pptx') {
+      const structured = await adoptStructuredPreview({ page, browser, item, source, root, endpoint, sessionId: session.id })
+      if (structured) createdStructured.push(structured)
+      const reopened = await reopenSourceBrowser()
+      picker = reopened.picker
+      browser = reopened.browser
+      // The picker reports additions during this opening, not the conversation's
+      // durable attachment total (assertSaved above still checks that exact set).
+      pickerAdded = 0
+    }
   }
 
-  let createdDocument = null
   const ocrFixture = fixtures.at(-1)
   if (ocrFixture?.ocr) {
     const preview = browser.getByRole('region', { name: `Preview of ${ocrFixture.path}`, exact: true })
@@ -349,7 +434,7 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
   const expectedFiles = fixtures.map(item => ({ name: item.path, status: 'ready', text: item.text, extraction: item.extraction }))
   await sendSaved(page, endpoint, expectedFiles, fixtures[0].marker, 0)
   console.log(`[desktop-local-document-browse-smoke] ${source}: ${fixtures.length} real native document reads + packaged workers/OCR + exact saved/model metadata + five-viewport evidence: ${evidenceRoot}`)
-  return { sessionId: session.id, saved: await workspace(page, session.id), fixtures: fixtures.map(({ bytes, ...item }) => item), expectedFiles, source, sourceDirectory, root, createdDocument }
+  return { sessionId: session.id, saved: await workspace(page, session.id), fixtures: fixtures.map(({ bytes, ...item }) => item), expectedFiles, source, sourceDirectory, root, createdDocument, createdStructured }
 }
 
 export async function verifyLocalDocumentBrowseRelaunch(run, receipt, endpoint) {
@@ -377,6 +462,15 @@ export async function verifyLocalDocumentBrowseRelaunch(run, receipt, endpoint) 
     assert.equal(artifact?.kind, 'doc')
     assert.deepEqual(authored.bodies[receipt.createdDocument.id], receipt.createdDocument.body,
       'the exact canonical edited Document body survives full relaunch')
+  }
+  assert.equal(receipt.createdStructured?.length, 2, 'both captured Office sources produced structured authored drafts before relaunch')
+  for (const savedDraft of receipt.createdStructured) {
+    const authored = await authoredDocuments(run.page)
+    const artifact = authored.artifacts.find(item => item.id === savedDraft.id)
+    assert.equal(artifact?.name, savedDraft.name, `the ${savedDraft.kind} identity survives relaunch without its source`)
+    assert.equal(artifact?.kind, savedDraft.kind)
+    assert.deepEqual(authored.bodies[savedDraft.id], savedDraft.body,
+      `the exact canonical edited ${savedDraft.kind} body survives source-absent relaunch`)
   }
   const requestCount = endpoint.requests.length
   const route = `${run.origin}/s/${encodeURIComponent(receipt.sessionId)}`

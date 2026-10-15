@@ -6,6 +6,9 @@ import { localBrowseDocumentFormat, MAX_LOCAL_BROWSE_TEXT_BYTES } from '../../co
 import type { LocalFolderFilePreview } from '../../contract/localFolderBrowse.mjs'
 import type { LocalGitFilePreview } from '../../contract/localGitBrowse.mjs'
 import { snapshotPdfOcrInput } from '../../contract/pdfOcr.mjs'
+import type { WorkbookImportResult } from '../../contract/workbookImport.ts'
+import type { PresentationImportResult } from '../../contract/presentationImport.ts'
+import { parseLocalOfficeImportResult } from './localOfficeImportResult.ts'
 
 /** Native containers never enter browser state as read-capable objects. Text
  * retains its fidelity outcome; image previews retain normalized PNG data and
@@ -18,6 +21,10 @@ export interface LocalBrowsePreview {
     { image: ImageSnapshot; original: ImageOriginal; text?: never; omitted?: never } |
     { omitted: 'unsupported' | 'too-large' | 'unreadable' | 'document-extraction' | 'image-import'; text?: never; image?: never; original?: never }
   documentImport?: DocumentImportOutcome
+  /** Detached, bounded structure from the same read as the attachment text.
+   * Kept only for explicit authoring review, never in a saved-copy projection. */
+  workbookImport?: WorkbookImportResult
+  presentationImport?: PresentationImportResult
   imageFailure?: ImageImportFailure
   /** Disposable captured bytes for a separate, explicit on-device recognition.
    * Never part of the saved-copy projection or a native path capability. */
@@ -28,7 +35,14 @@ export type ImageImportFailure = 'invalid' | 'too-large' | 'decode-failed' | 'ti
 
 type DocumentReader = { read(bytes: Uint8Array, signal?: AbortSignal): Promise<unknown> }
 type ReaderLoader = (path: string) => Promise<DocumentReader | undefined>
-const loadReader: ReaderLoader = async path => (await import('./documentFileImport.ts')).documentReaderForName(path)
+const loadReader: ReaderLoader = async path => {
+  const format = localBrowseDocumentFormat(path)
+  if (format === 'xlsx' || format === 'pptx') {
+    const { importLocalOffice } = await import('./localOfficeImport.ts')
+    return { read: (bytes, signal) => importLocalOffice(path, bytes, signal) }
+  }
+  return (await import('./documentFileImport.ts')).documentReaderForName(path)
+}
 type ImageImporter = (bytes: Uint8Array, signal?: AbortSignal) => Promise<unknown>
 type ImageImporterLoader = (path: string) => Promise<ImageImporter | undefined>
 const loadImageImporter: ImageImporterLoader = async () => (await import('./imageImport.ts')).importImage
@@ -131,6 +145,14 @@ export async function prepareLocalFilePreview(
     if (!reader) return failure('unavailable')
     const result = await untilCancelled(reader.read(native.snapshot.document.bytes, signal), signal)
     signal.throwIfAborted()
+    if (ownDataRecord(result) && (Object.hasOwn(result, 'workbookImport') || Object.hasOwn(result, 'presentationImport'))) {
+      if (format !== 'xlsx' && format !== 'pptx') return failure('invalid')
+      const office = parseLocalOfficeImportResult(result, format)
+      const structure = 'workbookImport' in office ? { workbookImport: office.workbookImport } : { presentationImport: office.presentationImport }
+      return { ...base, ...structure, documentImport: office.documentImport,
+        snapshot: office.documentImport.status === 'ready' && office.text !== undefined
+          ? { text: office.text } : { omitted: 'document-extraction' } }
+    }
     if (!ownDataRecord(result) || Object.keys(result).some(key => !['text', 'documentImport'].includes(key)) ||
         !ownDataRecord(result.documentImport) || !isDocumentImportOutcome(result.documentImport) || result.documentImport.format !== format ||
         (result.documentImport.format === 'pdf' && result.documentImport.method !== undefined)) return failure('invalid')

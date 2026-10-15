@@ -100,7 +100,8 @@ test('the shared form dialog can isolate Escape through loaded and deferred moda
     'backdrop dismissal does not also dismiss the parent picker')
   assert.ok(deferred.includes('isolateEscape={isolateEscape}') && deferred.includes('isolateEscape={this.props.isolateEscape}'),
     'both loading fallback and error boundary forward the isolated Escape contract')
-  assert.ok(deferred.includes('<LoadState onClose={props.onClose} isolateEscape={props.initialDocument !== undefined} />') &&
-    deferred.includes('<LoadBoundary onClose={props.onClose} isolateEscape={props.initialDocument !== undefined}>'),
-  'the local-document modal keeps isolation while loading, failed, and loaded')
+  assert.ok(deferred.includes('props.initialDocument !== undefined || props.initialStructured !== undefined') &&
+    deferred.includes('<LoadState onClose={props.onClose} isolateEscape={isolateEscape} />') &&
+    deferred.includes('<LoadBoundary onClose={props.onClose} isolateEscape={isolateEscape}>'),
+  'local-document and structured modals keep isolation while loading, failed, and loaded')
 })

@@ -10,6 +10,49 @@ function native(format: typeof formats[number]): LocalFolderFilePreview {
 const ready = (format: typeof formats[number]) => format === 'pdf'
   ? { format, status: 'ready', pages: 2, textPages: 1 } as const : { format, status: 'ready' } as const
 
+test('one selected Office read retains independently bounded detached structure and exact text', async () => {
+  const workbook = { totalSheets: 1, hiddenSheets: 0, unsupportedSheets: 0,
+    worksheets: [{ sourceSheet: 1, name: 'Data', cells: [{ row: 1, column: 1, value: 'literal' }] }] }
+  const presentation = { totalSlides: 1, hiddenSlides: 0, slides: [{ sourceSlide: 1, paragraphs: ['literal'] }] }
+  for (const format of ['xlsx', 'pptx'] as const) {
+    const key = format === 'xlsx' ? 'workbookImport' : 'presentationImport'
+    const structure = { documentImport: ready(format), ...(format === 'xlsx' ? { workbook } : { presentation }) }
+    for (const textReady of [true, false]) {
+      let reads = 0
+      const preview = await prepareLocalFilePreview(native(format), new AbortController().signal, async () => ({ read: async () => {
+        reads++
+        return { documentImport: textReady ? ready(format) : { format, status: 'text-limit' },
+          ...(textReady ? { text: 'exact\ntext\n' } : {}), [key]: structure }
+      } }))
+      assert.equal(reads, 1)
+      assert.equal(preview.documentImport?.status, textReady ? 'ready' : 'text-limit')
+      assert.equal(preview.snapshot.text, textReady ? 'exact\ntext\n' : undefined)
+      assert.deepEqual(preview[key], structure)
+      assert.notEqual(preview[key], structure)
+      assert.equal('document' in preview.snapshot, false)
+      assert.equal(JSON.stringify(preview).includes('bytes'), false)
+    }
+    const textOnly = await prepareLocalFilePreview(native(format), new AbortController().signal,
+      async () => ({ read: async () => ({ documentImport: ready(format), text: 'still attachable',
+        [key]: { documentImport: { format, status: 'text-limit' } } }) }))
+    assert.equal(textOnly.snapshot.text, 'still attachable')
+    assert.equal(textOnly[key]?.documentImport.status, 'text-limit')
+  }
+})
+
+test('cross-format structure and extra byte fields cannot escape through the combined preview path', async () => {
+  for (const result of [
+    { documentImport: ready('xlsx'), text: 'body', presentationImport: { documentImport: { format: 'pptx', status: 'no-text' } } },
+    { documentImport: ready('xlsx'), text: 'body', workbookImport: { documentImport: { format: 'xlsx', status: 'no-text' } }, bytes: new Uint8Array([1]) },
+  ]) {
+    const preview = await prepareLocalFilePreview(native('xlsx'), new AbortController().signal, async () => ({ read: async () => result }))
+    assert.equal(preview.documentImport?.status, 'invalid')
+    assert.equal(preview.snapshot.text, undefined)
+    assert.equal(preview.workbookImport?.documentImport.status, 'invalid')
+    assert.equal('bytes' in preview, false)
+  }
+})
+
 test('only explicitly enabled selected PDF previews retain detached transient OCR bytes', async () => {
   const bytes = new TextEncoder().encode('%PDF-1.7 captured fixture')
   const input: LocalFolderFilePreview = { version: 1, path: 'scan.pdf', sizeBytes: bytes.length,

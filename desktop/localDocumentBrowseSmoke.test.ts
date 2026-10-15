@@ -5,8 +5,8 @@ import { ignoreFromPackage } from './packager.config.mjs'
 import { localDocumentBrowseFixtures } from './localDocumentBrowseSmoke.mjs'
 import { collectPdfText } from '../contract/pdfTextCollection.mjs'
 import { extractDocx } from '../src/lib/docxExtraction.ts'
-import { extractXlsx } from '../src/lib/xlsxExtraction.ts'
-import { extractPptx } from '../src/lib/pptxExtraction.ts'
+import { extractXlsx, extractXlsxPreview } from '../src/lib/xlsxExtraction.ts'
+import { extractPptx, extractPptxPreview } from '../src/lib/pptxExtraction.ts'
 
 test('packaged selected-document fixtures have exact real PDF and Office extraction oracles', async () => {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
@@ -24,6 +24,25 @@ test('packaged selected-document fixtures have exact real PDF and Office extract
         actual = await extract(item.bytes)
       }
       assert.deepEqual(actual, { text: item.text, documentImport: item.outcome }, `${source} ${item.format} fixture oracle matches actual extraction`)
+      if (item.format === 'xlsx') {
+        const preview = await extractXlsxPreview(item.bytes)
+        assert.deepEqual(preview.workbookImport, {
+          documentImport: { format: 'xlsx', status: 'ready' },
+          workbook: { totalSheets: 2, hiddenSheets: 1, unsupportedSheets: 0, worksheets: [{
+            sourceSheet: 1, name: 'Visible Data', cells: [
+              { row: 1, column: 1, value: item.marker },
+              { row: 1, column: 2, value: '42', formula: 'cached' },
+            ],
+          }] },
+        }, `${source} workbook fixture retains sparse/value/formula structure independently of flattened text`)
+      }
+      if (item.format === 'pptx') {
+        const preview = await extractPptxPreview(item.bytes)
+        assert.deepEqual(preview.presentationImport, {
+          documentImport: { format: 'pptx', status: 'ready' },
+          presentation: { totalSlides: 1, hiddenSlides: 0, slides: [{ sourceSlide: 1, paragraphs: [item.marker, 'A\tB'] }] },
+        }, `${source} deck fixture retains title/table paragraph boundaries independently of flattened text`)
+      }
       assert.ok(item.text.includes(item.marker))
       assert.equal(item.text.includes('selected-hidden-'), false)
     }
@@ -62,7 +81,7 @@ test('packaged connected-source OCR adoption stays review-only until exact Docum
   const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
   const lifecycle = source.slice(source.indexOf('export async function smokeLocalDocumentBrowse('), source.indexOf('export async function verifyLocalDocumentBrowseRelaunch('))
   const lastSavedAttachment = lifecycle.lastIndexOf("name: 'Attach saved copy', exact: true")
-  const adoptionBlock = lifecycle.indexOf('let createdDocument = null')
+  const adoptionBlock = lifecycle.indexOf('const ocrFixture = fixtures.at(-1)')
   const guard = lifecycle.indexOf('if (ocrFixture?.ocr) {')
   const open = lifecycle.indexOf("name: 'Use text in new document'")
   const cancel = lifecycle.indexOf("name: 'Cancel', exact: true", open)
@@ -109,6 +128,34 @@ test('packaged connected-source Document is rechecked after the full source-abse
     'after the generated source directory is absent, relaunch checks the exact authored Document identity and body')
   assert.ok(relaunch.includes('assert.deepEqual(authored.bodies[receipt.createdDocument.id], receipt.createdDocument.body'),
     'relaunch compares the full canonical Document body, including paragraph IDs and edited text')
+})
+
+test('packaged native Office preview adopts captured workbook and deck structure only after explicit Use and Create', () => {
+  const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
+  const loop = source.slice(source.indexOf('for (const [index, item] of fixtures.entries())'), source.indexOf('const ocrFixture = fixtures.at(-1)'))
+  const replace = loop.indexOf("await writeFile(join(root, item.path), 'selected-source-replaced-after-preview')")
+  const attach = loop.indexOf("name: 'Attach saved copy', exact: true", replace)
+  const adopt = loop.indexOf('await adoptStructuredPreview({ page, browser, item, source, root, endpoint, sessionId: session.id })', attach)
+  assert.ok(replace >= 0 && attach > replace && adopt > attach,
+    'the native Office source is replaced after preview and before structured adoption')
+  const helper = source.slice(source.indexOf('async function adoptStructuredPreview('), source.indexOf('/** Only generated source files'))
+  for (const action of ['Review as new', 'Use imported sheet', 'Use imported slides']) {
+    assert.ok(helper.includes(action), `the packaged workflow exercises ${action}`)
+  }
+  assert.ok(helper.includes("Create ${kind === 'sheet' ? 'sheet' : 'slides'}"), 'the workflow commits only through the normal kind-specific Create button')
+  assert.ok(helper.includes("readFile(join(root, item.path), 'utf8')") && helper.includes('selected-source-replaced-after-preview'),
+    'the exact original path contains replacement content during adoption, so the selected result must come from its captured preview')
+  assert.ok(helper.includes('artifactBaseline') && helper.includes('authoredDocuments(page), artifactBaseline'),
+    'review, Use and edits do not autosave before Create')
+  assert.ok(helper.includes('endpoint.requests.length, modelRequestCount'),
+    'review, edit and Create do not dispatch a model call')
+  assert.ok(helper.includes("columns: ['Column A', 'Column B'], rows: [['Edited from captured workbook', '42']]"),
+    'the saved Sheet oracle verifies exact edited cells and generated labels')
+  assert.ok(helper.includes("title: item.marker, bullets: ['Edited from captured deck']"),
+    'the saved Slides oracle verifies exact source slide boundary and edited bullet')
+  const relaunch = source.slice(source.indexOf('export async function verifyLocalDocumentBrowseRelaunch('))
+  assert.ok(relaunch.includes('receipt.createdStructured?.length, 2') && relaunch.includes('exact canonical edited ${savedDraft.kind} body survives source-absent relaunch'),
+    'both canonical Office artifacts are verified after generated source removal and process relaunch')
 })
 
 test('packaged document browsing is awaited for both native sources before source-absent relaunch', () => {

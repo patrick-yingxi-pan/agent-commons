@@ -98,7 +98,8 @@ test('sheet intake requires explicit valid header mapping and adoption before cr
   assert.ok(section.includes('sheetImport.discard()'), 'format changes explicitly discard sheet review')
   assert.ok(section.includes('sheetImport.accept((candidate) => {'))
   assert.ok(section.includes('setSheet(candidate.body)'))
-  assert.ok(hook.includes("useArtifactFileImport(enabled ? 'sheet' : null, reviewArtifactSheetImport)"))
+  assert.ok(hook.includes("useArtifactFileImport(enabled ? 'sheet' : null, reviewArtifactSheetImport, initial)"),
+    'picker and already-captured sources enter the same explicit review lifetime')
   assert.ok(hook.includes("if (mapping?.status !== 'ready') return"), 'invalid header interpretation cannot adopt or discard the review')
   assert.ok(hook.includes('intake.accept('), 'adoption reuses the account and operation fence')
   assert.ok(surface.includes('<ArtifactImportReview '))

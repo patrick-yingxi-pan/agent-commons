@@ -8,7 +8,7 @@ import type { LocalBrowsePreview } from '../lib/localFilePreview.ts'
 import type { PreparedLocalFileSavedCopy } from '../controller/localFileSavedCopyCore.ts'
 import { IMAGE_ORIGINAL_PRIVACY_COPY } from '../lib/imageOriginalDownload.ts'
 import { LocalSavedCopyAction } from './LocalSavedCopyAction.tsx'
-import { LocalPreviewDocumentAction } from './LocalPreviewDocumentAction.tsx'
+import { LocalPreviewArtifactAction } from './LocalPreviewArtifactAction.tsx'
 
 const PAGE_SIZE = 100
 type Entry = { path: string; kind: string }
@@ -152,7 +152,7 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
             isCurrent={isCurrent} subscribeCurrent={subscribeCurrent} onAttach={onAttach} />}
       </div>}
     </div>}
-    <LocalPreviewDocumentAction preview={state.preview} receipt={receipt} disabled={!enabled || state.pending} isCurrent={isCurrent} />
+    <LocalPreviewArtifactAction preview={state.preview} receipt={receipt} disabled={!enabled || state.pending} isCurrent={isCurrent} />
     {afterContent}
   </section>
 }
