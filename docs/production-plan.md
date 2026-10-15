@@ -51,7 +51,33 @@ authorized by this review. Paid-provider acceptance is deferred while unsigned
 release preparation continues. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: native release-host enforcement
+## Current checkpoint: exact external-tool text
+
+The 2026-10-15 static interoperability audit found a concrete result-admission
+gap: a valid file-text result containing a form feed, NUL or another Unicode
+control was treated as malformed. The shared parser had applied display-label
+restrictions to body data. Inspection of the official filesystem server archive
+and [MCP text schema](https://raw.githubusercontent.com/modelcontextprotocol/modelcontextprotocol/main/schema/2025-11-25/schema.ts)
+motivated a local-authored reproduction; no third-party package was installed or
+executed and no service call was made.
+
+The result funnel now separates well-formed body Unicode from printable metadata.
+Text and embedded-resource bodies remain exact, while names, titles, URIs, MIME
+types and annotation timestamps retain their prior restrictions. Malformed
+surrogates, the aggregate escaped-JSON byte bound and all execution/consent gates
+remain unchanged. Controls never acquire terminal or HTML execution semantics.
+Both provider history projections retain their existing JSON data framing.
+
+The parser, authored legacy stdio call, JSON/SQLite compaction/restart and history
+regressions failed against the previous parser. Deliberately removing metadata
+restrictions or widening the JSON budget also failed the new locks before
+restoration. The complete frozen-tree local verifier remains the landing gate;
+its result belongs in the delivery handoff. This fixes one demonstrated
+compatibility issue, not the pending live third-party acceptance gate. Paid
+provider tests remain deferred. Native observation is unavailable while the Mac
+is locked; no new native or signed/Intel acceptance is claimed.
+
+## Previous checkpoint: native release-host enforcement
 
 The 2026-10-15 release review found that the candidate command used Node's
 process architecture without checking translation. An actual x64 Node running

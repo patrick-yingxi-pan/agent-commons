@@ -14,6 +14,15 @@ const persistenceModule = new URL('./persist.ts', import.meta.url).href
 const formatModule = new URL('./format.ts', import.meta.url).href
 const connectorToolsModule = new URL('../model/connectorTools.ts', import.meta.url).href
 const connectorRuntimeModule = new URL('../connectorRuntime.ts', import.meta.url).href
+const returnedText = 'durable result\u0000\u000c\u001b[31m\u0085 café 🧪'
+const returnedResult = {
+  resultType: 'complete', isError: false,
+  content: [
+    { type: 'text', text: returnedText },
+    { type: 'resource', resource: { uri: 'urn:returned-text', text: returnedText } },
+  ],
+  structuredContent: { content: returnedText },
+}
 
 after(() => rmSync(ROOT, { recursive: true, force: true }))
 
@@ -56,8 +65,9 @@ for (const backend of ['json', 'sqlite'] as const) {
       const completeReceipt = 'tool-activity-decision-ffffffffffffffffffffffff';
       store.beginMcpToolActivityExecution(completeSession.id, complete.id, completeReceipt, store.defaultTenantId());
       store.settleMcpToolActivityExecution(completeSession.id, complete.id, completeReceipt, store.defaultTenantId(), {
-        status: 'done', summary: 'Completed', result: { resultType: 'complete', content: [{ type: 'text', text: 'durable result' }], isError: false },
+        status: 'done', summary: 'Completed', result: ${JSON.stringify(returnedResult)},
       });
+      if (store.getToolActivity(completeSession.id, complete.id)?.status !== 'done') throw new Error('The valid control-bearing result must settle before compaction');
       for (let index = 0; index < 6; index += 1) {
         store.appendMessage(completeSession.id, { id: store.mintMessageId(index % 2 === 0 ? 'user' : 'assistant'), role: index % 2 === 0 ? 'user' : 'assistant', content: 'Compaction filler ' + index });
       }
@@ -90,7 +100,7 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.equal(recovered.replay.status, 'uncertain', 'the represented receipt cannot reacquire execution')
     assert.equal(recovered.completeActive, undefined, 'active execution lookup does not reopen an archived call')
     assert.equal(recovered.complete.status, 'done')
-    assert.equal(recovered.complete.mcpResult.content[0].text, 'durable result')
+    assert.deepEqual(recovered.complete.mcpResult, returnedResult, 'exact control-bearing text survives compaction and process restart')
     assert.equal(recovered.failedBeforeProposal.status, 'failed')
     assert.equal(recovered.failedBeforeProposal.decisionId, undefined, 'pre-proposal validation failure has no consent receipt')
     assert.equal(recovered.failedBeforeProposal.mcpResult, undefined)

@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { messageHistoryText, TOOL_HISTORY_MAX_BYTES, TOOL_RECEIPT_DATA_LABEL } from './toolActivityHistory.ts'
+import { parseMcpToolResult, MCP_TOOL_RESULT_MODERN_VERSION } from './mcpToolResult.ts'
 
 const activity = { id: 'call', tool: 'opaque', connector: 'Remote', connectorId: 'mcp-connection-test', kind: 'action', summary: 'Awaiting confirmation',
   mcp: { toolName: 'read_value', connectionRevision: 1, schemaHash: 'a'.repeat(64) } }
@@ -36,6 +37,20 @@ test('oversized bodies are explicitly omitted without losing any receipt status'
 
 test('ordinary conversation text stays verbatim', () => {
   assert.equal(messageHistoryText({ id: 'plain', role: 'user', content: 'Literal\ntext.' }), 'Literal\ntext.')
+})
+
+test('accepted control-bearing tool text stays exact inside JSON-framed model history', () => {
+  const text = 'page one\u000cpage two\u0000\u001b[31m\u0085 🧪'
+  const mcpResult = parseMcpToolResult({ resultType: 'complete', content: [
+    { type: 'text', text }, { type: 'resource', resource: { uri: 'urn:body', text } },
+  ], structuredContent: { content: text } }, MCP_TOOL_RESULT_MODERN_VERSION)
+  const output = messageHistoryText({ id: 'reply', role: 'assistant', content: 'Read result.', toolActivities: [{ ...activity, status: 'done', mcpResult }] })
+  const [receipt] = JSON.parse(output.split(`${TOOL_RECEIPT_DATA_LABEL}\n`)[1])
+  assert.equal(receipt.result.content[0].text, text)
+  assert.equal(receipt.result.content[1].text, text)
+  assert.equal(receipt.result.structuredContent.content, text)
+  assert.equal(receipt.submission, 'result-received')
+  assert.doesNotMatch(output, /[\u0000\u000c\u001b]/u, 'JSON framing escapes C0 characters without changing retained data')
 })
 
 test('MCP history distinguishes unsent failures, returned errors and unknown submission even when bodies are omitted', () => {

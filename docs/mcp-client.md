@@ -334,7 +334,14 @@ HTTP tool definitions rather than exposing them as callable tools.
 (1 MiB, depth 32, 16,384 nodes, 128 content blocks). It retains supported text,
 image, audio, resource links and embedded resources as inert data, never fetching
 links or decoding media into host actions. Structured output may be any JSON
-value, including arrays and null. A tool's `isError` remains explicit; malformed
+value, including arrays and null. Text bodies and embedded resource text retain
+well-formed Unicode verbatim, including JSON-escaped control characters such as
+form feeds in returned file text. They are data, not display labels: names,
+titles, URIs, MIME types and annotation timestamps retain their printable checks.
+The complete escaped JSON still counts against the same byte bound, and
+malformed surrogate sequences are refused. Local-authored stdio, JSON/SQLite
+restart and model-history tests lock this distinction; they do not establish
+third-party server acceptance. A tool's `isError` remains explicit; malformed
 or oversized results never become truncated successes. Modern complete results
 require their discriminator. Ordinary product callers refuse `input_required` with a fixed error,
 without exposing opaque continuation state or adopting a remote request.

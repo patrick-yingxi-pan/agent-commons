@@ -33,7 +33,10 @@ export class McpToolResultError extends Error {
 }
 
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
-function printable(value: unknown, max = 4096, multiline = false): value is string {
+/** Body data is not a display label: valid Unicode controls (for example a
+ * file's form feeds) stay exact. The JSON snapshot already charges escaped
+ * bytes; this check retains the existing malformed-Unicode refusal. */
+function unicodeText(value: unknown, max: number): value is string {
   if (typeof value !== 'string' || Array.from(value).length > max) return false
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index)
@@ -43,6 +46,13 @@ function printable(value: unknown, max = 4096, multiline = false): value is stri
       continue
     }
     if (code >= 0xdc00 && code <= 0xdfff) return false
+  }
+  return true
+}
+function printable(value: unknown, max = 4096, multiline = false): value is string {
+  if (!unicodeText(value, max)) return false
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
     if (code < 0x20 && !(multiline && (code === 0x09 || code === 0x0a || code === 0x0d))) return false
     if (code >= 0x7f && code <= 0x9f) return false
   }
@@ -76,7 +86,7 @@ function contentBlock(value: unknown): McpToolContent {
   const annotations = annotation(value.annotations)
   switch (value.type) {
     case 'text':
-      if (!printable(value.text, MCP_TOOL_RESULT_MAX_BYTES, true)) return fail()
+      if (!unicodeText(value.text, MCP_TOOL_RESULT_MAX_BYTES)) return fail()
       return { type: 'text', text: value.text, ...(annotations === undefined ? {} : { annotations }) }
     case 'image':
     case 'audio':
@@ -100,7 +110,7 @@ function contentBlock(value: unknown): McpToolContent {
       const resourceUri = resource.uri
       const resourceMime = resource.mimeType
       const resourceAnnotations = annotation(resource.annotations)
-      if (typeof resource.text === 'string' && resource.blob === undefined && printable(resource.text, MCP_TOOL_RESULT_MAX_BYTES, true)) {
+      if (typeof resource.text === 'string' && resource.blob === undefined && unicodeText(resource.text, MCP_TOOL_RESULT_MAX_BYTES)) {
         const text = resource.text
         return { type: 'resource', resource: { uri: resourceUri, ...(resourceMime === undefined ? {} : { mimeType: resourceMime }), text, ...(resourceAnnotations === undefined ? {} : { annotations: resourceAnnotations }) }, ...(annotations === undefined ? {} : { annotations }) }
       }

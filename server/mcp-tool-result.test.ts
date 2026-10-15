@@ -29,6 +29,39 @@ test('accepts multiline text and valid astral Unicode without invoking remote ge
   assert.equal((result.content[0] as { text: string }).text, 'line one\n\tline two 🦦')
 })
 
+test('preserves JSON control characters in body text while keeping presentation metadata strict', () => {
+  const controls = [...Array.from({ length: 32 }, (_, index) => index), ...Array.from({ length: 33 }, (_, index) => index + 127)]
+  const body = `start${String.fromCharCode(...controls)} café 🧪 end`
+  for (const version of [...MCP_TOOL_RESULT_LEGACY_VERSIONS, MCP_TOOL_RESULT_MODERN_VERSION]) {
+    const complete = version === MCP_TOOL_RESULT_MODERN_VERSION ? { resultType: 'complete' } : {}
+    const result = parseMcpToolResult({ ...complete, content: [
+      { type: 'text', text: body },
+      { type: 'resource', resource: { uri: 'urn:control-text', mimeType: 'text/plain', text: body } },
+    ] }, version)
+    assert.equal((result.content[0] as { text: string }).text, body, version)
+    assert.equal((result.content[1] as { resource: { text: string } }).resource.text, body, version)
+  }
+
+  const invalidMetadata = [
+    { type: 'resource_link', uri: 'https://example.test/file', name: 'bad\u0000name' },
+    { type: 'resource_link', uri: 'https://example.test/file', name: 'file', title: 'bad\u001btitle' },
+    { type: 'resource_link', uri: 'https://example.test/\u0000file', name: 'file' },
+    { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png\u0000' },
+    { type: 'text', text: 'body', annotations: { lastModified: '2026-10-15\u0085' } },
+  ]
+  for (const block of invalidMetadata) assert.throws(() => parseMcpToolResult({ resultType: 'complete', content: [block] }, MCP_TOOL_RESULT_MODERN_VERSION), McpToolResultError)
+  for (const bodyWithInvalidSurrogate of ['unpaired\ud800', 'unpaired\udfff']) {
+    assert.throws(() => parseMcpToolResult({ resultType: 'complete', content: [{ type: 'text', text: bodyWithInvalidSurrogate }] }, MCP_TOOL_RESULT_MODERN_VERSION), McpToolResultError)
+  }
+  assert.throws(() => parseMcpToolResult({ resultType: 'complete', content: [{ type: 'resource', resource: {
+    uri: 'urn:invalid-surrogate', text: 'unpaired\ud800',
+  } }] }, MCP_TOOL_RESULT_MODERN_VERSION), McpToolResultError)
+})
+
+test('escaped control text still counts against the total JSON byte bound', () => {
+  assert.throws(() => parseMcpToolResult({ resultType: 'complete', content: [{ type: 'text', text: '\u0000'.repeat(180_000) }] }, MCP_TOOL_RESULT_MODERN_VERSION), McpToolResultError)
+})
+
 test('accepts absent resultType only for supported legacy protocol versions', () => {
   for (const version of MCP_TOOL_RESULT_LEGACY_VERSIONS) {
     assert.equal(parseMcpToolResult({ content: [] }, version).isError, false)

@@ -119,6 +119,36 @@ test('legacy fallback closes the failed probe before one fresh initialize and li
   assert.equal(h.opened[1]?.requests[0]?.params.protocolVersion, MCP_LEGACY_VERSIONS[0])
 })
 
+test('legacy filesystem-shaped result preserves control-bearing text through one authored tools/call', async () => {
+  const text = `before\u0000\u0001\u000c\u001b\u007f\u0085\u009f café 🧪 after`
+  const h = harness([
+    () => rpcError(-32601, 'unknown method'),
+    (method, params) => {
+      if (method === 'initialize') return legacy()
+      if (method === 'tools/call') {
+        assert.deepEqual(params, { name: 'read_text_file', arguments: { path: '/fixture/control-text.txt' } })
+        return rpc({ content: [{ type: 'text', text }], structuredContent: { content: text } })
+      }
+      throw new Error(`unexpected ${method}`)
+    },
+  ])
+
+  const result = await h.client.callTool({
+    tool: { name: 'read_text_file', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } },
+    arguments: { path: '/fixture/control-text.txt' },
+  }, h.requestOptions)
+
+  assert.equal(result.protocolVersion, MCP_LEGACY_VERSIONS[0])
+  assert.equal((result.result.content[0] as { text: string }).text, text)
+  assert.deepEqual(result.result.structuredContent, { content: text })
+  assert.equal(h.opened.length, 2)
+  assert.equal(h.opened[0]?.closeCount, 1, 'the failed modern probe is closed before legacy fallback')
+  assert.equal(h.opened[1]?.initializedCount, 1)
+  assert.equal(h.opened[1]?.closeCount, 1, 'the completed tool transaction closes its one legacy process')
+  assert.equal(h.opened[1]?.requests.filter(row => row.method === 'tools/call').length, 1)
+  assert.deepEqual(h.opened[1]?.requests.map(row => row.method), ['initialize', 'tools/call'])
+})
+
 test('recognized modern errors and unsupported modern versions never fall back; unconfirmed probe close refuses fallback', async () => {
   for (const reply of [rpcError(-32020), rpcError(-32021), rpcError(-32022)]) {
     const h = harness([() => reply])
