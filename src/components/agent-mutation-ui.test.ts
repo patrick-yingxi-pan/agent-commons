@@ -5,6 +5,8 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('Agent configuration has one recovery door and the editor replays only user-dirty fields', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const dialog = stripComments(read(join(ROOT, 'src', 'components', 'AgentDialog.tsx')))
+  const form = stripComments(read(join(ROOT, 'src', 'components', 'FormDialog.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'agentMutations.ts')))
 
@@ -12,15 +14,16 @@ test('Agent configuration has one recovery door and the editor replays only user
     'Agent surfaces enter the acknowledgement queue, not the transport door')
   assert.doesNotMatch(section, /updateAgent,[\s\S]*from '\.\.\/api'/,
     'the component cannot retain a second unconditional command path')
-  assert.match(section, /const original = useRef\(agent\)\.current/,
+  assert.match(dialog, /const original = useRef\(agent\)\.current/,
     'ambient refresh cannot reinterpret remote fields as this form’s intent')
-  assert.match(section, /providerChanged[\s\S]*promptChanged[\s\S]*toolsChanged/,
+  assert.match(dialog, /providerChanged[\s\S]*promptChanged[\s\S]*toolsChanged/,
     'binding and grant fields have explicit dirty semantics')
-  assert.match(section, /const outcome = await updateAgent\(agent\.id, fields\)/,
+  assert.match(dialog, /const outcome = await updateAgent\(agent\.id, fields\)/,
     'the exact sparse patch stays held through recovery')
-  assert.match(section, /<fieldset disabled=\{busy\}/,
+  assert.match(dialog, /busy=\{busy\}/)
+  assert.match(form, /fieldsDisabled = busy[\s\S]*<fieldset disabled=\{fieldsDisabled\}/,
     'a queued draft cannot keep changing underneath its frozen retry payload')
-  assert.match(section, /agent && !agent\.providerId[\s\S]*Choose a provider/,
+  assert.match(dialog, /agent && !agent\.providerId[\s\S]*Choose a provider/,
     'an existing unbound Agent cannot display an unsaved default provider')
   assert.match(controller, /createRevisionedMutationController<Agent, AgentConfigurationPatch>/,
     'Agent edits reuse the proven FIFO/reconcile/idempotency mechanism')

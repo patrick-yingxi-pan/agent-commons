@@ -38,6 +38,7 @@
  *    /models/:providerId    a model provider's canonical detail page
  *    /agents/prompts/:id    one reusable system-prompt material
  *    /agents/tools/:id      one callable tool material
+ *    /agents/requests/:id   one private Agent-to-Agent request
  *    /admin/users/:userId   an account's detail page in the maintainer console
  *                           (nested under `users` so the reserved admin
  *                           subview ids can never collide)
@@ -83,6 +84,7 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   }
   if (loc.promptId) return `/agents/prompts/${encodeURIComponent(loc.promptId)}`
   if (loc.toolId) return `/agents/tools/${encodeURIComponent(loc.toolId)}`
+  if (loc.agentRequestId) return `/agents/requests/${encodeURIComponent(loc.agentRequestId)}`
   if (loc.agentId) return `/agents/${encodeURIComponent(loc.agentId)}`
   // PaneSeed is deliberately shared, so stale persisted state can carry a
   // field its host does not understand. Do not manufacture group URLs outside
@@ -196,6 +198,9 @@ export function viewForPath(pathname: string): RoutedView | null {
   }
   if (section === 'agents' && segs.length === 3 && segs[1] === 'tools' && segs[2]) {
     return { loc: { ...base, toolId: segs[2] }, subview: null }
+  }
+  if (section === 'agents' && segs.length === 3 && segs[1] === 'requests' && segs[2]) {
+    return { loc: { ...base, agentRequestId: segs[2] }, subview: null }
   }
   // The maintainer console's account detail (FWD-7 v1.1) — nested under a
   // static `users` segment so it can never collide with the reserved admin

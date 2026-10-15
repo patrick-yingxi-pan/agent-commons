@@ -28,6 +28,7 @@ let knownEpoch: string | null = null
 function invalidateRoutineMcpReviews(): void {
   invalidatePrefix(keys.scheduleMcpPermission())
   invalidatePrefix(keys.commissionMcpPermission())
+  invalidatePrefix('agent-request-review:')
 }
 
 /** Profile and search projections share the public findability boundary. */
@@ -174,6 +175,7 @@ function route(e: ServerEvent): void {
     // both projections rather than shipping a raw owner id to the browser.
     case 'agent.changed':
       invalidate(keys.workerAgents)
+      invalidate(keys.agentRequestOptions)
       invalidateRoutineMcpReviews()
       if (e.scope === 'directory') {
         invalidatePrefix(keys.directoryAgents())
@@ -184,6 +186,11 @@ function route(e: ServerEvent): void {
     case 'provider.changed':
       invalidate(keys.providers)
       invalidateRoutineMcpReviews()
+      break
+    case 'agent-request.changed':
+      invalidate(keys.agentRequests)
+      invalidate(keys.agentRequest(e.requestId))
+      invalidate(keys.agentRequestReview(e.requestId))
       break
     case 'systemprompt.changed':
       invalidate(keys.systemPrompts)

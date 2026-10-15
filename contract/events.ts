@@ -32,6 +32,13 @@ export interface MessageStartEvent {
   /** The shell of the assistant message; `content` fills in via deltas. */
   message: Message
 }
+
+/** Person-scoped invalidation; the private registry resolves its two readers.
+ * No participant, task, connection, argument, result or reply rides this event. */
+export interface AgentRequestChangedEvent {
+  type: 'agent-request.changed'
+  requestId: string
+}
 export interface MessageDeltaEvent {
   type: 'message.delta'
   sessionId: string
@@ -492,6 +499,7 @@ export interface HelloEvent {
 }
 
 export type ServerEvent =
+  | AgentRequestChangedEvent
   | HelloEvent
   | MessageStartEvent
   | MessageDeltaEvent

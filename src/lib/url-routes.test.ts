@@ -58,6 +58,13 @@ test('project and routine details round-trip', () => {
   assert.deepEqual(viewForPath('/projects/mine'), { loc: section({ projectId: 'mine' }), subview: null })
 })
 
+test('private Agent request details use their canonical nested address', () => {
+  const loc = section({ section: 'agents', agentRequestId: 'agent-request-a/b' })
+  assert.equal(pathForView(loc, null), '/agents/requests/agent-request-a%2Fb')
+  assert.deepEqual(viewForPath('/agents/requests/agent-request-a%2Fb'), { loc, subview: null })
+  assert.deepEqual(viewForPath('/agents/requests'), { loc: section({ section: 'agents' }), subview: 'requests' })
+})
+
 test('every composite section is a canonical page between its parent and resources', async () => {
   const { OWNER_PROFILE_SECTIONS, PROJECT_SECTIONS, SCHEDULE_SECTIONS } = await import('./compositeSections.ts')
   for (const projectSection of PROJECT_SECTIONS) {

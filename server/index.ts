@@ -168,6 +168,7 @@ server.listen(PORT, HOST, () => {
   // traffic. Stop admission immediately if a later durable commit faults.
   commissionMcpRunner.start()
   const unsubscribeCommissionFault = store.subscribePersistenceFault(() => { void commissionMcpRunner.stop() })
+  const unsubscribeAgentRequestFault = store.subscribePersistenceFault(() => { void store.stopAgentRequests() })
   // Waiting person reviews own no open remote session and never resume I/O on
   // restart. Local expiry only releases their private state and history hold.
   store.expireMcpInputReviews()
@@ -197,12 +198,13 @@ server.listen(PORT, HOST, () => {
     stopScheduler()
     routineRunner.stop()
     unsubscribeCommissionFault()
-    const commissionMcpStopped = commissionMcpRunner.stop()
+    unsubscribeAgentRequestFault()
+    const backgroundStopped = Promise.all([commissionMcpRunner.stop(), store.stopAgentRequests()])
     clearInterval(inputReviewExpiry)
     // Wait within the process drain bound. If the hard fallback wins, an
     // already-sent call keeps its durable pending receipt; startup converts it
     // to uncertainty and never replays it. Shutdown cannot undo a remote effect.
-    server.close(() => { void commissionMcpStopped.then(() => process.exit(0)) })
+    server.close(() => { void backgroundStopped.then(() => process.exit(0)) })
     // Let normal in-flight requests finish, then force-close lingering streams so close()
     // can complete; a hard fallback guarantees exit even then. Both unref'd so they never
     // keep the process alive on their own.

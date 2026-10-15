@@ -15,3 +15,13 @@ test('a direct detail Back falls through to the section root when no history ent
   assert.match(onBack, /else setFocus\(NO_FOCUS\)/, 'a direct deep link clears detail focus to its structural section root')
   assert.match(onBack, /setFocus\(stack\[stack\.length - 1\] \?\? NO_FOCUS\)/, 'local pane history still restores its exact prior focus')
 })
+
+test('Agent request detail navigation is a canonical pane focus with Requests as its return surface', () => {
+  const pane = stripComments(read(join(ROOT, 'src', 'components', 'SectionPane.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  assert.match(pane, /initialSub \?\? \(initialFocus\?\.agentRequestId \? 'requests' : null\)/)
+  assert.match(pane, /focusRequestId=\{focus\.agentRequestId\}/)
+  assert.match(pane, /onOpenRequest=\{\(id\) =>[\s\S]*?navigate\(\{ agentRequestId: id \}\)/)
+  assert.match(view, /focusRequestId \|\| subview === 'requests'[\s\S]*?<AgentRequestsPage requestId=\{focusRequestId\}/)
+  assert.match(view, /<AgentRequestsSummary onOpenRequest=\{onOpenRequest\}/)
+})

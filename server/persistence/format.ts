@@ -77,6 +77,8 @@ import type { InitialWorld } from '../initialWorld.ts'
 import { parseMcpConnectionState, type McpConnectionState } from '../mcpConnections.ts'
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
 import { parseAgentOwnership, validateAgentOwnershipJoins, type AgentOwnership } from '../agentOwnership.ts'
+import { parseProxyRequests, validateProxyRequestJoins } from '../proxyRequestRegistry.ts'
+import type { StoredProxyRequest } from '../proxyRequestState.ts'
 import { parseMcpInputFlows, validateMcpInputFlows, type McpInputFlow } from '../mcpInputState.ts'
 import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
@@ -390,6 +392,8 @@ export interface PersistedState {
   /** Private immutable person provenance, with retirement retained for history.
    * Legacy absence stays unbound; this is never a live execution grant. */
   agentOwnership?: AgentOwnership[]
+  /** Exact person-private request history; legacy absence means no requests. */
+  agentRequests?: StoredProxyRequest[]
   /** Durable tombstones for keyed Agent creation and Agent forks. A delayed
    * Retry cannot recreate a definition explicitly removed on another device. */
   retiredAgentCreationIds?: string[]
@@ -594,6 +598,7 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   registryDefaults: 'mapEntries',
   agents: 'mapEntries',
   agentOwnership: 'array',
+  agentRequests: 'array',
   retiredAgentCreationIds: 'array',
   commissions: 'mapEntries',
   commissionCaps: 'mapEntries',
@@ -1152,6 +1157,8 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   }
   try {
     if (!validateAgentOwnershipJoins(parseAgentOwnership(state?.agentOwnership), state!)) return false
+    if (!validateProxyRequestJoins(parseProxyRequests(state?.agentRequests), parseAgentOwnership(state?.agentOwnership),
+      parseMcpConnectionState(state?.mcpConnections))) return false
   } catch { return false }
   const record = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object' && !Array.isArray(value)

@@ -42,6 +42,7 @@ import {
   useProviders,
   useSystemPrompts,
 } from '../api'
+import { useAgentRequests } from '../api/agentRequests.ts'
 import { useRelations } from '../controller/useRelations'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { resolveSavedContext } from '../lib/savedContextIdentity.ts'
@@ -583,6 +584,8 @@ export function AgentTreeChildren({
   const ownsOpenAgent = !!activeSeed?.agentId && agents.some((agent) => agent.id === activeSeed.agentId)
   const activeTop = activeSeed?.agentId
     ? (ownsOpenAgent ? 'ready-agents' : 'discover')
+    : activeSeed?.agentRequestId
+      ? 'coordination'
     : activeSeed?.promptId || activeSeed?.toolId
       ? 'building-blocks'
       : agentSectionForSubview(activeSubview)?.id ?? null
@@ -607,7 +610,7 @@ export function AgentTreeChildren({
       }
       return changed ? next : current
     })
-  }, [activeTop, activeSubview, activeSeed?.promptId, activeSeed?.toolId])
+  }, [activeTop, activeSubview, activeSeed?.promptId, activeSeed?.toolId, activeSeed?.agentRequestId])
   useEffect(() => {
     if (!foldSignal) return
     const nodes = [
@@ -720,7 +723,21 @@ export function AgentTreeChildren({
                     </AgentMaterialBranch>
                   </>
                 ) : section.id === 'coordination' ? (
-                  section.children.map((child) => (
+                  section.children.map((child) => child.id === 'requests' ? (
+                    <Fragment key={child.id}>
+                      <SubNavRow
+                        nodeKey={railNodeKey('section', 'agents', 'section', section.id, 'subview', child.id)}
+                        label={child.label}
+                        kind="view"
+                        active={activeSubview === child.id && !activeSeed?.agentRequestId}
+                        onClick={() => onOpenSubview(child.id)}
+                      />
+                      <AgentRequestsRail
+                        activeId={activeSeed?.agentRequestId ?? null}
+                        onOpen={(id) => onOpenDetail('agents', { agentRequestId: id })}
+                      />
+                    </Fragment>
+                  ) : (
                     <SubNavRow
                       key={child.id}
                       nodeKey={railNodeKey('section', 'agents', 'section', section.id, 'subview', child.id)}
@@ -737,6 +754,37 @@ export function AgentTreeChildren({
         )
       })}
     </>
+  )
+}
+
+/** Mounted only while Coordination is expanded; opening unrelated Agents
+ * branches does not fetch the private request history. Labels show task text,
+ * never the private request id. */
+function AgentRequestsRail({ activeId, onOpen }: {
+  activeId: string | null
+  onOpen: (id: string) => void
+}) {
+  const query = useAgentRequests()
+  const rows = query.data ?? []
+  if (query.status === 'loading' && !query.data) return <NoRowsRow>Loading requests…</NoRowsRow>
+  if (query.status === 'error' && !query.data) return <NoRowsRow>Requests unavailable.</NoRowsRow>
+  if (rows.length === 0) return <NoRowsRow>No Agent requests yet.</NoRowsRow>
+  return (
+    <RailTreeBranch data-agent-material="requests">
+      {rows.map((row) => {
+        const nodeKey = railNodeKey('section', 'agents', 'section', 'coordination', 'subview', 'requests', 'item', row.id)
+        return (
+          <SubNavRow
+            key={row.id}
+            nodeKey={nodeKey}
+            label={row.task || 'Agent request'}
+            title={row.task || 'Agent request'}
+            active={activeId === row.id}
+            onClick={() => onOpen(row.id)}
+          />
+        )
+      })}
+    </RailTreeBranch>
   )
 }
 

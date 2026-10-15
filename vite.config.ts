@@ -39,6 +39,9 @@ export default defineConfig({
           // A shared label formatter must not pull the full navigation pane
           // into lazy resource panels through a parent-owned helper export.
           if (path.endsWith('/src/lib/countLabel.ts')) return 'resource-presentation'
+          // Prompt fit is shared only by deferred section/form graphs. Keep it
+          // independent so neither parent-owned exports nor the cold boot grow.
+          if (path.endsWith('/contract/prompts.ts')) return 'prompt-policy'
           // Shared pure policy must not make a lazy work draft import the
           // entire SectionPane through Rollup's parent-owned helper exports.
           // Graph budgets still count these bytes at every cold entry.

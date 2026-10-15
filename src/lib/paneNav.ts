@@ -55,6 +55,8 @@ export interface PaneSeed {
   promptId?: string
   /** A built-in callable material under Agents → Building blocks. */
   toolId?: string
+  /** A private Agent request (`/agents/requests/:id`). */
+  agentRequestId?: string
   contextId?: string
   adminUserId?: string
   /** A discussion's page under the discussions section (social S2). */
@@ -76,7 +78,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerSectionId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'artifactRevision', 'artifactMatch', 'providerId'] as const
+export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerSectionId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'agentRequestId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'artifactRevision', 'artifactMatch', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -136,6 +138,7 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   if (section === 'agents') {
     if (subId === 'prompts') return { promptId: id }
     if (subId === 'tools') return { toolId: id }
+    if (subId === 'requests') return { agentRequestId: id }
     return { agentId: id }
   }
   if (section === OWNER_SECTION) return { ownerName: id }

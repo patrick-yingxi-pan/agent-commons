@@ -47,28 +47,41 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current milestone: owner-reviewed Agent requests
+## Current milestone: owner-reviewed Agent requests — local workflow implemented
 
 Autonomous direction (2026-10-14): finish D15 as a real request/consent/reply
-workflow. The current proxy route is a development fixture, not an executor or
-an owner inbox. A request asks for an outcome in ordinary prose; it never names
-or borrows another person's private connection. The receiving owner selects and
-reviews one exact MCP call under their Agent's current authority, explicitly
-runs it, then separately reviews the text to share. Raw results, arguments and
-connection identity remain owner-private. A tool result is not automatically a
-safe reply. Shared Project work still belongs to the Guardian channel.
+workflow. The new Agent Requests path now has a private durable registry and
+store host, bounded executor, authenticated routes, event invalidations, and
+requester/history and owner-inbox UI. A request asks for an outcome in ordinary
+prose; it never names or borrows another person's private connection. The
+receiving owner selects and reviews one exact MCP call under their Agent's
+current authority, explicitly runs it, then separately reviews the text to
+share. Raw results, arguments and connection identity remain owner-private. A
+tool result is not automatically a safe reply. Shared Project work still
+belongs to the Guardian channel.
 
-The first prerequisite is `server/proxyRequestState.ts`: a pure private state
-kernel with exact person/namespace anchors, closed bounded input, one immutable
+The implementation uses `server/proxyRequestState.ts` as its strict private
+state kernel, with exact person/namespace anchors, bounded input, one immutable
 call receipt, owner-only Run/Share, either-party cancellation, and explicit
-restart uncertainty. Cancellation closes sharing without discarding an in-flight
-call or a late known result. The kernel performs no I/O or persistence and grants
-no authority; it is not wired into the current fixture, routes or UI. Its strict
-parser and hash detect malformed/mixed state, not tampering by a privileged host.
-The fifteen focused state tests were each watched fail across two deliberate
-negative-control runs, then pass after restoration. The full local verifier is
-still the mandatory landing gate for this prerequisite; its pass is not the
-end-to-end D15 acceptance described below.
+restart uncertainty. The registry, host and executor add strict JSON/SQLite
+joins, exact keyed replay, commit-before-I/O, live authority checks across
+waits, and capacity held until physical settlement. Ordinary restart interrupts
+pending work without replay. Explicit portable restore fences old waiting work
+without inventing a human denial/cancellation; fresh approval cannot run that
+restored request. Cancellation closes sharing without discarding an in-flight
+call or a late known result. The strict parser and hash detect malformed/mixed
+state, not tampering by a privileged host. Local focused tests cover these
+boundaries, including portable and comprehensive snapshot history, but do not
+establish complete product or release acceptance.
+
+The legacy `/agents/:id/proxy` route remains release-refused, and no Agent model
+reasoning is involved in the new request workflow. Do not report that an Agent
+reasoned unless an actual model call ran.
+At the pure-kernel checkpoint, the fifteen focused state tests were each watched
+fail across two deliberate negative-control runs, then pass after restoration.
+That evidence covers the state kernel only. Complete local and desktop
+verification remain mandatory pre-landing gates; neither substitutes for
+feature-specific rendered and packaged acceptance.
 Review also found that a regex dependency lock missed multiline imports. The
 replacement uses TypeScript syntax parsing and was watched reject an actual
 multiline filesystem import; side-effect imports, dynamic loads and runtime
@@ -85,9 +98,9 @@ checked again after import/body waits. Legacy, system-created and loose dev-head
 Agents stay unbound. Hosted/default fallbacks cannot acquire provenance.
 Deletion retains retired provenance, and strict JSON/SQLite and portable joins
 preserve it without exposing person IDs in Agent/event rows.
-This changes neither tenant configuration rights nor execution consent. The
-request registry and end-user workflow below are still required; legacy adoption
-will need an explicit controlled owner opt-in, not a first-member claim.
+This changes neither tenant configuration rights nor execution consent. The new
+request workflow relies on these person anchors; legacy adoption still needs an
+explicit controlled owner opt-in, not a first-member claim.
 
 The provenance checkpoint's first full verifier exposed late rejection handling
 in two native directory-mutation tests. Their expected-refusal assertions now
@@ -96,29 +109,48 @@ unhandled rejection and passed with early attachment. The diagnostic delay was
 removed, with native behavior, bounds and assertions unchanged. That interrupted
 verifier is failure evidence, not a passing revision.
 
-Remaining work for this milestone, not optional polish:
+Focused acceptance and delivery gates:
 
-1. Integrate a private durable registry with authoritative Agent/person resolution,
-   current visibility and membership, exact keyed replay, capacity limits and
-   strict JSON/SQLite joins. Never infer a person from a shared tenant. Preserve
-   the two parties' history after a source Agent is unpublished or retired.
-2. Connect the real bound executor with commit-before-I/O, live authority checks
-   across waits, explicit native-program consent, shutdown recovery, and capacity
-   held until physical settlement. No automatic repeat after failure, uncertainty
-   or cancellation; unsupported connector/payment actions remain unavailable.
-3. Build the requester entry and canonical request history, owner inbox, exact-call
-   consent, explicit Run and separate Share reply, with private invalidations and
-   precise notification doors. Keep route-owned access projections consistent;
-   requests and model prose cannot substitute for human consent. Do not claim
-   that an Agent model reasoned unless a real model call actually ran.
-4. Verify the complete two-person workflow, including same-organization privacy,
+1. Keep the complete two-person workflow locked: same-organization privacy,
    revocation during waits, cancellation, response loss, relaunch and no replay.
-   Run the full local verifier, five-viewport feature review, separate 135-cell
-   sweep and unsigned packaged authored-peer walk before declaring it implemented.
-   Third-party, signing, Intel and actual native-dialog evidence remain separate.
+   Focused route, executor, persistence and client tests cover these boundaries;
+   the browser walk covers explicit Run/Share, requester redaction, lost-create
+   acknowledgement and GET-only recovery. Requests and human consent remain
+   separate from any Agent-generated prose.
+2. Focused browser acceptance passed the complete request lifecycle and the
+   delayed/failed Agent form, request-history and decision-module paths. The
+   five-viewport review covers narrow/wide WCAG AA, exact accessible field names,
+   private receipts and separate Run/Share consent. The initial feature review
+   exposed captures taken while the rail was still closing; captures now await
+   the shared settled-rail and painted-geometry checks. The separate shell sweep
+   passed all 135 cells with no violations or skips.
+3. The unsigned arm64 Agent Requests package walk passed in an isolated profile:
+   real authenticated people, OS-backed custody, an authored local child, exact
+   private result, separately shared reply, shutdown/relaunch uncertainty and no
+   repeated child call. Its disposable source-hash-checked ASAR substitutes
+   setup dialog answers only; this is not actual native-dialog acceptance.
+   Evidence is retained under `.data/desktop-agent-requests-smoke/`.
+4. Code review found that an imported unbound Agent could borrow default-provider
+   connection reach. A regression test reproduced it; request execution now
+   requires an explicit current provider binding, and the same test verifies
+   zero discovery before binding and successful execution after binding.
+   Bundle review also separated deferred request history and the shared Agent
+   form, with a dedicated prompt-policy chunk; existing graph limits remain
+   unchanged. Loading/error states retain explicit read-only recovery.
+   Full-suite integration checks also caught stale source-owner/route manifests
+   and loop-generated tests omitted by the browser manifest. Their ownership
+   records now follow the extracted form, portable limits and human-only routes;
+   all six loading tests are explicit top-level cases. The native helper remains
+   package-excluded and forbidden from creating or opening launch authority.
+5. Run the complete local verifier, separate shell sweep and desktop verifier
+   on the frozen final tree before landing. Focused tests are not substitutes.
+   Keep third-party peer, signing/notarization, Intel and actual native-dialog
+   evidence separate. Unsupported connector/payment actions remain unavailable.
 
-MOCK-9 remains open throughout the prerequisite work. No successful pure test is
-evidence that Agent proxy execution is available to an end user.
+MOCK-9 remains open: the legacy proxy route is still release-refused, and the
+broader legacy collaboration automation remains fixture-only. The new Agent
+Requests implementation has local authored-peer acceptance, not unrestricted
+third-party or signed-release acceptance.
 
 ## Completed checkpoint: images inside connected sources
 

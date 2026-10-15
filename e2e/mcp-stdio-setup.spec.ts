@@ -261,7 +261,7 @@ test('local setup is explicit native-only, recovers lost acknowledgement by read
     expect(path.endsWith(createdId)).toBe(true)
     expect(createPosts).toBe(1)
     expect(exactCreationReads).toBeGreaterThan(0)
-    const approvalCopy = 'Conversation and Contribution tool calls each require their own explicit approval. Local setup does not approve unattended work; local Routines and Commissions each require their own separate approval.'
+    const approvalCopy = 'Conversation, Contribution and Agent request tool calls each require their own explicit approval. Local setup does not approve unattended work; local Routines and Commissions each require their own separate approval.'
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize(viewport)
       await expect(page.getByText(approvalCopy, { exact: false })).toBeVisible()

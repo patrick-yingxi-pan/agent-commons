@@ -52,6 +52,7 @@ import { IMAGE_UPLOAD_BODY_BYTES } from '../contract/imageAssets.ts'
 import { API_BODY_EXAMPLES, catalogOf, pathFor, toolNameFor, type ApiOperation } from './apiSurface.ts'
 import { dispatch } from './http/dispatch.ts'
 import { store } from './store/index.ts'
+import { eventAudience } from './eventAudience.ts'
 import { IDEMPOTENCY_KEY_MAX_LENGTH } from './idempotency.ts'
 
 export { toolNameFor } // re-exported for the parity test (the shared stem lives in apiSurface.ts)
@@ -609,7 +610,7 @@ export function registerMcp(router: Router): void {
     const session = mcpSessions.get(sid)
     if (!session) return plain(res, 404, 'Unknown or expired Mcp-Session-Id — initialize again.')
     session.closeStream?.() // one stream per session; a new one supersedes
-    const tenantId = store.identity(req.headers).tenant.id
+    const visible = eventAudience(req.headers)
     res.writeHead(200, {
       ...BASE_HEADERS,
       'Content-Type': 'text/event-stream; charset=utf-8',
@@ -624,7 +625,7 @@ export function registerMcp(router: Router): void {
       res.write(`data: ${JSON.stringify(payload)}\n\n`)
     }
     const unsubscribe = store.subscribe((e) => {
-      if (!store.eventVisibleToTenant(e, tenantId)) return
+      if (!visible(e)) return
       frame({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', logger: 'workspace.events', data: e } })
       for (const uri of session.subscriptions) {
         frame({ jsonrpc: '2.0', method: 'notifications/resources/updated', params: { uri } })

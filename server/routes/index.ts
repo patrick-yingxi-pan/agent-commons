@@ -24,6 +24,9 @@ import { registerMcpConnectionRoutes, mcpConnectionRoute } from './mcpConnection
 import { registerRoutineMcpRoutes } from './routineMcp.ts'
 import { registerCommissionMcpRoutes } from './commissionMcp.ts'
 import { registerMcpInputRoutes } from './mcpInput.ts'
+import { registerAgentRequestRoutes } from './agentRequests.ts'
+import { eventAudience } from '../eventAudience.ts'
+import { agentPerson } from '../agentPerson.ts'
 import type {
   ApplyOpRequest,
   DeleteSavedContextRequest,
@@ -2068,8 +2071,7 @@ export function buildRouter(): Router {
   // Release desktop's credential-less local device owner is a real principal;
   // a loose dev header or a hosted/default fallback is not private provenance.
   const agentCreationPerson = (who: ReturnType<typeof store.identity>): string | undefined =>
-    who.via === 'session' || (process.env.DEPLOYMENT_PROFILE === 'desktop' && who.via === 'default' && who.local &&
-      !identityHeadersAllowed() && !store.capabilities().features.authGate) ? who.user.id : undefined
+    agentPerson(who, store.capabilities().features.authGate)
   r.post('/agents', idempotent(async ({ req, res, body }) => {
     const who = store.identity(req.headers)
     const tenantId = who.tenant.id
@@ -4255,6 +4257,7 @@ export function buildRouter(): Router {
     }
     const identity = store.identity(idHeaders)
     const tenantId = identity.tenant.id
+    const visible = eventAudience(idHeaders, identity)
     // INVARIANT: no `await` may sit between the `since()` snapshot below and the
     // `store.subscribe` that follows — the whole subscribe path runs in one
     // synchronous slice, which is exactly what makes it gap-free (an event can't
@@ -4277,11 +4280,11 @@ export function buildRouter(): Router {
     // reconnect can never widen what a tenant observes.
     if (resumed && tail) {
       for (const f of tail.events) {
-        if (store.eventVisibleToTenant(f.event, tenantId, identity.user.id)) channel.send(f.event, f.seq)
+        if (visible(f.event)) channel.send(f.event, f.seq)
       }
     }
     const unsubscribe = store.subscribe((e, seq) => {
-      if (store.eventVisibleToTenant(e, tenantId, identity.user.id)) channel.send(e, seq)
+      if (visible(e)) channel.send(e, seq)
     })
     let unsubscribeFault = () => {}
     const close = () => {
@@ -5376,6 +5379,7 @@ export function buildRouter(): Router {
   registerRoutineMcpRoutes(r, accountTransitionSourceMatches)
   registerCommissionMcpRoutes(r, accountTransitionSourceMatches)
   registerMcpInputRoutes(r, accountTransitionSourceMatches)
+  registerAgentRequestRoutes(r, accountTransitionSourceMatches)
   // Demo browse candidates are a public projection of the snapshot's stored
   // world choice. User-owned set-ups and real external MCP connections remain
   // on their separate tenant-scoped registries.

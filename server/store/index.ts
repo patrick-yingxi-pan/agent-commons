@@ -44,6 +44,12 @@ import { mcpRuntimeCapabilities } from '../mcpRuntime.ts'
 import { mcpToolSchemaHash } from '../mcpToolAdmission.ts'
 import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpActivityAuthority } from '../mcpActivityAuthority.ts'
 import { AgentOwnershipRegistry, type AgentOwnership } from '../agentOwnership.ts'
+import { ProxyRequestRegistry } from '../proxyRequestRegistry.ts'
+import { ProxyRequestHost } from '../proxyRequestHost.ts'
+import { ProxyRequestExecution } from '../proxyRequestExecution.ts'
+import type { AgentRequestReview } from '../../contract/agentRequests.ts'
+import type { ProxyActor } from '../proxyRequestState.ts'
+import { agentPerson } from '../agentPerson.ts'
 import { parseMcpInputFlows, validateMcpInputFlows, mcpInputFlowKey, mcpInputBindingHash, mcpInputCommandHash, hasMcpInputFlowCapacity, MCP_INPUT_MAX_ROUNDS, MCP_INPUT_MAX_FLOWS, MCP_INPUT_TTL_MS, type McpInputFlow } from '../mcpInputState.ts'
 import { parseMcpFormInputRequired, parseMcpFormResponses, type McpFormInputRequired } from '../mcpElicitation.ts'
 import { parseMcpInputCommand } from '../mcpInputCommand.ts'
@@ -1830,6 +1836,52 @@ const generationCounts = new Map<GenerationOutcome, number>()
 // degenerate N=1 case. Every Conversation resolves to it until users create more.
 const WORKER_AGENTS = new Map<string, Agent>([[DEFAULT_AGENT.id, DEFAULT_AGENT]])
 const agentOwnershipRegistry = new AgentOwnershipRegistry()
+const proxyRequestRegistry = new ProxyRequestRegistry()
+const proxyRequestHost = new ProxyRequestHost({
+  registry: proxyRequestRegistry,
+  agent: id => WORKER_AGENTS.get(id),
+  ownership: id => agentOwnershipRegistry.get(id),
+  active: actor => !!accounts.identityFor(actor.userId, actor.tenantId),
+  visible: (agent, tenantId) => agent.published === true || registryVisible(agent, tenantId),
+  commit: operation => commitMutationBatch(operation),
+  changed: requestId => { emit({ type: 'agent-request.changed', requestId }); persist() },
+  now: () => Date.now(),
+})
+const proxyRequestExecution = new ProxyRequestExecution({
+  registry: proxyRequestRegistry,
+  ready: () => persistenceFault === null && !draining,
+  permitted: (row, approval) => proxyRequestHost.executable(row) && proxyRequestTools(row.intent.owner.agentId,
+    row.intent.owner).some(tool => tool.connectionId === approval.call.connectionId &&
+      tool.connectionRevision === approval.call.connectionRevision && tool.tool.name === approval.call.toolName &&
+      tool.schemaHash === approval.call.schemaHash && tool.transport === approval.transport),
+  execute: (row, allowed, signal) => executeBoundMcpCall(store, row.intent.owner.tenantId,
+    row.execution!.approval.call, allowed, row.intent.owner.userId, signal),
+  commit: operation => commitMutationBatch(operation),
+  changed: requestId => { emit({ type: 'agent-request.changed', requestId }); persist() },
+  now: () => Date.now(),
+  onError: error => { console.error('[Agent request] receipt settlement failed', error) },
+})
+function proxyRequestTools(agentId: string, actor: ProxyActor): AgentRequestReview['tools'] {
+  const agent = WORKER_AGENTS.get(agentId), owner = agentOwnershipRegistry.get(agentId)
+  if (!agent || !owner || owner.retired || owner.ownerUserId !== actor.userId || owner.tenantId !== actor.tenantId ||
+      agent.tenantId !== actor.tenantId || !accounts.identityFor(actor.userId, actor.tenantId)) return []
+  // Imported definitions remain unbound until their owner selects a provider;
+  // absence must never borrow the cascade root's connection authority.
+  const provider = agent.providerId && store.listProviders(actor.tenantId).find(row => row.id === agent.providerId)
+  if (!provider) return []
+  // This is an explicit human-selected call, not model reasoning or a shared
+  // Project effect. Connector reach is by opaque connection id (Authority).
+  const ceilings = [provider.authority ?? {}, agent.authority ?? {}]
+  return store.mcpConnections(actor.tenantId, actor.userId)
+    .filter(connection => connection.status === 'connected' && connection.execution === 'approval-required' &&
+      (connection.transport !== 'stdio' || mcpRuntimeCapabilities().localProcesses === true) &&
+      ceilings.every(authority => authorityAdmits(authority, 'connectors', connection.id)))
+    .flatMap(connection => connection.tools.filter(tool => connection.executableTools?.includes(tool.name)).map(tool => ({
+      connectionId: connection.id, connectionRevision: connection.revision, connectionLabel: connection.label,
+      transport: connection.transport === 'stdio' ? 'stdio' as const : 'http' as const,
+      schemaHash: mcpToolSchemaHash(tool), tool,
+    })))
+}
 /** Keyed Agent identities remain retired after explicit deletion. Otherwise a
  * delayed New-Agent, Fork-agent, or Agent-import Retry could recreate a
  * definition the person deliberately removed on another device. */
@@ -3286,6 +3338,7 @@ function snapshot(): PersistedState {
     registryDefaults: [...REGISTRY_DEFAULTS.entries()], // per-tenant default-flag pointers (UI shortcut)
     agents: [...WORKER_AGENTS.entries()],
     agentOwnership: agentOwnershipRegistry.snapshot(),
+    agentRequests: proxyRequestRegistry.snapshot(),
     retiredAgentCreationIds: [...retiredAgentCreationIds],
     commissions: [...COMMISSIONS.entries()],
     // D13 commission caps — only Projects that carry one (the seed Projects are otherwise
@@ -3399,6 +3452,7 @@ function cleanFirstBootState(): PersistedState {
   clean.registryDefaults = []
   clean.agents = [[DEFAULT_AGENT.id, DEFAULT_AGENT]]
   clean.agentOwnership = []
+  clean.agentRequests = []
   clean.retiredAgentCreationIds = []
   clean.commissions = []
   clean.commissionCaps = []
@@ -3861,6 +3915,8 @@ function rehydrate(s: PersistedState): boolean {
   replaceMap(REGISTRY_DEFAULTS, s.registryDefaults)
   replaceMap(WORKER_AGENTS, s.agents)
   agentOwnershipRegistry.rehydrate(s.agentOwnership)
+  proxyRequestRegistry.rehydrate(s.agentRequests)
+  const recoveredAgentRequests = proxyRequestRegistry.recover(Date.now())
   retiredAgentCreationIds = new Set(
     (s.retiredAgentCreationIds ?? []).filter(isAgentCreationId),
   )
@@ -4186,7 +4242,7 @@ function rehydrate(s: PersistedState): boolean {
   }
   const standingRecovery = pruneOrphanScheduleStanding(graph, schedules, defaultTenantId())
   graph = standingRecovery.graph
-  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch || recoveredRoutineMcp || recoveredCommissionMcp || recoveredUsageReservations
+  return interruptedMcp.length > 0 || standingRecovery.changed || recoveredArtifactExcerpts || recoveredContributionAttempts || recoveredDispatch || recoveredRoutineMcp || recoveredCommissionMcp || recoveredUsageReservations || recoveredAgentRequests
 }
 
 /** Re-ensure the code's seed rows after a snapshot restore: a seed row missing
@@ -5245,6 +5301,8 @@ export const store = {
    *  ephemeral/just-removed id) falls back to the default tenant, matching the read side. */
   eventVisibleToTenant(e: ServerEvent, tenantId: string, actorUserId?: string): boolean {
     switch (e.type) {
+      case 'agent-request.changed':
+        return actorUserId !== undefined && !!proxyRequestHost.read(e.requestId, { tenantId, userId: actorUserId })
       case 'session.updated':
         return this.sessionVisibleToTenant(e.session, tenantId)
       // The removed row rides the event (it's no longer resolvable by id) —
@@ -6188,6 +6246,50 @@ export const store = {
   agentProvenance(id: string) {
     return agentOwnershipRegistry.get(id)
   },
+  /** Only verified sessions or the explicit credential-less desktop posture
+   * can address person-private requests. Development impersonation is not it. */
+  agentRequestActor(headers?: Record<string, string | string[] | undefined>): ProxyActor | undefined {
+    const who = this.identity(headers)
+    if (!agentPerson(who, this.capabilities().features.authGate)) return undefined
+    return accounts.identityFor(who.user.id, who.tenant.id) ? { tenantId: who.tenant.id, userId: who.user.id } : undefined
+  },
+  agentRequests(actor: ProxyActor) { return proxyRequestHost.list(actor) },
+  agentRequestOptions(actor: ProxyActor) {
+    const sourceAgents: { id: string; label: string }[] = [], targetAgents: { id: string; label: string }[] = []
+    if (!accounts.identityFor(actor.userId, actor.tenantId)) return { sourceAgents, targetAgents }
+    for (const agent of WORKER_AGENTS.values()) {
+      const owner = agentOwnershipRegistry.get(agent.id)
+      if (!owner || owner.retired || !accounts.identityFor(owner.ownerUserId, owner.tenantId)) continue
+      if (owner.ownerUserId === actor.userId && owner.tenantId === actor.tenantId) sourceAgents.push({ id: agent.id, label: agent.label })
+      else if (owner.ownerUserId !== actor.userId && (agent.published || registryVisible(agent, actor.tenantId))) {
+        targetAgents.push({ id: agent.id, label: agent.label })
+      }
+    }
+    return { sourceAgents, targetAgents }
+  },
+  agentRequest(id: string, actor: ProxyActor) { return proxyRequestHost.read(id, actor) },
+  agentRequestReview(id: string, actor: ProxyActor): AgentRequestReview | undefined {
+    const request = proxyRequestHost.read(id, actor), row = proxyRequestRegistry.get(id)
+    if (!request || request.role !== 'owner' || !row) return undefined
+    const tools = proxyRequestTools(row.intent.owner.agentId, actor)
+    const blockedReason = row.executionBlockedByRestore ? 'This request was restored from a backup and cannot run. Ask for a fresh request after checking any earlier effects.' :
+      row.status !== 'waiting' ? 'This request is no longer waiting to run.' :
+      !proxyRequestHost.executable(row) ? 'An original Agent, person membership or visibility is no longer available.' :
+      !WORKER_AGENTS.get(row.intent.owner.agentId)?.providerId ? 'Bind a model provider to this Agent before reviewing a call.' :
+      !tools.length ? 'Connect and inspect an MCP server admitted by this Agent’s connection reach.' : null
+    return { request, tools: row.status === 'waiting' ? tools : [], blockedReason }
+  },
+  createAgentRequest(actor: ProxyActor, key: unknown, input: unknown) { return proxyRequestHost.create(actor, key, input) },
+  decideAgentRequest(id: string, actor: ProxyActor, input: unknown) {
+    const view = proxyRequestHost.decide(id, actor, input)
+    if (view.status === 'cancelled') proxyRequestExecution.cancel(id)
+    return view
+  },
+  runAgentRequest(id: string, actor: ProxyActor, input: unknown, authenticated: () => boolean) {
+    proxyRequestExecution.start(id, actor, input, authenticated)
+    return proxyRequestHost.read(id, actor)
+  },
+  stopAgentRequests() { return proxyRequestExecution.stop() },
   /** Mint a worker Agent through the D8 creation funnel (docs/agent-commons.md): both
    *  faces of the cascade are enforced here against the Agent's **provider** (D9 — the
    *  cascade root), so the *agent ⊆ provider* invariant holds by construction.

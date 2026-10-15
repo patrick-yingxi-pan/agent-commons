@@ -1,11 +1,9 @@
 <!-- context-schema: v1 -->
 # contract/ — shared wire-contract index
 ## Scope
-
 Framework-free types and reducers imported verbatim by UI and server; boot map: [`AGENTS.md`](../AGENTS.md).
 
 ## Read path
-
 Read the changed module, its sibling suite and [`docs/spec/05-portable-contract.md`](../docs/spec/05-portable-contract.md); for cross-layer seams also read [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts).
 
 ## Rule index
@@ -150,6 +148,7 @@ Read the changed module, its sibling suite and [`docs/spec/05-portable-contract.
 | CONTRACT-D134 | data-access | Explicit Folder browsing returns bounded visible root-relative metadata and one separately selected whole-text preview or transient document/image bytes under the shared policy. Hidden/absolute paths, root-version tokens and bodies never enter listing. The 500-entry/64-directory/depth-16 limits remain fixed; selected previews are not saved captures. | [`localFileBrowse.mjs`](localFileBrowse.mjs) · [`localFolderBrowse.mjs`](localFolderBrowse.mjs) · [`localFolderCapture.ts`](localFolderCapture.ts) | [`local-file-browse.test.ts`](local-file-browse.test.ts) · [`local-folder-browse.test.ts`](local-folder-browse.test.ts) · [`../desktop/localFolderBrowseHost.test.ts`](../desktop/localFolderBrowseHost.test.ts) · [`../tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | requires CONTRACT-D122; requires CONTRACT-A1; refines ROOT-D1 |
 | CONTRACT-D135 | data-access | Untracked Git requests/results are distinct closed detached records with literal scope and operation identity. Exact relative paths and bounded text/document/image transport reuse the shared selected-file policy; omission never grants untracked authority. | [`localGitUntrackedBrowse.mjs`](localGitUntrackedBrowse.mjs) · [`localGitUntrackedBrowse.d.mts`](localGitUntrackedBrowse.d.mts) · [`localGitCapture.ts`](localGitCapture.ts) | [`local-git-untracked-browse.test.ts`](local-git-untracked-browse.test.ts) · [`../tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | requires CONTRACT-D133; refines ROOT-D1 |
 | CONTRACT-D136 | data-access | Single-file comparisons use closed path/direction/operation records and detached bounded before/after sides. Change labels agree with readable bytes, modes and presence; unavailable reasons cannot impersonate empty or unchanged text. No native path or read capability is portable. | [`localGitFileComparison.mjs`](localGitFileComparison.mjs) · [`localGitCapture.ts`](localGitCapture.ts) | [`local-git-file-comparison.test.ts`](local-git-file-comparison.test.ts) · [`../tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | requires CONTRACT-D106; refines ROOT-D1 |
+| CONTRACT-D137 | data-access | Agent request wire views distinguish private owner receipts from requester prose and lightweight history. Revision-pinned Run and Share are separate intents; native programs require literal opt-in. Public views never carry private person anchors or credentials. | [`agentRequests.ts`](agentRequests.ts) · [`events.ts`](events.ts) | [`../server/proxy-request-state.test.ts`](../server/proxy-request-state.test.ts) · [`../server/routes/agent-request-execution.test.ts`](../server/routes/agent-request-execution.test.ts) · [`../tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | requires CONTRACT-A1; requires SERVER-D61; refines ROOT-D1 |
 | CONTRACT-V1 | verification | New boundary seams extend the cross-layer contract scan. | [`index.ts`](index.ts) | [`tests/contract-boundaries.test.ts`](../tests/contract-boundaries.test.ts) | refines ROOT-V1 |
 <!-- context-rules:end -->
 - **Locks live with their module.** Contract behavior suites (`<module>.test.ts`) sit beside implementation and remain excluded from `tsconfig.json`. The cross-layer import scan stays in `tests/contract-boundaries.test.ts` because it verifies a boundary, not one contract module.

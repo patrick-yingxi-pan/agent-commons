@@ -3,7 +3,9 @@
  * across waits, commit before I/O, and retain live capacity until settlement.
  * No caller of this module may infer dispatch permission from a restored row. */
 import { createHash } from 'node:crypto'
-import type { McpBoundToolCall, McpJsonValue, McpToolResult } from '../contract/mcpExecution.ts'
+import type { McpJsonValue, McpToolResult } from '../contract/mcpExecution.ts'
+import type { AgentRequestApproval, AgentRequestExecution, AgentRequestStateView, AgentRequestStatus } from '../contract/agentRequests.ts'
+import { AGENT_REQUEST_TASK_MAX_BYTES, AGENT_REQUEST_REPLY_MAX_BYTES } from '../contract/agentRequests.ts'
 import type { McpBoundExecutionOutcome } from './mcpBoundExecution.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
@@ -18,20 +20,14 @@ export interface ProxyIntent {
   task: string
   createdAt: number
 }
-export type ProxyApproval =
-  | { transport: 'http'; call: McpBoundToolCall }
-  | { transport: 'stdio'; localPrograms: true; call: McpBoundToolCall }
+export type ProxyApproval = AgentRequestApproval
 type ProxyExecutionOutcome =
   | { status: 'pending' }
   | { status: 'done'; finishedAt: number; summary: string; result: McpToolResult }
   | { status: 'failed'; finishedAt: number; summary: string; result?: McpToolResult }
   | { status: 'uncertain'; finishedAt: number; summary: string }
-export type ProxyExecution = {
-  approval: ProxyApproval
-  callHash: string
-  startedAt: number
-} & ProxyExecutionOutcome
-export type ProxyRequestStatus = 'waiting' | 'running' | 'awaiting-reply' | 'replied' | 'denied' | 'cancelled'
+export type ProxyExecution = AgentRequestExecution
+export type ProxyRequestStatus = AgentRequestStatus
 export interface StoredProxyRequest {
   version: 1
   intent: ProxyIntent
@@ -42,25 +38,13 @@ export interface StoredProxyRequest {
   reply?: string
   cancelledAt?: number
   cancelledBy?: 'requester' | 'owner'
+  executionBlockedByRestore?: true
 }
-/** Internal projection prerequisite, not yet a public wire DTO. An eventual
- * API must also enforce live membership and publish invalidations, not rows. */
-export interface ProxyRequestView {
-  id: string
-  fromAgentId: string
-  toAgentId: string
-  task: string
-  createdAt: number
-  updatedAt: number
-  revision: number
-  status: ProxyRequestStatus
-  reply?: string
-  /** Only the exact owner sees a private call or its raw result. */
-  execution?: ProxyExecution
-}
+/** The host additionally enforces live membership and publishes only hints. */
+export type ProxyRequestView = AgentRequestStateView
 
-export const PROXY_TASK_MAX_BYTES = 8_192
-export const PROXY_REPLY_MAX_BYTES = 65_536
+export const PROXY_TASK_MAX_BYTES = AGENT_REQUEST_TASK_MAX_BYTES
+export const PROXY_REPLY_MAX_BYTES = AGENT_REQUEST_REPLY_MAX_BYTES
 export const PROXY_RESULT_MAX_BYTES = 262_144
 const SUMMARIES = {
   done: 'The MCP tool completed. Review a reply before sharing anything with the requester.',
@@ -162,10 +146,12 @@ export function createProxyRequest(input: ProxyIntent): StoredProxyRequest {
 export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
   try {
     const copy = detached(value)
-    fields(copy, ['version', 'intent', 'revision', 'status', 'updatedAt'], ['execution', 'reply', 'cancelledAt', 'cancelledBy'])
+    fields(copy, ['version', 'intent', 'revision', 'status', 'updatedAt'], ['execution', 'reply', 'cancelledAt', 'cancelledBy', 'executionBlockedByRestore'])
     if (copy.version !== 1 || !record(copy.intent) || !stamp(copy.updatedAt)) return invalid()
     const source = intent(copy.intent)
     const run = Object.hasOwn(copy, 'execution') ? execution(copy.execution, source) : undefined
+    if (Object.hasOwn(copy, 'executionBlockedByRestore') &&
+        (copy.executionBlockedByRestore !== true || run || !['waiting', 'denied', 'cancelled'].includes(String(copy.status)))) return invalid()
     if (copy.updatedAt < source.createdAt || (run && copy.updatedAt < run.startedAt) ||
         (run && run.status !== 'pending' && copy.updatedAt < run.finishedAt)) return invalid()
     if (copy.status !== 'replied' && Object.hasOwn(copy, 'reply')) return invalid()
@@ -200,6 +186,7 @@ export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
       ...(run ? { execution: run } : {}),
       ...(copy.status === 'replied' ? { reply: copy.reply as string } : {}),
       ...(copy.status === 'cancelled' ? { cancelledAt: copy.cancelledAt as number, cancelledBy: copy.cancelledBy as 'requester' | 'owner' } : {}),
+      ...(copy.executionBlockedByRestore === true ? { executionBlockedByRestore: true } : {}),
     }
   } catch { return invalid() }
 }
@@ -223,7 +210,7 @@ function editable(value: StoredProxyRequest, actor: ProxyActor, revision: number
  * then must commit the returned pending row before one physical dispatch. */
 export function beginProxyRequest(value: StoredProxyRequest, actor: ProxyActor, revision: number, input: ProxyApproval, at: number): StoredProxyRequest {
   const row = editable(value, actor, revision, at, true)
-  if (row.status !== 'waiting') return invalid()
+  if (row.status !== 'waiting' || row.executionBlockedByRestore) return invalid()
   let approved: ProxyApproval
   try { approved = approval(detached(input)) } catch { return invalid() }
   return parseStoredProxyRequest({ ...row, revision: 2, status: 'running', updatedAt: at,
@@ -295,5 +282,6 @@ export function proxyRequestView(value: StoredProxyRequest, actor: ProxyActor): 
     revision: row.revision, status: row.status,
     ...(row.reply === undefined ? {} : { reply: row.reply }),
     ...(who === 'owner' && row.execution ? { execution: row.execution } : {}),
+    ...(row.executionBlockedByRestore ? { executionBlockedByRestore: true } : {}),
   }
 }

@@ -34,6 +34,7 @@ test('seedFor mirrors the root bridge mapping (App.navigateToSection), shape for
   assert.deepEqual(seedFor('agents', 'agent-1'), { agentId: 'agent-1' })
   assert.deepEqual(seedFor('agents', 'prompt-1', 'prompts'), { promptId: 'prompt-1' })
   assert.deepEqual(seedFor('agents', 'read_file', 'tools'), { toolId: 'read_file' })
+  assert.deepEqual(seedFor('agents', 'request-1', 'requests'), { agentRequestId: 'request-1' })
   assert.deepEqual(seedFor(OWNER_SECTION, 'nova'), { ownerName: 'nova' }, 'commons+id = an OWNER profile (agent pages route via the prop)')
   assert.deepEqual(seedFor('admin', 'user-grace'), { adminUserId: 'user-grace' }, "admin+id = an account's console detail (FWD-7 v1.1)")
   assert.deepEqual(seedFor('discussions', 'disc-1'), { discussionId: 'disc-1' })

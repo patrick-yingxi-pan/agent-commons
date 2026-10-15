@@ -37,6 +37,10 @@ export const keys = {
   /** Worker Agents (docs/agent-commons.md, D6). Distinct from `runners` below — whose
    *  cache key is the legacy string 'agents' from before the D6 rename. */
   workerAgents: 'worker-agents',
+  agentRequests: 'agent-requests',
+  agentRequestOptions: 'agent-request-options',
+  agentRequest: (id: string) => `agent-request:${id}`,
+  agentRequestReview: (id: string) => `agent-request-review:${id}`,
   /** Commissions, keyed per project so a Project's Contributor list caches on its own. */
   commissions: (projectId?: string) => (projectId ? `commissions:${projectId}` : 'commissions'),
   /** A commission's effective (Project-clamped) authority — the D12 reach. */
@@ -203,6 +207,11 @@ export const paths = {
   agentTools: '/agent-tools',
   systemPromptProbe: (id: string) => `/system-prompts/${encodePathSegment(id)}/probe`,
   agents: '/agents',
+  agentRequests: '/agent-requests',
+  agentRequestOptions: '/agent-request-options',
+  agentRequest: (id: string) => `/agent-requests/${encodePathSegment(id)}`,
+  agentRequestReview: (id: string) => `/agent-requests/${encodePathSegment(id)}/review`,
+  agentRequestDecision: (id: string) => `/agent-requests/${encodePathSegment(id)}/decision`,
   agent: (id: string) => `/agents/${encodePathSegment(id)}`,
   commissions: (projectId?: string) =>
     projectId ? `/commissions?project=${encodePathSegment(projectId)}` : '/commissions',

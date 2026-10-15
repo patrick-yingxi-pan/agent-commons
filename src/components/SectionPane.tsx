@@ -72,7 +72,7 @@ export function SectionPane({
   // a cross-section door carries its detail), pane-local after that (the
   // host keys this component on section+sub+seed, so a re-route resets
   // cleanly).
-  const [subview, setSubview] = useState<string | null>(initialSub ?? null)
+  const [subview, setSubview] = useState<string | null>(initialSub ?? (initialFocus?.agentRequestId ? 'requests' : null))
   const [focus, setFocus] = useState<PaneFocusState>({ ...NO_FOCUS, ...initialFocus })
   const [stack, setStack] = useState<PaneFocusState[]>(() =>
     (initialStack ?? []).map((s) => ({ ...NO_FOCUS, ...s })),
@@ -190,6 +190,7 @@ export function SectionPane({
         focusAgentId={focus.agentId}
         focusPromptId={focus.promptId}
         focusToolId={focus.toolId}
+        focusRequestId={focus.agentRequestId}
         focusContextId={focus.contextId}
         focusAdminUserId={focus.adminUserId}
         focusDiscussionId={focus.discussionId}
@@ -200,6 +201,9 @@ export function SectionPane({
         railProjectionActive={focused}
         onOpenAgentPage={(id) =>
           section === 'agents' ? navigate({ agentId: id }) : onRetarget({ kind: 'msection', id: 'agents', seed: { agentId: id } })
+        }
+        onOpenRequest={(id) =>
+          section === 'agents' ? navigate({ agentRequestId: id }) : onRetarget({ kind: 'msection', id: 'agents', seed: { agentRequestId: id } })
         }
       />
     </SectionNavOverride.Provider>

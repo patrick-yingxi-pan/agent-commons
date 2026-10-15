@@ -16,6 +16,23 @@ import { join } from 'node:path'
 import { resolveConfig } from 'vite'
 import { ignoreFromPackage } from '../desktop/packager.config.mjs'
 
+test('Agent requests share portable intent and reuse bound execution without model or launch authority', () => {
+  for (const path of ['server/proxyRequestState.ts', 'server/proxyRequestExecution.ts',
+    'src/api/agentRequests.ts', 'src/controller/agentRequestActionsCore.ts']) {
+    assert.match(stripComments(read(join(ROOT, path))), /contract\/agentRequests\.ts/)
+  }
+  const store = stripComments(read(join(ROOT, 'server/store/index.ts')))
+  const start = store.indexOf('const proxyRequestExecution ='), end = store.indexOf('let retiredAgentCreationIds', start)
+  assert.ok(start >= 0 && end > start)
+  const check = (source: string) => {
+    assert.match(source, /executeBoundMcpCall\(store, row\.intent\.owner\.tenantId/)
+    assert.match(source, /mcpRuntimeCapabilities\(\)\.localProcesses === true/)
+    assert.doesNotMatch(source, /\b(?:spawn|execFile|createMcpStdioClient|generateWithModel|recordUsage)\s*\(/)
+  }
+  check(store.slice(start, end))
+  assert.throws(() => check(`${store.slice(start, end)}\nspawn('unreviewed')`))
+})
+
 test('local Commission execution reuses the native-gated bound executor without owning a process launcher', () => {
   const store = stripComments(read(join(ROOT, 'server/store/index.ts')))
   const hosts = store.slice(store.indexOf('const commissionMcpHost ='), store.indexOf('function backgroundModelCapacity('))
@@ -121,9 +138,11 @@ test('internal stdio protocol cannot acquire launch configuration or product exe
 })
 
 test('local MCP launch custody stays confined to the authenticated native workflow', () => {
+  const drivers = ['desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs',
+    'desktop/commissionMcpLocalSmoke.mjs', 'desktop/agentRequestSmoke.mjs']
   const allowed = new Set(['desktop/mcpStdioGrantVault.mjs', 'desktop/mcpStdioLaunchAuthority.mjs',
     'desktop/mcpStdioLifecycle.mjs', 'desktop/mcpStdioSource.mjs', 'desktop/mcpStdioSetup.mjs',
-    'desktop/main.mjs', 'desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs', 'desktop/commissionMcpLocalSmoke.mjs'].map(path => join(ROOT, path)))
+    'desktop/main.mjs', ...drivers].map(path => join(ROOT, path)))
   const symbols = /\b(?:openMcpStdioGrantVault|createMcpStdioLaunchAuthority|snapshotMcpStdioGrantBinding)\b|mcpStdio(?:GrantVault|LaunchAuthority)\.mjs/
   const check = (source: string, path: string) => assert.doesNotMatch(source, symbols,
     `${path}: saved local launch authority requires the separate authenticated native product workflow`)
@@ -134,12 +153,15 @@ test('local MCP launch custody stays confined to the authenticated native workfl
     }
   }
   for (const path of allowed) assert.match(stripComments(read(path)), symbols, `${path}: expected native custody owner`)
-  for (const driver of ['desktop/mcpStdioSmoke.mjs', 'desktop/routineMcpLocalSmoke.mjs', 'desktop/commissionMcpLocalSmoke.mjs']) {
+  const checkDriver = (source: string, driver: string) => assert.doesNotMatch(source,
+    /\b(?:openMcpStdioGrantVault|createMcpStdioLaunchAuthority|snapshotMcpStdioGrantBinding)\b/,
+    `${driver}: acceptance may inspect saved custody but cannot create or open launch authority`)
+  for (const driver of drivers) {
     assert.equal(ignoreFromPackage(`/${driver}`), true,
       `${driver}: the native acceptance driver must never ship as product authority`)
-    assert.doesNotMatch(stripComments(read(join(ROOT, driver))),
-      /\b(?:openMcpStdioGrantVault|createMcpStdioLaunchAuthority|snapshotMcpStdioGrantBinding)\b/,
-      `${driver}: acceptance may inspect saved custody but cannot create or open launch authority`)
+    const source = stripComments(read(join(ROOT, driver)))
+    checkDriver(source, driver)
+    assert.throws(() => checkDriver(`${source}\nopenMcpStdioGrantVault({})`, driver), /cannot create or open launch authority/)
   }
   assert.throws(() => check("openMcpStdioGrantVault({ filePath: 'model-command' })", 'unexpected startup'), /authenticated native product workflow/)
 })

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('New Agent holds one exact creation intent until authoritative acknowledgement', () => {
-  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'AgentDialog.tsx')))
   const legacy = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'agentCreationCommands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'agentCreationMutations.ts')))

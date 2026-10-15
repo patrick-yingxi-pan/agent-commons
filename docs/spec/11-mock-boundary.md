@@ -271,13 +271,28 @@ with a matching successful retained result from the current plan and no
 uncertain effects. This is human-led acceptance, not Commission fulfillment:
 no Agent credit, standing grant, connector adapter or proxy is created.
 
-COMMONS-46 begins the real D15 workflow with a pure person-private
-request/consent/reply state kernel. It performs no I/O, enables no route and does
-not persist anything by itself. Owner-reviewed execution and explicitly shared
-reply, durable admission, current-authority checks and the inbox UI still need
-integration. The legacy proxy remains release-refused; MOCK-9 is not closed.
-PERSIST-57 separately records authenticated Agent creation provenance in private
-durable state; that identity anchor is not a request, approval, or executor.
+COMMONS-46 implements the real D15 Agent Requests path: a private durable
+registry and host, bounded executor, authenticated routes and requester/history
+plus owner-inbox UI. Requests contain ordinary prose, not another person's
+connection identity. The receiving owner explicitly selects and reviews one
+exact call, Runs it, then separately chooses the text to Share. Raw arguments,
+results and connection identity remain owner-private. The store commits before
+I/O, rechecks live authority across waits, and holds capacity until physical
+settlement; pending work recovers to uncertainty without replay. Explicit
+portable restore fences old waiting work, without creating a human denial or
+cancellation, and renewed consent cannot run it. Focused local tests now cover
+registry, execution, routes, UI, persistence and snapshot paths. Unbound imported
+Agents cannot borrow default-provider connection reach. Five-viewport rendered
+review, the separate 135-cell sweep and unsigned arm64 packaged authored-child
+acceptance have passed. The package walk retains exact private/shared history
+and interrupted uncertainty across signed-in relaunch without replay; its
+disposable copy substitutes native setup answers, not per-call consent. Complete
+local and desktop verification remain mandatory before landing; actual native
+dialogs, third-party peers and signed/Intel release evidence remain separate. The legacy
+`/agents/:id/proxy` route remains release-refused, and MOCK-9 stays open. No
+Agent model reasoning is part of this workflow. PERSIST-57 separately records
+authenticated Agent creation provenance in private durable state; that identity
+anchor is not a request, approval, or executor.
 
 | ID | What is mocked (and the real boundary it stubs) | Anchor | Status |
 |----|--------------------------------------------------|--------|--------|

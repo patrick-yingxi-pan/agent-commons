@@ -71,6 +71,8 @@ const NON_DOORS: Record<string, string[]> = {
     // Leaving the app is a different promise from opening a page in it — and these
     // say so in `text-accent`. Structurally distinct too: anchors, not buttons.
     '<a ',
+  ],
+  'src/components/AgentDialog.tsx': [
     // The system-prompt probe — an ACTION (it can be disabled mid-run), not a door.
     'disabled:opacity-50',
   ],

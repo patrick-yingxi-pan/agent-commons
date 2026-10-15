@@ -49,9 +49,11 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     .map((op) => `${op.method} ${op.pattern}`)
     .sort()
   assert.deepEqual(intrinsic, [
+    'GET /agent-requests/:id/review',
     'GET /image-assets/:id/original',
     'GET /sessions/:id/tool-activities/:activityId/input',
     'GET /sessions/:id/tool-activities/:activityId/input/receipts/:responseId',
+    'POST /agent-requests/:id/decision',
     'POST /artifacts',
     'POST /image-assets',
     'POST /projects',
@@ -73,6 +75,8 @@ test('the route-owned form and intrinsic classifications preserve the recursion 
     assert.equal(op?.access.kind, 'form', `${mustBeForm} stays form-only`)
   }
   const { byName } = deriveApiTools(catalog)
+  assert.ok(!byName.has('api__get_agent_requests_by_id_review'), 'the model cannot select its own private-call consent')
+  assert.ok(!byName.has('api__post_agent_requests_by_id_decision'), 'the model cannot Run or Share its own private request')
   assert.ok(!byName.has('api__post_artifacts'), 'the in-app model cannot self-authorize direct Artifact creation')
   assert.ok(!byName.has('api__get_image_assets_by_id_original'), 'the in-app model cannot widen normalized input to original source bytes')
   for (const name of byName.keys()) assert.ok(!/tool_activities.*_input(?:_|$)/.test(name),

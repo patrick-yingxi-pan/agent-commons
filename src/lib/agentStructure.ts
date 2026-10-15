@@ -29,6 +29,7 @@ export const AGENT_SECTIONS = [
     children: [
       { id: 'work', label: 'Your work', summary: 'Work and proposals you are waiting on.' },
       { id: 'commissions', label: 'Commissions', summary: 'Agent assignments across projects.' },
+      { id: 'requests', label: 'Requests', summary: 'Private requests between Agents, awaiting an owner’s decision or reply.' },
     ],
   },
   {

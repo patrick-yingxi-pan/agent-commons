@@ -27,6 +27,8 @@ import {
 import { accounts } from '../accounts.ts'
 import { deriveRelayRotationSecret } from '../relay.ts'
 import { providerSecretRotationId } from '../providerSecretRotationIdentity.ts'
+import { agentCreationId } from '../agentCreationIdentity.ts'
+import { proxyRequestId } from '../proxyRequestRegistry.ts'
 import { ImageAssetRegistry } from '../imageAssets.ts'
 import type { ImageSnapshot } from '../../contract/imageInput.ts'
 import { buildDiscussionSnapshot, discussionContextId } from '../../contract/discussionSnapshot.ts'
@@ -37,7 +39,7 @@ const BUILD_STORE = join(TMP, 'build', '.data', 'store.json')
 const SQLITE_STORE = join(TMP, 'sqlite', '.data', 'store.db')
 const RECOVERY_STORE = join(TMP, 'recovery', 'store.json')
 const RECOVERY_DIR = join(TMP, 'recovery', 'snapshots')
-const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences', 'artifactHistory', 'artifactHistoryRestoreReceipts', 'artifactRetirements', 'artifactDeletionReceipts', 'mcpInputFlows'] as const
+const COVERED_SLICES = ['imageAssets', 'usageMeters', 'modelPreferences', 'artifactHistory', 'artifactHistoryRestoreReceipts', 'artifactRetirements', 'artifactDeletionReceipts', 'mcpInputFlows', 'agentRequests'] as const
 
 const snapshotImage: ImageSnapshot = {
   mimeType: 'image/png',
@@ -538,6 +540,29 @@ test('build produces a snapshot covering every persisted slice', async () => {
     agentId: 'agent-new-000000000000000000000000', tenantId: ownedAgent.tenantId, ownerUserId: 'user-local', retired: true,
   }, 'Agent deletion retains private provenance without a live definition')
   assert.equal(Object.hasOwn(ownedAgent, 'ownerUserId'), false, 'ownership never enters the public Agent row')
+  const requestAda = { tenantId: 'tenant-acme', userId: 'user-ada' }
+  const requestGrace = { tenantId: 'tenant-beta', userId: 'user-grace' }
+  const requestSourceId = agentCreationId(requestAda.tenantId, 'snapshot-request-source')
+  const requestTargetId = agentCreationId(requestGrace.tenantId, 'snapshot-request-target')
+  const snapshotRequestId = proxyRequestId(requestAda, 'comprehensive-private-request')
+  const privateRequest = s.agentRequests?.find(row => row.intent.id === snapshotRequestId)
+  assert.ok(privateRequest, 'the comprehensive builder exercises real Agent request history')
+  assert.deepEqual(privateRequest, {
+    version: 1,
+    intent: {
+      id: snapshotRequestId,
+      requester: { ...requestAda, agentId: requestSourceId },
+      owner: { ...requestGrace, agentId: requestTargetId },
+      task: 'A private Agent request retained in the comprehensive snapshot.',
+      createdAt: privateRequest?.intent.createdAt,
+    },
+    revision: 2,
+    status: 'denied',
+    updatedAt: privateRequest?.updatedAt,
+  }, 'the exact private request and terminal decision are persisted without execution or restore-fence fields')
+  assert.ok(Number.isSafeInteger(privateRequest?.intent.createdAt) &&
+    Number.isSafeInteger(privateRequest?.updatedAt) && privateRequest!.updatedAt >= privateRequest!.intent.createdAt,
+  'the durable request has ordered lifecycle timestamps')
   assert.equal(
     s.agents?.find(([, a]) => a.label === 'Playground research agent')?.[1].revision,
     1,
@@ -1059,6 +1084,31 @@ test('the built snapshot boots through the real rehydrate path', async () => {
   const agent = store.listAgents().find((a) => a.label === 'Playground research agent')
   assert.ok(agent && agent.providerId === provider?.id, 'the created agent (bound to the provider) survives a boot')
   assert.equal(agent?.revision, 1, 'the Agent configuration revision survives a boot')
+  const requestId = proxyRequestId({ tenantId: 'tenant-acme', userId: 'user-ada' }, 'comprehensive-private-request')
+  const requestAda = { tenantId: 'tenant-acme', userId: 'user-ada' }
+  const requestGrace = { tenantId: 'tenant-beta', userId: 'user-grace' }
+  const requesterRequest = store.agentRequest(requestId, requestAda)
+  assert.ok(requesterRequest, 'the private Agent request is visible to its exact requester after rehydration')
+  assert.deepEqual(requesterRequest, {
+    id: requestId,
+    fromAgentId: agentCreationId('tenant-acme', 'snapshot-request-source'),
+    toAgentId: agentCreationId('tenant-beta', 'snapshot-request-target'),
+    task: 'A private Agent request retained in the comprehensive snapshot.',
+    createdAt: requesterRequest?.createdAt,
+    updatedAt: requesterRequest?.updatedAt,
+    revision: 2,
+    status: 'denied',
+    role: 'requester',
+    fromAgentLabel: 'Snapshot request source',
+    toAgentLabel: 'Snapshot request receiver',
+    fromAgentAvailable: true,
+    toAgentAvailable: true,
+  }, 'rehydration preserves the exact requester projection and terminal history')
+  const ownerRequest = store.agentRequest(requestId, requestGrace)
+  assert.deepEqual(ownerRequest, { ...requesterRequest, role: 'owner', fromAgentLabel: 'Requesting Agent' },
+    'the exact receiving person can read retained history while the cross-tenant requester label stays generic')
+  assert.equal(store.agentRequest(requestId, { tenantId: 'tenant-acme', userId: 'user-grace' }), undefined,
+    'a different tenant/person pair cannot read the private request after rehydration')
   const keyedAgentProposal = agent && store.getAgentProposalCreation(
     agent.id,
     'agent-proposal-new-000000000000000000000000',

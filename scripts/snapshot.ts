@@ -63,6 +63,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
     relaySecretHint,
   } = await import('../server/relay.ts')
   const { providerSecretRotationId } = await import('../server/providerSecretRotationIdentity.ts')
+  const { agentCreationId } = await import('../server/agentCreationIdentity.ts')
   const { mcpConnectionCreationId } = await import('../server/mcpConnections.ts')
   const { admitMcpCatalog, mcpToolSchemaHash } = await import('../server/mcpToolAdmission.ts')
   const { accounts: seededAccounts } = await import('../server/accounts.ts')
@@ -396,6 +397,33 @@ export async function buildComprehensive(): Promise<PersistedState> {
     { instructions: 'Prefer primary and official sources.', published: true },
     playgroundAgent.revision,
   )
+
+  // ── Person-private Agent request history ── bind one Agent to each of two
+  // seeded people, then retain a terminal denial through the snapshot. Keeping
+  // this terminal avoids turning an ordinary restart fixture into restore-fence
+  // coverage; explicit portable rollback is exercised in its dedicated suite.
+  const requestAda = { tenantId: 'tenant-acme', userId: 'user-ada' }
+  const requestGrace = { tenantId: 'tenant-beta', userId: 'user-grace' }
+  if (!seededAccounts.identityFor(requestAda.userId, requestAda.tenantId) ||
+      !seededAccounts.identityFor(requestGrace.userId, requestGrace.tenantId)) {
+    throw new Error('The seeded Ada and Grace identities are unavailable for the Agent request fixture.')
+  }
+  const requestSourceId = agentCreationId(requestAda.tenantId, 'snapshot-request-source')
+  const requestTargetId = agentCreationId(requestGrace.tenantId, 'snapshot-request-target')
+  store.createAgent({ label: 'Snapshot request source', systemPrompt: 'Private request fixture.', tools: [], instructions: '' },
+    requestAda.tenantId, { logicalId: requestSourceId, ownerUserId: requestAda.userId })
+  store.createAgent({ label: 'Snapshot request receiver', systemPrompt: 'Private request fixture.', tools: [], instructions: '', published: true },
+    requestGrace.tenantId, { logicalId: requestTargetId, ownerUserId: requestGrace.userId })
+  const snapshotRequestKey = 'comprehensive-private-request'
+  const snapshotRequestTask = 'A private Agent request retained in the comprehensive snapshot.'
+  const snapshotRequest = store.createAgentRequest(requestAda, snapshotRequestKey, {
+    fromAgentId: requestSourceId, toAgentId: requestTargetId, task: snapshotRequestTask,
+  })
+  const deniedSnapshotRequest = store.decideAgentRequest(snapshotRequest.id, requestGrace, {
+    action: 'deny', expectedRevision: snapshotRequest.revision,
+  })
+  if (deniedSnapshotRequest.status !== 'denied') throw new Error('Could not create the terminal Agent request snapshot fixture.')
+
   const playgroundProposal = store.proposeAgentChange(
     playgroundAgent.id,
     { fields: { instructions: 'Prefer primary sources and show the evidence trail.' }, note: 'Durable proposal fixture.' },

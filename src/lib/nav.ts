@@ -50,6 +50,8 @@ export type NavLocation =
       promptId?: string | null
       /** A built-in tool material (`/agents/tools/:id`). */
       toolId?: string | null
+      /** A private Agent request (`/agents/requests/:id`). */
+      agentRequestId?: string | null
       /** A saved context's detail page under the contexts section (ADAPT-15 — the
        *  detail was once component state with no address). Absent ≡ null. */
       contextId?: string | null
@@ -105,6 +107,7 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.agentId ?? null) === (b.agentId ?? null) &&
       (a.promptId ?? null) === (b.promptId ?? null) &&
       (a.toolId ?? null) === (b.toolId ?? null) &&
+      (a.agentRequestId ?? null) === (b.agentRequestId ?? null) &&
       (a.contextId ?? null) === (b.contextId ?? null) &&
       (a.adminUserId ?? null) === (b.adminUserId ?? null) &&
       (a.discussionId ?? null) === (b.discussionId ?? null) &&
@@ -166,6 +169,7 @@ const DETAIL_LABEL: {
   agentId: (id, n) => n.agent?.[id],
   promptId: (id, n) => n.prompt?.[id],
   toolId: (id, n) => n.tool?.[id],
+  agentRequestId: () => 'Requests',
   contextId: (id, n) => n.context?.[id],
   // The maintainer console's account detail: its roster is grant-walled and
   // fetched only by the console itself, so a back label would mean a

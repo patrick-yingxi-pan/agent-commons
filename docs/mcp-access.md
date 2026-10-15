@@ -78,6 +78,16 @@ event array, while open-ended push remains a transport form.
 
 ## 3. Credentials follow the deployment posture
 
+Agent requests use this same door: authenticated options, history, detail and
+keyed creation are ordinary capabilities. Owner call review and decisions are
+session-intrinsic consent controls, still exposed to authenticated remote MCP,
+but never in-session model self-consent tools. Run selects one exact inspected
+call under current owner/Agent reach; Share discloses only separately reviewed
+text. Same-workspace membership alone grants no private request access. HTTP
+and MCP event streams use the same exact-person audience and carry only a
+request-ID invalidation. The legacy `/agents/:id/proxy` simulation is separate
+and remains refused in release profiles.
+
 The hosted service uses one signed session credential over two transports. The
 desktop release deliberately does not manufacture a session token for its
 credential-less device owner: a machine client on that device connects directly

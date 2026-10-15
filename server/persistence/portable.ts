@@ -23,6 +23,7 @@ import { ALL_ARTIFACTS } from '../data/cowork.ts'
 import { resolveIdentity } from '../identity.ts'
 import { prepareCommissionRestoreState } from './commissionRestore.ts'
 import { prepareRoutineRestoreState } from './routineRestore.ts'
+import { prepareAgentRequestRestoreState } from './agentRequestRestore.ts'
 
 function artifactHistoryReferencesAreCanonical(state: PersistedState): boolean {
   if (!state.artifactHistory?.length && !state.artifactHistoryRestoreReceipts?.length) return true
@@ -147,6 +148,7 @@ export function restoreBackendState(
   }
   checked = prepareCommissionRestoreState(checked)
   checked = prepareRoutineRestoreState(checked)
+  checked = prepareAgentRequestRestoreState(checked)
   checked = migrateState(checked)
   if (!hasCorePersistedShape(checked) || !artifactHistoryReferencesAreCanonical(checked)) {
     throw new Error('refusing to restore an invalid safety-transformed snapshot')

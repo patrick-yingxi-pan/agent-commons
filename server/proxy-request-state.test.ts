@@ -426,8 +426,8 @@ test('pure state kernel has no runtime, store, authentication, or route dependen
       assert.ok(ts.isStringLiteral(node.moduleSpecifier))
       return node.moduleSpecifier.text
     }).sort()
-    assert.deepEqual(valueImports, ['./mcpBoundCall.ts', './mcpJson.ts', './mcpToolResult.ts', 'node:crypto'].sort(),
-      'only deterministic crypto and inert MCP parsing/snapshot helpers may be loaded at runtime')
+    assert.deepEqual(valueImports, ['../contract/agentRequests.ts', './mcpBoundCall.ts', './mcpJson.ts', './mcpToolResult.ts', 'node:crypto'].sort(),
+      'only portable contract limits, deterministic crypto and inert MCP parsing/snapshot helpers may be loaded at runtime')
     function visit(node: ts.Node): void {
       assert.equal(ts.isImportEqualsDeclaration(node), false, 'no import-equals runtime escape')
       if (ts.isExportDeclaration(node) && node.moduleSpecifier) assert.equal(node.isTypeOnly, true, 'no runtime re-exports')
