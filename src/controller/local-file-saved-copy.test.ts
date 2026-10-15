@@ -19,6 +19,25 @@ function setup() {
   return { saved, copies, attachId }
 }
 
+test('PDF saved copies exclude retained recognition bytes before and after explicit OCR', async () => {
+  for (const method of [undefined, 'ocr'] as const) {
+    const documentImport = { format: 'pdf' as const, status: 'ready' as const, pages: 2, textPages: 1,
+      ...(method ? { method } : {}) }
+    const selected = { version: 1 as const, path: 'scan.pdf', sizeBytes: 20,
+      snapshot: { text: 'exact reviewed text' }, documentImport,
+      pdfOcrInput: new TextEncoder().encode('%PDF-private bytes') }
+    const expected = { id: 'saved-pdf', name: 'scan.pdf', kind: 'file', text: 'exact reviewed text', documentImport }
+    let published = 0
+    await createLocalFileSavedCopyCore().submit({
+      savedId: 'saved-pdf', preview: selected, controller: new AbortController(),
+      isCurrent: () => true, subscribeCurrent: () => () => {},
+      prepare: async file => { assert.deepEqual(file, expected); return file as never },
+      onAttach: file => { assert.deepEqual(file, expected); published++ },
+    })
+    assert.equal(published, 1)
+  }
+})
+
 test('image saved copy prepares the exact normalized PNG and private original before ordinary attachment publication', async () => {
   const { saved, copies, attachId } = setup()
   const preparedCalls: unknown[] = []

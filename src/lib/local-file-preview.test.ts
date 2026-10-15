@@ -10,6 +10,51 @@ function native(format: typeof formats[number]): LocalFolderFilePreview {
 const ready = (format: typeof formats[number]) => format === 'pdf'
   ? { format, status: 'ready', pages: 2, textPages: 1 } as const : { format, status: 'ready' } as const
 
+test('only explicitly enabled selected PDF previews retain detached transient OCR bytes', async () => {
+  const bytes = new TextEncoder().encode('%PDF-1.7 captured fixture')
+  const input: LocalFolderFilePreview = { version: 1, path: 'scan.pdf', sizeBytes: bytes.length,
+    snapshot: { document: { format: 'pdf', bytes } } }
+  const signal = new AbortController().signal
+  const loader = async () => ({ read: async () => ({ documentImport: { format: 'pdf', status: 'no-text', pages: 1, textPages: 0 } }) })
+  const ordinary = await prepareLocalFilePreview(input, signal, loader)
+  assert.equal('pdfOcrInput' in ordinary, false)
+  for (const outcome of [
+    { documentImport: { format: 'pdf', status: 'no-text', pages: 1, textPages: 0 } },
+    { documentImport: { format: 'pdf', status: 'protected' } },
+    { documentImport: ready('pdf'), text: 'embedded text' },
+  ]) {
+    const result = await prepareLocalFilePreview(input, signal, async () => ({ read: async () => outcome }), undefined, { retainPdfOcrInput: true })
+    assert.deepEqual(result.pdfOcrInput, bytes)
+    assert.notEqual(result.pdfOcrInput, bytes)
+    assert.equal('document' in result.snapshot, false)
+  }
+  const original = bytes.slice()
+  const transferred = await prepareLocalFilePreview(input, signal, async () => ({ read: async candidate => {
+    structuredClone(candidate, { transfer: [candidate.buffer as ArrayBuffer] })
+    return { documentImport: ready('pdf'), text: 'embedded' }
+  } }), undefined, { retainPdfOcrInput: true })
+  assert.equal(bytes.byteLength, 0)
+  assert.deepEqual(transferred.pdfOcrInput, original)
+})
+
+test('invalid or mismatched PDF bytes and other formats never acquire OCR eligibility', async () => {
+  for (const input of [native('pdf'), native('docx'), native('xlsx'), native('pptx'),
+    { version: 1, path: 'scan.pdf', sizeBytes: 9, snapshot: { document: { format: 'pdf', bytes: new TextEncoder().encode('%PDF-1.7') } } },
+  ] as LocalFolderFilePreview[]) {
+    const result = await prepareLocalFilePreview(input, new AbortController().signal,
+      async () => ({ read: async () => ({ text: 'text', documentImport: ready(input.path.split('.').at(-1) as typeof formats[number]) }) }),
+      undefined, { retainPdfOcrInput: true })
+    assert.equal(result.pdfOcrInput, undefined)
+  }
+})
+
+test('embedded extraction cannot claim OCR provenance', async () => {
+  const result = await prepareLocalFilePreview(native('pdf'), new AbortController().signal,
+    async () => ({ read: async () => ({ text: 'text', documentImport: { ...ready('pdf'), method: 'ocr' } }) }))
+  assert.deepEqual(result.documentImport, { format: 'pdf', status: 'invalid' })
+  assert.deepEqual(result.snapshot, { omitted: 'document-extraction' })
+})
+
 for (const format of formats) test(`${format} publishes only exact extracted text and a detached validated outcome`, async () => {
   const input = native(format)
   const documentImport = ready(format)

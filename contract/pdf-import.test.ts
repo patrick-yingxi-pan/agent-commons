@@ -3,11 +3,11 @@ import { test } from 'node:test'
 import {
   MAX_PDF_PAGES,
   MAX_PDF_TEXT_BYTES,
-  collectPdfText,
   isPdfFileName,
   isPdfImportOutcome,
   pdfImportCopy,
 } from './pdfImport.mjs'
+import { collectPdfText } from './pdfTextCollection.mjs'
 
 type Item = { str?: string; hasEOL?: boolean }
 
@@ -128,18 +128,48 @@ test('PDF filename recognition and import copy expose stable bounded outcomes', 
   assert.match(pdfImportCopy({ format: 'pdf', status: 'text-limit' }), /No partial text was saved/)
   assert.match(pdfImportCopy({ format: 'pdf', status: 'page-limit' }), /100 pages or fewer/)
   assert.match(pdfImportCopy({ format: 'pdf', status: 'ready', pages: 4, textPages: 2 }), /2 of 4 pages/)
+  const ocrCopy = pdfImportCopy({ format: 'pdf', status: 'ready', method: 'ocr', pages: 4, textPages: 2 })
+  assert.match(ocrCopy, /On-device OCR text/)
+  assert.match(ocrCopy, /2 of 4 pages/)
+  assert.match(ocrCopy, /Recognition may err or omit text/)
+  assert.match(ocrCopy, /reading order may differ/)
+  assert.match(ocrCopy, /Images and layout are not included/)
+  assert.doesNotMatch(ocrCopy, /No OCR is performed/)
   assert.equal(pdfImportCopy({ format: 'txt', status: 'ready' }), '')
   assert.equal(pdfImportCopy(), '')
 })
 
+test('optional OCR provenance preserves every legacy PDF import-copy string', () => {
+  const cases = [
+    [{ status: 'ready', pages: 4, textPages: 2 }, 'Extracted PDF text · 2 of 4 pages contain text. Images and layout are not included; reading order may differ. No OCR is performed.'],
+    [{ status: 'no-text', pages: 4, textPages: 0 }, 'No readable PDF text was found. This may be a scan; this import does not perform OCR. Attach a text version instead.'],
+    [{ status: 'file-too-large' }, 'PDF not imported. Choose a PDF up to 8 MB.'],
+    [{ status: 'selection-limit' }, 'PDF not imported. Choose up to 24 MB of PDFs at a time.'],
+    [{ status: 'page-limit' }, 'PDF not imported. Choose a document with 100 pages or fewer.'],
+    [{ status: 'text-limit' }, 'PDF not imported. Extracted text exceeds 64 KB; split the document and reattach. No partial text was saved.'],
+    [{ status: 'protected' }, 'PDF not imported. Export an unlocked copy and reattach it.'],
+    [{ status: 'timeout' }, 'PDF import took too long. Try a smaller document or attach a text version.'],
+    [{ status: 'invalid' }, 'PDF not imported. The document could not be read reliably; export a new copy and reattach it.'],
+    [{ status: 'unavailable' }, 'PDF import is unavailable. Try again or attach a text version.'],
+    [{ status: 'unknown' }, 'PDF import is unavailable. Try again or attach a text version.'],
+    [{ status: '__proto__' }, 'PDF import is unavailable. Try again or attach a text version.'],
+  ]
+  for (const [outcome, expected] of cases) assert.equal(pdfImportCopy({ format: 'pdf', ...outcome }), expected)
+})
+
 test('validates exact PDF outcome metadata and rejects forged counters or extra keys', () => {
   assert.equal(isPdfImportOutcome({ format: 'pdf', status: 'ready', pages: 3, textPages: 2 }), true)
+  assert.equal(isPdfImportOutcome({ format: 'pdf', status: 'ready', method: 'ocr', pages: 3, textPages: 2 }), true)
   assert.equal(isPdfImportOutcome({ format: 'pdf', status: 'no-text', pages: 3, textPages: 0 }), true)
   for (const value of [
     { format: 'pdf', status: 'ready', pages: 0, textPages: 1 },
     { format: 'pdf', status: 'ready', pages: 3, textPages: 0 },
     { format: 'pdf', status: 'ready', pages: 3, textPages: 4 },
     { format: 'pdf', status: 'no-text', pages: 3, textPages: 1 },
+    { format: 'pdf', status: 'no-text', method: 'ocr', pages: 3, textPages: 0 },
+    { format: 'pdf', status: 'ready', method: 'embedded', pages: 3, textPages: 2 },
+    { format: 'pdf', status: 'invalid', method: 'ocr' },
+    { format: 'pdf', status: 'ready', method: 'ocr', pages: 3 },
     { format: 'pdf', status: 'page-limit', pages: 101 },
     { format: 'pdf', status: 'ready', pages: 3, textPages: 1, text: 'forged' },
     { format: 'pdf', status: 'ready', pages: 3, textPages: 1, extra: true },

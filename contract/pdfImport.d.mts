@@ -7,6 +7,8 @@ export type PdfImportStatus = 'ready' | 'no-text' | 'file-too-large' | 'selectio
 export interface PdfImportOutcome {
   format: 'pdf'
   status: PdfImportStatus
+  /** Present only when ready text came from explicitly requested on-device OCR. */
+  method?: 'ocr'
   pages?: number
   textPages?: number
 }
@@ -15,10 +17,3 @@ export function isPdfFileName(name: unknown): boolean
 export function pdfImportFailure(status: Exclude<PdfImportStatus, 'ready' | 'no-text'>): PdfImportResult
 export function pdfImportCopy(outcome?: PdfImportOutcome): string
 export function isPdfImportOutcome(value: unknown): value is PdfImportOutcome
-export function collectPdfText(document: {
-  numPages: number
-  getPage(page: number): Promise<{
-    streamTextContent(): ReadableStream<{ items: Array<{ str?: string; hasEOL?: boolean }> }>
-    cleanup(): unknown
-  }>
-}): Promise<PdfImportResult>

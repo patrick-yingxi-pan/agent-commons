@@ -5,6 +5,8 @@ import { localGitConnections } from './localGitConnections.ts'
 import { createLocalGitUntrackedBrowserCore } from './localGitUntrackedBrowserCore.ts'
 import { createLocalGitUntrackedOptInCore } from './localGitUntrackedOptInCore.ts'
 import { prepareLocalFilePreview } from '../lib/localFilePreview.ts'
+import { recognizeLocalPdfPreview } from '../lib/localPdfOcrPreview.ts'
+import { desktopPdfOcrAvailable } from '../api/desktopPdfOcr.ts'
 
 async function commands() {
   const generation = accountGeneration()
@@ -18,8 +20,9 @@ export const localGitUntrackedBrowser = createLocalGitUntrackedBrowserCore({
   preview: async (id, path, signal) => {
     const api = await commands()
     signal.throwIfAborted()
-    return prepareLocalFilePreview(await api.readLocalGitUntrackedFile(id, path, signal), signal)
+    return prepareLocalFilePreview(await api.readLocalGitUntrackedFile(id, path, signal), signal, undefined, undefined, { retainPdfOcrInput: desktopPdfOcrAvailable() })
   },
+  processPreview: recognizeLocalPdfPreview,
   now: () => Date.now(),
 })
 

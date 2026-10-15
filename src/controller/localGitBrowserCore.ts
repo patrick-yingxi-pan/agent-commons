@@ -1,6 +1,6 @@
 import type { LocalGitFileListing } from '../../contract/localGitBrowse.mjs'
 import type { LocalBrowsePreview } from '../lib/localFilePreview.ts'
-import { createLocalFileBrowserCore, type LocalFileBrowserState } from './localFileBrowserCore.ts'
+import { createLocalFileBrowserCore, type LocalFileBrowserState, type LocalPreviewProcessingResult } from './localFileBrowserCore.ts'
 
 export type LocalGitBrowseEntry = LocalGitFileListing['files'][number]
 export type LocalGitBrowseListing = LocalGitFileListing
@@ -10,6 +10,7 @@ export type LocalGitBrowserState = LocalFileBrowserState<LocalGitBrowseListing, 
 export function createLocalGitBrowserCore(deps: {
   list(id: string): Promise<LocalGitBrowseListing>
   preview(id: string, path: string, signal: AbortSignal): Promise<LocalGitBrowsePreview>
+  processPreview?(preview: LocalGitBrowsePreview, signal: AbortSignal): Promise<LocalPreviewProcessingResult<LocalGitBrowsePreview>>
   now(): number
 }) {
   return createLocalFileBrowserCore({ ...deps, isPreviewable: kind => kind === 'file',

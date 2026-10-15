@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { ignoreFromPackage } from './packager.config.mjs'
 import { localDocumentBrowseFixtures } from './localDocumentBrowseSmoke.mjs'
-import { collectPdfText } from '../contract/pdfImport.mjs'
+import { collectPdfText } from '../contract/pdfTextCollection.mjs'
 import { extractDocx } from '../src/lib/docxExtraction.ts'
 import { extractXlsx } from '../src/lib/xlsxExtraction.ts'
 import { extractPptx } from '../src/lib/pptxExtraction.ts'
@@ -28,6 +28,34 @@ test('packaged selected-document fixtures have exact real PDF and Office extract
       assert.equal(item.text.includes('selected-hidden-'), false)
     }
   }
+})
+
+test('packaged local-document fixture can append a captured image-only PDF with OCR projection metadata', () => {
+  for (const source of ['folder', 'git']) {
+    const fixtures = localDocumentBrowseFixtures(source, Buffer.from('%PDF-1.7\nfixture'))
+    assert.equal(fixtures.length, 5)
+    assert.deepEqual(fixtures.at(-1), {
+      format: 'pdf', path: 'browse-documents/scanned-source.pdf', marker: 'Scan Alpha 427',
+      bytes: Buffer.from('%PDF-1.7\nfixture'),
+      text: '[Page 1]\nScan Alpha 427\n\n[Page 2]\nScan Bravo 813',
+      outcome: { format: 'pdf', status: 'ready', pages: 2, textPages: 2, method: 'ocr' },
+      extraction: { format: 'pdf', pages: 2, text_pages: 2, method: 'ocr' }, ocr: true,
+    })
+  }
+})
+
+test('packaged local OCR overwrites the source before using the real native recognition bridge', () => {
+  const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
+  const branch = source.indexOf('if (item.ocr) {')
+  const replace = source.indexOf("await writeFile(join(root, item.path), 'selected-source-replaced-after-preview')", branch)
+  const recognize = source.indexOf("getByRole('button', { name: 'Recognize scanned text', exact: true }).click()", branch)
+  const reviewed = source.indexOf('await expect(preview).toHaveText(item.text, { timeout: TIMEOUT_MS })', recognize)
+  assert.ok(branch >= 0 && replace > branch && recognize > replace && reviewed > recognize,
+    'source replacement precedes explicit OCR and its exact reviewed result')
+  assert.ok(source.includes("import { pdfOcrFixture } from './pdfOcrFixture.mjs'"),
+    'the smoke uses the generated image-only native PDF fixture')
+  assert.doesNotMatch(source, /agentCommonsDesktop|pdfOcr\s*\.\s*recognize\s*=|addInitScript|exposeBinding/,
+    'the packaged workflow does not replace or mock the native OCR bridge')
 })
 
 test('packaged document browsing is awaited for both native sources before source-absent relaunch', () => {
@@ -61,6 +89,7 @@ test('packaged document browsing is awaited for both native sources before sourc
 test('packaged document acceptance helpers never ship', () => {
   assert.equal(ignoreFromPackage('/desktop/localDocumentBrowseSmoke.mjs'), true)
   assert.equal(ignoreFromPackage('/desktop/localDocumentBrowseSmoke.test.ts'), true)
+  assert.equal(ignoreFromPackage('/desktop/pdfOcrFixture.mjs'), true)
 })
 
 test('packaged document preview capture centers disclosure and text without relaxing containment', () => {
@@ -91,11 +120,13 @@ test('packaged document relaunch opens the grouped saved-file menu before each e
 
 test('packaged document captures wait until disclosure and text are uncovered after resizing', () => {
   const source = readFileSync(new URL('./localDocumentBrowseSmoke.mjs', import.meta.url), 'utf8')
+  assert.ok(source.includes("const evidenceKey = item.ocr ? 'pdf-ocr' : item.format"),
+    'scanned and embedded PDF evidence have distinct names')
   assert.ok(source.includes('element.ownerDocument.elementFromPoint(x, y)'), 'capture admission checks the actual painted hit target')
   assert.ok(source.includes('element.contains(hit)'), 'overlay coverage cannot count as readable text')
   for (const [target, suffix] of [['disclosure', 'disclosure'], ['preview', 'text']]) {
     const check = source.indexOf(`await expectUncovered(${target})`)
-    const capture = source.indexOf('`${item.format}-' + suffix + '-${width}x${height}.png`')
+    const capture = source.indexOf('`${evidenceKey}-' + suffix + '-${width}x${height}.png`')
     assert.ok(check > 0 && capture > check, `${suffix} capture requires its own uncovered target`)
   }
 })

@@ -167,6 +167,21 @@ test('accepts the bounded DOCX outcome union and rejects forged failure text met
   assert.deepEqual(planAttachmentInput([ready, failed]).map(({ status }) => status), ['ready', 'unavailable'])
 })
 
+test('admits OCR provenance only for a ready PDF with valid page metadata', () => {
+  const ready = uiFile('recognized words', {
+    label: 'scan.pdf',
+    documentImport: { format: 'pdf', status: 'ready', method: 'ocr', pages: 3, textPages: 2 },
+  })
+  assert.equal(isAttachmentInput(ready), true)
+  assert.deepEqual(planAttachmentInput([ready]).map(({ status }) => status), ['ready'])
+  for (const documentImport of [
+    { format: 'pdf', status: 'no-text', method: 'ocr', pages: 3, textPages: 0 },
+    { format: 'pdf', status: 'invalid', method: 'ocr' },
+    { format: 'pdf', status: 'ready', method: 'ocr', pages: 3 },
+    { format: 'pdf', status: 'ready', method: 'parser', pages: 3, textPages: 2 },
+  ]) assert.equal(isAttachmentInput({ ...ready, documentImport }), false)
+})
+
 test('the item cap is fixed and does not turn later metadata into file content', () => {
   const planned = planAttachmentInput(Array.from({ length: ATTACHMENT_INPUT_MAX_ITEMS + 1 }, (_, i) => uiFile(`text-${i}`, { id: `file-${i}` })))
   assert.equal(planned.length, ATTACHMENT_INPUT_MAX_ITEMS + 1)

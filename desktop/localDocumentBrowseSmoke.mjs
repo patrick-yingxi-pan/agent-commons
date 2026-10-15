@@ -9,19 +9,20 @@ import { pdfFixture } from '../tests/helpers/pdfFixture.mjs'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
 import { xlsxFixture } from '../tests/helpers/xlsxFixture.mjs'
 import { pptxFixture } from '../tests/helpers/pptxFixture.mjs'
+import { pdfOcrFixture } from './pdfOcrFixture.mjs'
 
 const TIMEOUT_MS = 30_000
 const VIEWPORTS = [[320, 700], [375, 812], [768, 1024], [844, 390], [1280, 800]]
 const DIRECTORY = 'browse-documents'
 const SOURCE = { id: 'ui-host', kind: 'ui-host', label: 'This computer' }
 
-export function localDocumentBrowseFixtures(source) {
+export function localDocumentBrowseFixtures(source, scannedPdfBytes) {
   const marker = `native-${source}-selected`
   const pdf = `${marker}-pdf-body`
   const word = `${marker}-word-body · café 世界 😀`
   const workbook = `${marker}-workbook-body`
   const slide = `${marker}-slide-body`
-  return [
+  const fixtures = [
     {
       format: 'pdf', path: `${DIRECTORY}/source.pdf`, marker: pdf,
       bytes: pdfFixture({ pages: [pdf, null, 'Final selected PDF page'], compress: true }),
@@ -51,6 +52,15 @@ export function localDocumentBrowseFixtures(source) {
       outcome: { format: 'pptx', status: 'ready' }, extraction: { format: 'pptx' },
     },
   ]
+  if (scannedPdfBytes) fixtures.push({
+    format: 'pdf', path: `${DIRECTORY}/scanned-source.pdf`, marker: 'Scan Alpha 427',
+    bytes: scannedPdfBytes,
+    text: '[Page 1]\nScan Alpha 427\n\n[Page 2]\nScan Bravo 813',
+    outcome: { format: 'pdf', status: 'ready', pages: 2, textPages: 2, method: 'ocr' },
+    extraction: { format: 'pdf', pages: 2, text_pages: 2, method: 'ocr' },
+    ocr: true,
+  })
+  return fixtures
 }
 
 async function workspace(page, sessionId) {
@@ -97,8 +107,9 @@ async function sendSaved(page, endpoint, expectedFiles, marker, previousReplies)
   // Enter via a hit-tested action after picker/viewport transitions, not a
   // synthetic fill into the still-covered outgoing layout.
   await composer.click()
-  await composer.fill('Read only the four saved document copies.')
-  await expect(composer).toHaveValue('Read only the four saved document copies.')
+  const instruction = `Read only the ${expectedFiles.length} saved document copies.`
+  await composer.fill(instruction)
+  await expect(composer).toHaveValue(instruction)
   await composer.press('Enter')
   await expect(replies).toHaveCount(previousReplies + 1, { timeout: TIMEOUT_MS })
   await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0, { timeout: TIMEOUT_MS })
@@ -113,7 +124,8 @@ async function sendSaved(page, endpoint, expectedFiles, marker, previousReplies)
  * saved-copy state, SQLite and model transport are unmodified packaged code. */
 export async function smokeLocalDocumentBrowse({ run, root, source, name, providerId, endpoint, prepareFiles }) {
   assert.ok(source === 'folder' || source === 'git')
-  const fixtures = localDocumentBrowseFixtures(source)
+  const scannedPdfBytes = process.platform === 'darwin' ? await pdfOcrFixture({ mode: 'scanned' }) : undefined
+  const fixtures = localDocumentBrowseFixtures(source, scannedPdfBytes)
   const sourceDirectory = join(root, DIRECTORY)
   await mkdir(sourceDirectory)
   for (const item of fixtures) await writeFile(join(root, item.path), item.bytes, { mode: 0o600 })
@@ -146,12 +158,31 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
   await verifySourceMetadata?.()
   const evidenceRoot = await mkdtemp(join(tmpdir(), `agent-commons-${source}-document-browse-`))
   for (const [index, item] of fixtures.entries()) {
+    const evidenceKey = item.ocr ? 'pdf-ocr' : item.format
     await browser.getByRole('searchbox', { name: 'Search paths', exact: true }).fill(item.path)
     await browser.getByRole('button', { name: `${item.path} ${source === 'folder' ? 'File' : 'Tracked file'}`, exact: true }).click()
     const preview = browser.getByRole('region', { name: `Preview of ${item.path}`, exact: true })
-    await expect(preview).toHaveText(item.text, { timeout: TIMEOUT_MS })
-    assert.equal(await preview.textContent(), item.text, 'worker extraction is displayed whole and without whitespace normalization')
     const disclosure = browser.locator(`[data-local-document-preview="${item.format}"]`)
+    if (item.ocr) {
+      await expect(disclosure).toHaveText('No embedded PDF text was found. Recognize scanned text on this Mac, then review it below.')
+      await expect(preview).toHaveCount(0, 'ordinary PDF extraction produces no preview text before explicit OCR')
+      await expect(browser.getByRole('button', { name: 'Attach saved copy', exact: true })).toHaveCount(0,
+        'a PDF with no embedded text cannot be attached before recognition')
+      assert.deepEqual(await workspace(page, session.id), before,
+        'ordinary PDF text extraction leaves the prior saved copies untouched')
+      assert.equal(before.attachments.length, index, 'the current PDF has no saved copy before explicit OCR')
+      assert.equal(before.attachments.some(item => item.documentImport?.method === 'ocr'), false,
+        'OCR metadata exists only after explicit recognition and Attach')
+      assert.equal(endpoint.requests.length, requestCount, 'ordinary scanned-PDF preview never calls the model')
+      // Replacing the selected source before recognition proves OCR receives
+      // the captured PDF bytes rather than reopening the path.
+      await writeFile(join(root, item.path), 'selected-source-replaced-after-preview')
+      await browser.getByRole('button', { name: 'Recognize scanned text', exact: true }).click()
+      await expect(preview).toHaveText(item.text, { timeout: TIMEOUT_MS })
+    } else {
+      await expect(preview).toHaveText(item.text, { timeout: TIMEOUT_MS })
+    }
+    assert.equal(await preview.textContent(), item.text, 'worker/OCR result is displayed whole and without whitespace normalization')
     await expect(disclosure).toHaveText(documentImportCopy(item.outcome))
     await expect(browser).toContainText(`${item.bytes.length.toLocaleString()} source bytes`)
     await expect(browser).toContainText('Original document bytes are not saved.')
@@ -169,7 +200,7 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
       await settledOpaquePaint(disclosure)
       try { await expect(disclosure).toBeInViewport({ ratio: 1 }) }
       catch (error) {
-        await page.screenshot({ path: join(evidenceRoot, `${item.format}-disclosure-failed-${width}x${height}.png`) })
+        await page.screenshot({ path: join(evidenceRoot, `${evidenceKey}-disclosure-failed-${width}x${height}.png`) })
         console.error('[desktop-local-document-browse-smoke] disclosure containment', JSON.stringify({ source, format: item.format, width, height, evidenceRoot,
           geometry: await disclosure.evaluate(element => {
             const result = []
@@ -187,14 +218,14 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
       await expect(picker.getByRole('button', { name: 'Done', exact: true })).toBeInViewport({ ratio: 1 })
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await expectUncovered(disclosure)
-      await page.screenshot({ path: join(evidenceRoot, `${item.format}-disclosure-${width}x${height}.png`) })
+      await page.screenshot({ path: join(evidenceRoot, `${evidenceKey}-disclosure-${width}x${height}.png`) })
       // Chromium's nearest-edge scroll can leave a subpixel of the border
       // behind this short scrollport. Center the review target, then require
       // full containment; do not reduce the ratio or the visible-text claim.
       await preview.evaluate(node => node.scrollIntoView({ block: 'center', inline: 'nearest' }))
       await settledOpaquePaint(preview)
       await expectUncovered(preview)
-      await page.screenshot({ path: join(evidenceRoot, `${item.format}-text-${width}x${height}.png`) })
+      await page.screenshot({ path: join(evidenceRoot, `${evidenceKey}-text-${width}x${height}.png`) })
       try { await expect(preview).toBeInViewport({ ratio: 1 }) }
       catch (error) {
         console.error('[desktop-local-document-browse-smoke] preview containment', JSON.stringify({ source, format: item.format, width, height, evidenceRoot,
@@ -213,9 +244,9 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
       }
       assert.equal(await preview.textContent(), item.text)
     }
-    // Deliberately replace the generated original after preview. Attach must
-    // save the reviewed worker output without another native/worker read.
-    await writeFile(join(root, item.path), 'selected-source-replaced-after-preview')
+    // Deliberately replace each generated original before Attach (and before
+    // OCR above). Attach saves the reviewed text without another source read.
+    if (!item.ocr) await writeFile(join(root, item.path), 'selected-source-replaced-after-preview')
     await browser.getByRole('button', { name: 'Attach saved copy', exact: true }).click()
     await expect(picker).toContainText(`${index + 1} added`, { timeout: TIMEOUT_MS })
     await expect(browser.getByRole('button', { name: 'Added', exact: true })).toBeDisabled()
@@ -229,12 +260,21 @@ export async function smokeLocalDocumentBrowse({ run, root, source, name, provid
   if (originalViewport) await page.setViewportSize(originalViewport)
   const expectedFiles = fixtures.map(item => ({ name: item.path, status: 'ready', text: item.text, extraction: item.extraction }))
   await sendSaved(page, endpoint, expectedFiles, fixtures[0].marker, 0)
-  console.log(`[desktop-local-document-browse-smoke] ${source}: four real native document reads + packaged workers + exact saved/model metadata + five-viewport evidence: ${evidenceRoot}`)
+  console.log(`[desktop-local-document-browse-smoke] ${source}: ${fixtures.length} real native document reads + packaged workers/OCR + exact saved/model metadata + five-viewport evidence: ${evidenceRoot}`)
   return { sessionId: session.id, saved: await workspace(page, session.id), fixtures: fixtures.map(({ bytes, ...item }) => item), expectedFiles, sourceDirectory, root }
 }
 
 export async function verifyLocalDocumentBrowseRelaunch(run, receipt, endpoint) {
-  assert.equal(receipt?.fixtures?.length, 4, 'all four document formats completed before relaunch')
+  const expectedFixtureCount = process.platform === 'darwin' ? 5 : 4
+  assert.equal(receipt?.fixtures?.length, expectedFixtureCount, 'all platform-supported document fixtures completed before relaunch')
+  assert.equal(receipt?.expectedFiles?.length, expectedFixtureCount, 'the model projection includes every document fixture')
+  if (process.platform === 'darwin') {
+    const ocr = receipt.fixtures.at(-1)
+    assert.equal(ocr?.path, `${DIRECTORY}/scanned-source.pdf`)
+    assert.equal(ocr?.marker, 'Scan Alpha 427')
+    assert.deepEqual(ocr?.outcome, { format: 'pdf', status: 'ready', pages: 2, textPages: 2, method: 'ocr' })
+    assert.deepEqual(receipt.expectedFiles.at(-1)?.extraction, { format: 'pdf', pages: 2, text_pages: 2, method: 'ocr' })
+  }
   await assert.rejects(stat(receipt.sourceDirectory), { code: 'ENOENT' }, 'the original connected-source document directory is absent')
   assert.deepEqual(await workspace(run.page, receipt.sessionId), receipt.saved, 'exact document text, import outcomes and attachment identities survive a real packaged relaunch')
   assertSaved(receipt.saved, receipt.fixtures, receipt.root)
@@ -253,5 +293,5 @@ export async function verifyLocalDocumentBrowseRelaunch(run, receipt, endpoint) 
   await run.page.goto(route)
   await sendSaved(run.page, endpoint, receipt.expectedFiles, receipt.fixtures[0].marker, 1)
   assert.deepEqual(await workspace(run.page, receipt.sessionId), receipt.saved, 'saved-only sending without original files cannot rewrite attachment state')
-  console.log('[desktop-local-document-browse-smoke] all four exact saved previews, fidelity metadata and model input survive full relaunch without their source documents')
+  console.log(`[desktop-local-document-browse-smoke] all ${expectedFixtureCount} exact saved previews, fidelity metadata and model input survive full relaunch without their source documents`)
 }

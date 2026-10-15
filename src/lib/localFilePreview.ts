@@ -5,6 +5,7 @@ import { isImageFileName } from '../../contract/imageFile.mjs'
 import { localBrowseDocumentFormat, MAX_LOCAL_BROWSE_TEXT_BYTES } from '../../contract/localFileBrowse.mjs'
 import type { LocalFolderFilePreview } from '../../contract/localFolderBrowse.mjs'
 import type { LocalGitFilePreview } from '../../contract/localGitBrowse.mjs'
+import { snapshotPdfOcrInput } from '../../contract/pdfOcr.mjs'
 
 /** Native containers never enter browser state as read-capable objects. Text
  * retains its fidelity outcome; image previews retain normalized PNG data and
@@ -18,6 +19,9 @@ export interface LocalBrowsePreview {
     { omitted: 'unsupported' | 'too-large' | 'unreadable' | 'document-extraction' | 'image-import'; text?: never; image?: never; original?: never }
   documentImport?: DocumentImportOutcome
   imageFailure?: ImageImportFailure
+  /** Disposable captured bytes for a separate, explicit on-device recognition.
+   * Never part of the saved-copy projection or a native path capability. */
+  pdfOcrInput?: Uint8Array
 }
 
 export type ImageImportFailure = 'invalid' | 'too-large' | 'decode-failed' | 'timeout' | 'unavailable'
@@ -67,10 +71,11 @@ export async function prepareLocalFilePreview(
   signal: AbortSignal,
   readerForPath: ReaderLoader = loadReader,
   imageImporterForPath: ImageImporterLoader = loadImageImporter,
+  options: { retainPdfOcrInput?: boolean } = {},
 ): Promise<LocalBrowsePreview> {
   signal.throwIfAborted()
   const { version, path, sizeBytes } = native
-  const base = { version, path, sizeBytes }
+  const base: Pick<LocalBrowsePreview, 'version' | 'path' | 'sizeBytes' | 'pdfOcrInput'> = { version, path, sizeBytes }
   const format = localBrowseDocumentFormat(path)
   const failure = (status: 'invalid' | 'unavailable' | 'text-limit' | 'file-too-large'): LocalBrowsePreview => ({
     ...base, snapshot: { omitted: 'document-extraction' }, documentImport: { format: format!, status },
@@ -115,6 +120,11 @@ export async function prepareLocalFilePreview(
     }
   }
   if (!format || native.snapshot.document.format !== format) throw new Error('Invalid local document preview.')
+  if (format === 'pdf' && options.retainPdfOcrInput && native.snapshot.document.bytes.byteLength === sizeBytes) {
+    // Detach before PDF extraction can transfer or mutate its input buffer.
+    const captured = snapshotPdfOcrInput(native.snapshot.document.bytes)
+    if (captured.status === 'ready') base.pdfOcrInput = captured.pdf
+  }
   try {
     const reader = await untilCancelled(readerForPath(path), signal)
     signal.throwIfAborted()
@@ -122,7 +132,8 @@ export async function prepareLocalFilePreview(
     const result = await untilCancelled(reader.read(native.snapshot.document.bytes, signal), signal)
     signal.throwIfAborted()
     if (!ownDataRecord(result) || Object.keys(result).some(key => !['text', 'documentImport'].includes(key)) ||
-        !ownDataRecord(result.documentImport) || !isDocumentImportOutcome(result.documentImport) || result.documentImport.format !== format) return failure('invalid')
+        !ownDataRecord(result.documentImport) || !isDocumentImportOutcome(result.documentImport) || result.documentImport.format !== format ||
+        (result.documentImport.format === 'pdf' && result.documentImport.method !== undefined)) return failure('invalid')
     const documentImport = structuredClone(result.documentImport)
     if (documentImport.status !== 'ready') {
       if (result.text !== undefined) return failure('invalid')

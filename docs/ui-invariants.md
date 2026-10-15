@@ -384,6 +384,8 @@ dialog ever ships without one, extract a `DIALOG_SURFACE` funnel the same way.
 
 | UI-235 | **Saved attempts retain their target identity independently of editable selections.** Every retained argument-draft state shows its saved tool and model from the immutable receipt, without restoring a selection or granting consent. The shared draft card owns the identity stamp across pending and terminal outcomes. | `src/components/AgentRequestArgumentDraft.tsx` | `src/components/agent-requests-ui.test.ts`; `e2e/agent-request-arguments.spec.ts` | Agent-request screenshot review, 2026-10-14: navigation reset the pending disabled selector, hiding which tool the model was drafting for. The source lock failed before the saved-binding line was added; rendered recovery checks both coordinates across all five viewports. Bounded suggestion text also adopts the existing UI-202 keyboard-reader funnel and is tested with overflowing arguments. |
 
+| UI-236 | **Pending local preview work owns its slot before notifying observers.** Folder, tracked Git and opted-in untracked Git share a browser state machine that registers an operation before publishing pending state. A synchronous subscriber cannot start a competing read or dismiss before the request is cancellable. | `src/controller/localFileBrowserCore.ts` | `src/controller/localFileBrowserProcessing.test.ts` | Connected-PDF OCR review, 2026-10-15: reentrant pending subscribers could start a second read or dismiss before registration. Both behavioral locks failed before registration moved ahead of notification; receipt/path and disposal fences remain intact. |
+
 ## The ratchet procedure
 
 When a UI escape is confirmed (by a user report or a `/ui-review` sweep):

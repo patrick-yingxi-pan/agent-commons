@@ -10,14 +10,19 @@ export interface LocalFileBrowserState<Listing, Preview> {
   previewError: string | null
   /** Per-success identity only; no path or preview bytes. */
   previewReceipt: number | null
+  processingStatus: 'idle' | 'loading' | 'error'
+  processingError: string | null
   pending: boolean
 }
+export type LocalPreviewProcessingResult<Preview> =
+  { status: 'ready'; preview: Preview } | { status: 'error'; message: string } | { status: 'cancelled' }
+export type LocalPreviewProcessor<Preview> = (preview: Preview, signal: AbortSignal) => Promise<LocalPreviewProcessingResult<Preview>>
 interface PendingRead { epoch: number; version: number; key: string; promise: Promise<unknown>; controller: AbortController }
 
 const makeIdle = <L, P>(): LocalFileBrowserState<L, P> => Object.freeze({
   listingStatus: 'idle', listing: null, listingReadAt: null, listingError: null,
   selectedPath: null, previewStatus: 'idle', preview: null, previewReadAt: null,
-  previewError: null, previewReceipt: null, pending: false,
+  previewError: null, previewReceipt: null, processingStatus: 'idle', processingError: null, pending: false,
 })
 
 /** Shared bounded browser state machine. Source-specific API validators and UI
@@ -28,6 +33,7 @@ export function createLocalFileBrowserCore<
 >(deps: {
   list(id: string, signal: AbortSignal): Promise<Listing>
   preview(id: string, path: string, signal: AbortSignal): Promise<Preview>
+  processPreview?: LocalPreviewProcessor<Preview>
   now(): number
   isPreviewable(kind: string): boolean
   listingError: string
@@ -57,7 +63,6 @@ export function createLocalFileBrowserCore<
       return same ? same.promise as Promise<T | null> : Promise.resolve(null)
     }
     const request: PendingRead = { epoch, version: versionOf(id), key, promise: Promise.resolve(null), controller: new AbortController() }
-    publish(id, onStart(get(id)))
     const promise = Promise.resolve().then(() => {
       request.controller.signal.throwIfAborted()
       return task(request.controller.signal)
@@ -76,25 +81,54 @@ export function createLocalFileBrowserCore<
     })
     request.promise = promise
     const reads = pending.get(id) ?? new Set<PendingRead>(); reads.add(request); pending.set(id, reads)
+    // Subscribers can synchronously dismiss or start a competing action. The
+    // operation must own its slot before announcing the pending state.
+    publish(id, onStart(get(id)))
     return promise
   }
   const readListing = (id: string) => begin(id, 'listing', signal => deps.list(id, signal),
     state => ({ ...state, listingStatus: 'loading', listing: null, listingReadAt: null, listingError: null,
-      selectedPath: null, previewStatus: 'idle', preview: null, previewReadAt: null, previewError: null, previewReceipt: null, pending: true }),
+      selectedPath: null, previewStatus: 'idle', preview: null, previewReadAt: null, previewError: null, previewReceipt: null,
+      processingStatus: 'idle', processingError: null, pending: true }),
     (state, listing) => ({ ...state, listingStatus: 'ready', listing, listingReadAt: deps.now(), listingError: null, pending: false }),
     state => ({ ...state, listingStatus: 'error', listing: null, listingReadAt: null, listingError: deps.listingError,
-      selectedPath: null, previewStatus: 'idle', preview: null, previewReadAt: null, previewError: null, previewReceipt: null, pending: false }))
+      selectedPath: null, previewStatus: 'idle', preview: null, previewReadAt: null, previewError: null, previewReceipt: null,
+      processingStatus: 'idle', processingError: null, pending: false }))
   const readPreview = (id: string, path: string) => {
     const state = get(id)
     const entry = state.listing?.files.find(file => file.path === path)
     if (state.listingStatus !== 'ready' || !entry || !deps.isPreviewable(entry.kind)) return Promise.resolve(null)
     return begin(id, `preview:${path}`, signal => deps.preview(id, path, signal),
       currentState => ({ ...currentState, selectedPath: path, previewStatus: 'loading', preview: null,
-        previewReadAt: null, previewError: null, previewReceipt: null, pending: true }),
+        previewReadAt: null, previewError: null, previewReceipt: null, processingStatus: 'idle', processingError: null, pending: true }),
       (currentState, preview) => ({ ...currentState, selectedPath: path, previewStatus: 'ready', preview,
         previewReadAt: deps.now(), previewError: null, previewReceipt: ++nextReceipt, pending: false }),
       currentState => ({ ...currentState, selectedPath: path, previewStatus: 'error', preview: null,
         previewReadAt: null, previewError: deps.previewError, previewReceipt: null, pending: false }))
+  }
+  const processingFailure = (state: State): State => ({ ...state, processingStatus: 'error',
+    processingError: 'Could not process this preview. The previous preview is unchanged; try again.', pending: false })
+  const processPreview = (id: string, receipt: number) => {
+    const state = get(id)
+    const processor = deps.processPreview
+    if (!processor || state.previewStatus !== 'ready' || !state.preview || state.previewReceipt !== receipt) return Promise.resolve(null)
+    const preview = state.preview
+    return begin(id, `process:${receipt}`, signal => processor(structuredClone(preview), signal),
+      currentState => ({ ...currentState, processingStatus: 'loading', processingError: null, pending: true }),
+      (currentState, result) => {
+        if (result.status === 'cancelled') return { ...currentState, processingStatus: 'idle', processingError: null, pending: false }
+        if (result.status === 'error') return { ...currentState, processingStatus: 'error', processingError: result.message, pending: false }
+        if (result.status !== 'ready' || result.preview.path !== preview.path) return processingFailure(currentState)
+        return { ...currentState, preview: result.preview, previewReceipt: ++nextReceipt,
+          processingStatus: 'idle', processingError: null, pending: false }
+      }, processingFailure)
+  }
+  const cancelProcessing = (id: string) => {
+    const requests = [...(pending.get(id) ?? [])].filter(request => request.epoch === epoch && request.key.startsWith('process:'))
+    if (!requests.length) return
+    versions.set(id, versionOf(id) + 1)
+    for (const request of requests) request.controller.abort()
+    publish(id, { ...get(id), processingStatus: 'idle', processingError: null, pending: true })
   }
   const dismiss = (id: string) => {
     const hasPending = occupied(id)
@@ -119,6 +153,6 @@ export function createLocalFileBrowserCore<
       const set = listeners.get(id) ?? new Set<() => void>(); set.add(listener); listeners.set(id, set)
       return () => { set.delete(listener); if (!set.size) listeners.delete(id) }
     },
-    readListing, readPreview, dismiss, retain, clear,
+    readListing, readPreview, processPreview, cancelProcessing, dismiss, retain, clear,
   }
 }

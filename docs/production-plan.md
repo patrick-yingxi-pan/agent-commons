@@ -47,6 +47,59 @@ route. No secrets, membership purchase, external test call or public publication
 is authorized by this review. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
+## Implemented milestone: recognize selected connected-source PDFs
+
+Autonomous direction (2026-10-15): close a core source-intake gap without
+requiring a temporary Document. Folder, tracked Git and explicitly opted-in
+untracked Git previews offer a separate **Recognize scanned text** action on
+supported macOS desktop builds. It uses the already captured bounded bytes,
+not another source read or chooser. Recognition replaces the preview for
+review; the existing separate conversation-only Attach saves exact text and
+OCR provenance. Canonical and Project views remain browse-only.
+
+The existing sandboxed native recognizer keeps its 8 MiB, 100-page, 2,000-pixel,
+64 KiB and 120-second bounds. Failure/cancellation preserves the prior preview;
+disposal fences late results. Transient PDF bytes are discarded on success or
+preview disposal and never enter saved context, model input or original-file
+storage. No automatic OCR, richer conversion, source write or live service is
+introduced. CTX-FS-35 owns this refinement; broader FWD-9 remains open.
+
+Focused state/provenance/byte-retention locks pass, including deliberate
+regressions watched fail for source identity, detached bytes, model provenance
+and raw-byte exclusion from saved copies. Six rendered browser tests pass:
+Folder/tracked/untracked recognition, canonical/Project browse-only behavior,
+explicit retry, cancellation/disposal, account walls and shared saved copies.
+Twenty captures cover pending, success, failure and canonical pending at five
+viewports. The separate shell sweep passes all 135 cells with zero violations
+or skips. Earlier fixture-ID and sidebar-mount failures were repaired; they
+are not passing evidence, and no timeout or retry policy was relaxed.
+
+The complete unsigned arm64 `npm run desktop:verify` passes. Both Folder and
+tracked Git use the real sandboxed recognizer on a generated image-only PDF
+after the source is replaced, then preserve exact page-labeled text and OCR
+metadata through Attach, explicit local-model Send and source-absent full
+relaunch. Twenty new native OCR captures were reviewed; scanned/embedded PDF
+capture names are distinct so neither evidence set overwrites the other.
+Untracked OCR has browser coverage, not a new packaged-native claim. Chooser
+answers in this suite remain fixtures; actual chooser evidence is separate.
+Signed, Intel, live-provider and broader recognition-accuracy acceptance stay
+open. The complete frozen-tree local verifier remains required before landing.
+
+Local evidence: `/private/tmp/ac-connected-pdf-ocr-desktop.log` and
+`/private/tmp/ac-connected-pdf-ocr-ui-sweep.log`; native capture directories
+`agent-commons-folder-document-browse-oEyUM7` and
+`agent-commons-git-document-browse-Iul2di` under the OS temporary directory.
+The tested unsigned ASAR SHA-256 is
+`715ad0efec32d634da533c4c6eee4a01e09039a55c4f14eaa2b080824cb701d8`.
+
+Review found synchronous pending-state observers could start a competing read
+or dismiss before operation registration. The common browser now claims its
+slot before notifying observers (UI-236), and the new behavioral locks failed
+before repair. The bundle gate also exposed extraction-only PDF streaming code
+in the eager shared policy graph. It is separated into its worker-consumed
+module rather than raising the existing startup budget; legacy status copy is
+locked byte-for-byte.
+
 ## Completed checkpoint: actual connected-source chooser and text review
 
 Fresh owner unlock input enabled the [2026-10-15 native walk](acceptance/native-connected-sources-2026-10-15.md)

@@ -1,6 +1,7 @@
 import { getDocument, PDFWorker, VerbosityLevel } from 'pdfjs-dist'
 import ParserWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?worker'
-import { collectPdfText, pdfImportFailure, type PdfImportResult } from '../../contract/pdfImport.mjs'
+import { pdfImportFailure, type PdfImportResult } from '../../contract/pdfImport.mjs'
+import { collectPdfText } from '../../contract/pdfTextCollection.mjs'
 
 /** Never grant a document URLs, filesystem, scripting, or a fake/main-thread
  * parser. The only worker input is user-selected bytes; all auxiliary fetching

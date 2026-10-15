@@ -15,7 +15,7 @@ type Listing = { files: Entry[] }
 type Preview = LocalBrowsePreview
 
 export function LocalFileBrowserView<L extends Listing, P extends Preview>({
-  source, connectionId, name, enabled, intentScope, state, readListing, readPreview, dismiss, onAttach, isAttached, isCurrent, subscribeCurrent, compact = false,
+  source, connectionId, name, enabled, intentScope, state, readListing, readPreview, processPreview, cancelProcessing, pdfOcrAvailable = false, dismiss, onAttach, isAttached, isCurrent, subscribeCurrent, compact = false,
   title, intro, listLabel, refreshLabel, listingNoun, loadingStatusCopy, outsideListingPrivacyCopy, searchPlaceholder, listAria, pageAria, limitsLabel, afterContent,
   entryLabel, entryMessage, listingSummary, limitsCopy, omittedCopy, headingLevel = 2,
 }: {
@@ -27,6 +27,9 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   state: LocalFileBrowserState<L, P>
   readListing: () => unknown
   readPreview: (path: string) => unknown
+  processPreview?: (receipt: number) => unknown
+  cancelProcessing?: () => unknown
+  pdfOcrAvailable?: boolean
   dismiss: () => void
   onAttach?: (file: PreparedLocalFileSavedCopy) => void | Promise<unknown>
   isAttached?: (receipt: number, sourceKind?: LocalSavedCopySourceKind) => boolean
@@ -69,6 +72,9 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
   const receipt = state.previewReceipt
   const sourceKind = source
   const previewAttached = (previewText !== null || previewImage !== null) && receipt !== null && !!isAttached?.(receipt, sourceKind)
+  const canRecognizePdf = Boolean(state.preview?.pdfOcrInput && pdfOcrAvailable && processPreview && cancelProcessing)
+  const isOcrPreview = state.preview?.documentImport?.format === 'pdf' && state.preview.documentImport.method === 'ocr'
+  const showPdfOcrDisclosure = receipt !== null && (canRecognizePdf || isOcrPreview)
   const Header = headingLevel === 2 ? 'h2' : 'h3'
   const folder = source === 'folder'
   const dataSource = source === 'git-untracked' ? { 'data-local-git-untracked-browser': '' }
@@ -119,7 +125,17 @@ export function LocalFileBrowserView<L extends Listing, P extends Preview>({
       {state.preview && <div {...(folder ? { 'data-local-folder-file-preview': '' } : source === 'git-untracked' ? { 'data-local-git-untracked-file-preview': '' } : { 'data-local-git-file-preview': '' })} className="min-w-0 space-y-2">
         <h3 className="break-all font-mono text-[13px] text-ink">{state.preview.path}</h3>
         <p className="text-[12px] text-ink-soft">Read at {state.previewReadAt ? new Date(state.previewReadAt).toLocaleString() : 'this session'} · {state.preview.sizeBytes.toLocaleString()} {previewIsImage ? 'source bytes · image import limit 8 MiB. Preview shows the normalized first frame; ICO uses its largest image.' : state.preview.documentImport ? 'source bytes · extracted-text limit 65,536 bytes. Original document bytes are not saved.' : 'bytes · whole-file limit 65,536 bytes.'} This is not live; select the path again after changes.</p>
-        {state.preview.documentImport && <p data-local-document-preview={state.preview.documentImport.format} role="status" className="text-[12px] leading-relaxed text-ink-soft">{documentImportCopy(state.preview.documentImport)}</p>}
+        {state.preview.documentImport && <p data-local-document-preview={state.preview.documentImport.format} role="status" className="text-[12px] leading-relaxed text-ink-soft">{canRecognizePdf && state.preview.documentImport.format === 'pdf' && state.preview.documentImport.status === 'no-text' ? 'No embedded PDF text was found. Recognize scanned text on this Mac, then review it below.' : documentImportCopy(state.preview.documentImport)}</p>}
+        {showPdfOcrDisclosure && <div className="space-y-2">
+          <p className="text-[12px] leading-relaxed text-ink-soft">On supported macOS desktop, OCR uses the already-read PDF bytes. Limits: 8 MiB, 100 pages, 64 KiB of text, and 120 seconds. Recognition replaces the preview with text for review; it does not save, upload, or send anything. Attach is separate.</p>
+          {canRecognizePdf && receipt !== null && processPreview && cancelProcessing && <div className="flex flex-wrap items-center gap-2">
+            {state.processingStatus === 'loading'
+              ? <button type="button" className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px]`} onClick={() => cancelProcessing()}>Cancel recognition</button>
+              : <button type="button" disabled={!enabled || state.pending} className={`${SOFT_BUTTON_CLASS} px-3 py-1.5 text-[12px]`} onClick={() => { void processPreview(receipt) }}>Recognize scanned text</button>}
+            {state.processingStatus === 'loading' && <span role="status" className="text-[12px] text-ink-soft">Recognizing PDF text…</span>}
+          </div>}
+          {canRecognizePdf && state.processingStatus === 'error' && <p role="alert" className="text-[12px] text-danger-text">{state.processingError ?? 'Could not recognize PDF text. Your preview is unchanged; try again.'}</p>}
+        </div>}
         {previewImage && <div className="flex max-h-96 min-h-24 min-w-0 items-center justify-center overflow-hidden rounded-md border border-line bg-canvas p-2">
           <img src={`data:image/png;base64,${previewImage.data}`} alt={`Preview of ${state.preview.path}`} width={previewImage.width} height={previewImage.height} className="max-h-80 max-w-full object-contain" />
           <p className="sr-only">{previewImage.width} by {previewImage.height} pixels, normalized PNG.</p>

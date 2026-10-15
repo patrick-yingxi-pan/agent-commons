@@ -157,6 +157,15 @@ bytes and editable package contents. The original generated DOCX also rendered
 successfully through bundled LibreOffice. This does not claim rich imported
 fidelity, Microsoft Word application testing, signing/notarization or Intel acceptance.
 
+CTX-FS-35 adds separate explicit recognition of an already-selected PDF in
+Folder, tracked Git and opted-in untracked Git browsers on supported macOS.
+It reuses the existing sandboxed on-device OCR broker with captured bytes,
+without another chooser or source read. Review and conversation-only Attach
+remain separate; saved/model text keeps OCR provenance, never the raw PDF.
+Ordinary file import and bulk source capture still perform no automatic OCR.
+Packaged authored-fixture acceptance is not broader recognition accuracy,
+actual chooser, signed/Intel or paid-service acceptance.
+
 ## The declared fixtures (L2)
 
 `GET /context-catalog` projects fixture candidates only from the persisted demo

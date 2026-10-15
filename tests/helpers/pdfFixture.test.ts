@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { inflateSync } from 'node:zlib'
 import { pdfFixture } from './pdfFixture.mjs'
-import { collectPdfText } from '../../contract/pdfImport.mjs'
+import { collectPdfText } from '../../contract/pdfTextCollection.mjs'
 
 async function extractFirstPage(pdf, password) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
