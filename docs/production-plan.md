@@ -79,6 +79,32 @@ inspection result, not native Intel or Rosetta execution, Developer ID signing,
 notarization, Gatekeeper acceptance, a distribution ZIP or a release receipt.
 No release requirement has been closed or weakened by this preflight.
 
+### Follow-up: translated Intel startup remains unaccepted
+
+The subsequent [Rosetta diagnostic](acceptance/intel-rosetta-startup-2026-10-15.md)
+executed the same x64 package on this Apple Silicon Mac. Bundled Git, image OCR
+and sandboxed PDF OCR checks passed, but the unchanged ordinary smoke failed its
+25-second missing-profile startup deadline. A separate 60-second observation
+also never reached readiness; a process sample showed the main thread waiting
+inside macOS Keychain access. The exact permission/prompt cause is not yet
+established, and this is not evidence that signing alone will fix it.
+
+Do not extend the acceptance deadline, replace the authentication root, enable
+mock/plaintext storage, or infer Intel acceptance from the earlier helper checks.
+The next startup evidence must preserve real OS-backed storage and existing
+data, distinguish owner-mediated Keychain interaction from unattended launch,
+and keep native Intel and Developer ID/notarization gates separate. A change to
+the encryption API requires explicit ciphertext-compatibility and fail-closed
+evidence first; an asynchronous method name alone is insufficient.
+
+Disposable follow-up probes established synthetic sync/async `v10` compatibility
+on arm64. A minimal x64 entry point kept its event loop responsive during async
+Keychain initialization, but initialization never completed and a timed
+`app.exit()` did not finish before the diagnostic parent's deadline. That is not
+a startup or shutdown fix. Production encryption, existing stored records and
+the ordinary acceptance deadline remain unchanged; owner-mediated Keychain
+observation and signed/native acceptance are still needed.
+
 ## Implemented milestone: runtime and build dependency security
 
 The 2026-10-15 advisory audit found four affected npm dependency entries:
