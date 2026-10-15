@@ -1,6 +1,6 @@
 # Desktop preview plan
 
-Reviewed 2026-10-14. The standing goal remains production readiness for Agent
+Reviewed 2026-10-15. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
@@ -23,8 +23,8 @@ covers clean onboarding, encrypted provider-key custody and signed-in relaunch.
 These are implemented-boundary checks against a local model peer, not evidence
 of a successful paid-provider call.
 
-The preceding landed document-browse revision `fea7f307` passed the complete
-frozen-tree verifier: all five lanes and 702 browser tests in 765.6 seconds.
+The landed runtime-security revision `3287b73e` passed the complete
+frozen-tree verifier: all five lanes and 737 browser tests in 837.2 seconds.
 Its separate 135-cell shell sweep and unsigned arm64 desktop verifier also
 passed; the earlier failed/interrupted attempts remain failure evidence only. Actual native
 local-MCP Cancel/Allow and the complete authored-peer workflow are separately
@@ -35,19 +35,51 @@ Neither result closes the following gates:
 | --- | --- |
 | Signed/notarized Apple Silicon and Intel downloads | Complete the owner's individual Apple Developer enrollment, obtain explicit authorization for the signing identity and notary Keychain profile, and run the candidate lane on each native architecture. Intel hardware availability is not yet confirmed. No completed release receipts were present in this checkout during the audit. |
 | Real update installation and relaunch | Select an approved HTTPS download base, verify both signed candidates and the pair manifest, then test an actual two-version installation. Publication needs separate authorization; an example URL is not configured hosting. |
-| Live model workflows | Obtain an approved provider/model, dedicated test credentials and a spend limit before running real conversation, Dispatch, Routine and review/judgment acceptance. Local counters do not guarantee a provider billing ceiling. |
+| Live model workflows | Deferred by the owner on 2026-10-15, not waived or accepted. Do not make paid-provider calls. A later resumption requires an approved provider/model, dedicated test credentials and a spend limit before real conversation, Dispatch, Routine and review/judgment acceptance. Local counters do not guarantee a provider billing ceiling. |
 | Real external MCP workflows | Agree on exact third-party peers, disposable test resources and permitted calls before testing service discovery, authorization, execution and restart history. Authored peers and native-dialog acceptance do not establish third-party compatibility or safety. |
 | Remaining product scope | Preserve the declared [forward-looking requirements](spec/10-forward-looking.md) and [mock boundaries](spec/11-mock-boundary.md), including legacy standing simulation and Agent-proxy work, broader source/document capabilities and the later hosted-service phase. They are not implicitly completed by desktop preview acceptance. |
 
 The next priority is actual release and live-service evidence, not another
 speculative recovery refactor or expansion of the formula language. The owner
-has chosen individual/sole-proprietor enrollment; residence and the intended
-Apple Account region are still needed to choose the China or US enrollment
-route. No secrets, membership purchase, external test call or public publication
-is authorized by this review. This reconciliation changes no product behavior;
+has chosen individual/sole-proprietor enrollment and requested mainland-China
+enrollment guidance on 2026-10-15; membership is not yet active. The current
+[Apple instructions](https://developer.apple.com/cn/help/account/membership/enrolling-in-the-app/)
+were provided. Identity verification, agreements and payment stay with the owner
+in Apple's app; the route must match the owner's actual enrollment details.
+No secrets, membership purchase, external test call or public publication is
+authorized by this review. Paid-provider acceptance is deferred while unsigned
+release preparation continues. This reconciliation changes no product behavior;
 the complete local verifier remains mandatory before its own landing.
 
-## Current checkpoint: runtime and build dependency security
+## Current checkpoint: unsigned Intel cross-build preflight
+
+On 2026-10-15, the unchanged `3287b73e` source produced an unsigned macOS x64
+application using Electron 44.7.2 on an Apple Silicon host. An interrupted
+download was resumed from the official Electron release URL and validated by
+Electron's downloader against the checksum shipped in its npm package; the
+normal package path independently retained the same checksum verification.
+
+Read-only inspection found 20 Mach-O files, each exactly `x86_64`, including
+the Electron frameworks, bundled Git and every native helper. Bundled Git's
+pinned source/licenses/recipe and system-library dependencies passed inspection
+without executing Intel code. The PDF OCR broker, transport and service have
+ad-hoc signatures; strict broker/service seal verification passed, and the
+service's embedded peer requirement matches the transport's exact cdhash.
+Only the service has the App Sandbox entitlement; the broker/transport have
+no entitlement grants. PDF helper Info.plists and Mach-O load commands retain
+macOS 13.0. Custom helpers link canonical system-library paths only, with no
+CoreGraphics/Vision dependency in the unsandboxed PDF broker/container.
+
+The Intel and previously accepted arm64 packages contain the identical
+`app.asar` SHA-256
+`94c075751af00ff6ae7791f2fe8b80400d13548b3f8f4af21654eedfdf61f410`.
+The arm64 main executable's architecture and restored development-helper
+architectures were independently checked. This is a cross-build/static
+inspection result, not native Intel or Rosetta execution, Developer ID signing,
+notarization, Gatekeeper acceptance, a distribution ZIP or a release receipt.
+No release requirement has been closed or weakened by this preflight.
+
+## Implemented milestone: runtime and build dependency security
 
 The 2026-10-15 advisory audit found four affected npm dependency entries:
 runtime `fast-uri` 3.1.7 and build-only `brace-expansion` 5.0.9,
