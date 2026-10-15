@@ -6,7 +6,22 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current local checkpoint: packaged untracked Git PDF/Office acceptance now uses
+Current local checkpoint: the [native PDF/Office review](acceptance/native-connected-office-documents-2026-10-15.md)
+passed actual Folder/Repository chooser Cancel and exact selection, then XLSX,
+PPTX and scanned-PDF review/edit/Create for Folder, tracked Git and opted-in
+untracked Git. Each original was moved aside after preview, before adoption or
+recognition. All nine independent Sheet/Slides/Document artifacts rendered after
+normal Quit and full relaunch with those sources absent; exact saved identities,
+bodies, revisions and Document block IDs matched the exclusive baseline.
+Temporary connections expired, while the ordinary Git index digest/mtime and
+unchanged unsigned arm64 ASAR digest were preserved. Nine relaunch screenshots
+were visually reviewed. This is one desktop-local account and native wide
+window, not a new account/viewport matrix or general format-accuracy claim.
+No runtime/UI behavior changed. Complete local verification remains mandatory
+before landing; signed/native-Intel, real updates and live-service gates below
+remain open. Paid-provider tests remain deferred.
+
+Previous local checkpoint: packaged untracked Git PDF/Office acceptance now uses
 the same captured-preview workflow as Folder and tracked Git. Explicit off/on
 consent still leaves paths unlisted until List; metadata listing exposes no
 body text or model request. A separate generated untracked directory is never
