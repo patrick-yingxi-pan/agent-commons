@@ -200,10 +200,27 @@ test('Folder, tracked Git and opted-in untracked Git images start an explicit OC
       { path: PATH, replacement: [7, 6, 5, 4, 3] })
     const writesBefore = writes.length
     const recognitionBefore = await page.evaluate(() => (window as any).__localImageCreate.recognition.length as number)
-    await extract.click()
+    let releaseFileAccess = () => {}
+    if (index === 0) {
+      // File access loads independently of seeded OCR; keep both statuses
+      // present instead of relying on the browser's module-loading timing.
+      const held = new Promise<void>(resolve => { releaseFileAccess = resolve })
+      await page.route(/\/src\/lib\/uiHostFs(?:\.ts)?(?:\?|$)/, async route => {
+        await held
+        await route.continue()
+      }, { times: 1 })
+    }
     const dialog = page.getByRole('dialog', { name: 'New artifact', exact: true })
-    await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('status')).toContainText(/recogniz.*this Mac/i)
+    try {
+      await extract.click()
+      await expect(dialog).toBeVisible()
+      const review = dialog.getByRole('region', { name: 'Import document text', exact: true })
+      if (index === 0) await expect(review.getByRole('status').filter({ hasText: /^Loading file access…$/ })).toBeVisible()
+      await expect(review.getByRole('status').filter({ hasText: /^Reading the image and recognizing text on this Mac…/ }))
+        .toHaveText('Reading the image and recognizing text on this Mac… Your draft is unchanged.')
+    } finally {
+      releaseFileAccess()
+    }
     await expect.poll(() => page.evaluate(() => (window as any).__localImageCreate.recognition.length)).toBe(recognitionBefore + 1)
     const captured = await page.evaluate(() => (window as any).__localImageCreate.recognition.at(-1) as { operationId: string; bytes: number[] })
     expect(captured.operationId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)

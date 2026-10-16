@@ -24,6 +24,7 @@ import { smokePackagedContributionReview } from './contributionReviewSmoke.mjs'
 import { smokePackagedDispatch } from './dispatchSmoke.mjs'
 import { smokePackagedDiscussionContext } from './discussionContextSmoke.mjs'
 import { smokePackagedArtifactHistory } from './artifactHistorySmoke.mjs'
+import { smokePackagedOpenAIResponses } from './openaiResponsesSmoke.mjs'
 import { packagedExecutable } from './smokePaths.mjs'
 import { findAvailableLoopbackPort, loopbackOrigin } from './runtime.mjs'
 
@@ -558,6 +559,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
   // Sequential and independently isolated: the ordinary launch above proves
   // real OS-backed storage; Playwright's main-process dialog fixture below must
   // neither reuse that profile nor compete with its single-instance lock.
+  await smokePackagedOpenAIResponses({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedContributionReview({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedDispatch({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })
   await smokePackagedDiscussionContext({ executable, launch: launchPackagedDesktop, close: closePackagedDesktop })

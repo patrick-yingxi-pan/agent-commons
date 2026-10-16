@@ -88,6 +88,8 @@ export function ignoreFromPackage(path) {
       'desktop/updateMenuSmoke.mjs',
       'desktop/smoke.mjs',
       'desktop/smokePaths.mjs',
+      'desktop/openaiResponsesSmoke.mjs',
+      'desktop/openaiResponsesSmokeFixture.mjs',
       'desktop/profileAdmissionSmoke.mjs',
       'desktop/startupSmokeInspector.mjs',
       'desktop/mcpCredentialSmoke.mjs',

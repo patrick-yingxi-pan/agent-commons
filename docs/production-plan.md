@@ -6,7 +6,27 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: local protocol fixtures reproduced false
+Current implementation checkpoint: ordinary packaged verification now includes
+native OpenAI Responses acceptance on the original executable, without patched
+ASAR or mock keychain. Rendered OpenAI setup/canonical catalog, an explicitly
+bound Agent Dispatch, streamed read-tool continuation and exact opaque reasoning
+replay pass against a bounded loopback peer with synthetic credentials. A failed
+HTTP-200 replacement probe preserves the prior private connection, encrypted key
+and usage. Full signed-in relaunch retains exact SQLite conversation/counters,
+then a fresh turn authenticates with the original key. Secrets stay outside
+product data and provider request bodies; opaque reasoning stays in its one
+intended continuation. Packaging exclusions and workflow locks were watched fail
+before integration; the SQLite observer is locked to the authoritative slice
+manifest. The complete unsigned arm64 desktop verifier passed, including this
+ordinary acceptance path. Final diff review added guaranteed fixture cleanup;
+the following complete local run exposed an independent image-OCR browser
+locator that matched both file-access loading and recognition status. A held
+module response now reproduces their overlap deterministically: the old locator
+was watched fail, and recognition is scoped to its exact import-region status.
+The final frozen tree must pass the complete local verifier before landing.
+No paid-provider call or signed/Intel acceptance is implied.
+
+Previous implementation checkpoint: local protocol fixtures reproduced false
 success in provider setup. HTTP 200 with a failed response or invalid usage
 could publish a new connection or replace a working one. Both the tool-bearing
 probe and its request-shape-only no-tools fallback now require valid assistant
@@ -21,8 +41,9 @@ the status-mapping and wrong-role regressions were separately demonstrated.
 The first completed full verifier exposed three browser model fixtures that
 always sent SSE to non-streaming probes; those peers now honor the requested
 transport instead of weakening production validation or test timing budgets.
-Complete frozen-tree local and packaged verification remain required before
-landing. This does not resume paid-provider testing or close release gates.
+Revision `43b3ac8e` passed the complete frozen-tree local verifier (all five lanes
+and 748 browser tests) and full unsigned arm64 desktop verifier, then landed on
+main. This does not resume paid-provider testing or close release gates.
 
 Previous implementation checkpoint: the approved official filesystem MCP review
 exposed and fixed a desktop-only legacy initialization failure. The bridge now
