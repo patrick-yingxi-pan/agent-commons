@@ -3,18 +3,31 @@
  * opaque Responses output stays in a WeakMap for lossless same-turn replay. */
 import type Anthropic from '@anthropic-ai/sdk'
 import { positiveNumberEnv } from '../env.ts'
+import { isAssistantTextItems, MAX_ASSISTANT_TEXT_ITEMS, type AssistantTextItem } from '../../contract/assistantTextItems.ts'
 
 type Request = Anthropic.MessageCreateParamsNonStreaming
 type Options = { signal?: AbortSignal | null }
 type Json = Record<string, unknown>
 export type EndpointMessage = Pick<Anthropic.Message, 'id' | 'role' | 'content' | 'stop_reason'> & {
   usage: Pick<Anthropic.Usage, 'input_tokens' | 'output_tokens'>
+  assistantTextItems?: AssistantTextItem[]
 }
 type StartEvent = { type: 'message_start'; message: { id: string } }
 type ListPage = { data: unknown[] }
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 const MAX_STREAM_BYTES = 32 * 1024 * 1024
 const replay = new WeakMap<object, unknown[]>()
+
+/** Later turns reconstruct only visible message items. Same-turn continuation
+ * still uses the original opaque output identity below, including reasoning. */
+export function responsesHistoryContent(text: string, items: unknown): string | Anthropic.TextBlockParam[] {
+  if (!isAssistantTextItems(items, text, MAX_ASSISTANT_TEXT_ITEMS + 1)) return text
+  const content: Anthropic.TextBlockParam[] = [{ type: 'text', text }]
+  replay.set(content, items.map(item => ({ role: 'assistant', content: item.text,
+    ...(Object.hasOwn(item, 'phase') ? { phase: item.phase } : {}),
+  })))
+  return content
+}
 
 /** Deterministic protocol/size failures are not transient endpoint loss. Keep
  * their messages local and do not attach a provider body as an error cause. */
@@ -105,6 +118,7 @@ function normalize(value: unknown): EndpointMessage {
   const raw = object(value)
   const id = string(raw.id)
   const content: Anthropic.ContentBlock[] = []
+  const assistantTextItems: AssistantTextItem[] = []
   let invalid = !Array.isArray(raw.output)
   const calls = new Set<string>()
   const output = Array.isArray(raw.output) ? raw.output : []
@@ -113,13 +127,16 @@ function normalize(value: unknown): EndpointMessage {
     const item = value as Json
     if (item.type === 'reasoning') continue
     if (item.type === 'message' && item.role === 'assistant' && Array.isArray(item.content)) {
+      let text = ''
+      if (Object.hasOwn(item, 'phase') && item.phase !== null && item.phase !== 'commentary' && item.phase !== 'final_answer') invalid = true
       for (const value of item.content) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) { invalid = true; continue }
         const part = value as Json
-        if (part.type === 'output_text' && typeof part.text === 'string') content.push({ type: 'text', text: part.text, citations: [] })
-        else if (part.type === 'refusal' && typeof part.refusal === 'string') content.push({ type: 'text', text: part.refusal, citations: [] })
+        if (part.type === 'output_text' && typeof part.text === 'string') { text += part.text; content.push({ type: 'text', text: part.text, citations: [] }) }
+        else if (part.type === 'refusal' && typeof part.refusal === 'string') { text += part.refusal; content.push({ type: 'text', text: part.refusal, citations: [] }) }
         else invalid = true
       }
+      assistantTextItems.push({ text, ...(Object.hasOwn(item, 'phase') ? { phase: item.phase as AssistantTextItem['phase'] } : {}) })
     } else if (item.type === 'function_call') {
       try {
         const callId = string(item.call_id), name = string(item.name)
@@ -143,7 +160,7 @@ function normalize(value: unknown): EndpointMessage {
     : tokenLimited ? 'max_tokens'
     : content.some(b => b.type === 'tool_use') ? 'tool_use' : 'end_turn'
   replay.set(content, output)
-  return { id, role: 'assistant', content, stop_reason: stop, usage: {
+  return { id, role: 'assistant', content, assistantTextItems, stop_reason: stop, usage: {
     input_tokens: tokens(usage.input_tokens), output_tokens: tokens(usage.output_tokens),
   } }
 }

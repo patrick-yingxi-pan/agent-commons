@@ -54,6 +54,7 @@ function responseSse(response: ServerResponse, model: string) {
     id: `resp-${seen.length}`, object: 'response', created_at: 1_760_000_000,
     status: 'completed', model, output: [{
       id: `msg-${seen.length}`, type: 'message', role: 'assistant', status: 'completed',
+      phase: 'final_answer',
       content: [{ type: 'output_text', text: 'Local effort fixture reply.', annotations: [] }],
     }], usage: { input_tokens: 3, output_tokens: 2 },
   }
@@ -133,6 +134,32 @@ function frames(body: string) {
     .filter((line): line is string => !!line)
     .map(line => JSON.parse(line.slice(5).trim()))
 }
+
+test('HTTP conversation completion, keyed replay and subsequent Responses input retain native phase', async () => {
+  seen.length = 0
+  const org = accounts.createOrg('user-ada', `Responses phase ${Date.now()}`)!
+  const headers = cookie('user-ada', org.id)
+  const provider = await createPeerProvider('openai-responses', 'Phase history peer', [{ id: 'phase-history-model', label: 'Phase history model' }], [], 'phase-history-model')
+  const created = await call('POST', '/sessions', { firstMessage: 'Start', providerId: provider.id }, headers)
+  assert.equal(created.status, 200)
+  const path = `/sessions/${created.json.id}/messages`
+  const keyHeaders = { ...headers, 'idempotency-key': 'phase-first-turn' }
+  const first = await callRaw('POST', path, { text: 'Answer once.' }, keyHeaders)
+  assert.equal(first.status, 200)
+  const expected = [{ text: 'Local effort fixture reply.', phase: 'final_answer' }]
+  assert.deepEqual(frames(first.body).find(frame => frame.type === 'message.end').message.assistantTextItems, expected)
+  const saved = await call('GET', `/sessions/${created.json.id}`, undefined, headers)
+  assert.deepEqual(saved.json.messages.at(-1).assistantTextItems, expected)
+  const replay = await callRaw('POST', path, { text: 'Answer once.' }, keyHeaders)
+  assert.equal(replay.status, 200)
+  assert.deepEqual(frames(replay.body).find(frame => frame.type === 'message.end').message.assistantTextItems, expected)
+  assert.equal(seen.length, 1, 'keyed replay never regenerates the answer')
+  assert.equal((await callRaw('POST', path, { text: 'Continue.' }, headers)).status, 200)
+  assert.deepEqual(seen[1].body.input.filter(item => item.role === 'assistant'), [
+    { role: 'assistant', content: 'Local effort fixture reply.', phase: 'final_answer' },
+  ], 'the route, not a hand-constructed generation history, preserves phase on the next turn')
+  assert.ok(seen[1].body.input.filter(item => item.role === 'user').every(item => !Object.hasOwn(item, 'phase')))
+})
 
 test('Messages turn freezes the scoped saved effort through tool continuation and idempotent replay', async () => {
   seen.length = 0
@@ -235,7 +262,7 @@ test('Responses conversation receives the authenticated saved effort on its nati
   assert.equal(Object.hasOwn(request.body, 'thinking'), false, 'Messages adaptive metadata never changes the Responses wire')
 })
 
-test('Session relay prompts never receive endpoint effort preferences', async () => {
+test('Session relay prompts never receive endpoint effort preferences or native assistant phases', async () => {
   const headers = cookie('user-maya', 'tenant-growthworks')
   assert.equal((await setEffort(headers, 'tenant-growthworks', 'user-maya', 'High')).status, 200)
   const relay = await call('POST', '/providers', {
@@ -244,12 +271,17 @@ test('Session relay prompts never receive endpoint effort preferences', async ()
   assert.equal(relay.status, 200)
   const session = await call('POST', '/sessions', { firstMessage: 'start', providerId: relay.json.id }, headers)
   assert.equal(session.status, 200)
+  store.appendMessage(session.json.id, { id: 'prior-responses-answer', role: 'assistant', content: 'Prior OpenAI answer.',
+    assistantTextItems: [{ text: 'Prior OpenAI ', phase: 'commentary' }, { text: 'answer.', phase: 'final_answer' }],
+  })
   const parked = call('GET', '/relay/poll', undefined, { authorization: `Bearer ${relay.json.secret}` })
   await new Promise(resolve => setTimeout(resolve, 10))
   const send = callRaw('POST', `/sessions/${session.json.id}/messages`, { text: 'Relay answer.' }, headers)
   const pulled = await parked
   assert.equal(pulled.status, 200)
   assert.equal(pulled.json.prompt.messages.at(-1).text, 'Relay answer.')
+  assert.deepEqual(pulled.json.prompt.messages.find(message => message.role === 'assistant'), { role: 'assistant', text: 'Prior OpenAI answer.' },
+    'the relay contract stays plain text after native Responses history')
   assert.equal(Object.hasOwn(pulled.json.prompt, 'effort'), false, 'a Session provider receives only its relay prompt, not provider endpoint effort')
   assert.equal((await call('POST', '/relay/reply', { entryId: pulled.json.entryId, completion: 'Received.' }, { authorization: `Bearer ${relay.json.secret}` })).status, 200)
   assert.equal((await send).status, 200)

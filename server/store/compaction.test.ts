@@ -12,7 +12,10 @@ const BIG = 'This is a reasonably long conversational message carrying real toke
 function append(sessionId: string, n: number, prefix = 'turn'): void {
   for (let i = 0; i < n; i += 1) {
     const role = i % 2 ? 'assistant' : 'user'
-    store.appendMessage(sessionId, { id: store.mintMessageId(role), role, content: `${BIG} ${prefix}-${i}` })
+    const content = `${BIG} ${prefix}-${i}`
+    store.appendMessage(sessionId, { id: store.mintMessageId(role), role, content,
+      ...(role === 'assistant' ? { assistantTextItems: [{ text: BIG, phase: 'commentary' as const }, { text: ` ${prefix}-${i}`, phase: 'final_answer' as const }] } : {}),
+    })
   }
 }
 
@@ -27,6 +30,7 @@ test('compaction commits the generated brief, archives originals, and drops cont
   append(session.id, 12)
   const before = store.usage(session.id).context.pct
   const plan = ready(session.id)
+  const originalMessages = structuredClone(store.getSession(session.id)!.messages)
   const content = '## Working memory\n\n- We chose the release plan.\n- Next: verify the signed artifact.'
 
   const compacted = store.applySessionCompaction(plan, content, {
@@ -40,6 +44,9 @@ test('compaction commits the generated brief, archives originals, and drops cont
   assert.equal(compacted.messages[0].compactedFrom, 8)
   assert.equal(compacted.messages[0].providerId, 'provider-default', 'summary provenance survives')
   assert.equal(compacted.compactedMessages?.length, 8, 'every replaced real turn remains archived')
+  assert.deepEqual(compacted.compactedMessages, originalMessages.slice(0, 8), 'archived originals retain exact phase boundaries')
+  assert.deepEqual(compacted.messages.slice(1), originalMessages.slice(8), 'retained recent turns keep their exact metadata')
+  assert.equal(Object.hasOwn(compacted.messages[0], 'assistantTextItems'), false, 'a synthetic summary never borrows a source phase')
   assert.ok(store.usage(session.id).context.pct < before, 'active context shrinks after commit')
 })
 

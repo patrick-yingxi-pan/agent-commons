@@ -107,7 +107,8 @@ export function startConversationTurn(input: ConversationTurnInput) {
         ? { commons: undefined, contexts: [], externalMcpConnections: [] }
         : conversationContext(session.id, tenantId, actorUserId)
       const result = provider.kind === 'session'
-        ? await relayReply(session, agent, text, handlers, ac.signal, store.relay, providerId, commons, contexts, input.history, input.apiRuntime, externalMcpConnections)
+        ? await relayReply(session, agent, text, handlers, ac.signal, store.relay, providerId, commons, contexts,
+          input.history.map(({ role, text }) => ({ role, text })), input.apiRuntime, externalMcpConnections)
         : await generateReply(session, agent, text, handlers, ac.signal, provider, commons, contexts,
           input.projectWorkDraft ? undefined : input.apiRuntime,
           { externalMcpConnections, effort: input.effort, modelInfo: input.modelInfo,

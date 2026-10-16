@@ -8,6 +8,7 @@
  *      (singleton / array / map-entries), shared by every backend,
  *    • `dataFile()` / `databaseFile()` — where each backend keeps its bytes,
  *    • `PersistenceBackend` — the port both backends implement. */
+import { isAssistantTextItems } from '../../contract/assistantTextItems.ts'
 import type {
   Agent,
   AgentChangeProposal,
@@ -1224,7 +1225,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
     try { return exactJsonEqual(parseMcpToolResult(value, MCP_MODERN_VERSION), value) }
     catch { return false }
   }
-  const mcpActivitiesValid = (sessions: unknown): boolean => {
+  const messageMetadataValid = (sessions: unknown): boolean => {
     if (!Array.isArray(sessions)) return false
     for (const session of sessions) {
       if (!record(session)) return false
@@ -1233,6 +1234,8 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       if (activeMessages !== undefined && !Array.isArray(activeMessages)) return false
       if (compactedMessages !== undefined && !Array.isArray(compactedMessages)) return false
       for (const message of [...(activeMessages ?? []), ...(compactedMessages ?? [])]) {
+        if (record(message) && Object.hasOwn(message, 'assistantTextItems') &&
+            (message.role !== 'assistant' || !isAssistantTextItems(message.assistantTextItems, message.content))) return false
         if (!record(message) || message.toolActivities === undefined) continue
         if (!Array.isArray(message.toolActivities)) return false
         for (const activity of message.toolActivities) {
@@ -1358,7 +1361,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       && (state.initialWorld === undefined || state.initialWorld === 'demo' || state.initialWorld === 'clean')
       && Array.isArray(state.sessions)
       && validDispatchState(state.dispatch, state.sessions, state.retiredSessionCreationIds)
-      && mcpActivitiesValid(state.sessions)
+      && messageMetadataValid(state.sessions)
       && mcpInputFlowsValid(state.sessions)
       && Array.isArray(state.bindings)
       && Array.isArray(state.workspaces)

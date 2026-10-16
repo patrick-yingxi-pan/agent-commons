@@ -148,6 +148,21 @@ tool continuations and disables server-side response storage. All adapters,
 including tool-free generation used by configured Agents, retain the shared
 usage, cancellation, and execution policy.
 
+Manual later-turn Responses history preserves each native assistant message's
+`phase` (`commentary`, `final_answer`, explicit null or absence), following the
+[official reasoning guide](https://developers.openai.com/api/docs/guides/reasoning).
+One provider message may contain several text/refusal parts; they join within
+that item, never across distinct message items. Optional `assistantTextItems`
+must concatenate exactly to visible `Message.content`. Completed valid output
+is trusted only after usage records and stream/terminal agreement; malformed
+phase or more than 4095 accumulated native items refuses tools, with one of the
+4096 durable slots reserved for unphased host recovery or partial-stream text.
+Receipt projections append a separate unphased transient item. Legacy metadata
+absence stays plain text; synthetic compaction summaries stay unphased while
+archived originals retain their metadata. JSON/SQLite admit only strict exact
+assistant metadata, with no schema bump. Messages and Session relay receive the
+unchanged plain-text projection. No opaque reasoning or raw output item is stored.
+
 Ordinary interactive sends freeze the authenticated person's saved effort after
 resolving the actual Session/Agent provider and model. The portable picker rule
 is also the execution rule: preserve a supported choice, else High when offered,

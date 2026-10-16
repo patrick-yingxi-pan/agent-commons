@@ -58,6 +58,24 @@ function assertNoSecrets(value) {
   }
 }
 
+export function assertPhaseHistory(message, request) {
+  const expected = [
+    { text: 'I will check usage. ', phase: 'commentary' },
+    { text: 'The packaged OpenAI tool round completed.', phase: 'final_answer' },
+  ]
+  assert.deepEqual(message.assistantTextItems, expected, 'SQLite keeps each completed native message item')
+  assert.equal(message.content, expected.map(item => item.text).join(''))
+  if (!request) return
+  const assistant = request.input.filter(item => item.role === 'assistant')
+  assert.deepEqual(assistant.slice(0, 2), expected.map(({ text, phase }) => ({ role: 'assistant', content: text, phase })),
+    'post-relaunch native history replays the original per-item phases')
+  assert.equal(assistant.length, 3, 'tool receipts remain a distinct host item')
+  assert.deepEqual(Object.keys(assistant[2]).sort(), ['content', 'role'])
+  assert.match(assistant[2].content, /External\/tool receipt data/)
+  assert.match(assistant[2].content, /"status":"done"/)
+  assert.ok(request.input.filter(item => item.role === 'user').every(item => !Object.hasOwn(item, 'phase')))
+}
+
 export function assertProviderTransport(requests) {
   for (const [index, request] of requests.entries()) {
     const body = JSON.stringify(request)
@@ -172,6 +190,7 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     const before = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
     assert.equal(before.provider.id, provider.id)
     assert.equal(before.config.protocol, 'openai-responses')
+    assertPhaseHistory(before.session.messages.at(-1))
     assert.equal(before.usage.fiveHour.consumed, 60)
     assert.equal(before.usage.weekly.consumed, 60)
     assertNoSecrets(before.productJson)
@@ -223,6 +242,7 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     await expect(page.locator('[data-turn]').filter({ hasText: 'The restored OpenAI connection completed another turn.' })).toBeVisible({ timeout: TIMEOUT_MS })
     await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
     assert.equal(fixture.requests.length, 5, 'the restored original device key permits exactly one fresh turn')
+    assertPhaseHistory(after.session.messages.at(-1), fixture.requests[4])
     assertProviderTransport(fixture.requests)
     const retained = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
     assert.equal(retained.usage.fiveHour.consumed, 90)

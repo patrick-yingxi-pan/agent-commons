@@ -1,10 +1,28 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { messageHistoryText, TOOL_HISTORY_MAX_BYTES, TOOL_RECEIPT_DATA_LABEL } from './toolActivityHistory.ts'
+import { messageHistoryText, messageHistoryTurn, TOOL_HISTORY_MAX_BYTES, TOOL_RECEIPT_DATA_LABEL } from './toolActivityHistory.ts'
 import { parseMcpToolResult, MCP_TOOL_RESULT_MODERN_VERSION } from './mcpToolResult.ts'
 
 const activity = { id: 'call', tool: 'opaque', connector: 'Remote', connectorId: 'mcp-connection-test', kind: 'action', summary: 'Awaiting confirmation',
   mcp: { toolName: 'read_value', connectionRevision: 1, schemaHash: 'a'.repeat(64) } }
+
+test('native history retains exact provider phases and appends receipts as separate unphased data', () => {
+  const message = { id: 'phase', role: 'assistant', content: 'Checking. Done.',
+    assistantTextItems: [{ text: 'Checking. ', phase: 'commentary' }, { text: 'Done.', phase: 'final_answer' }],
+    toolActivities: [{ ...activity, status: 'uncertain', input: { query: 'literal' } }],
+  }
+  const history = messageHistoryTurn(message)
+  assert.equal(history.text, messageHistoryText(message))
+  assert.deepEqual(history.assistantTextItems?.slice(0, 2), message.assistantTextItems)
+  assert.deepEqual(history.assistantTextItems?.[2], { text: history.text.slice(message.content.length) })
+  assert.equal(history.assistantTextItems?.map(item => item.text).join(''), history.text)
+  assert.match(history.assistantTextItems![2].text, /"status":"uncertain"/)
+  for (const invalid of [{ ...message, role: 'user' }, { ...message, assistantTextItems: [{ text: 'different', phase: 'final_answer' }] }]) {
+    const projected = messageHistoryTurn(invalid)
+    assert.equal(projected.text, messageHistoryText(invalid))
+    assert.equal(Object.hasOwn(projected, 'assistantTextItems'), false)
+  }
+})
 
 test('history preserves receipt truth even when earlier prose still says proposed', () => {
   for (const status of ['proposed', 'running', 'uncertain', 'declined', 'failed', 'done']) {

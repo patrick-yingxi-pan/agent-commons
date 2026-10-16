@@ -22,11 +22,11 @@ function fixture(): Session {
       { id: 'u1', role: 'user', content: 'Question 😀\nsecond line', toolCalls: [{ name: 'hidden-call' }] } as never,
       { id: 'tool', role: 'system' as never, content: 'hidden tool transcript' },
       { id: 'summary', role: 'assistant', content: 'Compaction summary', compactedFrom: 2 } as never,
-      { id: 'a1', role: 'assistant', content: 'Answer\nwith exact newlines', attachments: [{ id: 'private' }] } as never,
+      { id: 'a1', role: 'assistant', content: 'Answer\nwith exact newlines', assistantTextItems: [{ text: 'Answer\n', phase: 'commentary' }, { text: 'with exact newlines', phase: 'final_answer' }], attachments: [{ id: 'private' }] } as never,
     ],
     compactedMessages: [
       { id: 'old-user', role: 'user', content: 'Archived question\nverbatim' },
-      { id: 'old-assistant', role: 'assistant', content: 'Archived answer 😀' },
+      { id: 'old-assistant', role: 'assistant', content: 'Archived answer 😀', assistantTextItems: [{ text: 'Archived answer 😀', phase: null }] },
     ],
     compactionReceiptIds: ['private-receipt'],
     workspace: { private: 'must not appear' } as never,
@@ -49,7 +49,7 @@ test('conversation export preserves transcript bodies and labels archived origin
     },
   })
   assert.deepEqual(session, before, 'export never mutates the saved snapshot')
-  for (const hidden of ['hidden-call', 'hidden tool transcript', 'must not appear', 'private', 'private-receipt']) {
+  for (const hidden of ['hidden-call', 'hidden tool transcript', 'must not appear', 'private', 'private-receipt', 'assistantTextItems', 'commentary', 'final_answer']) {
     assert.equal(result.ok && result.value.content.includes(hidden), false, `excludes ${hidden}`)
   }
 })

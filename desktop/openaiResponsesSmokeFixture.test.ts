@@ -104,9 +104,10 @@ test('streams a reasoning-bearing usage tool call and its text continuation with
     assert.deepEqual(events.map(event => event.event), [
       'response.created', 'response.output_item.added', 'response.output_item.done',
       'response.output_item.added', 'response.function_call_arguments.delta',
-      'response.function_call_arguments.done', 'response.output_item.done', 'response.completed',
+      'response.function_call_arguments.done', 'response.output_item.done', 'response.output_item.added',
+      'response.output_text.delta', 'response.output_item.done', 'response.completed',
     ])
-    assert.deepEqual(events.map(event => event.body.sequence_number), [0, 1, 2, 3, 4, 5, 6, 7])
+    assert.deepEqual(events.map(event => event.body.sequence_number), [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
     const completed = events.at(-1)!.body.response
     assert.equal(completed.status, 'completed')
     assert.deepEqual(completed.output[0], OPENAI_SMOKE_REASONING)
@@ -115,6 +116,8 @@ test('streams a reasoning-bearing usage tool call and its text continuation with
       name: 'api__get_usage', arguments: '{"query":{}}', status: 'completed',
     })
     assert.deepEqual(completed.usage, { input_tokens: 17, output_tokens: 13 })
+    assert.equal(completed.output[2].phase, 'commentary')
+    assert.equal(completed.output[2].content[0].text, 'I will check usage. ')
 
     const continuationBody = streamBody([
       { id: OPENAI_SMOKE_REASONING.id, type: 'reasoning', summary: [], encrypted_content: OPENAI_SMOKE_REASONING.encrypted_content },
@@ -125,6 +128,7 @@ test('streams a reasoning-bearing usage tool call and its text continuation with
     assert.equal(continuation.status, 200)
     const finalEvents = sseEvents(await continuation.text())
     assert.equal(finalEvents.at(-1)?.body.response.output[0].content[0].text, 'The packaged OpenAI tool round completed.')
+    assert.equal(finalEvents.at(-1)?.body.response.output[0].phase, 'final_answer')
     assert.deepEqual(fixture.requests, [firstBody, continuationBody])
     assert.ok(fixture.requests.every(body => body.store === false))
     assert.doesNotMatch(JSON.stringify(fixture.requests), /authorization|agent-commons-openai-(?:smoke-not-a-real-key|rejected-not-a-real-key)/i)

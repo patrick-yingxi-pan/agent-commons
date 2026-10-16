@@ -10,7 +10,7 @@ import { automationRuntimeMode, AUTOMATION_RUNTIME_UNAVAILABLE, type AutomationF
 import { validReviewerBinding } from '../contributionReviewState.ts'
 import { validJudgmentRequest } from '../delegatedJudgmentState.ts'
 import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
-import { messageHistoryText } from '../toolActivityHistory.ts'
+import { messageHistoryTurn } from '../toolActivityHistory.ts'
 import { effortLevelsFor, resolveEffort } from '../../contract/modelEffort.ts'
 import { exportArtifact } from './artifactExport.ts'
 import { serveSessionTurn } from './sessionTurnStream.ts'
@@ -4891,14 +4891,14 @@ export function buildRouter(): Router {
         )
       }
     }
-    // The relay prompt's self-contained history (v4): the channel's prior turns,
+    // Both transports receive self-contained active history: prior turns,
     // snapshotted BEFORE the new user turn persists below (appendMessage swaps the
-    // array on this same session object). Dial-out turns don't read this — their
-    // endpoint transport is out of scope here.
+    // array on this same session object). Native Responses keeps per-message
+    // phases; Messages and relay still receive the exact plain-text projection.
     const historySource = reusePersistedUser ? (known?.messages ?? []).slice(0, -1) : (known?.messages ?? [])
     const turnHistory = historySource
       .filter((m) => m.role === 'user' || m.role === 'assistant')
-      .map((m) => ({ role: m.role, text: messageHistoryText(m) }))
+      .map(messageHistoryTurn)
       .filter((m) => m.text.trim().length > 0)
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the

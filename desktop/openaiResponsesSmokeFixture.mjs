@@ -39,12 +39,13 @@ function responseObject(id, status, output, usage) {
   }
 }
 
-function textItem(id, text, status = 'completed') {
+function textItem(id, text, phase = 'final_answer') {
   return {
     id,
     type: 'message',
     role: 'assistant',
-    status,
+    status: 'completed',
+    phase,
     content: [{ type: 'output_text', text, annotations: [] }],
   }
 }
@@ -77,7 +78,8 @@ function streamToolCall(res, id) {
     status: 'completed',
   }
   const usage = { input_tokens: 17, output_tokens: 13 }
-  const completed = responseObject(id, 'completed', [OPENAI_SMOKE_REASONING, call], usage)
+  const commentary = textItem(`msg_${id}_commentary`, 'I will check usage. ', 'commentary')
+  const completed = responseObject(id, 'completed', [OPENAI_SMOKE_REASONING, call, commentary], usage)
   res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', connection: 'keep-alive', 'cache-control': 'no-store' })
   writeSse(res, { type: 'response.created', response: responseObject(id, 'in_progress', [], null) }, 0)
   writeSse(res, { type: 'response.output_item.added', output_index: 0, item: OPENAI_SMOKE_REASONING }, 1)
@@ -86,7 +88,10 @@ function streamToolCall(res, id) {
   writeSse(res, { type: 'response.function_call_arguments.delta', item_id: call.id, output_index: 1, delta: call.arguments }, 4)
   writeSse(res, { type: 'response.function_call_arguments.done', item_id: call.id, output_index: 1, name: call.name, arguments: call.arguments }, 5)
   writeSse(res, { type: 'response.output_item.done', output_index: 1, item: call }, 6)
-  writeSse(res, { type: 'response.completed', response: completed }, 7)
+  writeSse(res, { type: 'response.output_item.added', output_index: 2, item: { ...commentary, status: 'in_progress', content: [] } }, 7)
+  writeSse(res, { type: 'response.output_text.delta', item_id: commentary.id, output_index: 2, content_index: 0, delta: 'I will check usage. ' }, 8)
+  writeSse(res, { type: 'response.output_item.done', output_index: 2, item: commentary }, 9)
+  writeSse(res, { type: 'response.completed', response: completed }, 10)
   res.end()
 }
 

@@ -11,6 +11,7 @@
  *  may carry chat, workspace, and repository capability at the same time. */
 import type { SessionContext } from './contexts.ts'
 import type { McpToolExecutionAnchor, McpToolResult } from './mcpExecution.ts'
+import type { AssistantTextItem } from './assistantTextItems.ts'
 
 export type Capability = 'chat' | 'workspace' | 'repo'
 
@@ -153,6 +154,9 @@ export interface Message {
   id: string
   role: 'user' | 'assistant'
   content: string
+  /** Optional exact visible-text projection of native assistant message items.
+   * Absent on user/legacy/synthetic-summary messages; never hidden reasoning. */
+  assistantTextItems?: AssistantTextItem[]
   /** The worker Agent (D6/D16) that drove this turn — per-turn provenance, so authorship
    *  and metering attribution survive a mid-thread hand-off (the Session↔Agent binding is
    *  *current-driver*, not immutable). Absent on user turns and legacy messages. */

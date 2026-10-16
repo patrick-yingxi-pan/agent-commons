@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { SLICE_KIND } from '../server/persistence/format.ts'
 import { ignoreFromPackage } from './packager.config.mjs'
-import { assertProviderTransport, readOpenAIState } from './openaiResponsesSmoke.mjs'
+import { assertProviderTransport, assertPhaseHistory, readOpenAIState } from './openaiResponsesSmoke.mjs'
 import { OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY, OPENAI_SMOKE_REASONING } from './openaiResponsesSmokeFixture.mjs'
 
 const source = (name: string) => readFileSync(new URL(name, import.meta.url), 'utf8')
@@ -40,6 +40,8 @@ function assertWorkflow(smoke: string) {
     'assert.deepEqual(rejected.config, before.config',
     'assert.deepEqual(after.session, before.session',
     'assert.deepEqual(after.usage, before.usage',
+    'assertPhaseHistory(before.session.messages.at(-1))',
+    'assertPhaseHistory(after.session.messages.at(-1), fixture.requests[4])',
     'assert.equal(fixture.requests.length, 5',
     'assert.equal(retained.usage.fiveHour.consumed, 90)',
     "await page.goto(`${origin}/agents/${agent.id}`)",
@@ -74,6 +76,7 @@ test('Responses acceptance retains rendered setup, real tool continuation, refus
   for (const [from, to] of [
     ['assert.equal((await refused).status(), 400', 'assert.equal((await refused).status(), 200'],
     ['assert.deepEqual(after.session, before.session', 'void(after.session, before.session'],
+    ['assertPhaseHistory(after.session.messages.at(-1), fixture.requests[4])', 'void(after.session.messages.at(-1), fixture.requests[4])'],
     ['assert.equal(fixture.requests.length, 5', 'assert.equal(fixture.requests.length, 4'],
     ['assert.equal(sessionCreationRequests.length, creationsBefore,', 'assert.equal(sessionCreationRequests.length, creationsBefore + 1,'],
     ['assert.equal(newSession.agentId, agent.id)', 'assert.equal(newSession.agentId, \'agent-default\')'],
@@ -82,6 +85,19 @@ test('Responses acceptance retains rendered setup, real tool continuation, refus
     assert.notEqual(smoke.replace(from, to), smoke)
     assert.throws(() => assertWorkflow(smoke.replace(from, to)), assert.AssertionError)
   }
+})
+
+test('packaged phase assertions reject flattening, lost phases and host receipt phase inheritance', () => {
+  const assistantTextItems = [{ text: 'I will check usage. ', phase: 'commentary' }, { text: 'The packaged OpenAI tool round completed.', phase: 'final_answer' }]
+  const message = { content: assistantTextItems.map(item => item.text).join(''), assistantTextItems }
+  const request = { input: [...assistantTextItems.map(item => ({ role: 'assistant', content: item.text, phase: item.phase })),
+    { role: 'assistant', content: 'External/tool receipt data\n[{"status":"done"}]' }, { role: 'user', content: 'Continue.' }] }
+  assertPhaseHistory(message, request)
+  assert.throws(() => assertPhaseHistory({ ...message, assistantTextItems: [{ text: message.content, phase: 'final_answer' }] }, request), assert.AssertionError)
+  assert.throws(() => assertPhaseHistory(message, { input: request.input.map(({ phase, ...item }) => item) }), assert.AssertionError)
+  const phasedReceipt = structuredClone(request)
+  phasedReceipt.input[2].phase = 'final_answer'
+  assert.throws(() => assertPhaseHistory(message, phasedReceipt), assert.AssertionError)
 })
 
 test('the read-only packaged SQLite observer resolves exact provider, session and tenant identities', () => {

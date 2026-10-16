@@ -4,6 +4,7 @@
  *  is portable: it speaks one contract whether the backend is the local mock, a
  *  native sidecar, or a remote web server. */
 export * from './entities.ts'
+export * from './assistantTextItems.ts'
 export * from './identity.ts'
 export * from './orgs.ts'
 export * from './cowork.ts'

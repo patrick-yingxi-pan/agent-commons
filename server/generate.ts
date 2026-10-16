@@ -6,7 +6,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { replyThinking } from './model/replyThinking.ts'
 import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
-import { EndpointHttpError, EndpointResponseError, openaiResponsesClient, type EndpointMessage } from './model/openaiResponses.ts'
+import { EndpointHttpError, EndpointResponseError, openaiResponsesClient, responsesHistoryContent, type EndpointMessage } from './model/openaiResponses.ts'
+import { isAssistantTextItems, MAX_ASSISTANT_TEXT_ITEMS, type AssistantTextItem } from '../contract/assistantTextItems.ts'
 import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import type { ChangesetVersion } from '../contract/contributions.ts'
 import type { ContributionReviewResult } from '../contract/contributionReview.ts'
@@ -402,12 +403,13 @@ export interface ReplyExecutionOptions {
   routineArtifact?: RoutineArtifactCapture
 }
 
-/** Prior active-context turns for an endpoint-backed conversation. This is the
- * same simple history document the relay transport carries; compaction replaces
- * its older prefix with one assistant summary message. */
+/** Active context with optional native assistant-message boundaries. Messages
+ * and relay use text only; compaction replaces its older prefix with one plain
+ * assistant summary, while original metadata stays with archived originals. */
 export interface ReplyHistoryTurn {
   role: 'user' | 'assistant'
   text: string
+  assistantTextItems?: AssistantTextItem[]
 }
 
 /** The system prompt the backend sends — the worker Agent's prompt + its custom
@@ -783,6 +785,9 @@ export async function generateReply(
 
   let assistantId = ''
   let fullText = ''
+  const nativeResponses = provider.protocol === 'openai-responses'
+  const assistantTextItems: AssistantTextItem[] = []
+  let trustedTextLength = 0
   const usage = createModelUsageRecorder(handlers.onUsage)
   const onStartOnce = (id: string) => {
     if (assistantId) return
@@ -800,6 +805,10 @@ export async function generateReply(
     id: assistantId,
     role: 'assistant',
     content,
+    ...(nativeResponses ? { assistantTextItems: [
+      ...assistantTextItems,
+      ...(trustedTextLength < content.length || !assistantTextItems.length ? [{ text: content.slice(trustedTextLength) }] : []),
+    ] } : {}),
     relationActions: relationOps.length ? relationOps : undefined,
     escalation,
     toolActivities: toolActivities.length ? toolActivities : undefined,
@@ -813,7 +822,9 @@ export async function generateReply(
     const messages: Anthropic.MessageParam[] = [
       ...history
         .filter((turn) => turn.text.trim().length > 0)
-        .map((turn): Anthropic.MessageParam => ({ role: turn.role, content: turn.text })),
+        .map((turn): Anthropic.MessageParam => ({ role: turn.role,
+          content: nativeResponses && turn.role === 'assistant' ? responsesHistoryContent(turn.text, turn.assistantTextItems) : turn.text,
+        })),
       { role: 'user', content: userContent },
     ]
     const declaredNames = new Set(tools.map((t) => t.name))
@@ -821,6 +832,7 @@ export async function generateReply(
     let executedBatches = 0
 
     for (;;) {
+      const roundTextStart = fullText.length
       const stream = clientFor(provider).messages.stream(
         { model, max_tokens: resolveReplyOutputTokens(provider), system, ...toolsParam, ...outputConfig, ...(thinking ? { thinking } : {}), messages },
         { signal: withDeadline(signal) },
@@ -840,6 +852,18 @@ export async function generateReply(
       const completedProse = response.stop_reason === 'end_turn' || response.stop_reason === 'refusal' || response.stop_reason === 'stop_sequence'
       if ((!completedProse && response.stop_reason !== 'tool_use') || (toolUses.length > 0 && response.stop_reason !== 'tool_use')) {
         throw new InvalidModelResponseError('The model response did not complete. No tools were run from this response.')
+      }
+      if (nativeResponses) {
+        const items = (response as EndpointMessage).assistantTextItems
+        const roundText = fullText.slice(roundTextStart)
+        // Tool-only rounds have no visible items. Reserve one durable item for
+        // any host fallback or incomplete later stream, without dropping prose.
+        if (!(Array.isArray(items) && items.length === 0 && roundText === '') &&
+            !isAssistantTextItems(items, roundText, MAX_ASSISTANT_TEXT_ITEMS - 1 - assistantTextItems.length)) {
+          throw new InvalidModelResponseError('Invalid assistant text items.')
+        }
+        assistantTextItems.push(...items!)
+        trustedTextLength = fullText.length
       }
 
       if (toolUses.length === 0) {
@@ -918,7 +942,9 @@ export async function generateReply(
       fullText += note
       return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'fallback', failure: 'endpoint_unavailable' }
     }
-    return { ...fallbackReply(assistantId, handlers), usage: usage.snapshot() }
+    const fallback = fallbackReply(assistantId, handlers)
+    if (nativeResponses) fallback.message.assistantTextItems = [{ text: fallback.message.content }]
+    return { ...fallback, usage: usage.snapshot() }
   }
 }
 
