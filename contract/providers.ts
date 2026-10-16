@@ -141,8 +141,9 @@ export interface ModelProvider {
   /** The provider's model catalog — what the composer's model picker lists for it.
    *  Absent/empty = the provider can't enumerate models (a Session provider's
    *  cognition is whatever session drains its mailbox; a list-less endpoint just
-   *  serves whatever id it's configured with) — the picker shows that honestly
-   *  instead of fabricating rows. Populated by the registration-time fetch from the
+   *  serves whatever id it's configured with). `providerModelChoices` separately
+   *  exposes that exact configured ID without inventing catalog metadata.
+   *  Populated by the registration-time fetch from the
    *  endpoint's own list API, or declared statically on the create request. */
   models?: ModelInfo[]
   /** How `models` was obtained — server-stamped, never caller-forgeable:
@@ -165,6 +166,18 @@ export interface ModelProvider {
    *  reach. An Agent's authority must be a subset (`overAuthority`). Absent =
    *  unrestricted. */
   authority?: Authority
+}
+
+/** Selectable endpoint models, shared by UI and server admission. A real catalog
+ * is authoritative. Without one, a configured connection can select only the
+ * exact server-stamped default it already executes. This derived choice is not a
+ * listed/static catalog and claims no capabilities, limits or prices. Server
+ * callers must derive execution/defaultModelId from private connection truth. */
+export function providerModelChoices(provider?: ModelProvider): ModelInfo[] {
+  if (!provider || provider.kind === 'session') return []
+  if (provider.models?.length) return provider.models
+  const id = provider.defaultModelId
+  return provider.execution === 'configured' && id?.trim() ? [{ id, label: id }] : []
 }
 
 /** Body of `DELETE /v1/providers/:id`. A first-party removal pins both public

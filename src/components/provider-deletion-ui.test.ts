@@ -48,6 +48,6 @@ test('shared built-in Providers do not advertise owner mutation controls', () =>
   for (const label of ['Edit provider', 'Update connection', 'Remove provider']) {
     assert.match(view, new RegExp(`manageable[\\s\\S]{0,500}label="${label}"`), label)
   }
-  assert.match(view, /manageable && provider\.catalogSource === 'listed'/)
+  assert.match(view, /manageable && \(provider\.catalogSource === 'listed' \|\| !provider\.models\?\.length\)/)
   assert.match(view, /title="Relay"[\s\S]{0,250}actions=\{\s*manageable \? \(/)
 })

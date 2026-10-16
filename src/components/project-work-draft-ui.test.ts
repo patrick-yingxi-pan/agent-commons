@@ -65,7 +65,8 @@ test('Project work Draft response is lazy, owner bounded, revision pinned, and e
   assert.match(panel, /replyDraft\.length > WORK_ITEM_COMMENT_MAX/)
   assert.match(panel, /data-project-work-share onClick=\{\(\) => void shareReply\(\)\} disabled=\{item\.status !== 'open' \|\| !replyAvailable \|\| !reviewBody\.trim\(\) \|\| reviewBody\.length > WORK_ITEM_COMMENT_MAX/)
   assert.match(panel, /heldProviderId && !readyProviders\.some/)
-  assert.match(panel, /heldModelId && !selectedProvider\?\.models\?\.some/)
+  assert.match(panel, /heldModelId && !selectedModelChoices\.some/,
+    'held obsolete models remain visible unless they are among the provider’s current selectable choices')
   assert.doesNotMatch(panel, /maxLength=\{WORK_ITEM_COMMENT_MAX\}/,
     'the source reply remains intact for review and is never silently shortened by the editor')
   assert.match(panel, /No tools run, no work is claimed or completed/)

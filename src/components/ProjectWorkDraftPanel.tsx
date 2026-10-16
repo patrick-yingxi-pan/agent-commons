@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Check, ExternalLink, SendHorizontal, Sparkles } from 'lucide-react'
 import type { Commission, DispatchRun, ModelProvider, OpenSubGoal, Project, ProjectWorkDraftSource } from '../../contract/index.ts'
 import { WORK_ITEM_COMMENT_MAX } from '../../contract/index.ts'
+import { providerModelChoices } from '../../contract/providers.ts'
 import { rolePermits } from '../../contract/roles.ts'
 import { invalidate } from '../api/cache.ts'
 import { keys } from '../api/keys.ts'
@@ -73,8 +74,9 @@ export function ProjectWorkDraftPanel({ project, item, onOpenSession, onCommentP
   const selected = eligible.find(({ commission }) => commission.id === (heldSelection?.projectWork.commissionId ?? commissionId))
   const selectedProvider = providers.find((provider) => provider.id === (heldSelection?.execution.providerId ?? providerId) && provider.kind !== 'session')
   const selectedModelId = heldSelection?.execution.modelId ?? modelId
-  const selectedModel = selectedProvider?.models?.find((model) => model.id === selectedModelId)
-  const readyProviders = providers.filter((provider) => provider.kind !== 'session' && modelProviderAvailable(provider) && (provider.models?.length ?? 0) > 0)
+  const selectedModelChoices = providerModelChoices(selectedProvider)
+  const selectedModel = selectedModelChoices.find((model) => model.id === selectedModelId)
+  const readyProviders = providers.filter((provider) => provider.kind !== 'session' && modelProviderAvailable(provider) && providerModelChoices(provider).length > 0)
   const heldProviderId = heldSelection?.execution.providerId
   const heldModelId = heldSelection?.execution.modelId
   const source: ProjectWorkDraftSource | undefined = selected ? {
@@ -196,8 +198,8 @@ export function ProjectWorkDraftPanel({ project, item, onOpenSession, onCommentP
         <label className="min-w-0 text-[12px] font-medium text-ink-soft">Model
           <select aria-label="Model" data-project-work-model value={selectedModelId} onChange={(event) => setModelId(event.target.value)} disabled={held || !!heldSelection || !selectedProvider} className={`${FORM_INPUT_CLASS} mt-1 w-full min-w-0`}>
             <option value="">Choose a model…</option>
-            {heldModelId && !selectedProvider?.models?.some((model) => model.id === heldModelId) && <option value={heldModelId}>{heldSelection?.labels?.model ?? `${heldModelId} · held choice`}</option>}
-            {selectedProvider?.models?.map((model) => <option key={model.id} value={model.id}>{model.label ?? model.id}</option>)}
+            {heldModelId && !selectedModelChoices.some((model) => model.id === heldModelId) && <option value={heldModelId}>{heldSelection?.labels?.model ?? `${heldModelId} · held choice`}</option>}
+            {selectedModelChoices.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
           </select>
         </label>
         <div className="flex min-w-0 items-end">
@@ -206,7 +208,7 @@ export function ProjectWorkDraftPanel({ project, item, onOpenSession, onCommentP
           </button>
         </div>
       </div>
-      {selected && <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">{selected.agent.label} · {selectedProvider?.label ?? 'Choose endpoint'}{selectedModel ? ` · ${selectedModel.label ?? selectedModel.id}` : ''}. {budgetCopy ?? commissionBudgetCopy(selected.commission, selected.agent, selectedProvider)}</p>}
+      {selected && <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">{selected.agent.label} · {selectedProvider?.label ?? 'Choose endpoint'}{selectedModel ? ` · ${selectedModel.label}${selectedProvider && !selectedProvider.models?.length ? ' · configured model only' : ''}` : ''}. {budgetCopy ?? commissionBudgetCopy(selected.commission, selected.agent, selectedProvider)}</p>}
       {heldSelection && !sourceStillCurrent && <p role="alert" className="mt-2 text-[12px] text-warn-text">This held Commission changed after it was selected. The queued request is frozen; use the Dispatch recovery notice to reconcile it.</p>}
       {dispatchQuery.status === 'error' && <InlineOperationStatus tone="alert" message="Couldn’t refresh private drafts. Previously loaded runs may be out of date." action={{ label: 'Retry', onClick: () => invalidate(keys.dispatch) }} />}
 

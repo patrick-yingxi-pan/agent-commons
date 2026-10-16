@@ -1,15 +1,15 @@
 import type { ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../../contract/index.ts'
+import { providerModelChoices } from '../../contract/providers.ts'
 import {
-  EFFORT_BLURBS,
   effortLevelsFor,
-  modelBlurb,
   pickedModel,
   pickedProvider,
   resolveEffort,
   type ModelPick,
 } from '../lib/models'
+import { EFFORT_BLURBS, modelBlurb } from '../lib/modelDescriptions.ts'
 import { useProviders } from '../api'
 import { OnlineDot } from './ModelPickerMenu'
 
@@ -25,7 +25,7 @@ import { OnlineDot } from './ModelPickerMenu'
  *  src/components/model-picker.test.ts). Each caller owns its popover chrome + what a pick
  *  *means* (session wiring, a stored routine label, a persisted preference).
  *  Every metadata field is provider-sourced and optional: a provider that can't
- *  enumerate models says so honestly instead of fabricating rows. */
+ *  enumerate models offers only its exact configured ID with no added metadata. */
 
 /** One selectable row — shared by providers and models, so the two levels read
  *  as one control. Without `onSelect` it renders as a read-only listing (a
@@ -125,7 +125,7 @@ export function ModelPickerMenuBody({
   const providers = endpointOnly ? allProviders.filter((candidate) => candidate.kind !== 'session') : allProviders
   const provider = pickedProvider(providers, pick)
   const activeModel = pickedModel(provider, pick)
-  const catalog = provider?.kind === 'session' ? [] : provider?.models ?? []
+  const catalog = providerModelChoices(provider)
   const levels = effortLevelsFor(provider, activeModel)
   const activeEffort = resolveEffort(levels, effort)
   const onDefaultProvider = (provider?.id ?? DEFAULT_PROVIDER_ID) === DEFAULT_PROVIDER_ID
@@ -161,7 +161,7 @@ export function ModelPickerMenuBody({
             key={m.id}
             active={m.id === activeModel?.id}
             name={m.label}
-            blurb={modelBlurb(m)}
+            blurb={provider?.models?.length ? modelBlurb(m) : 'Configured model — no catalog or model metadata supplied.'}
             onSelect={
               !disabled && onPickModel ?
               (() =>
@@ -215,7 +215,7 @@ export function ModelPickerMenuBody({
           {provider?.kind === 'session'
             ? 'This provider declares no effort levels — your own session answers its turns.'
             : activeModel
-              ? 'This model runs at a single effort — no levels to pick.'
+              ? 'This model declares no effort levels.'
               : 'This provider declares no effort levels.'}
         </p>
       )}

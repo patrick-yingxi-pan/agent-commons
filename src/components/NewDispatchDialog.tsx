@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { SendHorizontal } from 'lucide-react'
 import { DISPATCH_DETAIL_MAX, DISPATCH_TITLE_MAX } from '../../contract/dispatchExecution.ts'
+import { providerModelChoices } from '../../contract/providers.ts'
 import { useAgents, useCapabilities, useMe, useProviders } from '../api/hooks.ts'
 import { retryResourceQueries } from '../api/resourceRead.ts'
 import { keys } from '../api/keys.ts'
@@ -27,9 +28,10 @@ export function NewDispatchDialog({ onClose, onManageModelConnections }: { onClo
   const capabilities = useCapabilities()
   const dispatch = dispatchPresentation(capabilities.status === 'error' ? undefined : capabilities.data?.features.dispatchExecution)
   const provider = providers.data?.find((candidate) => candidate.id === providerId && candidate.kind !== 'session')
+  const modelChoices = providerModelChoices(provider)
   const bindingReady = agents.status !== 'error' && providers.status !== 'error' &&
     agents.data?.some((candidate) => candidate.id === agentId) && provider && modelProviderAvailable(provider) &&
-    provider.models?.some((model) => model.id === modelId)
+    modelChoices.some((model) => model.id === modelId)
 
   const canCreate = dispatch.available && Boolean(bindingReady) && title.trim().length > 0 && Boolean(tenantId)
   const submit = () => {
@@ -96,7 +98,7 @@ export function NewDispatchDialog({ onClose, onManageModelConnections }: { onClo
       <FormField label="Model">
         <select value={modelId} disabled={!provider} onChange={(event) => setModelId(event.currentTarget.value)} className={FORM_INPUT_CLASS}>
           <option value="">Choose a model</option>
-          {(provider?.models ?? []).map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
+          {modelChoices.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
         </select>
       </FormField>
       <p role="status" className="text-[12px] leading-relaxed text-ink-soft">
@@ -104,6 +106,7 @@ export function NewDispatchDialog({ onClose, onManageModelConnections }: { onClo
           ? 'Agent or model choices could not be loaded. Your draft is kept.'
           : provider?.execution === 'mock' ? 'Development model: this runs through the conversation engine using a deterministic local fixture.'
             : provider && !modelProviderAvailable(provider) ? 'This connection needs setup before it can run.'
+              : provider && !provider.models?.length && modelChoices.length > 0 ? 'This connection has no model list; its configured model is the only choice.'
               : 'Uses the selected Agent’s instructions and permitted workspace tools. No context is attached initially; open the conversation to add it or review actions.'}
       </p>
       {(agents.status === 'error' || providers.status === 'error') && <button type="button" className={INLINE_ACTION_CLASS} onClick={() => retryResourceQueries([keys.workerAgents, keys.providers])}>Retry choices</button>}

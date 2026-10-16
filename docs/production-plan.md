@@ -1,12 +1,35 @@
 # Desktop preview plan
 
-Reviewed 2026-10-15. The standing goal remains production readiness for Agent
+Reviewed 2026-10-16. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: multi-provider conversations distinguish the
+Current implementation checkpoint: configured endpoints remain usable for explicit
+Agent and conversation model choices when model listing is unavailable. One
+framework-free selection projection uses the authoritative catalog when present,
+or only the available endpoint's exact server-stamped configured model otherwise.
+It invents no catalog, capabilities, price or token limits. Dispatch, Project work
+and MCP argument drafting, Commission MCP approval, and the shared conversation /
+Routine / Customize picker consume it. Server admission derives the same choice
+from private connection truth; model-only rotations clear obsolete session picks,
+and queued explicit Routine choices fail closed if their model disappears.
+Catalog-less owner pages expose the existing revisioned Refresh recovery.
+No new persisted field, routing fallback, or tool authority is introduced.
+The stale queued-model regression was watched fail before repair; restoring
+catalog-only server admission or bypassing the shared picker projection also
+fails the new locks. Focused protocol/store/source checks and all 16 affected
+browser checks pass. Fifteen five-viewport setup/Dispatch/picker screenshots were
+reviewed without actionable visual findings. The build caught an 82-byte startup
+budget overrun; display-only model/effort descriptions now load with the deferred
+picker and provider page instead of the eager selection projection. The boundary
+lock was watched fail before extraction; the size limits are unchanged. The
+isolated UI sweep and complete local and unsigned desktop gates remain required
+before landing. Paid-provider acceptance stays deferred; the owner-preview
+account-stack handoff remains blocked by the in-app browser URL policy.
+
+Previous implementation checkpoint: multi-provider conversations distinguish the
 driving Agent from the recorded model. Composer/live-turn/typing chrome is vendor-
 neutral; each ordinary assistant turn shows its exact recorded provider/model,
 decorated only by that viewer's exact connection label. Loading registries,
@@ -33,8 +56,9 @@ the unchanged build budget. The Sheet test now holds the accepted save response,
 proves the disabled editor, then awaits its removal and reads the exact rendered
 cell; the old ambiguous assertion was watched fail under that hold.
 The final focused conversation and structured-artifact browser run passes 12/12.
-The complete frozen-tree local and unsigned desktop verifiers remain required
-before landing. Paid-provider acceptance and the owner-preview account-stack
+Revision `45da1bcf` passed the complete frozen-tree local verifier (all five lanes,
+753 browser tests), the 135/135 UI sweep and unsigned arm64 desktop verifier,
+then landed on main. Paid-provider acceptance and the owner-preview account-stack
 handoff remain deferred/unverified respectively.
 
 Previous implementation checkpoint: ordinary packaged verification now includes

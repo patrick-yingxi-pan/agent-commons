@@ -13,7 +13,8 @@
  *  (providers disagree wildly — see contract `ModelInfo`), so the projections
  *  here degrade per-field. Pure + framework-free (no React) so they're
  *  unit-tested. */
-import { DEFAULT_PROVIDER_ID, formatTokens, type ModelInfo, type ModelProvider } from '../../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, type ModelInfo, type ModelProvider } from '../../contract/index.ts'
+import { providerModelChoices } from '../../contract/providers.ts'
 
 /** A picker's two-level selection. Absences inherit: providerId → the default
  *  provider; modelId → the provider's configured model. */
@@ -32,11 +33,10 @@ export function pickedProvider(providers: ModelProvider[], pick?: ModelPick): Mo
  *  pick actually resolves to — the provider's configured model (the server-stamped
  *  `defaultModelId`, so the display can't drift from what a turn runs), else the
  *  catalog's first as the last-resort pre-selection. Undefined when the provider
- *  can't enumerate models (a Session provider's cognition is whatever session
- *  drains its mailbox; a list-less endpoint). */
+ *  has neither a catalog nor an available configured endpoint model. */
 export function pickedModel(provider: ModelProvider | undefined, pick?: ModelPick): ModelInfo | undefined {
   if (!provider || provider.kind === 'session') return undefined
-  const catalog = provider.models ?? []
+  const catalog = providerModelChoices(provider)
   return (
     catalog.find((m) => m.id === pick?.modelId) ??
     catalog.find((m) => m.id === provider.defaultModelId) ??
@@ -59,16 +59,6 @@ export function resolveEffort(levels: string[], pref?: string): string | undefin
   return levels.includes('High') ? 'High' : levels[0]
 }
 
-/** Blurbs for the classic ladder labels (shown under the segmented control when
- *  the active vocabulary uses them; an unfamiliar provider vocabulary gets none). */
-export const EFFORT_BLURBS: Record<string, string> = {
-  Low: 'Quick replies, minimal reasoning.',
-  Medium: 'Balanced speed and depth.',
-  High: 'Deeper, step-by-step reasoning.',
-  xHigh: 'Extended reasoning for hard, multi-file work.',
-  Max: 'Maximum reasoning for the hardest problems.',
-}
-
 /** Trigger-sized model name ('Claude Opus 4.8' → 'Opus 4.8'). */
 export function shortModelLabel(label: string): string {
   return label.replace(/^Claude\s+/, '')
@@ -78,20 +68,6 @@ export function shortModelLabel(label: string): string {
  *  toggle (fast mode is an Opus affordance). */
 export function isOpusModel(id?: string): boolean {
   return /opus/i.test(id ?? '')
-}
-
-/** A catalog row's caption, derived from the provider's own metadata — each
- *  fragment appears only when the provider exposed it (the per-field degradation
- *  the flexible `ModelInfo` demands). */
-export function modelBlurb(m: ModelInfo): string {
-  const bits = [
-    ...(m.blurb ? [m.blurb] : []),
-    ...(m.contextWindow ? [`${formatTokens(m.contextWindow)} context`] : []),
-    ...(m.capabilities?.thinking ? ['thinking'] : []),
-    ...(m.pricing ? [`$${m.pricing.inputPerMTok}/M in · $${m.pricing.outputPerMTok}/M out`] : []),
-    ...(m.deprecated ? ['deprecated'] : []),
-  ]
-  return bits.join(' · ') || 'No metadata from this provider.'
 }
 
 /** What the trigger button shows for a pick: the default provider reads as its

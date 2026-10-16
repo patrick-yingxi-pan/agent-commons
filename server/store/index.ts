@@ -14,6 +14,7 @@
  *  State is added to this store as each resource's reads/commands migrate; Phase 1
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
+import { providerModelChoices } from '../../contract/providers.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
 import { automationRuntimeMode, requireAutomationFixture } from '../automationRuntime.ts'
 import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput, type DispatchBinding } from '../../contract/dispatchExecution.ts'
@@ -2335,21 +2336,29 @@ function effectiveProviderOf(session?: Session): ModelProvider {
   return resolveProvider(session?.providerId ?? resolveAgent(session?.agentId).providerId)
 }
 
-/** The session-modelId wall: a concrete model pick must name an entry in the
- *  effective provider's catalog — an unknown id (or a pick on a provider that
- *  enumerates nothing) is refused, never normalized. */
+/** Derive selectable models from private connection truth, never writable or
+ * persisted public annotations. A catalog-less endpoint offers its exact default. */
+function modelChoicesOf(provider: ModelProvider): ModelInfo[] {
+  const config = PROVIDER_CONFIGS.get(provider.id)
+  return providerModelChoices({
+    ...provider, defaultModelId: resolvedModelId(config), execution: endpointExecution(config),
+  })
+}
+
+/** Concrete picks name a real catalog entry, or the exact configured default
+ * when a configured endpoint cannot enumerate models. Unknown IDs are refused. */
 function assertModelInCatalog(modelId: string, providerId?: string, agentId?: string): void {
   const provider = resolveProvider(providerId ?? resolveAgent(agentId).providerId)
-  if (provider.models?.some((m) => m.id === modelId)) return
+  if (modelChoicesOf(provider).some((m) => m.id === modelId)) return
   throw new ValidationError(
     provider.models?.length
       ? `Provider '${provider.label}' lists no model '${modelId}' — the pick must name a catalog entry.`
-      : `Provider '${provider.label}' doesn't enumerate models — a concrete model can't be picked on it.`,
+      : `Provider '${provider.label}' doesn't enumerate models — only its available configured model can be picked.`,
   )
 }
 
 /** THE model-pick invariant, enforced centrally: a stored `session.modelId`
- *  always names an entry in the catalog of the provider the session CURRENTLY
+ *  always names a selectable model of the provider the session CURRENTLY
  *  resolves to. Re-validates every held pick against the live resolution and
  *  clears the ones whose namespace moved (each cleared row broadcast so open
  *  composers reconcile). Called by every mutation that can change a session's
@@ -2361,7 +2370,7 @@ function sweepSessionModelPicks(): void {
   for (const s of SESSIONS) {
     if (!s.modelId) continue
     const provider = effectiveProviderOf(s)
-    if (provider.kind !== 'session' && provider.models?.some((m) => m.id === s.modelId)) continue
+    if (modelChoicesOf(provider).some((m) => m.id === s.modelId)) continue
     delete s.modelId
     s.metadataRevision = (s.metadataRevision ?? 0) + 1
     emit({ type: 'session.updated', session: s })
@@ -6843,7 +6852,8 @@ export const store = {
       next = { ...next, models: catalog, catalogSource: 'listed' }
     }
     MODEL_PROVIDERS.set(id, next)
-    if (catalog !== undefined) sweepSessionModelPicks()
+    // A model-only rotation also changes a catalog-less provider's choices.
+    sweepSessionModelPicks()
     emitProviderChanged(next)
     persist()
     return next
@@ -13840,13 +13850,14 @@ export const store = {
     const providerConfig = this.providerConfig(provider.id)
     const legacyModel = provider.models?.find((candidate) => executionTask.model.includes(candidate.label))?.id
     const modelId = executionTask.modelId ?? legacyModel ?? provider.defaultModelId ?? providerConfig.model
-    // A provider without a catalog can still have one configured model. An
-    // endpoint's absent catalog means unknown, not empty (MODEL-16).
-    if (modelId && provider.models && !provider.models.some((candidate) => candidate.id === modelId)) {
+    // Inherited catalog-less routing keeps its existing meaning. An explicitly
+    // frozen choice, however, must still be selectable after connection changes.
+    if (modelId && (provider.models?.length || executionTask.modelId) &&
+      !providerModelChoices(provider).some((candidate) => candidate.id === modelId)) {
       return {
         task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
         agent, provider, providerConfig, modelId, contexts: [], approvedContextIds: new Set(),
-        blocked: { code: 'model_unavailable', detail: `Provider '${provider.label}' no longer lists model '${modelId}'.` },
+        blocked: { code: 'model_unavailable', detail: `Provider '${provider.label}' no longer offers model '${modelId}'.` },
       }
     }
     if (endpointExecution(providerConfig) === 'unconfigured') {

@@ -119,6 +119,27 @@ test('routine resolution accepts a configured model on a catalog-less endpoint',
   assert.equal(store.deleteProvider(provider.id), true)
 })
 
+test('a queued explicit configured-model pick cannot outlive a catalog-less connection rotation', (t) => {
+  const config = { baseURL: 'http://127.0.0.1:1', model: 'configured-first', capabilities: { toolUse: true } }
+  const provider = store.createProvider({ label: 'Exact configured model', modelFamily: 'custom', effortLevels: [] }, config)
+  const agent = store.createAgent({ label: 'Exact model Agent', systemPrompt: 'Test', tools: [], instructions: '', providerId: provider.id })
+  const { id: _id, tenantId: _tenant, effort: _effort, ...seed } = structuredClone(steppedTask())
+  const task = store.addSchedule({ ...seed, agentId: agent.id, providerId: provider.id, modelId: config.model,
+    runs: [], enabled: false, steps: [], delivery: { tool: { id: 'claude', label: 'Claude', tone: 'claude' }, target: 'Run conversation' } })
+  const run = store.runSchedule(task.id)!
+  t.after(() => {
+    store.failScheduleRun(task.id, run.id, 'execution_error', 'Test cleanup.')
+    store.removeSchedule(task.id)
+    store.deleteAgent(agent.id)
+    store.deleteProvider(provider.id)
+  })
+  assert.equal(store.routineExecutionContext(task.id, run.id)?.blocked, undefined)
+  store.replaceProviderConnection(provider.id, { ...config, model: 'configured-next' })
+  const context = store.routineExecutionContext(task.id, run.id)!
+  assert.equal(context.modelId, 'configured-first', 'never silently rebind a frozen explicit model')
+  assert.equal(context.blocked?.code, 'model_unavailable', 'a disappeared configured choice cannot execute')
+})
+
 test('routine resolution fails closed when an authored connector is not connected', () => {
   const source = steppedTask()
   const { id: _id, tenantId: _tenant, ...seed } = structuredClone(source)

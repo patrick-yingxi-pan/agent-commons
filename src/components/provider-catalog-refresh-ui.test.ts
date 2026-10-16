@@ -17,6 +17,8 @@ test('Provider catalog refresh is revision-pinned, navigation-safe, and shell re
   assert.match(view, /enqueueProviderCatalogRefresh\(\{[\s\S]*tenantId: me\.tenant\.id,[\s\S]*providerId: provider\.id,[\s\S]*expectedRevision: provider\.connectionRevision \?\? 0/)
   assert.match(view, /useProviderCatalogRefreshStatus\(\)[\s\S]*isProviderCatalogRefreshHeld\(provider\.id\)/,
     'the canonical action reconstructs its held label after navigation')
+  assert.match(view, /manageable && \(provider\.catalogSource === 'listed' \|\| !provider\.models\?\.length\)/,
+    'an owned endpoint without a catalog still exposes discovery recovery')
   assert.match(facade, /const heldRefreshes = new Map/)
   assert.match(facade, /acquireProviderMutation\('connection', input\.providerId\)/,
     'catalog refresh excludes endpoint replacement, secret rotation, and removal')

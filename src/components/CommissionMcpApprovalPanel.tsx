@@ -3,6 +3,7 @@ import { RefreshCw, Shield } from 'lucide-react'
 import type { CommissionMcpApprovalIntent } from '../../contract/commissionMcp.ts'
 import type { CommissionMcpDecisionRequest } from '../../contract/commissionMcpApi.ts'
 import { COMMISSION_MCP_MAX_TOOLS, COMMISSION_MCP_MAX_WORK_ITEMS } from '../../contract/commissionMcp.ts'
+import { providerModelChoices } from '../../contract/providers.ts'
 import { useProviders } from '../api/hooks.ts'
 import { invalidate } from '../api/cache.ts'
 import { keys } from '../api/keys.ts'
@@ -66,9 +67,10 @@ export function CommissionMcpApprovalPanel({ commissionId, agentLabel }: { commi
   const claims = current?.claims ?? []
   const approval = current?.policy.approval
   const active = !!current?.active && !!approval && approval.expiresAt > now
-  const providers = (providersQuery.data ?? []).filter(provider => provider.kind !== 'session' && modelProviderAvailable(provider) && !!provider.models?.length)
+  const providers = (providersQuery.data ?? []).filter(provider => provider.kind !== 'session' && modelProviderAvailable(provider) && providerModelChoices(provider).length > 0)
   const selectedProvider = providers.find(provider => provider.id === selectedProviderId)
-  const selectedModel = selectedProvider?.models?.find(model => model.id === selectedModelId)
+  const selectedModelChoices = providerModelChoices(selectedProvider)
+  const selectedModel = selectedModelChoices.find(model => model.id === selectedModelId)
   const readReady = query.status === 'success' && currentQuery.status === 'success' && providersQuery.status === 'success' && !!selection && !!selectedModel &&
     review?.execution?.providerId === selection.providerId && review.execution.modelId === selection.modelId && !review.blockedReason
   const frozen: Reviewed | null = heldDecision?.action === 'approve'
@@ -126,12 +128,12 @@ export function CommissionMcpApprovalPanel({ commissionId, agentLabel }: { commi
           </div>}
         </div>
         {!frozen && (!active || replacing) && <div className="mt-3 space-y-3">
-          <p className="text-[11px] leading-relaxed text-ink-soft">Your workspace pays for model use. Select the endpoint and catalog model explicitly; there is no automatic fallback.</p>
+          <p className="text-[11px] leading-relaxed text-ink-soft">Your workspace pays for model use. Select the endpoint and model explicitly; when no model list is available, only that connection’s configured model can be selected. There is no automatic fallback.</p>
           <label className="block min-w-0 text-[12px] text-ink-soft">Endpoint
             <select aria-label="Unattended endpoint" value={selectedProviderId} onChange={event => { setProviderId(event.target.value); setModelId('') }} disabled={disabled} className={`${FORM_INPUT_CLASS} mt-1 min-w-0`}><option value="">Choose an endpoint…</option>{providers.map(provider => <option key={provider.id} value={provider.id}>{provider.label}</option>)}</select>
           </label>
           <label className="block min-w-0 text-[12px] text-ink-soft">Model
-            <select aria-label="Unattended model" value={selectedModelId} onChange={event => setModelId(event.target.value)} disabled={disabled || !selectedProvider} className={`${FORM_INPUT_CLASS} mt-1 min-w-0`}><option value="">Choose a model…</option>{selectedProvider?.models?.map(model => <option key={model.id} value={model.id}>{model.label ?? model.id}</option>)}</select>
+            <select aria-label="Unattended model" value={selectedModelId} onChange={event => setModelId(event.target.value)} disabled={disabled || !selectedProvider} className={`${FORM_INPUT_CLASS} mt-1 min-w-0`}><option value="">Choose a model…</option>{selectedModelChoices.map(model => <option key={model.id} value={model.id}>{model.label}</option>)}</select>
           </label>
           {selection && review.tools.length === 0 && <p className="text-[12px] text-ink-soft">No inspected tools are available under this Contributor’s current authority. Configure and inspect a connection in Contexts, and check the Project and Agent’s allowed tools. Local programs require the desktop runtime.</p>}
           {selection && review.tools.map(choice => {

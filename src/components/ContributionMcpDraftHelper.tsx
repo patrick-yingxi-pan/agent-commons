@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ExternalLink } from 'lucide-react'
 import type { Agent, Commission, DispatchRun, ModelProvider, OpenSubGoal, Project, ProjectWorkDraftSource, ProjectWorkMcpDraftSelection } from '../../contract/index.ts'
+import { providerModelChoices } from '../../contract/providers.ts'
 import { parseProjectWorkMcpDraftPreview, parseProjectWorkMcpDraftReply, projectWorkMcpDraftBindingText } from '../../contract/projectWorkMcpDraft.ts'
 import { rolePermits } from '../../contract/roles.ts'
 import { invalidate } from '../api/cache.ts'
@@ -78,8 +79,9 @@ export function ContributionMcpDraftHelper({ project, item, selection, tool, con
   const activeProviderId = held?.mcpProposal ? held.execution.providerId : providerId
   const activeModelId = held?.mcpProposal ? held.execution.modelId : modelId
   const selectedProvider = providers.find((provider) => provider.id === activeProviderId && provider.kind !== 'session')
-  const selectedModel = selectedProvider?.models?.find((candidate) => candidate.id === activeModelId)
-  const readyProviders = providers.filter((provider) => provider.kind !== 'session' && modelProviderAvailable(provider) && (provider.models?.length ?? 0) > 0)
+  const selectedModelChoices = providerModelChoices(selectedProvider)
+  const selectedModel = selectedModelChoices.find((candidate) => candidate.id === activeModelId)
+  const readyProviders = providers.filter((provider) => provider.kind !== 'session' && modelProviderAvailable(provider) && providerModelChoices(provider).length > 0)
   const mcpConnection = (connectionsQuery.data?.connections ?? []).find((connection) => connection.id === selection.connectionId)
   const currentTool = mcpConnection?.tools.find((candidate) => candidate.name === selection.toolName)
   const executable = mcpConnection?.status === 'connected' && mcpConnection.execution === 'approval-required' &&
@@ -219,8 +221,8 @@ export function ContributionMcpDraftHelper({ project, item, selection, tool, con
       <label className="min-w-0 text-[11px] font-medium text-ink-soft">Model
         <select aria-label="Model" value={held?.mcpProposal ? held.execution.modelId : modelId} onChange={(event) => setModelId(event.target.value)} disabled={dispatchHeld || !!held?.mcpProposal || disabled || !selectedProvider} className={`${FORM_INPUT_CLASS} mt-1 w-full min-w-0`}>
           <option value="">Choose a model…</option>
-          {held?.mcpProposal && !selectedProvider?.models?.some((candidate) => candidate.id === held.execution.modelId) && <option value={held.execution.modelId}>{held.labels?.model ?? `${held.execution.modelId} · held choice`}</option>}
-          {selectedProvider?.models?.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label ?? candidate.id}</option>)}
+          {held?.mcpProposal && !selectedModelChoices.some((candidate) => candidate.id === held.execution.modelId) && <option value={held.execution.modelId}>{held.labels?.model ?? `${held.execution.modelId} · held choice`}</option>}
+          {selectedModelChoices.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
         </select>
       </label>
       <div className="flex min-w-0 items-end">
@@ -229,7 +231,7 @@ export function ContributionMcpDraftHelper({ project, item, selection, tool, con
         </button>
       </div>
     </div>
-    {selected && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{selected.agent.label} · {selectedProvider?.label ?? 'Choose endpoint'}{selectedModel ? ` · ${selectedModel.label ?? selectedModel.id}` : ''}. {commissionBudgetCopy(selected.commission, selected.agent, selectedProvider)}</p>}
+    {selected && <p className="mt-2 text-[10px] leading-relaxed text-ink-faint">{selected.agent.label} · {selectedProvider?.label ?? 'Choose endpoint'}{selectedModel ? ` · ${selectedModel.label}${selectedProvider && !selectedProvider.models?.length ? ' · configured model only' : ''}` : ''}. {commissionBudgetCopy(selected.commission, selected.agent, selectedProvider)}</p>}
     {held?.mcpProposal && !heldMatches && <p role="alert" data-contribution-mcp-draft-stale className="mt-2 text-[11px] text-warn-text">A different MCP draft request is still held for this work item. Resolve it in workspace recovery before starting another.</p>}
     {held?.mcpProposal && !sourceStillCurrent && <p role="alert" data-contribution-mcp-draft-stale className="mt-2 text-[11px] text-warn-text">The held Commission changed after it was selected. Its Dispatch request is frozen; use workspace recovery to reconcile it.</p>}
     {hashError && <p role="alert" className="mt-2 text-[11px] text-warn-text">The current tool binding could not be verified. Retry the reads before drafting or adopting arguments.</p>}

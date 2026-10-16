@@ -91,13 +91,13 @@ import {
   displayModelLabel,
   effortLevelsFor,
   isOpusModel,
-  modelBlurb,
   parseModelChoice,
   pickedModel,
   pickedProvider,
   resolveEffort,
   type ModelPick,
 } from '../lib/models'
+import { modelBlurb } from '../lib/modelDescriptions.ts'
 import { modelProviderAvailable, modelSetupRequired } from '../lib/modelExecution'
 import { updateModelPreferences, useModelPreferences } from '../controller/modelPreferences'
 import {
@@ -9254,8 +9254,8 @@ function ProviderDetailSections({
       <p className="mt-1.5 text-[11px] text-ink-faint">
         {provider.models?.length
           ? provider.catalogSource === 'listed'
-            ? `${provider.models.length} models, listed from its endpoint`
-            : `${provider.models.length} models, declared at registration`
+            ? `${provider.models.length} model${provider.models.length === 1 ? '' : 's'}, listed from its endpoint`
+            : `${provider.models.length} model${provider.models.length === 1 ? '' : 's'}, declared at registration`
           : 'No model catalog — turns run its configured model.'}
       </p>
     </>
@@ -9317,7 +9317,7 @@ function ProviderDetailSections({
           title="Models"
           summary={`${provider.models?.length ?? 0} model${provider.models?.length === 1 ? '' : 's'}`}
           actions={
-            manageable && provider.catalogSource === 'listed' ? (
+            manageable && (provider.catalogSource === 'listed' || !provider.models?.length) ? (
               <SectionAction
                 label={catalogRefresh.activeResourceId === provider.id || isProviderCatalogRefreshHeld(provider.id)
                   ? 'Refreshing model catalog'

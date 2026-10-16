@@ -446,7 +446,10 @@ didn't make it selectable; that class of drift is the target.) Embodied by
 three pickers) and locked by `src/components/model-picker.test.ts`, which fails if ANY
 src/ file declares a model/effort catalog constant: the models a picker lists
 are each provider's **own catalog** (`ModelProvider.models` — fetched from its
-endpoint's `GET /v1/models` or declared at registration, spec MODEL-16/-17), so
+endpoint's `GET /v1/models` or declared at registration, spec MODEL-16/-17), or
+the exact server-stamped configured model when a configured endpoint has no
+catalog. The portable `providerModelChoices` projection supplies both UI choices
+and server admission without inventing model metadata or persisting a fake list, so
 even the default Claude models are registry rows, and the composer strip's
 usage gauge measures against the resolved model's provider-sourced context
 window (honest unknown-capacity when it doesn't expose one). Its contents are
