@@ -62,8 +62,13 @@ recoverable through server and device-vault cleanup, and never hides a stale key
 New Agent follows the same truth boundary: its complete configuration stays
 visible through Retry/Dismiss, and a tenant-scoped durable identity makes a lost
 response recoverable without minting a duplicate worker.
-Removing an Agent now previews its proposal/delegation and conversation-fallback
-consequences, pins the reviewed definition, and retains the row through recovery.
+An Agent's page can open a conversation draft with that Agent selected. Existing
+unsent work requires explicit replacement; only Send creates the conversation
+and calls the model.
+Removing an Agent previews proposal/delegation loss. Conversations, prior replies,
+and contributions stay; future replies require choosing an available Agent in
+Model and effort → Conversation Agent. Removal pins the reviewed definition and
+retains the row through recovery.
 New Prompt keeps its complete definition and optional default choice under that
 same held ceremony; the server commits both together and reconciles by exact
 durable identity rather than mutable prose.

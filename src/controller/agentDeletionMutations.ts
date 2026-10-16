@@ -13,7 +13,7 @@ import {
 } from './agentMutationHolds.ts'
 
 export const AGENT_DELETE_SCOPE =
-  'This permanently removes the Agent, its proposal history, and its Project delegations. Conversations fall back to the default Agent; previous conversations and contributions stay. Remove its Contributor assignments first.'
+  'This permanently removes the Agent, its proposal history, and its Project delegations. Existing conversations, prior replies, and contributions stay. New replies require choosing an available Agent in Model and effort → Conversation Agent. Remove its Contributor assignments first.'
 
 const statusStore = createMutationStatusStore()
 const heldSnapshots = new Map<string, Agent>()

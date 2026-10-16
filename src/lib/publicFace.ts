@@ -24,6 +24,9 @@ export function bylineLabel(ownerName: string | undefined, own: boolean | undefi
  *  component. Exported so the lock test can assert no component re-hardcodes it. */
 export const SHARED_MARKER = 'Shared · '
 
+/** Identity/lineage doors remain touchable even in a tightly wrapped byline. */
+export const PUBLIC_FACE_DOOR_TARGET_CLASS = 'min-h-6 min-w-6'
+
 /** The namespace-profile page title (D21) — the display name, with the same
  *  "(you)" cue the byline uses when the viewer IS this owner. Minted here so
  *  the page can't drift from the byline's own-marker (the lock greps for a

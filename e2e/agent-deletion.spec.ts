@@ -36,8 +36,9 @@ async function confirmRemoval(page: Page, label: string) {
   const dialog = page.getByRole('dialog', { name: `Remove ${label}?`, exact: true })
   await expect(dialog).toContainText('proposal history')
   await expect(dialog).toContainText('Project delegations')
-  await expect(dialog).toContainText('Conversations fall back to the default Agent')
-  await expect(dialog).toContainText('previous conversations and contributions stay')
+  await expect(dialog).toContainText('Existing conversations, prior replies, and contributions stay')
+  await expect(dialog).toContainText('New replies require choosing an available Agent in Model and effort → Conversation Agent')
+  await expect(dialog).not.toContainText('Conversations fall back to the default Agent')
   return { row, dialog }
 }
 

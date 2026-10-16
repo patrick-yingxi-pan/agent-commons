@@ -662,6 +662,7 @@ import { artifactTrashProjection } from '../lib/artifactTrashProjection'
 import { ARTIFACT_TRASH_SECTION } from '../lib/collectionSections'
 import { DeferredNewArtifactDialog as NewArtifactDialog } from './DeferredNewArtifactDialog.tsx'
 import { DeferredAgentDialog as AgentDialog } from './DeferredAgentDialog.tsx'
+import { AgentConversationStart } from './AgentConversationStart.tsx'
 import { DeferredNewDispatchDialog } from './DeferredNewDispatchDialog.tsx'
 import { DeferredCommissionDialog } from './DeferredCommissionDialog.tsx'
 import { DeferredCommissionAdd as CommissionAdd } from './DeferredCommissionAdd.tsx'
@@ -889,6 +890,7 @@ export function SectionView({
         ? <AgentRequestsPage requestId={focusRequestId} onOpenRequest={onOpenRequest} onBack={onBack} backTo={backTo} />
         : <AgentCommonsSection
         agentId={focusAgentId}
+        onOpenSession={onOpenSession}
         promptId={focusPromptId}
         toolId={focusToolId}
         subview={subview}
@@ -8005,6 +8007,7 @@ function StatusPill({ tone, label }: { tone: 'ok' | 'warn' | 'bad' | 'neutral'; 
  *  a page, and every runtime agent/prompt/tool leaf has a canonical detail. */
 function AgentCommonsSection({
   agentId,
+  onOpenSession,
   promptId,
   toolId,
   subview,
@@ -8016,6 +8019,7 @@ function AgentCommonsSection({
   backTo,
 }: {
   agentId: string | null
+  onOpenSession: (sessionId: string) => void
   promptId: string | null
   toolId: string | null
   subview: string | null
@@ -8045,7 +8049,7 @@ function AgentCommonsSection({
   useEffect(() => setCreating(null), [subview, agentId, promptId, toolId])
 
   if (agentId) {
-    return <AgentPublicPage agentId={agentId} onOpenAgent={onOpenAgentPage} onBack={onBack} backTo={backTo} />
+    return <AgentPublicPage agentId={agentId} onOpenSession={onOpenSession} onOpenAgent={onOpenAgentPage} onBack={onBack} backTo={backTo} />
   }
   if (promptId) {
     return (
@@ -10709,11 +10713,13 @@ function ToolDetailPage({
  *  sections, never the address or the page component. */
 function AgentPublicPage({
   agentId,
+  onOpenSession,
   onOpenAgent,
   onBack,
   backTo,
 }: {
   agentId: string
+  onOpenSession: (sessionId: string) => void
   /** Door to ANOTHER definition's page (a public fork row) — the same opener the
    *  directory rows use, so lineage hops stay on canonical pages. */
   onOpenAgent: (agentId: string) => void
@@ -10862,6 +10868,7 @@ function AgentPublicPage({
             </span>
           }
         >
+          {registryAgent && <AgentConversationStart key={agentId} agentId={agentId} onOpenSession={onOpenSession} />}
           {own ? (
             <PageActionButton icon={<Pencil size={14} />} onClick={() => setEditing(true)}>Edit agent</PageActionButton>
           ) : directoryEntry && !builtIn ? (

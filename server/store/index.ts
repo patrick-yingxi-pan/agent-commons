@@ -6594,7 +6594,9 @@ export const store = {
   /** Remove the exact reviewed Agent definition. The revision precondition and
    * dependency guards run before effects; proposal history, delegations, the row,
    * and any invalid session model picks then disappear in one durable/event batch.
-   * Conversations and prior contribution records survive. */
+   * Conversations, prior replies, and contribution records survive. A removed
+   * Agent binding does not silently switch; future replies require an available
+   * Agent selection in Model and effort → Conversation Agent. */
   deleteAgent(id: string, expectedRevision?: number): boolean {
     const current = WORKER_AGENTS.get(id)
     if (!current) return false
@@ -6635,8 +6637,9 @@ export const store = {
       WORKER_AGENTS.delete(id)
       agentOwnershipRegistry.retire(id)
       if (isAgentCreationId(id)) retiredAgentCreationIds.add(id)
-      // Sessions survive and resolve to the default Agent. Clear only model
-      // picks invalid under that new inheritance chain.
+      // Session bindings and prior replies survive. Generation/compaction refuse
+      // this missing Agent until explicit repair; the existing catalog sweep
+      // retires model picks that no longer have an available inheritance chain.
       sweepSessionModelPicks()
       emitAgentChanged(current)
       persist()

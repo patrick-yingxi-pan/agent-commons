@@ -17,8 +17,10 @@ test('Agent removal is confirmed, revision-pinned, retained, and shell-recoverab
   assert.match(view, /<ConfirmDialog[\s\S]*title=\{`Remove \$\{agent\.label\}\?`\}/,
     'the destructive confirmation names the selected Agent')
   assert.match(controller, /permanently removes the Agent, its proposal history, and its Project delegations/)
-  assert.match(controller, /Conversations fall back to the default Agent/)
-  assert.match(controller, /previous conversations and contributions stay/)
+  assert.match(controller, /Existing conversations, prior replies, and contributions stay/)
+  assert.match(controller, /New replies require choosing an available Agent in Model and effort → Conversation Agent/)
+  assert.doesNotMatch(controller, /Conversations fall back to the default Agent/,
+    'removal must not promise an automatic replacement Agent')
   assert.match(view, /body=\{AGENT_DELETE_SCOPE\}/)
   assert.match(view, /enqueueAgentDeletion\(agent\)/,
     'confirmation freezes the exact row and its definition revision')

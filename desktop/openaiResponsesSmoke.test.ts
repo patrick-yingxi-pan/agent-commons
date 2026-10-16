@@ -25,7 +25,7 @@ test('ordinary packaged verification awaits native Responses acceptance using it
 
 function assertWorkflow(smoke: string) {
   let previous = -1
-  for (const stage of ['rendered-secure-setup', 'agent-dispatch-tool-round', 'rejected-key-replacement', 'full-relaunch-and-restored-key']) {
+  for (const stage of ['rendered-secure-setup', 'agent-dispatch-tool-round', 'rejected-key-replacement', 'full-relaunch-and-restored-key', 'agent-page-new-conversation']) {
     const at = smoke.indexOf(`stage = '${stage}'`)
     assert.ok(at > previous, `real packaged ${stage} remains in order`)
     previous = at
@@ -42,6 +42,24 @@ function assertWorkflow(smoke: string) {
     'assert.deepEqual(after.usage, before.usage',
     'assert.equal(fixture.requests.length, 5',
     'assert.equal(retained.usage.fiveHour.consumed, 90)',
+    "await page.goto(`${origin}/agents/${agent.id}`)",
+    "getByRole('button', { name: 'New conversation', exact: true }).click()",
+    "getByRole('combobox', { name: 'Conversation Agent', exact: true })).toHaveValue(agent.id)",
+    'assert.equal(fixture.requests.length, 5,',
+    "assert.equal(sessionCreationRequests.length, creationsBefore, 'no session-creation request occurs before Send')",
+    'opening New conversation from the Agent page creates only an unsaved draft',
+    "const newSession = await api(page, `/sessions/${newSessionId}`)",
+    'assert.equal(newSession.agentId, agent.id)',
+    'the conversation inherits its provider from the selected Agent',
+    'the conversation inherits the provider default model',
+    'assert.equal(agent.providerId, provider.id)',
+    'assert.equal(provider.defaultModelId, OPENAI_SMOKE_MODEL)',
+    'the new reply uses the inherited provider model',
+    'assert.deepEqual(originalAfter.session, retained.session',
+    'assert.equal(newConversation.usage.fiveHour.consumed, 120)',
+    'assert.equal(newConversation.usage.weekly.consumed, 120)',
+    'assert.deepEqual(durableNew.session, newConversation.session',
+    "assert.equal(fixture.requests.length, 6, 'startup does not replay either saved conversation')",
     'assertNoSecrets(retained.productJson)',
     'await close(run)',
     'await launch(executable, profile)',
@@ -57,6 +75,9 @@ test('Responses acceptance retains rendered setup, real tool continuation, refus
     ['assert.equal((await refused).status(), 400', 'assert.equal((await refused).status(), 200'],
     ['assert.deepEqual(after.session, before.session', 'void(after.session, before.session'],
     ['assert.equal(fixture.requests.length, 5', 'assert.equal(fixture.requests.length, 4'],
+    ['assert.equal(sessionCreationRequests.length, creationsBefore,', 'assert.equal(sessionCreationRequests.length, creationsBefore + 1,'],
+    ['assert.equal(newSession.agentId, agent.id)', 'assert.equal(newSession.agentId, \'agent-default\')'],
+    ['assert.equal(newConversation.usage.fiveHour.consumed, 120)', 'assert.equal(newConversation.usage.fiveHour.consumed, 90)'],
   ]) {
     assert.notEqual(smoke.replace(from, to), smoke)
     assert.throws(() => assertWorkflow(smoke.replace(from, to)), assert.AssertionError)

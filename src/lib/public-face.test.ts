@@ -142,3 +142,17 @@ test('UI-13 — CreditLine is layout-self-contained (its own flex root, no calle
     'no layout contract on callers — the primitive is self-contained',
   )
 })
+
+test('public identity and lineage doors share a spacing-independent 24px target floor', () => {
+  const styling = src('./publicFace.ts')
+  assert.ok(styling.includes("PUBLIC_FACE_DOOR_TARGET_CLASS = 'min-h-6 min-w-6'"))
+  const component = src('../components/PublicFace.tsx')
+  for (const [name, end, stamp] of [
+    ['OwnerLink', 'export function Byline', 'owner'],
+    ['CreditStat', 'export function CreditLine', 'credit'],
+  ]) {
+    const body = component.slice(component.indexOf(`function ${name}`), component.indexOf(end))
+    assert.ok(body.includes('PUBLIC_FACE_DOOR_TARGET_CLASS'), `${name} uses the shared target floor`)
+    assert.ok(body.includes(`data-public-face-door="${stamp}"`), `${name} is enumerable in rendered acceptance`)
+  }
+})

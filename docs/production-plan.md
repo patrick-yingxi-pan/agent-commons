@@ -6,7 +6,25 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: ordinary conversations can select a visible custom Agent
+Current checkpoint: usable Agent detail pages offer New conversation, preparing
+a blank shared draft with that Agent and inherited model, without creating a
+Session or calling a provider until Send. Replacing existing unsent content,
+context or explicit binding requires a Cancel-first confirmation pinned to the
+reviewed draft, account and Agent; concurrent changes refuse rather than erase
+newer work. Navigation remains pane-local and carries the Agent page as Back.
+Public directory-only definitions must first be forked into the current account.
+Agent deletion guidance now matches the fail-closed binding policy: conversations
+and prior replies remain, but future replies require explicit replacement of the
+unavailable Agent. Full local, responsive and unsigned desktop gates are required
+before landing; paid-provider tests remain deferred. Packaged Responses acceptance
+also covers the unsent Agent-page draft, inherited provider/model on first Send,
+exact usage, unchanged prior conversation and a second real relaunch without replay.
+The responsive review also found undersized public identity/lineage links; their
+shared target floor now has source and rendered enumeration locks (UI-246).
+
+Previous checkpoint `db8f701b` passed the complete local verifier (765 browser
+tests), the separate 135/135-cell UI sweep and the full unsigned arm64 desktop
+suite, then landed on main with a clean tree. Ordinary conversations can select a visible custom Agent
 from the existing Model and effort menu. Draft selection is shared across panes;
 creation persists it, and owner-only revisioned changes apply to future replies.
 Selecting an Agent deliberately clears model overrides; an explicit subsequent

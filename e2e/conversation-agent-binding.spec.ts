@@ -35,6 +35,10 @@ async function workflow(browser: Browser, testInfo: TestInfo, preset: ProviderRo
   })
   const { page } = owner
   const peer = await startProviderRoutinePeer(preset, stamp)
+  let sessionPostsBeforeSend = 0
+  page.on('request', request => {
+    if (request.method() === 'POST' && new URL(request.url()).pathname === `${API}/sessions`) sessionPostsBeforeSend += 1
+  })
   let foreign: Awaited<ReturnType<typeof newUser>> | undefined
   const family = preset === 'anthropic' ? 'claude' : preset === 'openai' ? 'gpt' : 'deepseek'
   const providerLabel = `${family} conversation provider ${stamp}`
@@ -77,14 +81,19 @@ async function workflow(browser: Browser, testInfo: TestInfo, preset: ProviderRo
       agentDialog.getByRole('button', { name: 'Create', exact: true }).click())
     expect(agent).toMatchObject({ label: agentLabel, providerId: provider.id, systemPromptId: prompt.id, instructions: instruction, tools: [] })
 
-    // Select on a fresh draft, duplicate it into a second pane, and confirm the
-    // second view observes the same pending binding before materialization.
-    await page.getByRole('button', { name: 'New session', exact: true }).click()
+    // The Agent's canonical page is the entry point. It only selects the Agent
+    // on a blank draft; it must not materialize a session or call a model.
+    await page.goto(`/agents/${encodeURIComponent(agent.id)}`)
+    await expect(page.getByRole('heading', { name: agentLabel, exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'New conversation', exact: true }).click()
     await expect(page.locator('[data-conversation-pane="draft"]')).toBeVisible()
+    expect(sessionPostsBeforeSend, 'opening an Agent conversation remains a draft').toBe(0)
+    expect(peer.generationRequests(), 'no model request occurs before Send').toHaveLength(0)
     const trigger = page.getByRole('button', { name: 'Model and effort', exact: true }).last()
     await trigger.click()
     const picker = page.getByRole('dialog', { name: 'Model and effort', exact: true })
     const agentSelect = picker.getByRole('combobox', { name: 'Conversation Agent', exact: true })
+    await expect(agentSelect).toHaveValue(agent.id)
     await expect(agentSelect.locator('option').filter({ hasText: agentLabel })).toHaveCount(1)
     // Stage an explicit provider/model override first. Selecting this Agent
     // must return both coordinates to inheritance from the Agent definition.
@@ -93,6 +102,7 @@ async function workflow(browser: Browser, testInfo: TestInfo, preset: ProviderRo
     await agentSelect.selectOption(agent.id)
     await expect(trigger).toContainText(agentLabel)
     await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: `Back to ${agentLabel}`, exact: true })).toBeVisible()
     // The Agent selector remains reachable at every supported viewport; assert
     // the actual popover geometry, not just the presence of its label.
     for (const viewport of VIEWPORTS) {

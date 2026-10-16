@@ -77,10 +77,13 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
   const evidenceRoot = join(ROOT, '.data', 'desktop-openai-smoke')
   let evidence, fixture, run, stage = 'startup'
   const productRequests = []
+  const sessionCreationRequests = []
   const observe = page => page.on('request', request => {
-    if (new URL(request.url()).pathname.startsWith('/api/v1/')) {
+    const pathname = new URL(request.url()).pathname
+    if (pathname.startsWith('/api/v1/')) {
       productRequests.push(request.postData() ?? '')
     }
+    if (request.method() === 'POST' && pathname === '/api/v1/sessions') sessionCreationRequests.push(request)
   })
   try {
     await mkdir(evidenceRoot, { recursive: true })
@@ -229,7 +232,67 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     assertNoSecrets(productRequests)
     assertNoSecrets(await readFile(vaultPath, 'utf8'))
     await page.screenshot({ path: join(evidence, 'restored-connection.png'), fullPage: true, animations: 'disabled' })
-    console.log(`[desktop-openai-smoke] rendered OpenAI setup · OS-encrypted synthetic key · explicit Agent Dispatch · Responses stream + read tool + opaque continuation · exact SQLite usage · refused key replacement · signed-in full relaunch and fresh authenticated turn · evidence ${evidence}`)
+
+    stage = 'agent-page-new-conversation'
+    const sessionIdsBefore = (await api(page, '/sessions')).map(session => session.id).sort()
+    const creationsBefore = sessionCreationRequests.length
+    const fixtureRequestsBefore = fixture.requests.length
+    await page.goto(`${origin}/agents/${agent.id}`)
+    await page.getByRole('button', { name: 'New conversation', exact: true }).click()
+    const agentComposer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await expect(agentComposer).toBeEnabled()
+    await page.getByRole('button', { name: 'Model and effort', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: 'Conversation Agent', exact: true })).toHaveValue(agent.id)
+    await page.keyboard.press('Escape')
+    assert.deepEqual((await api(page, '/sessions')).map(session => session.id).sort(), sessionIdsBefore,
+      'opening New conversation from the Agent page creates only an unsaved draft')
+    assert.equal(sessionCreationRequests.length, creationsBefore, 'no session-creation request occurs before Send')
+    assert.equal(fixture.requests.length, fixtureRequestsBefore, 'the draft does not call the model before Send')
+
+    await agentComposer.fill('Reply once from the existing authored Agent page.')
+    await agentComposer.press('Enter')
+    await expect(page).toHaveURL(/\/s\/[^/]+$/)
+    const newSessionId = new URL(page.url()).pathname.split('/').at(-1)
+    assert.ok(newSessionId && newSessionId !== sessionId && newSessionId !== 'draft')
+    await expect(page.locator('[data-turn]').filter({ hasText: 'The restored OpenAI connection completed another turn.' })).toBeVisible({ timeout: TIMEOUT_MS })
+    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+    assert.equal(sessionCreationRequests.length, creationsBefore + 1, 'Send materializes exactly one new conversation')
+    assert.equal(fixture.requests.length, fixtureRequestsBefore + 1, 'one Send produces exactly one provider turn')
+    const newSession = await api(page, `/sessions/${newSessionId}`)
+    assert.equal(newSession.agentId, agent.id)
+    assert.equal(newSession.providerId, undefined, 'the conversation inherits its provider from the selected Agent')
+    assert.equal(newSession.modelId, undefined, 'the conversation inherits the provider default model')
+    assert.equal(agent.providerId, provider.id)
+    assert.equal(provider.defaultModelId, OPENAI_SMOKE_MODEL)
+    assert.equal(fixture.requests.at(-1).model, OPENAI_SMOKE_MODEL, 'the new reply uses the inherited provider model')
+    const newConversation = readOpenAIState(profile, provider.id, newSessionId, identity.tenant.id)
+    const originalAfter = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
+    assert.deepEqual(originalAfter.session, retained.session, 'the Agent-page conversation does not alter the original session')
+    assert.equal(newConversation.usage.fiveHour.consumed, 120)
+    assert.equal(newConversation.usage.weekly.consumed, 120)
+    assertNoSecrets(newConversation.productJson)
+    assertNoSecrets(productRequests)
+    assertNoSecrets(await readFile(vaultPath, 'utf8'))
+
+    const preSecondRelaunchOrigin = origin
+    await close(run)
+    run = undefined
+    await assert.rejects(fetch(`${preSecondRelaunchOrigin}/api/v1/me`, { signal: AbortSignal.timeout(1_000) }), 'the second backend actually exits')
+    run = await launch(executable, profile)
+    ;({ page, origin } = run)
+    observe(page)
+    assert.equal((await api(page, '/me')).user.id, identity.user.id)
+    const durableOriginal = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
+    const durableNew = readOpenAIState(profile, provider.id, newSessionId, identity.tenant.id)
+    assert.deepEqual(durableOriginal.session, retained.session)
+    assert.deepEqual(durableNew.session, newConversation.session, 'the Agent-page conversation survives the second real relaunch')
+    assert.deepEqual(durableNew.usage, newConversation.usage)
+    assert.equal(fixture.requests.length, 6, 'startup does not replay either saved conversation')
+    assertNoSecrets(durableNew.productJson)
+    assertNoSecrets(productRequests)
+    assertNoSecrets(await readFile(vaultPath, 'utf8'))
+    await page.screenshot({ path: join(evidence, 'agent-page-conversation.png'), fullPage: true, animations: 'disabled' })
+    console.log(`[desktop-openai-smoke] rendered OpenAI setup · OS-encrypted synthetic key · explicit Agent Dispatch · Responses stream + read tool + opaque continuation · exact SQLite usage · refused key replacement · signed-in relaunch and fresh authenticated turn · Agent-page unsent draft, bound conversation, exact usage, and second durable relaunch · evidence ${evidence}`)
   } catch (error) {
     await run?.page.screenshot({ path: join(evidence, `failure-${stage}.png`), fullPage: true }).catch(() => {})
     throw new Error(`Packaged OpenAI Responses acceptance failed at ${stage}: ${error instanceof Error ? error.message : String(error)}`)

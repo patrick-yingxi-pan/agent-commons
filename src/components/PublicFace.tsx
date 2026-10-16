@@ -8,7 +8,7 @@
 import { Award, Bot, GitFork, Globe } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { PrincipalKind } from '../../contract/index.ts'
-import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, SHARED_MARKER } from '../lib/publicFace'
+import { AGENT_ACTOR_TITLE, agentActorLabel, bylineLabel, identityHue, identityInitial, PUBLIC_FACE_DOOR_TARGET_CLASS, SHARED_MARKER } from '../lib/publicFace'
 import { STANDING_DOOR_CLASS } from '../lib/textDoor'
 
 /** The identity mark — the avatar's role, derived deterministically from
@@ -73,7 +73,8 @@ export function OwnerLink({
         e.stopPropagation()
         onClick()
       }}
-      className={`inline-flex items-center ${markSize && markSize > 16 ? 'gap-2' : 'gap-1'} align-bottom ${STANDING_DOOR}`}
+      data-public-face-door="owner"
+      className={`inline-flex items-center ${PUBLIC_FACE_DOOR_TARGET_CLASS} ${markSize && markSize > 16 ? 'gap-2' : 'gap-1'} align-bottom ${STANDING_DOOR}`}
       title={`Show everything ${ownerName ?? 'this owner'} shares`}
     >
       {/* The identity mark rides every owner door (aria-hidden — texture, not name). */}
@@ -151,7 +152,8 @@ function CreditStat({ title, onClick, children }: { title?: string; onClick?: ()
         onClick()
       }}
       title={title}
-      className={`${cls} ${STANDING_DOOR}`}
+      data-public-face-door="credit"
+      className={`${cls} ${PUBLIC_FACE_DOOR_TARGET_CLASS} ${STANDING_DOOR}`}
     >
       {children}
     </button>
