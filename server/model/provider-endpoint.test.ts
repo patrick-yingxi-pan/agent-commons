@@ -196,7 +196,8 @@ test('DeepSeek official Anthropic-compatible path probes and keeps model tools c
   assert.deepEqual(await probeProviderEndpoint(config), { toolUse: true })
   const result = await generateReply(session, DEFAULT_AGENT,
     'Use the attached external MCP tool with query "deepseek-path-proof".', collect().handlers,
-    undefined, config, undefined, contexts, undefined, { externalMcpConnections: [connection] })
+    undefined, config, undefined, contexts, undefined, { externalMcpConnections: [connection],
+      modelInfo: { id: 'deepseek-flash', label: 'DeepSeek', capabilities: { thinking: true } } })
   assert.equal(result.outcome, 'ok')
   assert.equal(result.message.toolActivities?.length, 1)
   assert.equal(result.message.toolActivities?.[0]?.status, 'proposed', 'provider tool requests remain consent proposals')
@@ -208,6 +209,7 @@ test('DeepSeek official Anthropic-compatible path probes and keeps model tools c
   assert.ok(hits.every(hit => hit.apiKey === 'deepseek-local-test-key'), 'the provider key reference is used for both probe and turn')
   assert.ok(hits.every(hit => hit.body.tools?.length > 0), 'probe and generation both exercise native Messages tools')
   assert.ok(hits.every(hit => hit.body.model === 'deepseek-flash'), 'the exact configured DeepSeek model is sent')
+  assert.ok(hits.every(hit => !Object.hasOwn(hit.body, 'thinking')), 'general thinking does not invent adaptive support on a compatible endpoint')
   assert.ok(hits.filter(hit => hit.body.stream).every(hit => hit.body.max_tokens === 16384), 'every tool continuation keeps the configured output limit')
 })
 

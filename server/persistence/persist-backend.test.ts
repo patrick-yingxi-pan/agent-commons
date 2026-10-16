@@ -59,7 +59,11 @@ const sample: PersistedState = {
     extraArtifacts: [], extraProjects: [], standingApprovals: {},
   } as unknown as PersistedState['graph'],
   savedContexts: [{ id: 'sc1', type: 'connector', label: 'GitHub', status: 'connected', tenantId: 'tenant-b' }] as unknown as PersistedState['savedContexts'],
-  providers: [['provider-x', { id: 'provider-x', label: 'P', modelFamily: 'claude', effortLevels: ['Low'] }]] as unknown as PersistedState['providers'],
+  providers: [['provider-x', { id: 'provider-x', label: 'P', modelFamily: 'claude', effortLevels: ['Low'], models: [
+    { id: 'adaptive', label: 'Adaptive', capabilities: { thinking: true, adaptiveThinking: true } },
+    { id: 'legacy', label: 'Legacy', capabilities: { thinking: true } },
+    { id: 'not-adaptive', label: 'Not adaptive', capabilities: { adaptiveThinking: false } },
+  ] }]] as unknown as PersistedState['providers'],
   providerConfigs: [['provider-x', { model: 'claude-opus-4-8', replyOutputTokens: 4096 }]] as unknown as PersistedState['providerConfigs'],
   systemPrompts: [['sp-x', { id: 'sp-x', label: 'S', body: 'b', targetFamily: 'claude' }]] as unknown as PersistedState['systemPrompts'],
   agents: [['agent-x', { id: 'agent-x', label: 'A', systemPrompt: 'b', tools: [], instructions: '' }]] as unknown as PersistedState['agents'],

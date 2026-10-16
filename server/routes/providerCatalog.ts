@@ -22,7 +22,7 @@ const MODEL_FIELDS = [
   'pricing',
   'deprecated',
 ] as const
-const CAPABILITY_FIELDS = ['toolUse', 'vision', 'thinking'] as const
+const CAPABILITY_FIELDS = ['toolUse', 'vision', 'thinking', 'adaptiveThinking'] as const
 const MAX_MODELS = 512
 const MAX_TEXT = 512
 
@@ -83,6 +83,9 @@ export function providerCatalogModels(value: unknown): ModelInfo[] {
         if (!Object.hasOwn(capabilities, field)) continue
         if (typeof capabilities[field] !== 'boolean') throw new ValidationError(`models[${index}].capabilities.${field} must be a boolean.`)
         model.capabilities[field] = capabilities[field]
+      }
+      if (model.capabilities.thinking === false && model.capabilities.adaptiveThinking === true) {
+        throw new ValidationError(`models[${index}].capabilities cannot support adaptive thinking while disabling thinking.`)
       }
     }
     if (Object.hasOwn(input, 'pricing')) {

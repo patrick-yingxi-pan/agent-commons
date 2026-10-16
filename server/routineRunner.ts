@@ -12,7 +12,7 @@
 import type { Agent, Message, ScheduledRun, ScheduledTask } from '../contract/index.ts'
 import type { ScheduledArtifactSpec } from '../contract/scheduledArtifact.ts'
 import { createRoutineArtifactCapture } from './routineArtifact.ts'
-import { generateReply, type ReplyResult } from './generate.ts'
+import { generateReply, resolvedModelId, type ReplyResult } from './generate.ts'
 import { positiveNumberEnv } from './env.ts'
 import { UsageRecordingError } from './modelUsage.ts'
 import { PersistenceWriteError } from './persistence/persist.ts'
@@ -306,6 +306,7 @@ export function createRoutineRunner(
         ctx.contexts,
         undefined,
         { standingApprovedContextIds: ctx.approvedContextIds, effort: ctx.task.effort, routineArtifact,
+          modelInfo: ctx.provider.models?.find(model => model.id === resolvedModelId(providerConfig)),
           externalMcpConnections: ctx.externalMcpConnections, routineMcp: ctx.routineMcp },
       )
       // A non-conformant endpoint may ignore AbortSignal. Shutdown still hands

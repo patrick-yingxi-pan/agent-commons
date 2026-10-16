@@ -3,7 +3,7 @@
  * live-turn registry, provenance and per-call consent proposals. Admission and
  * caller authorization belong to the initiating workflow, before this function.
  */
-import type { Agent, Message, ReplyStreamEvent, Session } from '../contract/index.ts'
+import type { Agent, Message, ModelInfo, ReplyStreamEvent, Session } from '../contract/index.ts'
 import type { ProviderConfig } from './data/providers.ts'
 import { generateReply, type ReplyHistoryTurn, type ReplySession } from './generate.ts'
 import { relayReply } from './relay.ts'
@@ -25,6 +25,7 @@ export interface ConversationTurnInput {
   provider: ProviderConfig
   providerId: string
   modelId?: string
+  modelInfo?: ModelInfo
   /** Resolved and frozen by interactive admission. Background initiators omit
    * this instead of inheriting some person's composer preference. */
   effort?: string
@@ -109,7 +110,8 @@ export function startConversationTurn(input: ConversationTurnInput) {
         ? await relayReply(session, agent, text, handlers, ac.signal, store.relay, providerId, commons, contexts, input.history, input.apiRuntime, externalMcpConnections)
         : await generateReply(session, agent, text, handlers, ac.signal, provider, commons, contexts,
           input.projectWorkDraft ? undefined : input.apiRuntime,
-          { externalMcpConnections, effort: input.effort, ...(input.projectWorkDraft ? { toolPolicy: 'none' as const } : {}) }, input.history)
+          { externalMcpConnections, effort: input.effort, modelInfo: input.modelInfo,
+            ...(input.projectWorkDraft ? { toolPolicy: 'none' as const } : {}) }, input.history)
       outcome = result.outcome
       const message = stamp(result.message)
       if (message.relationActions?.length) emit({ type: 'message.relations', sessionId: session.id, messageId: message.id, relationActions: message.relationActions })

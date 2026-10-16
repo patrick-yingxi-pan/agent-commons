@@ -4844,14 +4844,15 @@ export function buildRouter(): Router {
     // model is whatever session drains its mailbox, so its turns carry none.
     const turnConfig = known?.modelId ? { ...provider, model: known.modelId } : provider
     const turnModelId = provider.kind === 'session' ? undefined : resolvedModelId(turnConfig)
+    const turnModelInfo = providerFace?.models?.find((model) => model.id === turnModelId)
     // Personal effort is intent, not a routing override. Resolve it only after
     // the Session/Agent's actual provider and model, and snapshot it once for
     // all continuations. Background jobs never read this interactive setting.
     const turnEffort = provider.kind === 'session' ? undefined : resolveEffort(
-      effortLevelsFor(providerFace, providerFace?.models?.find((model) => model.id === turnModelId)),
+      effortLevelsFor(providerFace, turnModelInfo),
       store.modelPreferences(tenantId, initiatingActor.user.id).preferences.effort,
     )
-    session.supportsImages = providerFace?.models?.find((model) => model.id === turnModelId)?.capabilities?.vision !== false
+    session.supportsImages = turnModelInfo?.capabilities?.vision !== false
     // Release profiles never silently fall back to the deterministic mock. An
     // endpoint whose server-owned connection is incomplete refuses before the
     // user row, spend, or live-turn slot changes — the same fail-before-write
@@ -4916,7 +4917,7 @@ export function buildRouter(): Router {
     const work = startConversationTurn({
       session, known, agent, provider: turnConfig, providerId: turnProviderId,
       modelId: turnModelId, tenantId, actorUserId: initiatingActor.user.id, text: text ?? '', history: turnHistory,
-      effort: turnEffort,
+      effort: turnEffort, modelInfo: turnModelInfo,
       persist, reusePersistedUser, idempotencyKey: idemKey,
       apiRuntime: {
         catalog: apiCatalog(),
@@ -5371,6 +5372,7 @@ export function buildRouter(): Router {
         agent: store.getAgent(execution.agentId),
         provider: { ...store.providerConfig(execution.providerId), model: execution.modelId },
         providerId: execution.providerId, modelId: execution.modelId, tenantId,
+        modelInfo: store.getProvider(execution.providerId).models?.find(model => model.id === execution.modelId),
         text: dispatchPrompt(run.title, run.detail), history: [], persist: true,
         projectWorkDraft: execution.projectWork !== undefined,
         reusePersistedUser: true, idempotencyKey: key,

@@ -24,12 +24,20 @@ async function read(req: IncomingMessage) {
 
 function anthropic(response: ServerResponse, model: string, tool = false) {
   const content = tool
-    ? [{ type: 'tool_use', id: 'effort-tool-call', name: 'api__get_usage', input: { query: {} } }]
+    ? [
+        { type: 'thinking', thinking: 'LOCAL_OPAQUE_THINKING', signature: 'local-thinking-signature' },
+        { type: 'redacted_thinking', data: 'local-redacted-thinking' },
+        { type: 'tool_use', id: 'effort-tool-call', name: 'api__get_usage', input: { query: {} } },
+      ]
     : [{ type: 'text', text: 'Local effort fixture reply.' }]
   const events: Array<Record<string, unknown>> = [
     { type: 'message_start', message: { id: `effort-${seen.length}`, type: 'message', role: 'assistant', content: [], model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 3, output_tokens: 0 } } },
   ]
   for (const [index, block] of content.entries()) {
+    if (block.type === 'thinking' || block.type === 'redacted_thinking') {
+      events.push({ type: 'content_block_start', index, content_block: block }, { type: 'content_block_stop', index })
+      continue
+    }
     events.push({ type: 'content_block_start', index, content_block: block.type === 'text' ? { type: 'text', text: '' } : { type: 'tool_use', id: block.id, name: block.name, input: {} } })
     events.push(block.type === 'text'
       ? { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } }
@@ -138,10 +146,10 @@ test('Messages turn freezes the scoped saved effort through tool continuation an
   const grace = cookie('user-grace', org.id)
 
   const provider = await createPeerProvider('anthropic-messages', 'Messages effort test', [
-    { id: 'chosen-messages-model', label: 'Chosen Messages model', effortLevels: ['Low', 'High'] },
-    { id: 'subset-messages-model', label: 'Subset Messages model', effortLevels: ['Medium'] },
-    { id: 'no-effort-messages-model', label: 'No effort Messages model', effortLevels: [] },
-    { id: 'inherits-messages-model', label: 'Inherits provider effort' },
+    { id: 'chosen-messages-model', label: 'Chosen Messages model', effortLevels: ['Low', 'High'], capabilities: { thinking: true, adaptiveThinking: true } },
+    { id: 'subset-messages-model', label: 'Subset Messages model', effortLevels: ['Medium'], capabilities: { thinking: true, adaptiveThinking: false } },
+    { id: 'no-effort-messages-model', label: 'No effort Messages model', effortLevels: [], capabilities: { adaptiveThinking: true } },
+    { id: 'inherits-messages-model', label: 'Inherits provider effort', capabilities: { thinking: true } },
   ])
   assert.equal((await setEffort(ada, org.id, 'user-ada', 'Low')).status, 200)
   assert.equal((await setEffort(grace, org.id, 'user-grace', 'High')).status, 200)
@@ -151,14 +159,24 @@ test('Messages turn freezes the scoped saved effort through tool continuation an
   beforeMessagesToolReply = () => {
     store.setModelPreferences(org.id, 'user-ada', org.id, 'user-ada', 1,
       { effort: 'High', ultracode: false, fast: false })
+    store.replaceStaticProviderModels(provider.id, provider.models!.map(model => model.id === 'chosen-messages-model'
+      ? { ...model, capabilities: { thinking: true, adaptiveThinking: false } } : model))
     beforeMessagesToolReply = undefined
   }
   const first = await callRaw('POST', `/sessions/${created.json.id}/messages`, { text: 'Use the ordinary tool, then answer.' }, { ...ada, 'idempotency-key': 'effort-frozen-turn' })
   assert.equal(first.status, 200)
   assert.deepEqual(wireEfforts('chosen-messages-model'), ['low', 'low'], 'the exact saved effort reaches the first request and its tool continuation')
+  const modelRequests = seen.filter(hit => hit.body?.model === 'chosen-messages-model')
+  assert.deepEqual(modelRequests.map(hit => hit.body.thinking), [{ type: 'adaptive' }, { type: 'adaptive' }],
+    'the declared adaptive mode stays frozen even when the catalog changes during the turn')
+  assert.deepEqual(modelRequests[1].body.messages.find(message => message.role === 'assistant').content.slice(0, 2), [
+    { type: 'thinking', thinking: 'LOCAL_OPAQUE_THINKING', signature: 'local-thinking-signature' },
+    { type: 'redacted_thinking', data: 'local-redacted-thinking' },
+  ], 'tool continuation retains opaque signed and redacted thinking blocks unchanged')
   const end = frames(first.body).find(frame => frame.type === 'message.end')
   assert.ok(end)
   assert.equal(end.message.content, 'Local effort fixture reply.')
+  assert.doesNotMatch(JSON.stringify(end.message), /LOCAL_OPAQUE_THINKING|local-thinking-signature|local-redacted-thinking/)
 
   // The authored peer changed the preference after receiving the tool request but
   // before the continuation. The turn must remain frozen at its admission value.
@@ -176,6 +194,8 @@ test('Messages turn freezes the scoped saved effort through tool continuation an
   const peerTurn = await callRaw('POST', `/sessions/${peerSession.json.id}/messages`, { text: 'Answer as Grace.' }, grace)
   assert.equal(peerTurn.status, 200)
   assert.deepEqual(wireEfforts('chosen-messages-model'), ['low', 'low', 'high'], 'same-tenant viewer preference is isolated by authenticated user')
+  assert.equal(seen.filter(hit => hit.body?.model === 'chosen-messages-model').at(-1)?.body.thinking, undefined,
+    'the next turn uses the updated catalog, not a stale adaptive choice')
 
   // Resolve against the session's concrete model vocabulary, not the provider's
   // broader list. Empty model vocabulary suppresses the field; absent inherits.
@@ -192,13 +212,15 @@ test('Messages turn freezes the scoped saved effort through tool continuation an
     const hit = seen.slice(beforeCount).find(request => request.body?.model === modelId)
     assert.ok(hit, `effective model ${modelId} was called`)
     assert.equal(hit.body?.output_config?.effort, expected, `${modelId} follows its own vocabulary (absence inherits; empty explicitly suppresses)`)
+    assert.deepEqual(hit.body.thinking, modelId === 'no-effort-messages-model' ? { type: 'adaptive' } : undefined,
+      'only explicit adaptive support enables thinking; effort and general thinking alone are not proof')
   }
 })
 
 test('Responses conversation receives the authenticated saved effort on its native wire', async () => {
   seen.length = 0
   const provider = await createPeerProvider('openai-responses', 'Responses effort test', [
-    { id: 'chosen-responses-model', label: 'Chosen Responses model', effortLevels: ['Low', 'High'] },
+    { id: 'chosen-responses-model', label: 'Chosen Responses model', effortLevels: ['Low', 'High'], capabilities: { thinking: true, adaptiveThinking: true } },
   ])
   const headers = cookie('user-maya', 'tenant-growthworks')
   assert.equal((await setEffort(headers, 'tenant-growthworks', 'user-maya', 'Low')).status, 200)
@@ -210,6 +232,7 @@ test('Responses conversation receives the authenticated saved effort on its nati
   assert.ok(request)
   assert.equal(request.path, '/v1/responses')
   assert.equal(request.body?.reasoning?.effort, 'low', 'Responses uses its native reasoning.effort field')
+  assert.equal(Object.hasOwn(request.body, 'thinking'), false, 'Messages adaptive metadata never changes the Responses wire')
 })
 
 test('Session relay prompts never receive endpoint effort preferences', async () => {
@@ -237,7 +260,7 @@ test('a Session without its own model pick inherits the bound Agent provider mod
   const headers = cookie('user-maya', 'tenant-growthworks')
   assert.equal((await setEffort(headers, 'tenant-growthworks', 'user-maya', 'Low')).status, 200)
   const provider = await createPeerProvider('anthropic-messages', 'Agent-inherited effort test', [
-    { id: 'agent-inherited-model', label: 'Agent inherited model', effortLevels: ['Medium'] },
+    { id: 'agent-inherited-model', label: 'Agent inherited model', effortLevels: ['Medium'], capabilities: { adaptiveThinking: true } },
   ], ['Low', 'Medium', 'High'], 'agent-inherited-model')
   const agent = await call('POST', '/agents', {
     label: 'Agent-inherited model effort', providerId: provider.id, systemPromptId: 'sp-concise-reviewer',
@@ -254,4 +277,34 @@ test('a Session without its own model pick inherits the bound Agent provider mod
   const request = seen.find(hit => hit.body?.model === 'agent-inherited-model')
   assert.ok(request, 'the bound Agent provider supplies the effective provider and configured model')
   assert.equal(request.body?.output_config?.effort, 'medium', 'the Agent provider’s configured model vocabulary overrides its broader provider ladder')
+  assert.deepEqual(request.body.thinking, { type: 'adaptive' }, 'adaptive support resolves from the Agent-inherited configured model too')
+})
+
+test('Dispatch uses selected model adaptive support without inheriting personal effort', async () => {
+  seen.length = 0
+  const headers = cookie('user-maya', 'tenant-growthworks')
+  const provider = await createPeerProvider('anthropic-messages', 'Adaptive Dispatch fixture', [
+    { id: 'dispatch-adaptive', label: 'Adaptive', capabilities: { adaptiveThinking: true } },
+  ])
+  const agent = await call('POST', '/agents', {
+    label: 'Adaptive Dispatch Agent', providerId: provider.id, systemPromptId: 'sp-concise-reviewer',
+  }, headers)
+  assert.equal(agent.status, 200)
+  const started = await call('POST', '/dispatch', {
+    title: 'Answer a local test question.', detail: 'No external actions.',
+    execution: { agentId: agent.json.id, providerId: provider.id, modelId: 'dispatch-adaptive' },
+  }, { ...headers, 'idempotency-key': 'adaptive-dispatch-fixture' })
+  assert.equal(started.status, 200)
+  const deadline = Date.now() + 3_000
+  let run = store.getRealDispatch(started.json.id, 'tenant-growthworks')
+  while (run && run !== 'retired' && run.execution?.state === 'running' && Date.now() < deadline) {
+    await new Promise(resolve => setTimeout(resolve, 2))
+    run = store.getRealDispatch(started.json.id, 'tenant-growthworks')
+  }
+  assert.ok(run && run !== 'retired')
+  assert.equal(run.execution?.state, 'replied')
+  const requests = seen.filter(hit => hit.body?.model === 'dispatch-adaptive')
+  assert.equal(requests.length, 1)
+  assert.deepEqual(requests[0].body.thinking, { type: 'adaptive' })
+  assert.equal(requests[0].body.output_config, undefined, 'Dispatch never adopts a person’s composer effort')
 })

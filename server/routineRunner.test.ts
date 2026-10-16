@@ -283,8 +283,29 @@ test('a recovered durable row executes one model turn with its exact standing co
   assert.deepEqual(call?.[7], state.context.contexts)
   assert.equal(call?.[9]?.standingApprovedContextIds?.has('slack'), true)
   assert.equal(call?.[9]?.effort, 'High')
+  assert.deepEqual(call?.[9]?.modelInfo, provider.models![0], 'the exact resolved model metadata reaches the shared reply loop')
   assert.deepEqual(call?.[1].tools, [], 'interactive proposal tools are withheld from a headless turn')
   assert.match(call?.[1].instructions ?? '', /unattended scheduled run/i)
+})
+
+test('Routine metadata follows the effective configured model when its own model id is absent', async () => {
+  const state = fakeState()
+  state.context.modelId = undefined
+  state.context.providerConfig = { model: 'configured-adaptive' }
+  state.context.provider = { ...provider, models: [
+    { id: 'other', label: 'Not selected', capabilities: { adaptiveThinking: false } },
+    { id: 'configured-adaptive', label: 'Configured', capabilities: { adaptiveThinking: true } },
+  ] }
+  let call: Parameters<RoutineGenerate> | undefined
+  const runner = createRoutineRunner(fakeStore(state), (async (...args) => {
+    call = args
+    reportUsage(args)
+    return generated()
+  }) as RoutineGenerate, { now: () => 1_000 })
+  runner.start()
+  try { await settle(state) } finally { runner.stop() }
+  assert.equal(call?.[5]?.model, 'configured-adaptive')
+  assert.deepEqual(call?.[9]?.modelInfo, state.context.provider.models![1])
 })
 
 test('transient endpoint loss persists a retry cursor, then succeeds on the next attempt', async () => {

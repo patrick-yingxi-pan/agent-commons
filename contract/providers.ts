@@ -58,7 +58,14 @@ export interface ModelInfo {
   /** Max output tokens per response. Absent = unknown. */
   maxOutputTokens?: number
   /** Capability flags. Each flag is tri-state by absence: true / false / unknown. */
-  capabilities?: { toolUse?: boolean; vision?: boolean; thinking?: boolean }
+  capabilities?: {
+    toolUse?: boolean
+    vision?: boolean
+    thinking?: boolean
+    /** Explicit support for Messages `thinking.type: adaptive`. General thinking
+     * support does not imply this mode; absent remains unknown. */
+    adaptiveThinking?: boolean
+  }
   /** This model's own effort vocabulary (e.g. Anthropic's per-model effort levels).
    *  Absent = fall back to the provider-level `effortLevels`. */
   effortLevels?: string[]

@@ -6,7 +6,27 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: ordinary interactive conversations apply the authenticated
+Current checkpoint: explicit selected-model adaptive-thinking support now reaches
+the shared Messages reply loop for Conversation, Dispatch and Routine execution.
+The model-list API's exact boolean is retained in catalog metadata, including
+false and unknown; static catalog admission rejects malformed or contradictory
+flags. No model name, generic thinking flag or effort vocabulary enables the mode.
+One selected-model snapshot survives tool continuations while the next turn reads
+updated catalog truth. Existing output limits, usage and consent remain unchanged;
+signed/redacted thinking stays opaque, and Responses receives no Messages field.
+No UI controls or paid-provider calls are added. Full local and unsigned desktop
+gates remain required before landing.
+
+Next provider checkpoint: preserve OpenAI assistant phase per output item across
+later conversation turns and relaunch. A single phase on a flattened app message
+would be incorrect when one turn contains both commentary and final-answer items.
+Existing same-turn Responses tool continuation already replays provider output
+opaquely. Stored Fast/Ultracode modes still need truthful product treatment before
+release; neither this checkpoint nor effort mapping implements those workflows.
+
+Previous checkpoint `709e7769` passed all five local verifier lanes (771 browser
+tests), the 135/135-cell UI sweep, screenshot review and the complete unsigned
+arm64 desktop suite, then landed on main. Ordinary interactive conversations apply the authenticated
 person's saved effort choice to the actual Session/Agent provider and model.
 The shared display/execution resolver preserves supported choices, otherwise
 selects High when offered or the first declared level; an empty model vocabulary
@@ -19,10 +39,8 @@ the hold until authoritative saved preferences can be read, without resending
 the setting. Local authored peers and
 five-viewport recovery tests cover the workflow without paid calls. Complete
 local verification and the separate UI sweep remain mandatory before landing.
-The provider audit also identified two follow-ups, not completed by this change:
-capability-driven Claude adaptive-thinking configuration, and preserving OpenAI
-assistant phase metadata across later conversation turns. Existing same-turn
-Responses tool continuation already replays provider output opaquely.
+Its provider audit identified the adaptive-thinking and later-turn phase gaps
+addressed by the current and next checkpoints above.
 The preliminary complete verifier was cancelled cleanly after review exposed
 the failed-Dismiss gap; it is not passing evidence. The controller regression
 failed before the repair. Existing startup hydration already withholds the

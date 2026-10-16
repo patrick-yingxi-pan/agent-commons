@@ -4,6 +4,7 @@
  * Provider choice never acquires separate execution policy. The local Messages
  * server on :8788 remains an explicitly deterministic development fixture. */
 import Anthropic from '@anthropic-ai/sdk'
+import { replyThinking } from './model/replyThinking.ts'
 import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
 import { EndpointHttpError, EndpointResponseError, openaiResponsesClient, type EndpointMessage } from './model/openaiResponses.ts'
 import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
@@ -262,7 +263,7 @@ interface WireModel {
   max_tokens?: number
   capabilities?: {
     effort?: { supported?: boolean } & Record<string, { supported?: boolean } | boolean | undefined>
-    thinking?: { supported?: boolean }
+    thinking?: { supported?: boolean; types?: { adaptive?: { supported?: boolean } } }
     image_input?: { supported?: boolean }
   }
 }
@@ -279,7 +280,9 @@ const WIRE_EFFORTS: Array<[key: string, label: string]> = [
 
 /** Normalize one wire model into the contract's flexible `ModelInfo` — every
  *  metadata field optional, filled only when the endpoint exposed it. */
-function normalizeWireModel(m: WireModel): ModelInfo | undefined {
+function normalizeWireModel(value: unknown): ModelInfo | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const m = value as WireModel
   if (typeof m.id !== 'string' || !m.id) return undefined
   const caps = m.capabilities
   const efforts =
@@ -290,8 +293,11 @@ function normalizeWireModel(m: WireModel): ModelInfo | undefined {
         }).map(([, label]) => label)
       : []
   const flags = {
-    ...(caps?.thinking?.supported !== undefined ? { thinking: caps.thinking.supported } : {}),
-    ...(caps?.image_input?.supported !== undefined ? { vision: caps.image_input.supported } : {}),
+    ...(typeof caps?.thinking?.supported === 'boolean' ? { thinking: caps.thinking.supported } : {}),
+    ...(typeof caps?.thinking?.types?.adaptive?.supported === 'boolean' &&
+      !(caps.thinking.supported === false && caps.thinking.types.adaptive.supported)
+      ? { adaptiveThinking: caps.thinking.types.adaptive.supported } : {}),
+    ...(typeof caps?.image_input?.supported === 'boolean' ? { vision: caps.image_input.supported } : {}),
   }
   return {
     id: m.id,
@@ -376,6 +382,9 @@ class InvalidModelResponseError extends Error {}
 class ReplyOutputLimitError extends InvalidModelResponseError {}
 
 export interface ReplyExecutionOptions {
+  /** Catalog metadata for the exact admitted model. Absent means unknown, never
+   * permission to infer wire configuration from a model or provider name. */
+  modelInfo?: ModelInfo
   /** Explicit server-owned read-only drafting policy. Unlike provider capability
    * metadata this is authority: no tools and no continuation on a tool request. */
   toolPolicy?: 'none'
@@ -729,6 +738,9 @@ export async function generateReply(
   // through one protocol (see `clientFor`). An empty config is the default provider:
   // ambient endpoint, env-default model.
   const model = provider.model ?? MODEL
+  // Freeze this before any request. Catalog changes affect the next turn, not
+  // the protocol mode of a tool continuation already in progress.
+  const thinking = replyThinking(model, provider.protocol, execution.modelInfo)
   const outputConfig = execution.effort
     ? { output_config: { effort: execution.effort.trim().toLowerCase() as 'low' | 'medium' | 'high' | 'xhigh' | 'max' } }
     : {}
@@ -810,7 +822,7 @@ export async function generateReply(
 
     for (;;) {
       const stream = clientFor(provider).messages.stream(
-        { model, max_tokens: resolveReplyOutputTokens(provider), system, ...toolsParam, ...outputConfig, messages },
+        { model, max_tokens: resolveReplyOutputTokens(provider), system, ...toolsParam, ...outputConfig, ...(thinking ? { thinking } : {}), messages },
         { signal: withDeadline(signal) },
       )
       stream.on('streamEvent', (event: { type: string; message?: { id: string } }) => {

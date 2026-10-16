@@ -156,9 +156,25 @@ else the first declared level; empty model vocabulary omits effort. Messages use
 [native request contract](https://developers.openai.com/api/reference/resources/responses/methods/create).
 One snapshot survives tool continuations and terminal replay does not regenerate.
 Session relays and background drafts/Dispatch acquire no personal setting;
-Routines retain their own frozen effort. This does not turn on Claude adaptive
-thinking, which requires separate [thinking configuration](https://platform.claude.com/docs/en/build-with-claude/thinking),
-or implement the stored Fast/Ultracode modes.
+Routines retain their own frozen effort. Fast/Ultracode remain stored intent,
+not implemented execution modes.
+
+Adaptive thinking is an independent, explicit model capability. The Models API's
+`capabilities.thinking.types.adaptive.supported` literal boolean becomes
+`ModelInfo.capabilities.adaptiveThinking`; absence stays unknown and a general
+thinking flag or model name never grants the mode. Static catalogs accept the
+same boolean and reject contradictory thinking-disabled/adaptive-enabled data.
+Conversation, Dispatch and Routine admission supply the exact selected model to
+the shared reply loop. Messages sends `thinking: {type: 'adaptive'}` only for that
+model's declared support, fixed through tool continuations; Responses ignores
+this Messages-specific capability. Existing per-call output limits still bound
+thinking plus visible output. No legacy thinking budget, beta flag or paid probe
+is invented. Signed and redacted thinking blocks remain opaque during the
+same-turn tool exchange and never become visible conversation prose. Dedicated
+probe, compaction and tool-free task policies are unchanged. This follows the
+official [thinking configuration](https://platform.claude.com/docs/en/build-with-claude/thinking)
+and [model capability fields](https://platform.claude.com/docs/en/api/models/list),
+not identity heuristics.
 
 Private connection `replyOutputTokens` bounds each shared reply-loop call,
 including reasoning: integer 128–65,536, with explicit 8,192 for new first-party
