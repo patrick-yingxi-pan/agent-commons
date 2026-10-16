@@ -6,7 +6,35 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: the provider-priority audit found permanent
+Current implementation checkpoint: the receiving owner can answer an Agent
+request directly, without first running an unrelated MCP call or configuring
+a model provider. The reply-first page mounts private tool inspection only
+after explicit Use a tool. Reply review freezes both exact text and request
+revision; a changed request requires fresh review. Pending tool/model work,
+cancellation and stale/person-mismatched decisions cannot share. Direct replies
+persist with explicit private provenance and no fabricated execution receipt;
+legacy post-call rows keep their existing shape. Restored waiting requests may
+receive text without reopening execution, subject to exact history capacity
+instead of retroactively reserving new bytes on old snapshots. No model-written
+reply, automatic tool use or cross-person credential authority is added.
+Focused state/route/persistence and UI locks, rendered five-viewport owner /
+requester / unrelated-person walks, the separate UI sweep, complete local
+verification and unsigned packaged relaunch acceptance are required before
+landing this checkpoint. Focused browser review caught a private-request 404
+being presented as a connection failure; the direct by-id page now opts into
+the shared existence-hiding unavailable face. Both the source and rendered
+regressions failed before that fix. An earlier screenshot wait was corrected to
+measure the enabled editor, not an intentionally dimmed empty Review button;
+its disabled-state assertion remains. The expanded stale-review capture then
+caught 3.58:1 alert contrast. All request-page validation/stale errors now use
+the existing semantic danger-text token, with a source enumeration lock and
+unchanged WCAG assertions. The pre-correction complete unsigned arm64 desktop
+run passed, including direct reply/no model or tool I/O and exact signed-in
+relaunch; final gates below remain required after the color correction.
+Paid-provider tests remain deferred. The owner-preview
+handoff remains unavailable under the existing in-app browser URL policy.
+
+Previous implementation checkpoint: the provider-priority audit found permanent
 authentication/configuration refusals being described as outages and retried by
 Routines. Shared generation now emits safe status-specific recovery advice and
 a terminal provider-rejected cause for 4xx except 408/409/429, plus unavailable

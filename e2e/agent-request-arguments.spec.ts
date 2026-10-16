@@ -118,6 +118,14 @@ async function chooseTool(select: ReturnType<Page['getByRole']>) {
   await select.selectOption(value!)
 }
 
+async function openToolOptions(page: Page) {
+  const disclosure = page.getByRole('button', { name: 'Use a tool…', exact: true })
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  await disclosure.click()
+  await expect(page.getByRole('button', { name: 'Hide tool options', exact: true })).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('region', { name: 'Owner call review', exact: true })).toBeVisible()
+}
+
 async function createRequest(request: APIRequestContext, stack: McpRouterStack, requester: Person, fromAgentId: string, toAgentId: string, task: string) {
   return api(request, stack, requester, 'POST', '/agent-requests', { fromAgentId, toAgentId, task }, randomUUID())
 }
@@ -180,6 +188,7 @@ test('argument drafts stay private advice across pending, done, uncertain and st
 
     const first = await createRequest(request, stack, requester, source.id, published.id, `Write one exact note ${randomUUID().slice(0, 8)}.`)
     await page.goto(`/agents/requests/${first.id}`)
+    await openToolOptions(page)
     await expect(page.getByRole('heading', { name: 'Choose one call' })).toBeVisible({ timeout: ms(12_000) })
     const toolSelect = page.getByRole('combobox', { name: 'Inspected tool' })
     await expect(toolSelect.locator('option')).toContainText(['Choose an exact tool', TOOL.name])
@@ -217,8 +226,11 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     await expect.poll(() => savedStatusReads, { timeout: ms(12_000) }).toBeGreaterThan(0)
     await page.goto('/agents/requests')
     await page.goto(`/agents/requests/${first.id}`)
+    await openToolOptions(page)
     const pending = page.getByRole('region', { name: 'Optional argument draft' })
     await expect(pending).toContainText('Drafting arguments… No tool is running.', { timeout: ms(12_000) })
+    await expect(page.getByRole('button', { name: 'Review reply', exact: true })).toBeDisabled()
+    await expect(page.getByRole('textbox', { name: 'Reply', exact: true })).toBeDisabled()
     await expect(pending.locator('[data-agent-request-draft-binding]')).toContainText(TOOL.name)
     await expect(pending.locator('[data-agent-request-draft-binding]')).toContainText(MODEL_ID)
     await captureViewports(page, info, 'argument-draft-pending', pending.getByRole('status'))
@@ -228,6 +240,10 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     model.release()
     const firstGenerated = page.getByRole('region', { name: 'Optional argument draft' })
     await expect(firstGenerated.getByText(/Suggested arguments · private to you/)).toBeVisible({ timeout: ms(20_000) })
+    await expect(page.getByRole('textbox', { name: 'Reply', exact: true })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Review reply', exact: true })).toBeDisabled()
+    await page.getByRole('textbox', { name: 'Reply', exact: true }).fill('A terminal draft still allows a direct owner reply.')
+    await expect(page.getByRole('button', { name: 'Review reply', exact: true })).toBeEnabled()
     await chooseTool(page.getByRole('combobox', { name: 'Inspected tool' }))
     await captureViewports(page, info, 'argument-draft-done', firstGenerated.getByRole('button', { name: 'Use draft' }))
     const reader = firstGenerated.getByRole('region', { name: 'Suggested arguments', exact: true })
@@ -271,9 +287,39 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     await expect(requesterPage.getByRole('heading', { name: 'Private argument draft receipt' })).toHaveCount(0)
     await requesterDispose()
 
+    // A reply review is pinned to its exact request revision. Starting an
+    // optional model draft changes that revision; even after the draft settles,
+    // the prior Share confirmation stays disabled until the owner re-reviews.
+    const staleReplyRequest = await createRequest(request, stack, requester, source.id, published.id,
+      'A model-draft transition invalidates an older reply review.')
+    model.setMode('hold')
+    await page.goto(`/agents/requests/${staleReplyRequest.id}`)
+    const staleReply = `Reviewed before draft ${randomUUID().slice(0, 8)}.`
+    await page.getByRole('textbox', { name: 'Reply', exact: true }).fill(staleReply)
+    await page.getByRole('button', { name: 'Review reply', exact: true }).click()
+    const staleShare = page.getByRole('button', { name: 'Share reply', exact: true })
+    await expect(staleShare).toBeEnabled()
+    await openToolOptions(page)
+    await chooseTool(page.getByRole('combobox', { name: 'Inspected tool' }))
+    await page.getByRole('button', { name: 'Draft arguments', exact: true }).click()
+    const stalePending = page.getByRole('region', { name: 'Optional argument draft' })
+    await expect(stalePending).toContainText('Drafting arguments… No tool is running.', { timeout: ms(12_000) })
+    await expect(page.getByText('This request changed after your review. Keep editing, then review the reply again.', { exact: true })).toBeVisible()
+    await expect(staleShare).toBeDisabled()
+    model.release()
+    await expect(stalePending.getByText(/Suggested arguments · private to you/)).toBeVisible({ timeout: ms(20_000) })
+    await expect(page.getByText('This request changed after your review. Keep editing, then review the reply again.', { exact: true })).toBeVisible()
+    await expect(staleShare).toBeDisabled()
+    await captureViewports(page, info, 'reply-review-stale', page.getByRole('button', { name: 'Keep editing', exact: true }))
+    await page.getByRole('button', { name: 'Keep editing', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Review reply', exact: true })).toBeEnabled()
+    await page.getByRole('button', { name: 'Review reply', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Share reply', exact: true })).toBeEnabled()
+
     const second = await createRequest(request, stack, requester, source.id, published.id, 'This draft endpoint will lose its reply.')
     model.setMode('uncertain')
     await page.goto(`/agents/requests/${second.id}`)
+    await openToolOptions(page)
     await expect(page.getByRole('heading', { name: 'Choose one call' })).toBeVisible()
     await chooseTool(page.getByRole('combobox', { name: 'Inspected tool' }))
     await page.getByRole('button', { name: 'Draft arguments', exact: true }).click()
@@ -285,6 +331,7 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     const failedRequest = await createRequest(request, stack, requester, source.id, published.id, 'The invalid model result must not become arguments.')
     model.setMode('failed')
     await page.goto(`/agents/requests/${failedRequest.id}`)
+    await openToolOptions(page)
     await expect(page.getByRole('heading', { name: 'Choose one call' })).toBeVisible()
     await chooseTool(page.getByRole('combobox', { name: 'Inspected tool' }))
     await page.getByRole('button', { name: 'Draft arguments', exact: true }).click()
@@ -296,6 +343,7 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     const third = await createRequest(request, stack, requester, source.id, published.id, 'This suggestion will become stale.')
     model.setMode('success')
     await page.goto(`/agents/requests/${third.id}`)
+    await openToolOptions(page)
     await expect(page.getByRole('heading', { name: 'Choose one call' })).toBeVisible()
     await chooseTool(page.getByRole('combobox', { name: 'Inspected tool' }))
     await page.getByRole('button', { name: 'Draft arguments', exact: true }).click()
@@ -305,6 +353,7 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     store.updateAgentFromRequest(currentAgent.id, { instructions: 'Changed instructions make the old draft stale.' }, currentAgent.revision)
     await page.goto('/agents/requests')
     await page.goto(`/agents/requests/${third.id}`)
+    await openToolOptions(page)
     await expect(page.getByRole('heading', { name: 'Choose one call' })).toBeVisible()
     await chooseTool(page.getByRole('combobox', { name: 'Inspected tool' }))
     const stale = page.getByRole('region', { name: 'Optional argument draft' })

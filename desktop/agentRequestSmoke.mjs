@@ -161,6 +161,8 @@ async function createRequestThroughUi(page, origin, fromAgentId, toAgentId, task
 
 async function ownerRun(page, origin, requestId, query, expectedResult, model) {
   await page.goto(`${origin}/agents/requests/${encodeURIComponent(requestId)}`)
+  await page.getByRole('button', { name: 'Use a tool…', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Hide tool options', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Choose one call', exact: true })).toBeVisible({ timeout: WAIT })
   const tool = page.getByLabel('Inspected tool', { exact: true })
   await expect(tool).toContainText('Native private request fixture · records.search', { timeout: WAIT })
@@ -191,6 +193,20 @@ async function ownerRun(page, origin, requestId, query, expectedResult, model) {
     await receipt.getByText('Exact call and raw result · visible only to you', { exact: true }).click()
     await expect(receipt).toContainText(expectedResult)
   }
+}
+
+async function ownerDirectReply(page, origin, requestId, reply) {
+  await page.goto(`${origin}/agents/requests/${encodeURIComponent(requestId)}`)
+  await expect(page.getByLabel('Reply', { exact: true })).toBeVisible({ timeout: WAIT })
+  await expect(page.getByRole('button', { name: 'Use a tool…', exact: true })).toBeVisible()
+  await expect(page.getByLabel('Inspected tool', { exact: true })).toHaveCount(0)
+  await page.getByLabel('Reply', { exact: true }).fill(reply)
+  await page.getByRole('button', { name: 'Review reply', exact: true }).click()
+  await expect(page.getByText(reply, { exact: true })).toBeVisible()
+  const share = page.waitForResponse(response => response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === `/api/v1/agent-requests/${requestId}/decision`, { timeout: WAIT })
+  await page.getByRole('button', { name: 'Share reply', exact: true }).click()
+  assert.equal((await share).status(), 200)
 }
 
 export async function smokePackagedAgentRequests({ executable = packagedExecutable(), nativeReview = false } = {}) {
@@ -376,8 +392,36 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await expect(page.locator('body')).not.toContainText(SECRET)
     await page.screenshot({ path: join(evidence, 'requester-shared-reply.png'), fullPage: true })
 
+    stage = 'rendered-direct-reply-without-tool-execution'
+    const direct = await createRequestThroughUi(page, origin, source.id, published.id,
+      `Please share a direct response (${randomUUID().slice(0, 8)}).`)
+    const directReply = 'The owner reviewed the request and can confirm it directly.'
+    await switchAccount(page, origin, owner.user.id, owner.user.name)
+    const traceBeforeDirectReply = await peerTrace(tracePath)
+    const directStartsBefore = processStarts(traceBeforeDirectReply).length
+    const directCallsBefore = toolCalls(traceBeforeDirectReply).length
+    const modelRequestsBeforeDirectReply = model.requests.length
+    await ownerDirectReply(page, origin, direct.id, directReply)
+    assert.equal(model.requests.length, modelRequestsBeforeDirectReply,
+      'a direct reply never calls the model')
+    const directOwner = await api(page, `/agent-requests/${direct.id}`)
+    assert.equal(directOwner.status, 'replied')
+    assert.equal(directOwner.reply, directReply)
+    assert.equal(directOwner.execution, undefined, 'a direct reply has no execution receipt')
+    const storedDirect = storedRequest(profile, direct.id)
+    assert.equal(storedDirect.status, directOwner.status)
+    assert.equal(storedDirect.revision, directOwner.revision)
+    assert.equal(storedDirect.reply, directOwner.reply)
+    assert.equal(storedDirect.execution, undefined, 'SQLite stores the exact direct-reply lifecycle without a tool receipt')
+    const traceAfterDirectReply = await peerTrace(tracePath)
+    assert.equal(processStarts(traceAfterDirectReply).length, directStartsBefore,
+      'a direct reply never starts the local program')
+    assert.equal(toolCalls(traceAfterDirectReply).length, directCallsBefore,
+      'a direct reply never calls MCP')
+
     stage = 'pending-interruption-and-same-profile-relaunch-without-replay'
     const secondTask = `Please inspect one more record (${randomUUID().slice(0, 8)}).`
+    await switchAccount(page, origin, requester.user.id, requester.user.name)
     await page.goto(`${origin}/agents/requests`)
     const second = await createRequestThroughUi(page, origin, source.id, published.id, secondTask)
     await switchAccount(page, origin, owner.user.id, owner.user.name)
@@ -392,6 +436,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     const third = await createRequestThroughUi(page, origin, source.id, draftReceiver.id, 'hold-model-until-relaunch')
     await switchAccount(page, origin, owner.user.id, owner.user.name)
     await page.goto(`${origin}/agents/requests/${encodeURIComponent(third.id)}`)
+    await page.getByRole('button', { name: 'Use a tool…', exact: true }).click()
     await page.getByLabel('Inspected tool', { exact: true }).selectOption({ label: 'Native private request fixture · records.search · Local program' })
     await page.getByRole('button', { name: 'Draft arguments', exact: true }).click()
     await expect.poll(() => model.requests.length, { timeout: WAIT }).toBe(2)
@@ -413,6 +458,7 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.deepEqual(await readFile(join(profile, AUTH_ROOT_FILE)), authRoot, 'relaunch retains the exact OS authentication root')
     const recovered = await api(page, `/agent-requests/${second.id}`)
     const recoveredDraft = await api(page, `/agent-requests/${third.id}`)
+    const recoveredDirect = await api(page, `/agent-requests/${direct.id}`)
     assert.equal(recoveredDraft.argumentDraft.status, 'uncertain')
     assert.equal(recoveredDraft.execution, undefined, 'interrupted advice cannot become a tool execution')
     assert.equal(model.requests.length, 2, 'relaunch never repeats either model request')
@@ -420,6 +466,11 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.equal(recovered.execution.status, 'uncertain', 'shutdown or startup closes an interrupted call without replay')
     assert.equal(recovered.execution.result, undefined)
     assert.deepEqual(storedRequest(profile, first.id), storedShared, 'the completed and shared request survives byte-for-byte')
+    assert.deepEqual(storedRequest(profile, direct.id), storedDirect,
+      'the direct reply and its absent execution receipt survive byte-for-byte')
+    assert.equal(recoveredDirect.status, 'replied')
+    assert.equal(recoveredDirect.reply, directReply)
+    assert.equal(recoveredDirect.execution, undefined)
     const storedRecovered = storedRequest(profile, second.id)
     assert.equal(storedRecovered.intent.id, second.id)
     assert.deepEqual(storedRecovered.intent, pendingSaved.intent, 'recovery does not rewrite the immutable request intent')
@@ -434,6 +485,10 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await page.screenshot({ path: join(evidence, 'owner-recovered-uncertainty.png'), fullPage: true })
 
     await switchAccount(page, origin, requester.user.id, requester.user.name)
+    await page.goto(`${origin}/agents/requests/${encodeURIComponent(direct.id)}`)
+    await expect(page.getByRole('region', { name: 'Shared reply', exact: true })).toContainText(directReply)
+    await expect(page.getByRole('region', { name: 'Private execution receipt', exact: true })).toHaveCount(0)
+    await page.screenshot({ path: join(evidence, 'requester-direct-reply-after-relaunch.png'), fullPage: true })
     await page.goto(`${origin}/agents/requests/${encodeURIComponent(second.id)}`)
     await expect(page.getByRole('region', { name: 'Private execution receipt', exact: true })).toHaveCount(0)
     await expect(page.locator('body')).not.toContainText('contribution-smoke-interrupt')
@@ -457,15 +512,17 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
       mode: nativeReview ? 'native-review' : 'fixture-dialogs',
       originalPackagedAppUnmodified: true, realSignedPeople: [owner.user.id, requester.user.id],
       crossTenantPublishedTarget: true, ownerOnlyRawReceipt: true, separatelyReviewedReply: true,
-      pendingRestartRecoveredUncertainWithoutReplay: true, exactToolCalls: toolCalls(finalTrace).length,
+      pendingRestartRecoveredUncertainWithoutReplay: true, directReplyWithoutExecution: true,
+      requesterDirectReplySurvivesRelaunch: true, exactToolCalls: toolCalls(finalTrace).length,
       argumentDraft: { explicitUseBeforeReview: true, calls: model.requests.length, interruptedStatus: recoveredDraft.argumentDraft.status,
         knownReceiptRetained: storedShared.argumentDraft.status === 'done', requesterRedacted: privateRequester.argumentDraft === undefined },
-      sqliteRows: [storedShared, storedRecovered].map(row => ({ id: row.intent.id, status: row.status, revision: row.revision })),
+      sqliteRows: [storedShared, storedDirect, storedRecovered].map(row => ({ id: row.intent.id, status: row.status,
+        revision: row.revision, executionStatus: row.execution?.status ?? null, hasReply: typeof row.reply === 'string' })),
       scope: nativeReview
         ? 'Original unsigned macOS app with actual Cancel/fresh Allow setup dialogs and an authored local peer. Not signing/notarization, third-party MCP, paid-provider, or Intel acceptance.'
         : 'Disposable unsigned macOS app copy with exact local stdio setup approvals; no source ASAR or shipped startup changes. Not actual dialogs, signing/notarization, third-party MCP, paid-provider, or Intel acceptance.',
     }, null, 2)}\n`, { mode: 0o600, flag: 'wx' })
-    console.log(`[desktop-agent-request-smoke] ${nativeReview ? 'actual native review' : 'fixture native review'} · real signed owner/requester · one-shot argument draft · explicit Use/Review/Run · exact local MCP call · private owner receipt · reviewed share · model/tool uncertainty without replay · evidence ${evidence}`)
+    console.log(`[desktop-agent-request-smoke] ${nativeReview ? 'actual native review' : 'fixture native review'} · real signed owner/requester · direct reply without execution · one-shot argument draft · explicit Use/Review/Run · exact local MCP call · private owner receipt · reviewed share · model/tool uncertainty without replay · evidence ${evidence}`)
   } catch (error) {
     if (run?.page && !run.page.isClosed()) {
       await run.page.screenshot({ path: join(evidence, 'failure.png'), fullPage: true }).catch(() => undefined)

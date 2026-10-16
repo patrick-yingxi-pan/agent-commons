@@ -212,6 +212,35 @@ for (const backend of ['json', 'sqlite'] as const) {
     assert.deepEqual(terminal, completed.expected, 'terminal private arguments and their settled report remain exact across restart')
     assert.equal(JSON.stringify(terminal).includes('known result'), true, 'the canonical private state retains the validated receipt')
   })
+
+  test(`${backend}: direct owner reply survives persistence and restart without an execution receipt`, () => {
+    const file = join(root, `direct-reply-${backend}${backend === 'json' ? '.json' : '.sqlite'}`)
+    const first = result(boot(file, backend, `${create}
+      const shared = store.decideAgentRequest(request.id, { tenantId: 'tenant-beta', userId: 'user-grace' }, {
+        action: 'share', expectedRevision: request.revision, reply: 'Please clarify which account you mean.' })
+      console.log(JSON.stringify({ request, shared, rows: loadState().agentRequests }))
+    `))
+    assert.equal(first.shared.status, 'replied')
+    assert.equal(first.shared.reply, 'Please clarify which account you mean.')
+    assert.equal(first.shared.execution, undefined)
+    assert.equal(first.rows[0].replySource, 'direct')
+    assert.equal(first.rows[0].execution, undefined)
+
+    const id = JSON.stringify(first.request.id)
+    const restarted = result(boot(file, backend, `
+      console.log(JSON.stringify({
+        owner: store.agentRequest(${id}, { tenantId: 'tenant-beta', userId: 'user-grace' }),
+        requester: store.agentRequest(${id}, { tenantId: 'tenant-acme', userId: 'user-ada' }),
+        rows: loadState().agentRequests,
+      }))
+    `))
+    assert.equal(restarted.owner.status, 'replied')
+    assert.equal(restarted.owner.reply, first.shared.reply)
+    assert.equal(restarted.owner.execution, undefined)
+    assert.equal(restarted.requester.reply, first.shared.reply)
+    assert.equal(restarted.rows[0].replySource, 'direct')
+    assert.equal(restarted.rows[0].execution, undefined)
+  })
 }
 
 test('failed Agent request commit publishes no private invalidation and returns no acknowledgement', () => {

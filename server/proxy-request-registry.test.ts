@@ -63,6 +63,15 @@ function draftBinding(transport: 'http' | 'stdio' = 'http') {
     model: 'model-owner', connectionId: 'mcp-connection-owner', connectionRevision: 3,
     toolName: 'invoice_lookup', schemaHash: 'b'.repeat(64), transport }
 }
+const PRE_DRAFT_WAITING_HEADROOM = 65_536 + PROXY_RESULT_MAX_BYTES + 2 * PROXY_REPLY_MAX_BYTES + 8_192
+function nearCapacityWaitingRows() {
+  return Array.from({ length: 143 }, (_, index) => create({
+    id: `agent-request-${(index + 1_000).toString(16).padStart(32, '0')}`,
+    requester: { tenantId: `requester-tenant-${index}`, userId: `requester-user-${index}`, agentId: `requester-agent-${index}` },
+    owner: { tenantId: `owner-tenant-${index}`, userId: `owner-user-${index}`, agentId: `owner-agent-${index}` },
+    task: index < 30 ? 'x'.repeat(8_000) : 'A bounded task.',
+  }))
+}
 function ownership(): AgentOwnership[] {
   return [
     { agentId: requester.agentId, tenantId: requester.tenantId, ownerUserId: requester.userId },
@@ -134,19 +143,13 @@ test('pre-draft near-capacity waiting history remains readable after optional dr
     owner: { tenantId: `owner-tenant-${index}`, userId: `owner-user-${index}`, agentId: `owner-agent-${index}` },
   }))
   const actual = rows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row), 'utf8') + 1, 2)
-  const oldWaitingHeadroom = 65_536 + PROXY_RESULT_MAX_BYTES + 2 * PROXY_REPLY_MAX_BYTES + 8_192
-  const oldReserved = actual + rows.length * oldWaitingHeadroom
+  const oldReserved = actual + rows.length * PRE_DRAFT_WAITING_HEADROOM
   assert.ok(oldReserved < MAX_PROXY_HISTORY_BYTES, 'this snapshot fits the pre-draft reservation policy')
   assert.deepEqual(parseProxyRequests(rows).length, rows.length)
 
-  const atLimitRows = Array.from({ length: 143 }, (_, index) => create({
-    id: `agent-request-${(index + 1_000).toString(16).padStart(32, '0')}`,
-    requester: { tenantId: `requester-tenant-${index}`, userId: `requester-user-${index}`, agentId: `requester-agent-${index}` },
-    owner: { tenantId: `owner-tenant-${index}`, userId: `owner-user-${index}`, agentId: `owner-agent-${index}` },
-    task: index < 30 ? 'x'.repeat(8_000) : 'A bounded task.',
-  }))
+  const atLimitRows = nearCapacityWaitingRows()
   const atLimitActual = atLimitRows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row), 'utf8') + 1, 2)
-  const atLimitOldReserved = atLimitActual + atLimitRows.length * oldWaitingHeadroom
+  const atLimitOldReserved = atLimitActual + atLimitRows.length * PRE_DRAFT_WAITING_HEADROOM
   assert.ok(atLimitOldReserved < MAX_PROXY_HISTORY_BYTES, 'the larger snapshot also fits before draft headroom')
   assert.ok(atLimitOldReserved + 53_248 > MAX_PROXY_HISTORY_BYTES, 'adding one pending draft reservation exceeds the cap')
   const registry = new ProxyRequestRegistry()
@@ -170,6 +173,52 @@ test('pre-draft near-capacity waiting history remains readable after optional dr
   isolated.put(complete)
   assert.equal(isolated.get(one.intent.id)?.argumentDraft?.status, 'done',
     'pending headroom covers the maximum bounded detached argument receipt')
+})
+
+test('direct replies persist, and restore-fenced rows use exact final bytes without unreserved headroom', () => {
+  const direct = create({ id: 'agent-request-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' })
+  const registry = new ProxyRequestRegistry()
+  registry.put(direct)
+  const replied = shareProxyReply(direct, ownerActor, direct.revision, 'A direct owner response.', createdAt + 1)
+  registry.put(replied)
+  const restored = new ProxyRequestRegistry()
+  restored.rehydrate(registry.snapshot())
+  assert.equal(restored.get(direct.intent.id)?.status, 'replied')
+  assert.equal(restored.get(direct.intent.id)?.reply, 'A direct owner response.')
+  assert.equal(restored.get(direct.intent.id)?.execution, undefined)
+
+  const atLimitRows = nearCapacityWaitingRows()
+  const atLimitActual = atLimitRows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row), 'utf8') + 1, 2)
+  const atLimitOldReserved = atLimitActual + atLimitRows.length * PRE_DRAFT_WAITING_HEADROOM
+  assert.ok(atLimitOldReserved < MAX_PROXY_HISTORY_BYTES)
+  assert.ok(atLimitOldReserved + 53_248 > MAX_PROXY_HISTORY_BYTES,
+    'the existing valid waiting snapshot leaves less room than one reply headroom reservation')
+  const restoredRow = { ...create({
+    id: 'agent-request-fffffffffffffffffffffffffffffffe',
+    requester: { tenantId: 'requester-tenant-restored', userId: 'requester-user-restored', agentId: 'requester-agent-restored' },
+    owner: { tenantId: 'owner-tenant-restored', userId: 'owner-user-restored', agentId: 'owner-agent-restored' },
+    task: 'A restored request.',
+  }), executionBlockedByRestore: true as const }
+  const restoredActual = Buffer.byteLength(JSON.stringify(restoredRow), 'utf8') + 1
+  const restoredReserved = atLimitOldReserved + restoredActual + 4_096
+  assert.ok(restoredReserved < MAX_PROXY_HISTORY_BYTES, 'the old snapshot plus one fenced row still fits')
+  const maxReply = shareProxyReply(restoredRow, { tenantId: restoredRow.intent.owner.tenantId, userId: restoredRow.intent.owner.userId },
+    restoredRow.revision, 'x'.repeat(PROXY_REPLY_MAX_BYTES), createdAt + 1)
+  const maxReplyReserved = atLimitOldReserved + Buffer.byteLength(JSON.stringify(maxReply), 'utf8') + 1
+  assert.ok(maxReplyReserved > MAX_PROXY_HISTORY_BYTES, 'the exact maximum terminal reply cannot fit this full history')
+  const atCapacity = new ProxyRequestRegistry()
+  atCapacity.rehydrate([...atLimitRows, restoredRow])
+  assert.throws(() => atCapacity.put(maxReply),
+    (error: unknown) => error instanceof ProxyRequestError && error.code === 'limit',
+    'a direct reply that exceeds the retained-history cap is refused before mutation')
+  assert.equal(atCapacity.get(restoredRow.intent.id)?.status, 'waiting')
+  const shortReply = shareProxyReply(restoredRow, { tenantId: restoredRow.intent.owner.tenantId, userId: restoredRow.intent.owner.userId },
+    restoredRow.revision, 'Please clarify one detail.', createdAt + 1)
+  atCapacity.put(shortReply)
+  assert.equal(atCapacity.get(restoredRow.intent.id)?.status, 'replied')
+  assert.equal(atCapacity.get(restoredRow.intent.id)?.executionBlockedByRestore, true,
+    'the execution fence remains explicit after sharing text')
+  assert.equal(atCapacity.get(restoredRow.intent.id)?.execution, undefined)
 })
 
 test('live and retired Agent ownership plus exact MCP connection provenance are required for structural joins', () => {

@@ -77,6 +77,20 @@ test('authenticated Agent request routes enforce exact-person visibility within 
   const requesterRead = await call('GET', '/agent-requests', undefined, f.requesterHeaders)
   assert.equal(requesterRead.json.some((row: { id: string }) => row.id === created.json.id), true)
 
+  const directReply = await call('POST', `/agent-requests/${created.json.id}/decision`, {
+    action: 'share', expectedRevision: created.json.revision, reply: 'I can help, but first please clarify which invoice you mean.',
+  }, f.ownerHeaders)
+  assert.equal(directReply.status, 200, JSON.stringify(directReply.json))
+  assert.equal(directReply.json.status, 'replied')
+  assert.equal(directReply.json.execution, undefined, 'a direct reply cannot manufacture an MCP execution receipt')
+  const requesterAfterReply = await call('GET', `/agent-requests/${created.json.id}`, undefined, f.requesterHeaders)
+  assert.equal(requesterAfterReply.status, 200)
+  assert.equal(requesterAfterReply.json.reply, 'I can help, but first please clarify which invoice you mean.')
+  const nonOwnerReply = await call('POST', `/agent-requests/${created.json.id}/decision`, {
+    action: 'share', expectedRevision: directReply.json.revision, reply: 'Requester cannot impersonate the owner.',
+  }, f.requesterHeaders)
+  assert.equal(nonOwnerReply.status, 409, 'the requester cannot share owner-authored text')
+
   const peerDetail = await call('GET', `/agent-requests/${created.json.id}`, undefined, f.peerHeaders)
   const peerCreate = await call('POST', '/agent-requests', {
     fromAgentId: f.sourceId, toAgentId: f.targetId, task: 'Borrow another person’s Agent.' },
@@ -190,6 +204,7 @@ test('keyed creation survives router cache reset; decisions are intrinsic, stale
   assert.equal(route.access.session, 'intrinsic')
   const catalog = catalogOf(buildRouter())
   const definition = catalog.find(row => row.method === route.method && row.pattern === route.pattern)!
+  assert.match(route.access.reason, /directly answer/)
   assert.ok(mcpToolRoutes(buildRouter()).some(row => row.name === definition.name), 'the receiving human can use the remote MCP capability')
   const inSession = deriveApiTools(catalog)
   assert.equal(inSession.byName.has(`api__${toolNameFor(route.method, route.pattern)}`), false,

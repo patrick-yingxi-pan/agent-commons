@@ -67,7 +67,7 @@ export function registerAgentRequestRoutes(router: Router, sourceMatches: (req: 
     try { sendJson(res, store.createAgentRequest(actor, headerValue(req.headers, 'idempotency-key'), input)) }
     catch (error) { refuse(res, error) }
   })
-  router.intrinsicPost('/agent-requests/:id/decision', 'the receiving person separately requests model advice, approves execution and reviews sharing; a model cannot approve its own private-resource request', async ({ req, res, params, body }) => {
+  router.intrinsicPost('/agent-requests/:id/decision', 'the receiving person may directly answer, separately request model advice, approve an exact MCP execution and review sharing; a model cannot approve its own private-resource request', async ({ req, res, params, body }) => {
     res.setHeader('Cache-Control', 'no-store')
     if (!sourceMatches(req, res)) return
     const actor = store.agentRequestActor(req.headers)

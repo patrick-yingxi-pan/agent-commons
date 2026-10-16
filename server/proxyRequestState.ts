@@ -38,6 +38,9 @@ export interface StoredProxyRequest {
   execution?: ProxyExecution
   argumentDraft?: AgentRequestArgumentDraft
   reply?: string
+  /** Directly owner-authored replies have no preceding MCP receipt. Absence on
+   * old replied rows means the historical post-execution flow. */
+  replySource?: 'direct'
   cancelledAt?: number
   cancelledBy?: 'requester' | 'owner'
   executionBlockedByRestore?: true
@@ -148,7 +151,7 @@ export function createProxyRequest(input: ProxyIntent): StoredProxyRequest {
 export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
   try {
     const copy = detached(value)
-    fields(copy, ['version', 'intent', 'revision', 'status', 'updatedAt'], ['execution', 'argumentDraft', 'reply', 'cancelledAt', 'cancelledBy', 'executionBlockedByRestore'])
+    fields(copy, ['version', 'intent', 'revision', 'status', 'updatedAt'], ['execution', 'argumentDraft', 'reply', 'replySource', 'cancelledAt', 'cancelledBy', 'executionBlockedByRestore'])
     if (copy.version !== 1 || !record(copy.intent) || !stamp(copy.updatedAt)) return invalid()
     const source = intent(copy.intent)
     const run = Object.hasOwn(copy, 'execution') ? execution(copy.execution, source) : undefined
@@ -159,10 +162,13 @@ export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
     if (draft?.status === 'pending' && run) return invalid()
     if (run && draft && draft.status !== 'pending' && run.startedAt < draft.finishedAt) return invalid()
     if (Object.hasOwn(copy, 'executionBlockedByRestore') &&
-        (copy.executionBlockedByRestore !== true || run || !['waiting', 'denied', 'cancelled'].includes(String(copy.status)))) return invalid()
+        (copy.executionBlockedByRestore !== true || run ||
+          !(['waiting', 'denied', 'cancelled'].includes(String(copy.status)) ||
+            (copy.status === 'replied' && copy.replySource === 'direct')))) return invalid()
     if (copy.updatedAt < source.createdAt || (draftTouchedAt !== undefined && copy.updatedAt < draftTouchedAt) || (run && copy.updatedAt < run.startedAt) ||
         (run && run.status !== 'pending' && copy.updatedAt < run.finishedAt)) return invalid()
     if (copy.status !== 'replied' && Object.hasOwn(copy, 'reply')) return invalid()
+    if (Object.hasOwn(copy, 'replySource') && (copy.status !== 'replied' || copy.replySource !== 'direct')) return invalid()
     if (copy.status !== 'cancelled' && (Object.hasOwn(copy, 'cancelledAt') || Object.hasOwn(copy, 'cancelledBy'))) return invalid()
     switch (copy.status) {
       case 'waiting':
@@ -175,7 +181,10 @@ export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
         if (!run || run.status === 'pending' || copy.revision !== phaseRevision(3) || copy.updatedAt !== run.finishedAt) return invalid()
         break
       case 'replied':
-        if (!run || run.status === 'pending' || copy.revision !== phaseRevision(4) || !prose(copy.reply, PROXY_REPLY_MAX_BYTES)) return invalid()
+        if (!prose(copy.reply, PROXY_REPLY_MAX_BYTES) ||
+            (copy.replySource === 'direct'
+              ? run !== undefined || draft?.status === 'pending' || copy.revision !== phaseRevision(2)
+              : !run || run.status === 'pending' || copy.revision !== phaseRevision(4))) return invalid()
         break
       case 'denied':
         if (run || draft?.status === 'pending' || copy.revision !== phaseRevision(2)) return invalid()
@@ -195,6 +204,7 @@ export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
       ...(run ? { execution: run } : {}),
       ...(draft ? { argumentDraft: draft } : {}),
       ...(copy.status === 'replied' ? { reply: copy.reply as string } : {}),
+      ...(copy.replySource === 'direct' ? { replySource: 'direct' as const } : {}),
       ...(copy.status === 'cancelled' ? { cancelledAt: copy.cancelledAt as number, cancelledBy: copy.cancelledBy as 'requester' | 'owner' } : {}),
       ...(copy.executionBlockedByRestore === true ? { executionBlockedByRestore: true } : {}),
     }
@@ -308,8 +318,11 @@ export function denyProxyRequest(value: StoredProxyRequest, actor: ProxyActor, r
  * This is intentional disclosure; automatic secret scanning cannot prove safety. */
 export function shareProxyReply(value: StoredProxyRequest, actor: ProxyActor, revision: number, reply: string, at: number): StoredProxyRequest {
   const row = editable(value, actor, revision, at, true)
-  if (row.status !== 'awaiting-reply' || !prose(reply, PROXY_REPLY_MAX_BYTES)) return invalid()
-  return parseStoredProxyRequest({ ...row, revision: row.revision + 1, status: 'replied', updatedAt: at, reply })
+  const direct = row.status === 'waiting' && !row.execution && row.argumentDraft?.status !== 'pending'
+  const afterRun = row.status === 'awaiting-reply' && row.execution !== undefined && row.execution.status !== 'pending'
+  if ((!direct && !afterRun) || !prose(reply, PROXY_REPLY_MAX_BYTES)) return invalid()
+  return parseStoredProxyRequest({ ...row, revision: row.revision + 1, status: 'replied', updatedAt: at, reply,
+    ...(direct ? { replySource: 'direct' } : {}) })
 }
 
 /** Recovery after the old worker is gone closes pending work, never queues it

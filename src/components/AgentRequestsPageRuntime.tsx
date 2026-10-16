@@ -57,7 +57,7 @@ function CreateRequest() {
         <div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-target`}>Receiving Agent</label><select id={`${formId}-target`} className={FORM_INPUT_CLASS} value={draft.toAgentId ?? ''} disabled={held} onChange={event => change('toAgentId', event.target.value)}><option value="">Choose another person’s Agent</option>{options.data.targetAgents.map(row => <option key={row.id} value={row.id}>{row.label}</option>)}</select></div>
       </div>
       <div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-task`}>Requested outcome</label><textarea id={`${formId}-task`} className={FORM_INPUT_CLASS} rows={3} maxLength={AGENT_REQUEST_TASK_MAX_BYTES} value={draft.task ?? ''} disabled={held} onChange={event => change('task', event.target.value)} /></div>
-      {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+      {error && <p role="alert" className="text-[13px] text-danger-text">{error}</p>}
       <button className={button} disabled={!ready || held} onClick={submit}>{held ? 'Sending request…' : 'Send request'}</button>
     </>}
   </section>
@@ -95,7 +95,7 @@ function OwnerRun({ row, held }: { row: AgentRequestView; held: boolean }) {
       <AgentRequestArgumentDraft row={row} review={query.data} chosen={chosen} held={held || !fresh}
         onUse={argumentsJson => setAgentRequestDraft(row.id, { ...draft, arguments: argumentsJson })} />
       <div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-arguments`}>Arguments (JSON)</label><textarea id={`${formId}-arguments`} className={`${FORM_INPUT_CLASS} font-mono`} rows={5} value={draft.arguments ?? '{}'} disabled={held || !fresh} onChange={event => setAgentRequestDraft(row.id, { ...draft, arguments: event.target.value })} /></div>
-      {error && <p role="alert" className="text-[13px] text-danger">{error}</p>}
+      {error && <p role="alert" className="text-[13px] text-danger-text">{error}</p>}
       <button className={button} disabled={!chosen || !fresh || held} onClick={prepare}>Review call</button>
     </> : <div className="space-y-3 border-l-2 border-accent pl-3">
       <h3 className="font-medium text-ink">Run {reviewed.call.toolName} once?</h3>
@@ -103,7 +103,7 @@ function OwnerRun({ row, held }: { row: AgentRequestView; held: boolean }) {
       <pre className="whitespace-pre-wrap break-words text-[12px] text-ink">{literal(reviewed.call.arguments)}</pre>
       <p className="text-[13px] text-ink-soft">This call may change an external system. Cancellation cannot undo its effects. Failed or uncertain work is never repeated automatically.</p>
       {reviewed.transport === 'stdio' && <CheckboxRow checked={local} disabled={held} onToggle={() => setLocal(!local)}><span className="text-[13px]">I understand this local program has normal OS access and may have startup effects, even if the tool is refused. Tool bounds are not a sandbox.</span></CheckboxRow>}
-      {!fresh || !matches ? <p role="alert" className="text-[13px] text-danger">This review is stale. Go back and review the current tool.</p> : null}
+      {!fresh || !matches ? <p role="alert" className="text-[13px] text-danger-text">This review is stale. Go back and review the current tool.</p> : null}
       <div className={FORM_ACTION_GROUP_CLASS}><button className={button} disabled={held || !fresh || !matches || (reviewed.transport === 'stdio' && !local)} onClick={() => decideRequest(row.id, { action: 'run', expectedRevision: row.revision, approval: reviewed })}>Run once</button><button className={secondary} disabled={held} onClick={() => setReviewed(null)}>Back to arguments</button></div>
     </div>}
   </section>
@@ -111,25 +111,29 @@ function OwnerRun({ row, held }: { row: AgentRequestView; held: boolean }) {
 
 function ShareReply({ row, held }: { row: AgentRequestView; held: boolean }) {
   const formId = useId(), state = useAgentRequestActions(), draft = state.draft(row.id)
-  const [reviewed, setReviewed] = useState<string | null>(null)
+  const [reviewed, setReviewed] = useState<{ reply: string; revision: number } | null>(null)
   const reply = draft.reply ?? ''
   const valid = !!reply.trim() && new TextEncoder().encode(reply).length <= AGENT_REQUEST_REPLY_MAX_BYTES
+  const fresh = reviewed === null || reviewed.revision === row.revision
   return <section className="space-y-3" aria-label="Share reviewed reply"><h2 className="font-medium text-ink">Write a reply to share</h2>
-    <p className="text-[13px] text-ink-soft">Only the exact text you approve below goes to the requester. Remove credentials, personal data and anything you do not intend to disclose.</p>
-    {reviewed === null ? <><div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-reply`}>Reply</label><textarea id={`${formId}-reply`} className={FORM_INPUT_CLASS} rows={5} value={reply} disabled={held} onChange={event => setAgentRequestDraft(row.id, { ...draft, reply: event.target.value })} /></div><button className={button} disabled={held || !valid} onClick={() => setReviewed(reply)}>Review reply</button></> : <>
-      <p className="whitespace-pre-wrap break-words text-[13px] text-ink">{reviewed}</p>
-      <p className="text-[13px] text-ink-soft">Share this text with the person behind {row.fromAgentLabel}? This disclosure cannot be undone here.</p>
-      <div className={FORM_ACTION_GROUP_CLASS}><button className={button} disabled={held} onClick={() => decideRequest(row.id, { action: 'share', expectedRevision: row.revision, reply: reviewed })}>Share reply</button><button className={secondary} disabled={held} onClick={() => setReviewed(null)}>Keep editing</button></div>
+    <p className="text-[13px] text-ink-soft">You can answer or ask for clarification without running a tool. Only the exact text you approve goes to the requester. Remove credentials, personal data and anything you do not intend to disclose.</p>
+    {row.argumentDraft?.status === 'pending' && <p role="status" className="text-[13px] text-ink-soft">Wait for the private argument draft to settle before sharing, or cancel this request. No tool is running.</p>}
+    {reviewed === null ? <><div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-reply`}>Reply</label><textarea id={`${formId}-reply`} className={FORM_INPUT_CLASS} rows={4} value={reply} disabled={held} onChange={event => setAgentRequestDraft(row.id, { ...draft, reply: event.target.value })} /></div><button className={button} disabled={held || !valid} onClick={() => setReviewed({ reply, revision: row.revision })}>Review reply</button></> : <>
+      <p className="whitespace-pre-wrap break-words text-[13px] text-ink">{reviewed.reply}</p>
+      <p className="text-[13px] text-ink-soft">Share this text with the person behind {row.fromAgentLabel}? Sharing completes this request. This disclosure cannot be undone here.</p>
+      {!fresh && <p role="alert" className="text-[13px] text-danger-text">This request changed after your review. Keep editing, then review the reply again.</p>}
+      <div className={FORM_ACTION_GROUP_CLASS}><button className={button} disabled={held || !fresh} onClick={() => { if (!held && fresh) decideRequest(row.id, { action: 'share', expectedRevision: reviewed.revision, reply: reviewed.reply }) }}>Share reply</button><button className={secondary} disabled={held} onClick={() => setReviewed(null)}>Keep editing</button></div>
     </>}
   </section>
 }
 
 function RequestDetail({ id, onOpenRequest, onBack, backTo }: { id: string; onOpenRequest: (id: string) => void; onBack: () => void; backTo: NavLocation | null }) {
   const query = useAgentRequest(id), { attempts } = useAgentRequestActions(), row = query.data
-  const [cancelReview, setCancelReview] = useState(false)
+  const [cancelReview, setCancelReview] = useState(false), [toolsOpen, setToolsOpen] = useState(false)
+  const toolsId = useId()
   const held = attempts.some(attempt => attempt.id === id && !['settled', 'refused'].includes(attempt.state))
   useEffect(() => { if (row?.status !== 'running' && row?.argumentDraft?.status !== 'pending') return; const timer = setInterval(() => refreshAgentRequests(id), 5_000); return () => clearInterval(timer) }, [id, row?.status, row?.argumentDraft?.status])
-  if (!row) return <ResourceUnavailablePage title="Agent request" state={resolveResourceUnavailable([query])} message="This request is unavailable to this person." backTo={backTo} onBack={onBack} onRetry={() => refreshAgentRequests(id)} />
+  if (!row) return <ResourceUnavailablePage title="Agent request" state={resolveResourceUnavailable([query], { notFoundIsMissing: true })} message="This request is unavailable to this person." backTo={backTo} onBack={onBack} onRetry={() => refreshAgentRequests(id)} />
   const editable = !held && query.status === 'success'
   return <AtomicResourcePage data-agent-request={id}>
     <ResourcePageHeader title="Agent request" subtitle={`${row.fromAgentLabel} → ${row.toAgentLabel} · ${statusLabel(row)}`} />
@@ -138,11 +142,14 @@ function RequestDetail({ id, onOpenRequest, onBack, backTo }: { id: string; onOp
       {query.error && <ReadFailure onRetry={() => refreshAgentRequests(id)} />}
       <section className="space-y-2"><h2 className="font-medium text-ink">Requested outcome</h2><p className="whitespace-pre-wrap break-words text-[13px] text-ink">{row.task}</p><p className="text-[12px] text-ink-faint">{new Date(row.createdAt).toLocaleString()} · {row.role === 'owner' ? 'Received' : 'Sent'}</p></section>
       {(!row.fromAgentAvailable || !row.toAgentAvailable) && <p className="text-[13px] text-ink-soft">An original Agent was removed. This private history is retained; it does not restore execution permission.</p>}
-      {row.role === 'owner' && row.status === 'waiting' && <OwnerRun key={id} row={row} held={!editable} />}
       {row.execution && <section className="space-y-2" aria-label="Private execution receipt"><h2 className="font-medium text-ink">Private execution receipt</h2><p className="text-[13px] text-ink-soft">{row.execution.status === 'pending' ? 'The call is still settling. A cancellation cannot undo its effects.' : row.execution.summary}</p>
         <details className="text-[12px] text-ink-soft"><summary>Exact call and raw result · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.execution)}</pre></details></section>}
-      {row.role === 'owner' && row.argumentDraft && row.status !== 'waiting' && <section className="space-y-2 text-[13px] text-ink-soft" aria-label="Private argument draft receipt"><h2 className="font-medium text-ink">Private argument draft receipt</h2><p>Model draft: {row.argumentDraft.status}. This is not a tool-execution receipt or consent to share.</p><details className="text-[12px]"><summary>Saved model draft · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.argumentDraft)}</pre></details></section>}
-      {row.role === 'owner' && row.status === 'awaiting-reply' && <ShareReply key={id} row={row} held={!editable} />}
+      {row.role === 'owner' && row.argumentDraft && (row.status !== 'waiting' || !toolsOpen) && <section className="space-y-2 text-[13px] text-ink-soft" aria-label="Private argument draft receipt"><h2 className="font-medium text-ink">Private argument draft receipt</h2><p>Model draft: {row.argumentDraft.status}. This is not a tool-execution receipt or consent to share.</p><p className="break-words">{row.argumentDraft.binding.toolName} · {row.argumentDraft.binding.model}</p><details className="text-[12px]"><summary>Saved model draft · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.argumentDraft)}</pre></details></section>}
+      {row.role === 'owner' && ['waiting', 'awaiting-reply'].includes(row.status) && <ShareReply key={id} row={row} held={!editable || row.argumentDraft?.status === 'pending'} />}
+      {row.role === 'owner' && row.status === 'waiting' && <section className="space-y-3" aria-label="Optional tool use">
+        <button className={secondary} aria-expanded={toolsOpen} aria-controls={toolsId} onClick={() => setToolsOpen(!toolsOpen)}>{toolsOpen ? 'Hide tool options' : 'Use a tool…'}</button>
+        <div id={toolsId}>{toolsOpen && <OwnerRun key={id} row={row} held={!editable} />}</div>
+      </section>}
       {row.reply !== undefined && <section className="space-y-2" aria-label="Shared reply"><h2 className="font-medium text-ink">Shared reply</h2><p className="whitespace-pre-wrap break-words text-[13px] text-ink">{row.reply}</p></section>}
       {['waiting', 'running', 'awaiting-reply'].includes(row.status) && <div className="space-y-3">
         {cancelReview ? <><p className="text-[13px] text-ink-soft">Cancel this request and close sharing? An in-flight call may still finish and cannot be undone.</p><div className={FORM_ACTION_GROUP_CLASS}><button className={secondary} disabled={!editable} onClick={() => { decideRequest(id, { action: 'cancel', expectedRevision: row.revision }); setCancelReview(false) }}>Confirm cancellation</button><button className={secondary} onClick={() => setCancelReview(false)}>Keep request</button></div></> :
@@ -154,7 +161,7 @@ function RequestDetail({ id, onOpenRequest, onBack, backTo }: { id: string; onOp
 export function AgentRequestsPage({ requestId, onOpenRequest, onBack, backTo }: { requestId?: string | null; onOpenRequest: (id: string) => void; onBack: () => void; backTo: NavLocation | null }) {
   if (requestId) return <RequestDetail key={requestId} id={requestId} onOpenRequest={onOpenRequest} onBack={onBack} backTo={backTo} />
   return <CompositeResourcePage section="agents" sectionPage>
-    <ResourcePageHeader title="Requests" subtitle="Private requests between two people’s Agents. Running and sharing are separate decisions." />
+    <ResourcePageHeader title="Requests" subtitle="Private requests between two people’s Agents. Reply directly or optionally use a tool; sharing is always your decision." />
     <div className="space-y-6"><Recovery onOpenRequest={onOpenRequest} /><CreateRequest /><section className="space-y-3"><h2 className="font-medium text-ink">Request history</h2><AgentRequestsSummary onOpenRequest={onOpenRequest} /></section></div>
   </CompositeResourcePage>
 }

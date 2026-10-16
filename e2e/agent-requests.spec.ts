@@ -251,6 +251,9 @@ test('private Agent requests require separate owner Run and Share choices, retai
     await expect.poll(() => detailReads).toBeGreaterThan(0)
 
     await ownerPage.page.goto(`/agents/requests/${encodeURIComponent(committed.id)}`)
+    await expect(ownerPage.page.getByRole('button', { name: 'Use a tool…', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    await ownerPage.page.getByRole('button', { name: 'Use a tool…', exact: true }).click()
+    await expect(ownerPage.page.getByRole('button', { name: 'Hide tool options', exact: true })).toHaveAttribute('aria-expanded', 'true')
     await expect(ownerPage.page.getByRole('heading', { name: 'Choose one call', exact: true })).toBeVisible({ timeout: ms(20_000) })
     await reviewViewports(ownerPage.page, info, 'owner-tool-choice')
     const toolSelect = ownerPage.page.getByRole('combobox', { name: 'Inspected tool', exact: true })
@@ -350,6 +353,8 @@ test('private Agent requests require separate owner Run and Share choices, retai
     const localId = afterLocalCreate.find(row => row.task === localTask)?.id
     expect(localId).toBeTruthy()
     await ownerPage.page.goto(`/agents/requests/${encodeURIComponent(localId!)}`)
+    await ownerPage.page.getByRole('button', { name: 'Use a tool…', exact: true }).click()
+    await expect(ownerPage.page.getByRole('button', { name: 'Hide tool options', exact: true })).toHaveAttribute('aria-expanded', 'true')
     await expect(ownerPage.page.getByRole('heading', { name: 'Choose one call', exact: true })).toBeVisible()
     await ownerPage.page.getByLabel('Inspected tool').selectOption({ label: 'Private local fixture · fixture_search · Local program' })
     await ownerPage.page.getByLabel('Arguments (JSON)').fill('{"query":"authorized local run"}')
@@ -374,6 +379,147 @@ test('private Agent requests require separate owner Run and Share choices, retai
     await thirdPage?.context.close().catch(() => undefined)
     await disposeRequester?.().catch(() => undefined)
     await http.close().catch(() => undefined)
+    await stack.close().catch(() => undefined)
+  }
+})
+
+test('an owner can directly review and share a reply without tool discovery, and lost acknowledgement recovers by GET', async ({ page, browser, request }, info) => {
+  test.setTimeout(ms(180_000))
+  const stack = await startMcpRouterStack()
+  let requesterPage: Awaited<ReturnType<typeof makePage>> | undefined
+  let ownerPage: Awaited<ReturnType<typeof makePage>> | undefined
+  let thirdPage: Awaited<ReturnType<typeof makePage>> | undefined
+  try {
+    const requester = await signedPerson(request, stack, 'Direct reply requester')
+    const owner = await signedPerson(request, stack, 'Direct reply owner')
+    const third = await signedPerson(request, stack, 'Unrelated direct reply reader')
+    const requesterAgent = await createBoundAgent(request, stack, requester, `Direct source ${randomUUID().slice(0, 8)}`)
+    const ownerAgent = await createBoundAgent(request, stack, owner, `Direct target ${randomUUID().slice(0, 8)}`)
+    const published = await api(request, stack, owner, 'PATCH', `/agents/${ownerAgent.id}`, {
+      published: true, expectedRevision: ownerAgent.revision,
+    }) as Agent
+    const task = `A direct answer is enough (${randomUUID().slice(0, 8)}).`
+    const created = await api(request, stack, requester, 'POST', '/agent-requests', {
+      fromAgentId: requesterAgent.id, toAgentId: published.id, task,
+    }, randomUUID()) as { id: string; status: string }
+    expect(created.status).toBe('waiting')
+
+    await page.goto('/')
+    const origin = new URL(page.url()).origin
+    requesterPage = await makePage(browser, origin, requester, stack)
+    ownerPage = await makePage(browser, origin, owner, stack)
+    thirdPage = await makePage(browser, origin, third, stack)
+    const ownerApiCalls: Array<{ method: string; pathname: string; body?: unknown }> = []
+    ownerPage.page.on('request', outgoing => {
+      const url = new URL(outgoing.url())
+      if (url.origin !== origin || !url.pathname.startsWith('/api/v1/')) return
+      let body: unknown
+      if (outgoing.method() === 'POST') {
+        try { body = outgoing.postDataJSON() } catch { /* non-JSON endpoint */ }
+      }
+      ownerApiCalls.push({ method: outgoing.method(), pathname: url.pathname, body })
+    })
+
+    await ownerPage.page.goto(`/agents/requests/${encodeURIComponent(created.id)}`)
+    const replyPanel = ownerPage.page.getByRole('region', { name: 'Share reviewed reply', exact: true })
+    const replyEditor = ownerPage.page.getByRole('textbox', { name: 'Reply', exact: true })
+    const reviewReply = ownerPage.page.getByRole('button', { name: 'Review reply', exact: true })
+    await expect(replyPanel).toBeVisible()
+    await expect(replyEditor).toBeEnabled()
+    await expect(reviewReply).toBeDisabled()
+    await expect(ownerPage.page.getByRole('button', { name: 'Use a tool…', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    // The empty Review button is intentionally dimmed. Measure the enabled
+    // editor instead of requiring that disabled control to paint fully opaque.
+    await reviewViewports(ownerPage.page, info, 'direct-reply-edit', replyEditor)
+    expect(ownerApiCalls.filter(call => call.pathname.endsWith(`/agent-requests/${created.id}/review`))).toEqual([],
+      'opening the primary direct reply does not fetch private tool/MCP review')
+    expect(ownerApiCalls.filter(call => call.pathname.includes('/mcp-connections/'))).toEqual([],
+      'the plain reply path performs no MCP discovery or execution')
+    expect(ownerApiCalls.filter(call => call.method === 'POST' && call.pathname.endsWith('/decision'))).toEqual([],
+      'opening and editing a reply does not execute, draft arguments, or share anything')
+
+    const reply = `A useful direct response ${randomUUID().slice(0, 8)}.`
+    await replyEditor.fill(reply)
+    await expect(reviewReply).toBeEnabled()
+    await reviewReply.click()
+    const shareButton = ownerPage.page.getByRole('button', { name: 'Share reply', exact: true })
+    await expect(ownerPage.page.getByRole('region', { name: 'Share reviewed reply', exact: true })).toContainText(reply)
+    await expect(shareButton).toBeEnabled()
+    await reviewViewports(ownerPage.page, info, 'direct-reply-review', shareButton)
+
+    // The backend commits the exact reviewed Share, but the browser sees a
+    // lost acknowledgement. The controller must reconcile via the canonical
+    // GET and never repeat this decision.
+    let decisionPosts = 0, detailReads = 0, savedReply: any
+    await ownerPage.page.route(`**/api/v1/agent-requests/${created.id}`, async route => {
+      if (route.request().method() === 'GET') detailReads++
+      await route.fallback()
+    })
+    await ownerPage.page.route('**/api/v1/agent-requests/*/decision', async route => {
+      if (route.request().method() !== 'POST') return route.fallback()
+      const body = route.request().postDataJSON() as { action?: string; expectedRevision?: number; reply?: string }
+      if (body.action !== 'share') return route.fallback()
+      decisionPosts++
+      const path = new URL(route.request().url()).pathname.replace('/api/v1', '')
+      const committed = await request.fetch(`${stack.url}/api/v1${path}`, {
+        method: 'POST', data: body,
+        headers: { cookie: `${SESSION_COOKIE}=${owner.cookie}`, ...sourceHeader(owner) },
+      })
+      const text = await committed.text()
+      expect(committed.status(), text).toBe(200)
+      savedReply = JSON.parse(text)
+      await route.fulfill({ status: 503, contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'internal', message: 'The saved reply acknowledgement was lost.' } }) })
+    })
+    await shareButton.click()
+    await expect.poll(() => savedReply?.status, { timeout: ms(20_000) }).toBe('replied')
+    await expect(ownerPage.page.getByRole('region', { name: 'Shared reply', exact: true })).toContainText(reply, { timeout: ms(20_000) })
+    await expect.poll(() => detailReads, { timeout: ms(12_000) }).toBeGreaterThan(0)
+    expect(decisionPosts).toBe(1, 'a lost Share acknowledgement is settled by read-only reconciliation')
+    expect(savedReply.reply).toBe(reply)
+    expect(ownerApiCalls.filter(call => call.pathname.endsWith(`/agent-requests/${created.id}/review`))).toEqual([])
+    expect(ownerApiCalls.filter(call => call.method === 'POST' && call.pathname.endsWith('/decision')).map(call => call.body))
+      .toEqual([{ action: 'share', expectedRevision: savedReply.revision - 1, reply }])
+
+    await ownerPage.page.reload()
+    await expect(ownerPage.page.getByRole('region', { name: 'Shared reply', exact: true })).toContainText(reply)
+    await requesterPage.page.goto(`/agents/requests/${encodeURIComponent(created.id)}`)
+    await expect(requesterPage.page.getByRole('region', { name: 'Shared reply', exact: true })).toContainText(reply)
+    await expect(requesterPage.page.getByRole('region', { name: 'Private execution receipt', exact: true })).toHaveCount(0)
+    await expect(requesterPage.page.locator('body')).not.toContainText('private request tool result')
+    await reviewViewports(requesterPage.page, info, 'direct-reply-requester-view', requesterPage.page.getByRole('region', { name: 'Shared reply', exact: true }))
+    const foreign = await request.get(`${stack.url}/api/v1/agent-requests/${encodeURIComponent(created.id)}`, {
+      headers: { cookie: `${SESSION_COOKIE}=${third.cookie}`, ...sourceHeader(third) },
+    })
+    expect(foreign.status(), 'an unrelated person cannot read the shared private request').toBe(404)
+    await thirdPage.page.goto(`/agents/requests/${encodeURIComponent(created.id)}`)
+    await expect(thirdPage.page.getByRole('heading', { name: 'Agent request', exact: true })).toBeVisible()
+    await expect(thirdPage.page.getByText('This request is unavailable to this person.', { exact: true })).toBeVisible()
+    await expect(thirdPage.page.locator('[data-resource-unavailable="missing"]')).toBeVisible()
+    await expect(thirdPage.page.getByRole('button', { name: 'Try again', exact: true })).toHaveCount(0)
+    await expect(thirdPage.page.getByRole('heading', { name: 'Requested outcome', exact: true })).toHaveCount(0)
+    await reviewViewports(thirdPage.page, info, 'direct-reply-foreign-shell', thirdPage.page.getByText('This request is unavailable to this person.', { exact: true }))
+
+    const cancelTask = `Cancel without tools (${randomUUID().slice(0, 8)}).`
+    const cancel = await api(request, stack, requester, 'POST', '/agent-requests', {
+      fromAgentId: requesterAgent.id, toAgentId: published.id, task: cancelTask,
+    }, randomUUID()) as { id: string; status: string }
+    expect(cancel.status).toBe('waiting')
+    await ownerPage.page.goto(`/agents/requests/${encodeURIComponent(cancel.id)}`)
+    await expect(ownerPage.page.getByRole('region', { name: 'Share reviewed reply', exact: true })).toBeVisible()
+    await ownerPage.page.getByRole('button', { name: 'Cancel request', exact: true }).click()
+    await ownerPage.page.getByRole('button', { name: 'Confirm cancellation', exact: true }).click()
+    await expect(ownerPage.page.getByText(/Cancelled/)).toBeVisible({ timeout: ms(12_000) })
+    await requesterPage.page.goto(`/agents/requests/${encodeURIComponent(cancel.id)}`)
+    await expect(requesterPage.page.getByText(/Cancelled/)).toBeVisible()
+    await expect(requesterPage.page.getByRole('region', { name: 'Shared reply', exact: true })).toHaveCount(0)
+  } finally {
+    await requesterPage?.dispose().catch(() => undefined)
+    await requesterPage?.context.close().catch(() => undefined)
+    await ownerPage?.dispose().catch(() => undefined)
+    await ownerPage?.context.close().catch(() => undefined)
+    await thirdPage?.dispose().catch(() => undefined)
+    await thirdPage?.context.close().catch(() => undefined)
     await stack.close().catch(() => undefined)
   }
 })

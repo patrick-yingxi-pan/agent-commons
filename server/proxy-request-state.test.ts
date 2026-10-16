@@ -126,6 +126,55 @@ test('request lifecycle is revisioned, person-scoped, and shares only an explici
   assert.throws(() => shareProxyReply(replied, ownerActor, 4, 'A second reply', createdAt + 4))
 })
 
+test('owner may directly share reviewed prose from waiting without an execution receipt', () => {
+  const waiting = createProxyRequest(input())
+  const direct = shareProxyReply(waiting, ownerActor, waiting.revision, 'I need one clarification before I can help.', createdAt + 1)
+  assert.equal(direct.status, 'replied')
+  assert.equal(direct.revision, 2)
+  assert.equal(direct.execution, undefined, 'a direct reply must not invent an MCP execution receipt')
+  assert.equal(direct.reply, 'I need one clarification before I can help.')
+  assert.deepEqual(parseStoredProxyRequest(direct), direct, 'the direct terminal state round-trips through the strict persisted parser')
+  assert.equal(proxyRequestView(direct, requesterActor)?.reply, direct.reply)
+  assert.equal(proxyRequestView(direct, ownerActor)?.execution, undefined)
+  assert.equal(proxyRequestView(direct, outsider), undefined)
+  assert.throws(() => shareProxyReply(waiting, requesterActor, waiting.revision, 'Requester cannot author owner reply.', createdAt + 1))
+  assert.throws(() => shareProxyReply(waiting, outsider, waiting.revision, 'Bystander cannot author owner reply.', createdAt + 1))
+  assert.throws(() => shareProxyReply(waiting, ownerActor, waiting.revision + 1, 'Stale owner review.', createdAt + 1))
+  assert.throws(() => shareProxyReply(direct, ownerActor, direct.revision, 'A second reply.', createdAt + 2))
+
+  const running = beginProxyRequest(waiting, ownerActor, waiting.revision, httpApproval(), createdAt + 1)
+  assert.throws(() => shareProxyReply(running, ownerActor, running.revision, 'Do not share while a call is pending.', createdAt + 2))
+
+  const pendingDraft = beginProxyArgumentDraft(waiting, ownerActor, waiting.revision, draftBinding(), draftHash, createdAt + 1)
+  assert.throws(() => shareProxyReply(pendingDraft, ownerActor, pendingDraft.revision, 'Do not share while model advice is pending.', createdAt + 2))
+  const settledDraft = settleProxyArgumentDraft(pendingDraft, draftHash, { status: 'failed' }, createdAt + 2)
+  const afterDraft = shareProxyReply(settledDraft, ownerActor, settledDraft.revision, 'I can answer directly without running a tool.', createdAt + 3)
+  assert.equal(afterDraft.status, 'replied', 'a terminal private argument-draft attempt does not require MCP execution')
+  assert.equal(afterDraft.execution, undefined)
+
+  const restoredWaiting = parseStoredProxyRequest({ ...waiting, executionBlockedByRestore: true })
+  const restoredDirect = shareProxyReply(restoredWaiting, ownerActor, restoredWaiting.revision,
+    'I can still provide a reviewed text reply without reopening execution.', createdAt + 1)
+  assert.equal(restoredDirect.status, 'replied', 'restore fences execution, not a pure owner-authored disclosure')
+  assert.equal(restoredDirect.execution, undefined)
+  assert.equal(restoredDirect.executionBlockedByRestore, true)
+
+  const denied = denyProxyRequest(waiting, ownerActor, waiting.revision, createdAt + 1)
+  assert.throws(() => shareProxyReply(denied, ownerActor, denied.revision, 'Not after denial.', createdAt + 2))
+  const cancelled = cancelProxyRequest(waiting, requesterActor, waiting.revision, createdAt + 1)
+  assert.throws(() => shareProxyReply(cancelled, ownerActor, cancelled.revision, 'Not after cancellation.', createdAt + 2))
+  assert.throws(() => parseStoredProxyRequest({ ...waiting, replySource: 'direct' }),
+    'reply provenance cannot appear before a reply')
+  const runningForMixed = beginProxyRequest(waiting, ownerActor, waiting.revision, httpApproval(), createdAt + 1)
+  const settled = settleProxyRequest(runningForMixed, runningForMixed.execution!.callHash, outcome(), createdAt + 2)
+  assert.throws(() => parseStoredProxyRequest({ ...settled, status: 'replied', revision: 2,
+    reply: 'No mixed execution/direct receipt.', replySource: 'direct' }),
+    'direct reply provenance cannot coexist with an execution receipt')
+  assert.throws(() => parseStoredProxyRequest({ ...pendingDraft, status: 'replied', revision: pendingDraft.revision + 1,
+    reply: 'No sharing while a model draft is pending.', replySource: 'direct' }),
+    'direct terminal rows cannot retain pending model work')
+})
+
 test('owner may use either explicitly selected transport, with local execution opt-in carried in its approval', () => {
   const row = createProxyRequest(input())
   const approvedCall = call({ toolName: 'local_search' })

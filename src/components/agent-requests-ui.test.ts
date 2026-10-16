@@ -76,10 +76,31 @@ test('Agent request decision controls stay behind the lazy page boundary', () =>
 
   assert.match(shareReply, /reviewed === null[\s\S]*>Review reply<\/[\s\S]*>Share reply<\//,
     'a reply is reviewed before a separate disclosure action')
-  assert.match(shareReply, /decideRequest\(row\.id, \{ action: 'share', expectedRevision: row\.revision, reply: reviewed \}\)/,
-    'only the exact reviewed reply is sent to the requester')
+  assert.match(shareReply, /decideRequest\(row\.id, \{ action: 'share', expectedRevision: reviewed\.revision, reply: reviewed\.reply \}\)/,
+    'only the exact reviewed reply and reviewed revision are sent to the requester')
   assert.doesNotMatch(shareReply.slice(0, shareReply.indexOf('>Review reply</')), /decideRequest\(/,
     'editing or reviewing reply text does not itself disclose it')
+})
+
+test('owner replies do not depend on optional tool discovery and review pins the request revision', () => {
+  const runtime = stripComments(read(join(ROOT, 'src/components/AgentRequestsPageRuntime.tsx')))
+  const share = runtime.slice(runtime.indexOf('function ShareReply('), runtime.indexOf('function RequestDetail('))
+  const detail = runtime.slice(runtime.indexOf('function RequestDetail('))
+  assert.match(detail, /\['waiting', 'awaiting-reply'\]\.includes\(row\.status\) && <ShareReply/,
+    'a plain answer is available before tool execution')
+  assert.match(detail, /useState\(false\)[\s\S]*toolsOpen && <OwnerRun/,
+    'private tool discovery is mounted only after explicit expansion')
+  assert.match(detail, /aria-expanded=\{toolsOpen\}/)
+  assert.match(detail, /row\.argumentDraft\?\.status === 'pending'/)
+  assert.match(detail, /resolveResourceUnavailable\(\[query\], \{ notFoundIsMissing: true \}\)/,
+    'an existence-hiding private-request 404 is unavailable, not a connection failure')
+  assert.match(share, /const fresh = reviewed === null \|\| reviewed\.revision === row\.revision/)
+  assert.match(share, /setReviewed\(\{ reply, revision: row\.revision \}\)/)
+  assert.match(share, /disabled=\{held \|\| !fresh\}/)
+  assert.match(share, /This request changed after your review/)
+  assert.doesNotMatch(runtime, /\btext-danger(?=["\s])/,
+    'all request validation and stale-review errors use the readable text token, never the status-swatch red')
+  assert.doesNotMatch(share, /useAgentRequestReview|useProviders|action: 'run'|action: 'draft-arguments'/)
 })
 
 test('argument advice is explicitly requested, private, stale-bound and only copied into the editable review flow', () => {

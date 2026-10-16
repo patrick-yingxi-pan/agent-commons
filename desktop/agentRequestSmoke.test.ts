@@ -26,6 +26,16 @@ test('private Agent Requests packaged acceptance is mandatory locally and exclud
     "api(page, `/agent-requests/${first.id}`)",
     "name: 'Run once', exact: true",
     "name: 'Share reply', exact: true",
+    "name: 'Use a tool…', exact: true",
+    'async function ownerDirectReply(page, origin, requestId, reply)',
+    "directOwner.execution, undefined, 'a direct reply has no execution receipt'",
+    "'a direct reply never calls the model'",
+    "storedDirect.execution, undefined, 'SQLite stores the exact direct-reply lifecycle without a tool receipt'",
+    'direct reply never starts the local program',
+    'direct reply never calls MCP',
+    "assert.deepEqual(storedRequest(profile, direct.id), storedDirect",
+    'requester-direct-reply-after-relaunch.png',
+    'requesterDirectReplySurvivesRelaunch: true',
     "name: 'Draft arguments', exact: true",
     "name: 'Use draft', exact: true",
     "completedOwner.argumentDraft.status, 'done'",
@@ -163,4 +173,36 @@ test('the Agent Requests source lock is non-vacuous for bounded native review', 
     assert.notEqual(withoutAbsenceProof, source, 'the scoped mutation reaches one ENOENT launch-boundary assertion')
     assert.throws(() => assertNativeAgentRequestReviewContract(withoutAbsenceProof), assert.AssertionError)
   }
+})
+
+function assertDirectReplySmokeContract(source) {
+  const helper = source.match(/async function ownerDirectReply\(page, origin, requestId, reply\) \{([\s\S]*?)\n\}/)?.[1]
+  assert.ok(helper, 'the packaged workflow has a rendered direct-reply helper')
+  for (const required of [
+    "getByRole('button', { name: 'Use a tool…', exact: true })",
+    "getByLabel('Inspected tool', { exact: true })).toHaveCount(0",
+    "getByRole('button', { name: 'Review reply', exact: true })",
+    "getByRole('button', { name: 'Share reply', exact: true })",
+  ]) assert.ok(helper.includes(required), `direct-reply helper retains ${required}`)
+
+  for (const required of [
+    "directOwner.execution, undefined, 'a direct reply has no execution receipt'",
+    "storedDirect.execution, undefined, 'SQLite stores the exact direct-reply lifecycle without a tool receipt'",
+    'toolCalls(traceAfterDirectReply).length, directCallsBefore',
+    'processStarts(traceAfterDirectReply).length, directStartsBefore',
+    'assert.deepEqual(storedRequest(profile, direct.id), storedDirect',
+    'recoveredDirect.execution, undefined',
+    "getByRole('region', { name: 'Shared reply', exact: true })).toContainText(directReply)",
+    "requester-direct-reply-after-relaunch.png",
+  ]) assert.ok(source.includes(required), `packaged direct-reply evidence retains ${required}`)
+}
+
+test('direct Agent Request replies have a watched packaged no-execution persistence lock', () => {
+  const source = readFileSync(new URL('./agentRequestSmoke.mjs', import.meta.url), 'utf8')
+  assertDirectReplySmokeContract(source)
+  const mutant = source.replace(
+    "    assert.equal(storedDirect.execution, undefined, 'SQLite stores the exact direct-reply lifecycle without a tool receipt')\n",
+    '')
+  assert.notEqual(mutant, source, 'the scoped mutation removes the SQLite no-execution receipt check')
+  assert.throws(() => assertDirectReplySmokeContract(mutant), assert.AssertionError)
 })

@@ -283,13 +283,18 @@ no Agent credit, standing grant, connector adapter or proxy is created.
 COMMONS-46 implements the real D15 Agent Requests path: a private durable
 registry and host, bounded executor, authenticated routes and requester/history
 plus owner-inbox UI. Requests contain ordinary prose, not another person's
-connection identity. The receiving owner explicitly selects and reviews one
-exact call, Runs it, then separately chooses the text to Share. Raw arguments,
+connection identity. The receiving owner can review and Share a direct reply
+without provider configuration, tool inspection or execution. Optional tool use
+still requires selecting and reviewing one exact call, explicit Run, and a
+separate reviewed reply. Pending model/tool work blocks sharing. Raw arguments,
 results and connection identity remain owner-private. The store commits before
 I/O, rechecks live authority across waits, and holds capacity until physical
 settlement; pending work recovers to uncertainty without replay. Explicit
 portable restore fences old waiting work, without creating a human denial or
-cancellation, and renewed consent cannot run it. Focused local tests now cover
+cancellation, and renewed consent cannot run it. A restored waiting request may
+still receive a direct reviewed text reply if its exact bytes fit retained
+history capacity; no tool receipt is fabricated or execution re-enabled.
+Focused local tests now cover
 registry, execution, routes, UI, persistence and snapshot paths. Unbound imported
 Agents cannot borrow default-provider connection reach. Five-viewport rendered
 review, the separate 135-cell sweep and unsigned arm64 packaged authored-child
