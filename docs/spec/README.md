@@ -17,7 +17,7 @@ workers, drive work through adaptive conversations, and coordinate shared
 projects, resources, routines, discussions, and proposals. Conversations attach
 context and disclose the tools that context enables; every resource remains
 addressable through the same split workspace. The system uses real UI/backend,
-HTTP + SSE, authentication, MCP, Messages tool-use, and filesystem boundaries;
+HTTP + SSE, authentication, MCP, provider API/tool-use, and filesystem boundaries;
 deterministic fixtures are enumerated in [pillar 11](11-mock-boundary.md).
 
 Everything below decomposes that goal into pillars, and each pillar into leaf

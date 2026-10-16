@@ -112,6 +112,9 @@ function terminalFailure(result: ReplyResult): {
   if (result.failure === 'tool_loop_limit') {
     return { code: 'model_loop_limit', detail: result.message.content, retryable: false }
   }
+  if (result.failure === 'invalid_model_response') {
+    return { code: 'model_unavailable', detail: result.message.content, retryable: false }
+  }
   return { code: 'model_unavailable', detail: result.message.content, retryable: true }
 }
 

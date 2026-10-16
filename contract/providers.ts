@@ -1,5 +1,5 @@
 /** ── Contract: Model providers (the cognition source — D9) ───────────────────
- *  A registered *cognition source* (docs/agent-commons.md, D9): one Messages-API
+ *  A registered *cognition source* (docs/agent-commons.md, D9): one model-protocol
  *  integration point with named **effort levels** and an optional **provider plan**
  *  — the root of the D8 budget cascade. An Agent's *mind*; each Agent selects exactly
  *  one. Account-scoped and referenceable by id, like a Runner — never attached
@@ -9,9 +9,8 @@
  *  deliberately NOT on this type (mirroring `Capabilities`, which exposes feature
  *  flags, never the key). The contract carries only what the UI may show.
  *
- *  Forward-looking: today there is exactly one registered instance, wrapping the
- *  single implicit Anthropic client — the degenerate N=1 case. Going multi-provider
- *  *multiplies* that real boundary rather than weakening it. */
+ *  Endpoint protocol is independent of model family; adapters share execution
+ *  policy instead of creating provider-specific tool authority. */
 import type { Budget } from './budget.ts'
 import type { Authority } from './authority.ts'
 
@@ -20,6 +19,15 @@ import type { Authority } from './authority.ts'
  *  bindings to it; the UI's model selector renders its catalog as the built-in
  *  Claude models (an unset session pick) rather than as a duplicate list entry. */
 export const DEFAULT_PROVIDER_ID = 'provider-anthropic'
+
+/** Wire protocol used by a dial-out endpoint. Missing persisted values retain
+ * the original Anthropic Messages behavior; model family remains a separate
+ * prompt-compatibility label. */
+export type EndpointProtocol = 'anthropic-messages' | 'openai-responses'
+
+export function isEndpointProtocol(value: unknown): value is EndpointProtocol {
+  return value === 'anthropic-messages' || value === 'openai-responses'
+}
 
 /** Server-computed execution posture for an endpoint provider. `mock` is the
  * deliberate development model; `configured` means the provider has a usable
@@ -68,11 +76,15 @@ export interface ModelProvider {
    *  route one tenant's prompts to another tenant's session model). */
   tenantId?: string
   /** How this provider's cognition is reached (docs/delegated-cognition-provider.md).
-   *  Unset/'endpoint' = a Messages endpoint the backend dials out to (slice 18);
+   *  Unset/'endpoint' = a model endpoint the backend dials out to (slice 18);
    *  'session' = a delegated AI session that dials IN — its connector drains prompts
    *  at a rendezvous secret. Session providers are prose-only in v1 (no tool use, so
    *  no relation-edit cards or escalations on their turns — declared, not discovered). */
   kind?: 'endpoint' | 'session'
+  /** Safe serve-time projection of the endpoint wire protocol. Session
+   * providers have no endpoint protocol. Legacy configs project as
+   * `anthropic-messages`; callers cannot set this through provider edits. */
+  protocol?: EndpointProtocol
   /** Endpoint kind only, computed at read time from server-side configuration.
    * Never accepted as caller truth or persisted on the provider row. */
   execution?: ModelExecution
@@ -170,14 +182,14 @@ export type DeleteProviderRequest =
 
 /** The endpoint half of a registration — **write-only**: it may ride a create request
  *  (that's how a user brings a provider's endpoint) but is never echoed on the read
- *  type above. Integrating a provider is supplying *data*, not code: any endpoint
- *  that speaks the Messages protocol (natively or behind a translating gateway) plugs
- *  in here — the backend knows one protocol and zero providers. The credential is an
- *  env-var *reference*, never a raw key, so neither the wire nor the persisted store
- *  ever carries a secret. */
+ *  type above. The safe protocol choice is separately projected as
+ *  `ModelProvider.protocol`. The credential is an env-var *reference*, never a raw
+ *  key, so neither the wire nor the persisted store ever carries a secret. */
 export interface ProviderEndpointConfig {
-  /** The Messages-protocol endpoint this provider is served from. Unset = inherit the
-   *  ambient default endpoint (`ANTHROPIC_BASE_URL` / the dev mock). */
+  /** Endpoint wire protocol. Absence means the legacy Anthropic Messages API. */
+  protocol?: EndpointProtocol
+  /** The selected protocol's endpoint. Unset = inherit ambient Anthropic Messages
+   *  defaults; OpenAI Responses requires an explicit endpoint. */
   baseURL?: string
   /** Name of the server-side env var holding this provider's API key. Must sit under
    *  the `PROVIDER_` prefix — the reference and the endpoint are both caller-supplied,

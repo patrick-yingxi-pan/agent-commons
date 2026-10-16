@@ -121,6 +121,20 @@ test('a lost connection acknowledgement survives navigation and retries the exac
 
   await page.getByRole('button', { name: 'Update connection', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Update connection' })
+  for (const viewport of VIEWPORTS) {
+    await page.setViewportSize(viewport)
+    const panel = dialog.locator('[data-bounded-dialog]')
+    const footer = panel.locator(':scope > div').last()
+    await expect.poll(async () => {
+      const boxes = await Promise.all([panel.boundingBox(), footer.boundingBox()])
+      return boxes.every(box => box && box.x >= 7 && box.y >= 7
+        && box.x + box.width <= viewport.width - 7 && box.y + box.height <= viewport.height - 7)
+    }).toBe(true)
+    await dialog.getByRole('combobox', { name: /^Protocol/ }).scrollIntoViewIfNeeded()
+    await expect(dialog.getByRole('combobox', { name: /^Protocol/ })).toHaveValue('anthropic-messages')
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    await page.screenshot({ path: join(REVIEW_DIR, `native-connection-protocol-${viewport.width}x${viewport.height}.png`), fullPage: false })
+  }
   const replacement = 'replacement-key-that-must-not-enter-http'
   const requests: Array<{ body: unknown; key: string | undefined }> = []
   let loseFirstAcknowledgement = true
@@ -147,6 +161,10 @@ test('a lost connection acknowledgement survives navigation and retries the exac
   await dialog.getByRole('button', { name: 'Close form', exact: true }).click()
   await expect(dialog).toBeHidden()
 
+  // The narrow viewport matrix deliberately collapses the persistent rail.
+  // Reopen it through the real control before exercising SPA navigation.
+  const expandSidebar = page.getByRole('button', { name: 'Expand sidebar', exact: true }).first()
+  if (await expandSidebar.isVisible()) await expandSidebar.click()
   const sections = page.getByRole('navigation', { name: 'Sections' })
   await sections.getByRole('button', { name: 'Models', exact: true }).click()
   await page.getByRole('main').getByText(provider.label, { exact: true }).click()
@@ -231,6 +249,7 @@ test('a committed provider with a lost acknowledgement keeps and binds its devic
   const dialog = page.getByRole('dialog', { name: 'New provider' })
   await dialog.getByLabel('Name').fill(label)
   await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(`http://127.0.0.1:${MODEL_PORT}`)
+  await dialog.getByLabel('Model ID', { exact: true }).fill('mock-model')
   await page.getByPlaceholder('Paste API key', { exact: true }).fill(rawKey)
   await dialog.getByRole('button', { name: 'Create', exact: true }).click()
   await expect(dialog).toBeHidden()

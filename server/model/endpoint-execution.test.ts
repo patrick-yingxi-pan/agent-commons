@@ -29,3 +29,19 @@ test('an explicitly supplied loopback endpoint remains usable when the inline mo
     'configured',
   )
 })
+
+test('OpenAI Responses requires its own explicit endpoint and model', () => {
+  const ambientAnthropic = {
+    MODEL_INLINE: '0',
+    ANTHROPIC_BASE_URL: 'https://api.anthropic.com',
+    ANTHROPIC_API_KEY: 'ambient-anthropic-secret',
+  }
+  assert.equal(endpointExecution({ protocol: 'openai-responses' }, ambientAnthropic), 'unconfigured')
+  assert.equal(endpointExecution({ protocol: 'openai-responses', model: 'gpt-5.1' }, ambientAnthropic), 'unconfigured')
+  assert.equal(endpointExecution({ protocol: 'openai-responses', baseURL: 'https://api.openai.com/v1' }, ambientAnthropic), 'unconfigured')
+  assert.equal(
+    endpointExecution({ protocol: 'openai-responses', baseURL: 'https://api.openai.com/v1', model: 'gpt-5.1' }, ambientAnthropic),
+    'configured',
+  )
+  assert.equal(endpointExecution({ protocol: 'unknown', baseURL: 'https://models.example', model: 'm' }, ambientAnthropic), 'unconfigured')
+})

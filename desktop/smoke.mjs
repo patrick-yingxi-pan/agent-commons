@@ -365,6 +365,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       const replacementSecret = 'agent-commons-smoke-rotated-key-not-a-real-credential'
       await page.getByPlaceholder('e.g. Anthropic (prod)', { exact: true }).fill('Packaged credential smoke')
       await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(modelOrigin)
+      await firstProviderDialog.getByLabel('Model ID', { exact: true }).fill('mock-model')
       await page.getByPlaceholder('Paste API key', { exact: true }).fill(smokeSecret)
       await page.getByRole('button', { name: 'Create', exact: true }).click()
       await firstProviderDialog.waitFor({ state: 'hidden' })

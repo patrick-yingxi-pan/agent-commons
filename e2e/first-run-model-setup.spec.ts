@@ -76,6 +76,7 @@ test('a clean draft connects a verified model and returns ready for its first co
 
     await page.getByPlaceholder('e.g. Anthropic (prod)', { exact: true }).fill(FIRST_PROVIDER)
     await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(`http://127.0.0.1:${MODEL_PORT}`)
+    await dialog.getByLabel('Model ID', { exact: true }).fill('mock-model')
     const preferenceGate = new Promise<void>((resolve) => { releasePreference = resolve })
     await page.route('**/api/v1/viewer-preferences/model', async (route) => {
       if (route.request().method() !== 'PATCH') return route.continue()

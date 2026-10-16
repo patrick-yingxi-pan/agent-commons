@@ -52,9 +52,7 @@ test('the provider dialog switches only credential entry—not the provider HTTP
   const commands = readFileSync(new URL('./commands.ts', import.meta.url), 'utf8')
   const creationCommands = readFileSync(new URL('./providerCreationCommands.ts', import.meta.url), 'utf8')
   const creationRuntime = readFileSync(new URL('../controller/providerCreationMutations.ts', import.meta.url), 'utf8')
-  const start = source.indexOf('function ProviderDialog(')
-  const end = source.indexOf('/** System prompts', start)
-  const dialog = source.slice(start, end)
+  const dialog = readFileSync(new URL('../components/ProviderDialogs.tsx', import.meta.url), 'utf8')
   assert.match(dialog, /desktopCredentialsAvailable\(\)/)
   assert.match(dialog, /type="password"/)
   assert.match(dialog, /enqueueProviderCreation/)
@@ -67,12 +65,12 @@ test('the provider dialog switches only credential entry—not the provider HTTP
   assert.match(creationCommands, /apiKeyEnv: intent\.credentialReference/)
   assert.doesNotMatch(creationCommands, /deviceSecret/, 'the HTTP command can materialize only a vault reference')
   assert.match(source, /label="Add configured provider"/, 'an unconfigured built-in has a direct path into the usable flow')
-  assert.match(source, /function ProviderConnectionDialog\(/)
+  assert.match(dialog, /function ProviderConnectionDialog\(/)
   assert.match(source, /label="Update connection"/)
-  assert.match(source, /placeholder="Paste replacement API key"/)
-  assert.match(source, /enqueueProviderConnection\(/, 'replacement enters the shell-owned acknowledgement sequence')
-  assert.match(source, /createProviderConnectionAttempt\(/, 'one dialog lifetime owns one retryable logical replacement')
-  assert.match(source, /provider\.connectionRevision \?\? 0/, 'the dialog pins the public connection revision it reviewed')
+  assert.match(dialog, /placeholder="Paste replacement API key"/)
+  assert.match(dialog, /enqueueProviderConnection\(/, 'replacement enters the shell-owned acknowledgement sequence')
+  assert.match(dialog, /createProviderConnectionAttempt\(/, 'one dialog lifetime owns one retryable logical replacement')
+  assert.match(dialog, /provider\.connectionRevision \?\? 0/, 'the dialog pins the public connection revision it reviewed')
   const connectionCommand = commands.slice(
     commands.indexOf('export async function updateProviderConnection'),
     commands.indexOf('/** Patch a provider', commands.indexOf('export async function updateProviderConnection')),

@@ -74,6 +74,17 @@ test('the shared menu reads the LIVE provider registry, not a snapshot constant'
   assert.match(src, /pickedModel\(/, 'model resolution goes through the shared projection')
 })
 
+test('an endpoint with no catalog-declared effort vocabulary exposes no effort choices', () => {
+  const modelProjection = stripComments(read(join(ROOT, 'src', 'lib', 'models.ts')))
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenuBody.tsx')))
+  assert.match(modelProjection, /model\?\.effortLevels \?\? provider\?\.effortLevels \?\? \[\]/,
+    'unknown provider effort metadata remains an empty vocabulary')
+  assert.match(menu, /\{levels\.length > 0 && \(/,
+    'effort buttons are rendered only when the selected catalog declares levels')
+  assert.match(menu, /\{levels\.length === 0 && \(/,
+    'an empty vocabulary receives the existing no-effort explanation')
+})
+
 test('the composer gates BOTH pick levels on the session write path (no silent prefs rewrite)', () => {
   // With no server row to write (onSelectModel absent), the menu's rows render
   // read-only — a click must not silently rewrite the shared default-model
@@ -84,16 +95,16 @@ test('the composer gates BOTH pick levels on the session write path (no silent p
 })
 
 test('the API-endpoint provider form collects and sends the connection it claims to create', () => {
-  const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
-  for (const field of ['Messages API URL', 'Model ID (optional)', 'Credential variable (optional)']) {
+  const src = stripComments(read(join(ROOT, 'src', 'components', 'ProviderDialogs.tsx')))
+  for (const field of ['Endpoint URL', 'Model ID', 'Credential variable (optional)']) {
     assert.ok(src.includes(field), `the endpoint form exposes ${field}`)
   }
   assert.ok(
     src.includes('config: {') && src.includes('baseURL: baseURL.trim()') && src.includes('apiKeyEnv: apiKeyEnv.trim()'),
     'the endpoint fields travel through the write-only provider config',
   )
-  assert.ok(src.includes('The connection is verified before it is saved.'), 'the form explains its probe boundary')
-  assert.ok(src.includes('label="Update connection"'), 'a private endpoint exposes its connection lifecycle after creation')
+  assert.ok(src.includes('The selected protocol is verified before it is saved.'), 'the form explains its protocol-specific probe boundary')
+  assert.ok(src.includes('title="Update connection"'), 'a private endpoint exposes its connection lifecycle after creation')
   assert.ok(src.includes('blank fields remain unchanged'), 'the replacement form explains its partial write-only semantics')
 })
 

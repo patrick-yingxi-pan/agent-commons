@@ -43,6 +43,7 @@ test('a stale provider edit preserves a remote field and retries one held sparse
   const dialog = page.getByRole('dialog', { name: 'Edit provider' })
   const name = dialog.getByLabel('Name')
   await name.fill(localLabel)
+  await expect(dialog.getByRole('button', { name: 'Save', exact: true })).toBeEnabled()
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
 
   const failed = page.locator('[data-provider-definition-mutation="failed"]')

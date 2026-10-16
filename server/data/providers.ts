@@ -136,10 +136,11 @@ export const OPENAI_PROVIDER: ModelProvider = {
   authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] },
 }
 
-/** OpenAI's server-only config: a concrete configured model (what an unset pick
+/** OpenAI's DEMO server-only config: a concrete configured model (what an unset pick
  *  resolves to — stamped onto reads as `defaultModelId`), no endpoint of its own
- *  (dev turns run against the ambient mock; a real deployment would set a
- *  translating gateway's baseURL + a PROVIDER_* credential here). */
+ *  (dev turns run against the ambient Messages mock). Real OpenAI connections
+ *  explicitly select openai-responses, their endpoint/model, and a PROVIDER_*
+ *  credential. The seed is not evidence of a connected OpenAI account. */
 export const OPENAI_PROVIDER_CONFIG: ProviderConfig = { model: 'gpt-5.1' }
 
 /** The seeded provider registry, in list order (the default first). Rehydrate

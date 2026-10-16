@@ -308,6 +308,16 @@ Project must actually bound.
 
 ### D9 — Model providers: one cognition source per Agent, the provider plan as the cascade root
 
+**Current protocol extension (2026-10-15).** Endpoint connections select
+`anthropic-messages` (also the legacy default) or `openai-responses`. Claude and
+DeepSeek's official compatible endpoint use Messages; OpenAI uses native
+Responses. Adapters translate the wire, not execution authority: conversations,
+Agents and tool-free workflows retain the shared usage/consent boundary.
+Endpoint/key fields remain write-only; only the protocol identifier is public.
+The original decision and slice history below explain the Messages-first design;
+the current implementation and local/live evidence boundary are recorded in
+[MODEL-46](spec/06-model-and-tools.md).
+
 **Decision.** Generalize today's single hard-wired Anthropic seam into a managed set
 of **Model providers**. A Model provider is a registered cognition source — one
 Messages-API integration point with named **effort levels**, provider-specific

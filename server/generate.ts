@@ -1,14 +1,10 @@
-/** ── Reply generation — the Anthropic Messages API + tool-use seam ──────────
- *  The backend no longer writes the assistant's words *or* keyword-matches its
- *  side-effects. It calls an Anthropic Messages endpoint through the official SDK
- *  with a real **tool interface** (server/model/tools.ts) and runs the tool-use
- *  loop: the model answers with `tool_use` blocks, the backend *executes* each
- *  call (turning it into a consent-gated proposal — a relation-edit card or an
- *  escalation), feeds the `tool_result`s back, and streams the model's final
- *  prose. Exactly the call a production backend makes; the only mock is the model
- *  endpoint (dev: server/model on :8788). To go live, repoint `ANTHROPIC_BASE_URL`
- *  at `api.anthropic.com` and set `ANTHROPIC_API_KEY` — no code change. */
+/** Reply generation — protocol adapters feeding ONE consent/usage/tool loop.
+ * Messages (Claude and DeepSeek's official compatible endpoint) uses Anthropic's
+ * SDK; OpenAI Responses normalizes its wire into the same internal document.
+ * Provider choice never acquires separate execution policy. The local Messages
+ * server on :8788 remains an explicitly deterministic development fixture. */
 import Anthropic from '@anthropic-ai/sdk'
+import { EndpointHttpError, EndpointResponseError, openaiResponsesClient, type EndpointMessage } from './model/openaiResponses.ts'
 import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import type { ChangesetVersion } from '../contract/contributions.ts'
 import type { ContributionReviewResult } from '../contract/contributionReview.ts'
@@ -93,18 +89,19 @@ function withDeadline(signal?: AbortSignal): AbortSignal {
   return signal ? AbortSignal.any([signal, deadline]) : deadline
 }
 
-/** One door to the model — a provider resolves to `{ endpoint, credential, model }`
- *  *data*, never provider-specific code: the backend speaks exactly one protocol (the
- *  Messages API this SDK client carries) and any endpoint that answers it plugs in
- *  (docs/agent-commons.md, D9). Built lazily from the config + env so the endpoint
- *  can be set at runtime (the dev boot, or a test pointing at its own mock instance),
- *  and memoized per `(baseURL, key)` pair — one client per distinct endpoint, so
- *  providers on different endpoints coexist within a process. The map only ever holds
- *  a handful of entries (one per registered endpoint / env variant), so it is not
- *  evicted. A config with no endpoint of its own inherits the ambient default: the
- *  mock model server, or `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` for the real API. */
-const clients = new Map<string, Anthropic>()
-function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES): Anthropic {
+/** Lazy protocol-aware clients, bounded to 64 connection/key/retry variants.
+ * Only legacy Messages connections may inherit the ambient development endpoint.
+ * An explicit endpoint never inherits its ambient credential. */
+type EndpointClient = Anthropic | ReturnType<typeof openaiResponsesClient>
+const clients = new Map<string, EndpointClient>()
+function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES): EndpointClient {
+  if (!validApiKeyEnv(config.apiKeyEnv)) throw new ProviderProbeError('A provider credential must reference a PROVIDER_* environment variable.')
+  if (config.protocol !== undefined && config.protocol !== 'anthropic-messages' && config.protocol !== 'openai-responses') {
+    throw new ProviderProbeError('Unsupported endpoint protocol.')
+  }
+  if (config.protocol === 'openai-responses' && (!config.baseURL?.trim() || !config.model?.trim())) {
+    throw new ProviderProbeError('OpenAI Responses requires an explicit endpoint and model.')
+  }
   const base = config.baseURL ?? process.env.ANTHROPIC_BASE_URL ?? `http://127.0.0.1:${process.env.MODEL_PORT ?? 8788}`
   // The credential is resolved from the config's env-var *reference* (never a stored
   // raw key). The ambient `ANTHROPIC_API_KEY` is the credential for the AMBIENT
@@ -117,14 +114,15 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
   const declared = config.apiKeyEnv ? process.env[config.apiKeyEnv] : undefined
   const ambientKey = config.baseURL ? undefined : process.env.ANTHROPIC_API_KEY
   const key = declared ?? ambientKey ?? 'mock-no-key-needed'
-  const cacheKey = `${base}\u0000${key}\u0000${maxRetries}`
+  if (config.apiKeyEnv && !declared?.trim()) throw new ProviderProbeError('The provider credential is not available to this server.')
+  const cacheKey = `${config.protocol ?? 'anthropic-messages'}\u0000${base}\u0000${key}\u0000${maxRetries}`
   let client = clients.get(cacheKey)
   if (!client) {
     // Crude growth cap: probes of many distinct (possibly dead) endpoints would
     // otherwise accumulate clients forever. Registered configs are few, so a rare
     // full reset only costs re-construction, never correctness.
     if (clients.size >= 64) clients.clear()
-    client = new Anthropic({
+    client = config.protocol === 'openai-responses' ? openaiResponsesClient(base, key) : new Anthropic({
       baseURL: base,
       apiKey: key,
       maxRetries, // review calls explicitly use zero retries; ordinary generation keeps its configured policy
@@ -140,6 +138,16 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
  *  `tools` param but answers a plain call is conformant-without-tool-use; one that
  *  answers neither fails the probe (`ProviderProbeError`) — the route turns that into
  *  a 400, so a non-conformant provider never reaches the mint funnel. */
+/** SDK and fetch errors can include request headers, URLs or upstream bodies.
+ * Only known local diagnostics and numeric HTTP status may cross this boundary. */
+function providerProbeFailureDetail(error: unknown): string {
+  if (error instanceof EndpointResponseError || error instanceof ProviderProbeError) return error.message
+  if ((error instanceof Anthropic.APIError || error instanceof EndpointHttpError) && typeof error.status === 'number') {
+    return `HTTP ${error.status}`
+  }
+  return 'The endpoint request failed.'
+}
+
 export async function probeProviderEndpoint(config: ProviderConfig): Promise<ProviderCapabilities> {
   // The credential-reference wall, checked BEFORE any request leaves: the reference
   // and the endpoint are both caller-supplied, so an unconstrained reference would
@@ -154,7 +162,7 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
     clientFor(config).messages.create(
       {
         model: config.model ?? MODEL,
-        max_tokens: 8,
+        max_tokens: config.protocol === 'openai-responses' ? 32 : 8,
         messages: [{ role: 'user', content: 'Conformance check. Reply with one word.' }],
         ...(withTools
           ? { tools: [{ name: 'probe_noop', description: 'Conformance probe — never called.', input_schema: { type: 'object' as const, properties: {} } }] }
@@ -166,21 +174,20 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
     await probe(true)
     return { toolUse: true }
   } catch (err) {
-    // Only an endpoint that ANSWERED (an error carrying an HTTP status — e.g. it
-    // rejected the `tools` param) falls through to the no-tools probe. An
-    // unreachable / timed-out endpoint (connection error, abort — no status) fails
-    // outright: retrying it without tools could only misclassify a transient blip
-    // as a permanent "no tool use" capability.
-    if (!(err instanceof Anthropic.APIError) || typeof err.status !== 'number') {
-      const detail = err instanceof Error ? err.message : String(err)
+    // Only a request-shape rejection warrants a tool-free capability check.
+    // Auth, quota, outage and transport errors must not become a second call or
+    // permanently misclassify the provider as lacking tools.
+    if (!(err instanceof Anthropic.APIError || err instanceof EndpointHttpError) || typeof err.status !== 'number') {
+      const detail = providerProbeFailureDetail(err)
       throw new ProviderProbeError(`The endpoint could not be reached: ${detail}`)
     }
+    if (err.status !== 400 && err.status !== 422) throw new ProviderProbeError(`The endpoint refused verification (HTTP ${err.status}). Check the API key, model and provider quota.`)
     try {
       await probe(false)
       return { toolUse: false }
     } catch (err2) {
-      const detail = err2 instanceof Error ? err2.message : String(err2)
-      throw new ProviderProbeError(`The endpoint didn't answer the Messages protocol: ${detail}`)
+      const detail = providerProbeFailureDetail(err2)
+      throw new ProviderProbeError(`The endpoint didn't answer the ${config.protocol === 'openai-responses' ? 'Responses' : 'Messages'} protocol: ${detail}`)
     }
   }
 }
@@ -304,8 +311,10 @@ export interface ReplyResult {
   /** Why a fallback happened. Callers such as the durable routine worker use
    *  this to retry transient endpoint loss but never retry a deterministic tool
    *  loop refusal. Interactive callers may ignore it. */
-  failure?: 'endpoint_unavailable' | 'tool_loop_limit'
+  failure?: 'endpoint_unavailable' | 'tool_loop_limit' | 'invalid_model_response'
 }
+
+class InvalidModelResponseError extends Error {}
 
 export interface ReplyExecutionOptions {
   /** Explicit server-owned read-only drafting policy. Unlike provider capability
@@ -361,7 +370,8 @@ export async function generateCompactionSummaryPart(
       { signal: withDeadline(signal) },
     )
     const recorder = createModelUsageRecorder(onUsage)
-    recorder.record({ inputTokens: response.usage.input_tokens ?? 0, outputTokens: response.usage.output_tokens ?? 0 })
+    recorder.record({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens })
+    if (response.stop_reason !== 'end_turn') throw new CompactionGenerationError('The model did not complete the conversation summary.')
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
       .map((block) => block.text)
@@ -421,7 +431,7 @@ export async function generateContributionReview(
     throw new ContributionReviewGenerationError('The selected reviewer instructions exceed the review input limit.')
   }
   const recorder = createModelUsageRecorder(onUsage)
-  let response: Anthropic.Message
+  let response: EndpointMessage
   try {
     response = await clientFor(config, 0).messages.create(
       {
@@ -495,7 +505,7 @@ export async function generateDelegatedJudgment(
     throw new DelegatedJudgmentGenerationError('The frozen delegated judgment input exceeds its size limit.')
   }
 
-  let response: Anthropic.Message
+  let response: EndpointMessage
   try {
     response = await clientFor(config, 0).messages.create(
       {
@@ -542,7 +552,7 @@ export async function generateCommissionMcpArguments(
   onUsage?: ModelUsageHandler,
 ): Promise<McpBoundToolCall> {
   const frozen = snapshotPreparedCommissionMcpInput(prepared)
-  let response: Anthropic.Message
+  let response: EndpointMessage
   try {
     response = await clientFor(provider, 0).messages.create({
       model: provider.model ?? MODEL,
@@ -587,7 +597,7 @@ export async function generateAgentRequestArguments(
     if (cause instanceof ProxyArgumentPreparationInputError) throw cause
     throw new ProxyArgumentPreparationInputError()
   }
-  let response: Anthropic.Message
+  let response: EndpointMessage
   try {
     response = await clientFor(provider, 0).messages.create({
       model: provider.model ?? MODEL,
@@ -718,21 +728,25 @@ export async function generateReply(
 
     for (;;) {
       const stream = clientFor(provider).messages.stream(
-        { model, max_tokens: 1024, system, ...toolsParam, ...outputConfig, messages },
+        { model, max_tokens: provider.protocol === 'openai-responses' ? 8192 : 1024, system, ...toolsParam, ...outputConfig, messages },
         { signal: withDeadline(signal) },
       )
-      stream.on('streamEvent', (event) => {
-        if (event.type === 'message_start') onStartOnce(event.message.id)
+      stream.on('streamEvent', (event: { type: string; message?: { id: string } }) => {
+        if (event.type === 'message_start' && event.message) onStartOnce(event.message.id)
       })
-      stream.on('text', (delta) => {
+      stream.on('text', (delta: string) => {
         fullText += delta
         handlers.onDelta(delta)
       })
       const response = await stream.finalMessage()
-      usage.record({ inputTokens: response.usage.input_tokens ?? 0, outputTokens: response.usage.output_tokens ?? 0 })
+      usage.record({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens })
       onStartOnce(response.id) // safety net if message_start was missed
-
       const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+      const completedProse = response.stop_reason === 'end_turn' || response.stop_reason === 'refusal' || response.stop_reason === 'stop_sequence'
+      if ((!completedProse && response.stop_reason !== 'tool_use') || (toolUses.length > 0 && response.stop_reason !== 'tool_use')) {
+        throw new InvalidModelResponseError('The model response did not complete. No tools were run from this response.')
+      }
+
       if (toolUses.length === 0) {
         return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'ok' }
       }
@@ -782,6 +796,12 @@ export async function generateReply(
   } catch (err) {
     if (err instanceof UsageRecordingError) throw err
     if (signal?.aborted) throw err // the turn was cancelled — let the route persist the partial
+    if (err instanceof InvalidModelResponseError || err instanceof EndpointResponseError) {
+      onStartOnce(`msg_incomplete_${Date.now().toString(36)}`)
+      const note = `${fullText ? '\n\n' : ''}_(The model returned an incomplete or invalid response. No tools were run from that response, and it will not be retried automatically.)_`
+      handlers.onDelta(note)
+      return { message: completedMessage(fullText + note), usage: usage.snapshot(), outcome: 'fallback', failure: 'invalid_model_response' }
+    }
     // If prose ALREADY streamed, or a prior batch settled tool effects, the
     // persisted message must CONTINUE that partial turn rather than replace it
     // with the bare endpoint apology. Otherwise live and stored prose diverge,

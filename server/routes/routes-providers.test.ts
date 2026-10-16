@@ -24,6 +24,9 @@ test('POST creates a provider; GET lists it; PATCH edits its fields', async () =
   assert.equal(created.status, 200)
   assert.ok(created.json.id.startsWith('provider-'))
   assert.equal(created.json.modelFamily, 'open')
+  assert.equal(created.json.protocol, 'anthropic-messages', 'legacy endpoint configuration projects its effective protocol')
+  assert.equal(created.json.baseURL, undefined)
+  assert.equal(created.json.apiKeyEnv, undefined)
   assert.equal(created.json.execution, 'mock', 'execution is computed from server config, never caller-stamped')
   assert.equal(created.json.definitionRevision, 0, 'definition revision is server-owned')
 
@@ -663,6 +666,67 @@ test('POST with a non-conformant endpoint is a 400 — the provider is never reg
   assert.equal(bad.status, 400)
   assert.equal(bad.json.error.code, 'bad_request')
   assert.equal(store.listProviders().length, countBefore, 'nothing minted')
+})
+
+test('POST validates endpoint protocols and refuses OpenAI Responses without an explicit endpoint and model', async () => {
+  const countBefore = store.listProviders().length
+  const incomplete = await call('POST', '/providers', {
+    label: 'Incomplete Responses provider',
+    modelFamily: 'gpt',
+    effortLevels: ['Low'],
+    config: { protocol: 'openai-responses', model: 'gpt-5.1' },
+  })
+  assert.equal(incomplete.status, 400)
+  assert.equal(store.listProviders().length, countBefore, 'an incomplete protocol connection is not minted')
+
+  const unknown = await call('POST', '/providers', {
+    label: 'Unknown wire provider',
+    modelFamily: 'custom',
+    effortLevels: ['Low'],
+    config: { protocol: 'openai-chat-completions' },
+  })
+  assert.equal(unknown.status, 400)
+  assert.equal(store.listProviders().length, countBefore, 'an unsupported protocol is not silently treated as Messages')
+})
+
+test('POST accepts the explicit legacy protocol and exposes only its safe protocol projection', async () => {
+  const created = await call('POST', '/providers', {
+    label: 'Explicit Messages provider',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+    config: { protocol: 'anthropic-messages' },
+  })
+  assert.equal(created.status, 200)
+  assert.equal(created.json.protocol, 'anthropic-messages')
+  assert.equal(created.json.config, undefined)
+  assert.equal(created.json.apiKeyEnv, undefined)
+})
+
+test('PATCH connection validates protocols and requires complete OpenAI Responses routing data', async () => {
+  const created = await call('POST', '/providers', {
+    label: 'Legacy Messages connection',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+  })
+  assert.equal(created.status, 200)
+  const id = created.json.id as string
+
+  const missing = await call('PATCH', `/providers/${id}/connection`, { protocol: 'openai-responses' })
+  assert.equal(missing.status, 400)
+  assert.equal(store.providerConfig(id).protocol, undefined, 'legacy config remains unchanged after refusal')
+
+  const unknown = await call('PATCH', `/providers/${id}/connection`, { protocol: 'openai-chat-completions' })
+  assert.equal(unknown.status, 400)
+  assert.equal(store.providerConfig(id).protocol, undefined)
+
+  const session = await call('POST', '/providers', {
+    label: 'Protocol-less session provider',
+    modelFamily: 'claude',
+    effortLevels: ['Low'],
+    kind: 'session',
+  })
+  const sessionPatch = await call('PATCH', `/providers/${session.json.id}/connection`, { protocol: 'openai-responses' })
+  assert.equal(sessionPatch.status, 409)
 })
 
 test('DELETE pins both Provider revisions, batches session fallback, and replays one success', async () => {

@@ -55,6 +55,51 @@ test('a provider config carries the model id (server-only), surfaced via provide
   assert.equal(store.providerConfig(p.id).model, 'claude-custom-test')
 })
 
+test('endpoint protocol stays in server config and is projected from config with connection ordering', () => {
+  const p = store.createProvider(
+    { label: 'Responses protocol', modelFamily: 'gpt', effortLevels: ['Low'] },
+    {
+      protocol: 'openai-responses',
+      baseURL: 'https://api.openai.com/v1',
+      model: 'gpt-5.1',
+      capabilities: { toolUse: true },
+    },
+  )
+  assert.equal(store.providerConfig(p.id).protocol, 'openai-responses')
+  const onWire = store.listProviders().find((row) => row.id === p.id)!
+  assert.equal(onWire.protocol, 'openai-responses', 'the safe protocol is derived from server config')
+  assert.equal(onWire.baseURL, undefined)
+  assert.equal(onWire.model, undefined)
+  assert.equal(onWire.apiKeyEnv, undefined)
+
+  const replaced = store.replaceProviderConnection(
+    p.id,
+    { protocol: 'anthropic-messages', baseURL: 'https://api.anthropic.com/v1', model: 'claude-sonnet', capabilities: { toolUse: true } },
+    null,
+    0,
+  )
+  assert.equal(replaced?.connectionRevision, 1, 'switching protocols advances connection ordering')
+  assert.equal(store.providerConfig(p.id).protocol, 'anthropic-messages')
+  assert.equal(store.listProviders().find((row) => row.id === p.id)?.protocol, 'anthropic-messages')
+})
+
+test('the mint funnel rejects unknown protocols and incomplete OpenAI Responses configs', () => {
+  assert.throws(
+    () => store.createProvider(
+      { label: 'Unknown protocol', modelFamily: 'custom', effortLevels: [] },
+      { protocol: 'openai-chat-completions' as any },
+    ),
+    ProviderProbeError,
+  )
+  assert.throws(
+    () => store.createProvider(
+      { label: 'Incomplete Responses', modelFamily: 'gpt', effortLevels: [] },
+      { protocol: 'openai-responses', model: 'gpt-5.1' },
+    ),
+    ProviderProbeError,
+  )
+})
+
 test('the mint funnel refuses a config that brings an endpoint without a probed record', () => {
   // The invariant mirrors the D8 over-grant: an *unverified* endpoint is
   // unrepresentable in the registry. The route satisfies it by running

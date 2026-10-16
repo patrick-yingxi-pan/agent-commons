@@ -225,7 +225,7 @@ import { mintAuthority } from '../authority.ts'
 import { CapabilityUnavailableError, ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
 import { scopeMatches } from '../runner-runtime.ts'
-import { MAX_DISCUSSION_POSTS, MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
+import { isEndpointProtocol, MAX_DISCUSSION_POSTS, MENTION_MAX_NAME_LEN } from '../../contract/index.ts'
 import { contextBreakdown, intersectAuthority, authorityAdmits, projectAdmittedAuthority, unrestricted, isProjectEffectMonotonic, rolePermits, roleRank, PROJECT_ROLES, OPEN_WORK_FIELD_MAX, WORK_ITEM_COMMENT_MAX, CONTRIBUTION_FIELD_MAX as MAX_CONTRIBUTION_FIELD_CHARS, CHANGE_ENTRY_KINDS, DELEGATED_ACT_KINDS, ESCALATION_TRIGGERS, clampAuthority, clampBudget, probeScore, SEARCH_GROUP_CAP, SEARCH_PAGE_SIZE, NOTIFICATION_CAP } from '../../contract/index.ts'
 import type { Agent, AgentChangeProposal, AgentConfigurationPatch, AgentDirectoryEntry, AgentPublicFork, AgentResolvedItem, AppNotification, AuditEntry, ProposalCheck, Authority, Budget, CapabilityType, Commission, CommissionConfigurationPatch, CreateAgentRequest, ModelInfo, ModelProvider, ProviderDefinitionPatch, MyWork, MyWorkItem, MyWorkProposal, OpenSubGoal, Contribution, OpenContributionRequest, Delegation, CreateDelegationRequest, OwnerActivity, FollowRow, OwnerFollowFace, OwnerProfile, PostOpenSubGoalRequest, PrincipalRef, ProjectAction, ProjectDirectoryEntry, ProjectEffectResult, ProjectEffectType, ProjectRole, ProjectSubGoal, PromptProbeResult, ProposeAgentChangeRequest, ProxyRequest, ProxyResult, Reservation, SearchGroup, SearchHit, SearchPage, SearchResponse, SystemPromptDefinitionFields, SystemPromptDefinitionPatch, SystemPromptEntry, WatchState, WorkItemComment } from '../../contract/index.ts'
 import { DEFAULT_PROVIDER, DEFAULT_PROVIDER_CONFIG, SEED_PROVIDERS, SEED_PROVIDER_CONFIGS, ProviderProbeError, validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
@@ -2223,6 +2223,15 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
 const MODEL_PROVIDERS = new Map<string, ModelProvider>(SEED_PROVIDERS.map((p) => [p.id, p]))
 const PROVIDER_CONFIGS = new Map<string, ProviderConfig>(SEED_PROVIDER_CONFIGS)
 const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
+
+function validateProviderProtocolConfig(config: ProviderConfig): void {
+  if (config.protocol !== undefined && !isEndpointProtocol(config.protocol)) {
+    throw new ProviderProbeError(`A provider protocol must be 'anthropic-messages' or 'openai-responses'.`)
+  }
+  if (config.protocol === 'openai-responses' && (!config.baseURL?.trim() || !config.model?.trim())) {
+    throw new ProviderProbeError(`The OpenAI Responses protocol requires an explicit baseURL and model.`)
+  }
+}
 let providerSeq = 0
 
 interface ScheduleBindingChoice {
@@ -6590,7 +6599,11 @@ export const store = {
     return [...MODEL_PROVIDERS.values()]
       .filter((p) => registryVisible(p, tenantId))
       .map((p) => {
-        const provider = { ...p, definitionRevision: p.definitionRevision ?? 0 }
+        // Protocol is connection truth, never provider-row truth. Strip any
+        // stale/legacy row field before deriving the safe read projection.
+        const { protocol: _storedProtocol, ...storedProvider } = p
+        const provider = { ...storedProvider, definitionRevision: p.definitionRevision ?? 0 }
+        const config = PROVIDER_CONFIGS.get(p.id)
         return p.kind === 'session'
           ? // The relay's live serving picture, stamped per read like `online`
             // (v5 handshake, observed half): how many conversations hold an
@@ -6603,8 +6616,13 @@ export const store = {
             {
               ...provider,
               connectionRevision: p.connectionRevision ?? 0,
-              defaultModelId: resolvedModelId(PROVIDER_CONFIGS.get(p.id)),
-              execution: endpointExecution(PROVIDER_CONFIGS.get(p.id)),
+              ...(config?.protocol === undefined
+                ? { protocol: 'anthropic-messages' as const }
+                : isEndpointProtocol(config.protocol)
+                  ? { protocol: config.protocol }
+                  : {}),
+              defaultModelId: resolvedModelId(config),
+              execution: endpointExecution(config),
             }
       })
       .map((p) => (p.id === defaultId ? { ...p, isDefault: true } : p))
@@ -6674,6 +6692,7 @@ export const store = {
       }
     }
     if (input.plan) mintBudget(usageRegistry.planCeilings(), input.plan)
+    validateProviderProtocolConfig(config)
     if (config.baseURL && !config.capabilities) {
       throw new ProviderProbeError('A provider endpoint must pass the conformance probe before it is registered.')
     }
@@ -6693,8 +6712,8 @@ export const store = {
     // and is forced tenant-scoped (a shared relay would route one tenant's prompts to
     // another tenant's session model).
     if (config.kind === 'session') {
-      if (config.baseURL || config.apiKeyEnv) {
-        throw new ProviderProbeError('A Session provider has no endpoint to dial — it must not carry a baseURL or credential.')
+      if (config.baseURL || config.apiKeyEnv || config.protocol) {
+        throw new ProviderProbeError('A Session provider has no endpoint to dial — it must not carry a baseURL, protocol, or credential.')
       }
       if (input.models) {
         throw new ProviderProbeError('A Session provider has no model catalog — its cognition is whatever session drains its mailbox.')
@@ -6806,6 +6825,7 @@ export const store = {
     if (PROVIDER_CONFIGS.get(id)?.kind === 'session' || config.kind === 'session') {
       throw new ValidationError('A Session provider has no endpoint connection to update.')
     }
+    validateProviderProtocolConfig(config)
     if (config.baseURL && !config.capabilities) {
       throw new ProviderProbeError('A provider endpoint must pass the conformance probe before its connection is updated.')
     }

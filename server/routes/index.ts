@@ -209,7 +209,7 @@ import { executeApprovedMcpActivity, executeApprovedMcpFormActivity } from '../m
 import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
 import { A2A_ERROR, API_BASE_PATH, DEFAULT_PROVIDER_ID, SELF_PROJECT_HOLDER, isMonotonic, isProjectEffectMonotonic, PROJECT_EFFECT_TYPES, PROJECT_ROLES } from '../../contract/index.ts'
 import { projectSessionHistory, sessionWithoutHistory } from './sessionHistory.ts'
-import { providerConnectionUpdate } from './providerConnection.ts'
+import { providerConnectionUpdate, validateProviderProtocolConfig } from './providerConnection.ts'
 import { providerDefinitionUpdate } from './providerDefinition.ts'
 import { providerDelete } from './providerDeletion.ts'
 import { providerCatalogModels, providerCatalogRefresh, providerCatalogUpdate } from './providerCatalog.ts'
@@ -1611,7 +1611,7 @@ export function buildRouter(): Router {
     // The write-only endpoint half (D9): split off the request so it never lands on
     // the `ModelProvider` the registry stores and echoes — the read type stays free
     // of endpoint/credential shape. A config that brings its own endpoint is probed
-    // for Messages-protocol conformance *before* the mint; the probe's capability
+    // for selected-protocol conformance *before* the mint; the probe's capability
     // record travels with the config, satisfying the funnel's unverified-endpoint
     // guard. A probe failure is a 400 — a non-conformant provider is never registered.
     // (`kind`/`secretHint`/`online` are server-stamped relay fields — stripped, so an
@@ -1639,11 +1639,22 @@ export function buildRouter(): Router {
       ...(input.authority ? { authority: input.authority } : {}),
       ...(declaredModels ? { models: declaredModels } : {}),
     }
-    // Pick the three known endpoint fields explicitly (strings only) — a raw spread
+    // Pick the known endpoint fields explicitly and validate the protocol — a raw spread
     // would let arbitrary unknown JSON ride into the persisted server-only config
     // (including a forged `capabilities` record).
     const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : undefined)
-    const config: ProviderConfig = { baseURL: str(endpoint?.baseURL), apiKeyEnv: str(endpoint?.apiKeyEnv), model: str(endpoint?.model) }
+    const config: ProviderConfig = {
+      baseURL: str(endpoint?.baseURL),
+      apiKeyEnv: str(endpoint?.apiKeyEnv),
+      model: str(endpoint?.model),
+      ...(endpoint?.protocol === undefined ? {} : { protocol: endpoint.protocol }),
+    }
+    try {
+      validateProviderProtocolConfig(config)
+    } catch (err) {
+      if (err instanceof ValidationError) return sendError(res, 'bad_request', err.message)
+      throw err
+    }
     if (config.baseURL) {
       try {
         config.capabilities = await probeProviderEndpoint(config)

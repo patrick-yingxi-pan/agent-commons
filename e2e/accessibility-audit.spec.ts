@@ -67,6 +67,7 @@ test('core creation dialogs have no detectable WCAG 2.2 AA violations', async ({
   await expect(page.getByRole('heading', { level: 1, name: 'Models' })).toBeVisible()
   await page.getByRole('button', { name: 'New provider', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'New provider' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'New provider' }).getByRole('textbox', { name: 'Name', exact: true })).toBeVisible()
   await assertWcag22Aa(page, 'New provider dialog')
 
   await page.goto('/artifacts')

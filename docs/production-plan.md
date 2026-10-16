@@ -6,7 +6,16 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current local checkpoint: the [native PDF/Office review](acceptance/native-connected-office-documents-2026-10-15.md)
+Current implementation checkpoint: provider setup offers Claude/Anthropic, OpenAI,
+DeepSeek and Custom connections, with explicit protocol selection and protected
+desktop API-key custody. Native OpenAI Responses feeds the same usage, consent
+and bounded tool loop as Anthropic Messages (including DeepSeek's official
+compatible endpoint). Tool-free model workflows share that connection as well.
+Local wire fixtures, provider lifecycle and browser locks are the acceptance
+boundary for this change; paid-provider acceptance remains deferred. Complete
+local verification and UI review are required before landing.
+
+Previous local checkpoint: the [native PDF/Office review](acceptance/native-connected-office-documents-2026-10-15.md)
 passed actual Folder/Repository chooser Cancel and exact selection, then XLSX,
 PPTX and scanned-PDF review/edit/Create for Folder, tracked Git and opted-in
 untracked Git. Each original was moved aside after preview, before adoption or
@@ -105,17 +114,40 @@ Neither result closes the following gates:
 | Real external MCP workflows | Agree on exact third-party peers, disposable test resources and permitted calls before testing service discovery, authorization, execution and restart history. Authored peers and native-dialog acceptance do not establish third-party compatibility or safety. |
 | Remaining product scope | Preserve the declared [forward-looking requirements](spec/10-forward-looking.md) and [mock boundaries](spec/11-mock-boundary.md), including legacy standing simulation and Agent-proxy work, broader source/document capabilities and the later hosted-service phase. They are not implicitly completed by desktop preview acceptance. |
 
-The next priority is actual release and live-service evidence, not another
-speculative recovery refactor or expansion of the formula language. The owner
+The next implementation priority is provider API readiness and bounded local
+acceptance for the supported protocols; actual paid-provider acceptance remains
+deferred. After that, prioritize actual release and live-service evidence, not
+another speculative recovery refactor or expansion of the formula language. The owner
 has chosen individual/sole-proprietor enrollment and requested mainland-China
 enrollment guidance on 2026-10-15; membership is not yet active. The current
 [Apple instructions](https://developer.apple.com/cn/help/account/membership/enrolling-in-the-app/)
 were provided. Identity verification, agreements and payment stay with the owner
 in Apple's app; the route must match the owner's actual enrollment details.
-No secrets, membership purchase, external test call or public publication is
-authorized by this review. Paid-provider acceptance is deferred while unsigned
-release preparation continues. This reconciliation changes no product behavior;
-the complete local verifier remains mandatory before its own landing.
+No secrets, membership purchase, paid-provider call or public publication is
+authorized by this review. The bounded third-party MCP review below now names
+the approved peer, disposable resources and read-only operations; it remains
+separate from provider implementation. Paid-provider acceptance is deferred
+while unsigned release preparation continues. The complete local verifier
+remains mandatory before landing.
+
+### Provider API and third-party MCP sequence (2026-10-15)
+
+Configured model support has explicit Anthropic Messages and native OpenAI
+Responses protocols; DeepSeek is an official Anthropic-compatible endpoint
+preset. The existing seeded OpenAI catalog row remains a deterministic demo
+fixture, not a connected or authenticated account. Prioritize finishing and
+locally locking protocol/configuration plumbing, then provider UI review and
+acceptance planning. Do not make live paid-provider calls: real conversation,
+Dispatch, Routine and review/judgment checks still require the previously stated
+provider/model, dedicated credentials and spend-limit approval.
+
+A bounded third-party MCP acceptance run is approved but has not been run:
+official `@modelcontextprotocol/server-filesystem@1.0.0`, locked dependencies in
+a disposable directory, generated test files only, discovery plus
+`list_directory` and `read_text_file`. No real files, credentials, paid calls or
+write tools are authorized. The program has normal OS access, not a sandbox.
+Provider API support takes priority over that separate acceptance task. This
+sequence does not claim live service, provider UI acceptance or full verification.
 
 ## Previous checkpoint: exact external-tool text
 

@@ -1,12 +1,13 @@
 /** Validation and merge semantics for the write-only provider connection PATCH.
  * Kept outside the route monolith so absence/clear behavior has one testable
- * owner: absent preserves, `null` clears, and only the three declared fields
+ * owner: absent preserves, `null` clears, and only the four declared fields
  * may cross into the durable server config. */
-import type { ProviderConnectionPatch } from '../../contract/index.ts'
+import { isEndpointProtocol, type ProviderConnectionPatch } from '../../contract/index.ts'
 import { ValidationError } from '../conflict.ts'
 import { validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 
 const FIELD_LIMITS = {
+  protocol: 64,
   baseURL: 2_048,
   apiKeyEnv: 128,
   model: 256,
@@ -40,7 +41,18 @@ function assertEndpointUrl(value: string | undefined): void {
 
 export interface ProviderConnectionUpdate {
   config: ProviderConfig
+  /** Endpoint URL or protocol changes move the provider to another model namespace. */
   endpointChanged: boolean
+}
+
+/** Validate the protocol-specific fields without probing or performing I/O. */
+export function validateProviderProtocolConfig(config: ProviderConfig): void {
+  if (config.protocol !== undefined && !isEndpointProtocol(config.protocol)) {
+    throw new ValidationError(`protocol must be 'anthropic-messages' or 'openai-responses'.`)
+  }
+  if (config.protocol === 'openai-responses' && (!config.baseURL?.trim() || !config.model?.trim())) {
+    throw new ValidationError(`The OpenAI Responses protocol requires an explicit baseURL and model.`)
+  }
 }
 
 export function providerConnectionUpdate(
@@ -56,6 +68,7 @@ export function providerConnectionUpdate(
   if (!supplied.length) throw new ValidationError('Name at least one provider connection field to update.')
 
   const next: ProviderConfig = {
+    ...(current.protocol ? { protocol: current.protocol } : {}),
     ...(current.baseURL ? { baseURL: current.baseURL } : {}),
     ...(current.apiKeyEnv ? { apiKeyEnv: current.apiKeyEnv } : {}),
     ...(current.model ? { model: current.model } : {}),
@@ -63,12 +76,22 @@ export function providerConnectionUpdate(
   }
   for (const field of supplied) {
     const value = cleanString(field, input[field])
-    if (value === undefined) delete next[field]
+    if (field === 'protocol') {
+      if (value === undefined) delete next.protocol
+      else if (!isEndpointProtocol(value)) throw new ValidationError(`protocol must be 'anthropic-messages' or 'openai-responses'.`)
+      else next.protocol = value
+    } else if (value === undefined) delete next[field]
     else next[field] = value
   }
   assertEndpointUrl(next.baseURL)
+  validateProviderProtocolConfig(next)
   if (!validApiKeyEnv(next.apiKeyEnv)) {
     throw new ValidationError(`apiKeyEnv must name a 'PROVIDER_*' environment variable.`)
   }
-  return { config: next, endpointChanged: next.baseURL !== current.baseURL }
+  const effectiveProtocol = (protocol: ProviderConfig['protocol']) => protocol ?? 'anthropic-messages'
+  return {
+    config: next,
+    endpointChanged:
+      next.baseURL !== current.baseURL || effectiveProtocol(next.protocol) !== effectiveProtocol(current.protocol),
+  }
 }

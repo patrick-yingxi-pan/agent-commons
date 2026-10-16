@@ -35,9 +35,12 @@ test('the shared checkbox cues are a real square-check idiom', () => {
 
 test('both registry dialogs offer the default flag through the one <DefaultToggle>', () => {
   const src = read(join(ROOT, 'src', 'components', 'SectionView.tsx'))
+  const provider = read(join(ROOT, 'src', 'components', 'ProviderDialogs.tsx'))
   assert.match(src, /from\s+'\.\/Checkbox'/, 'imports the shared component')
+  assert.match(provider, /from\s+'\.\/Checkbox\.tsx'/, 'the extracted provider form imports the shared component')
   // ProviderDialog + PromptDialog — one toggle each.
-  assert.ok((src.match(/<DefaultToggle\b/g) ?? []).length >= 2, 'both dialogs wear the shared toggle')
+  assert.ok((src.match(/<DefaultToggle\b/g) ?? []).length >= 1, 'the prompt dialog wears the shared toggle')
+  assert.ok((provider.match(/<DefaultToggle\b/g) ?? []).length >= 1, 'the provider dialog wears the shared toggle')
   // The flagged registry surfaces wear the shared badge (provider page + prompt card).
   assert.ok((src.match(/<DefaultBadge\b/g) ?? []).length >= 2, 'both registry rows wear the shared badge')
 })

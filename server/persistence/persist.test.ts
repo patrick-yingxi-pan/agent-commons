@@ -44,7 +44,10 @@ const sample = {
   // The Agent Commons registries (D6/D9/D10/D7) — one entry each so the round-trip
   // locks that they (and the server-only provider config) survive save → load.
   providers: [['provider-x', { id: 'provider-x', label: 'P', modelFamily: 'claude', effortLevels: ['Low'] }]],
-  providerConfigs: [['provider-x', { model: 'claude-opus-4-8' }]],
+  providerConfigs: [
+    ['provider-x', { protocol: 'openai-responses', baseURL: 'https://api.openai.com/v1', model: 'gpt-5.1' }],
+    ['provider-legacy', { model: 'claude-opus-4-8' }],
+  ],
   systemPrompts: [['sp-x', { id: 'sp-x', label: 'S', body: 'b', targetFamily: 'claude' }]],
   agents: [['agent-x', { id: 'agent-x', revision: 7, label: 'A', systemPrompt: 'b', tools: [], instructions: '' }]],
   commissions: [['commission-x', { id: 'commission-x', agentId: 'agent-x', projectId: 'p1' }]],

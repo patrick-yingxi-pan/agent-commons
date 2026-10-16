@@ -130,29 +130,31 @@ Node's [filesystem API](https://nodejs.org/api/fs.html) specifies the descriptor
 and open-flag behavior; the colocated confinement/bounds suites exercise actual
 temporary files and controlled syscall-time changes.
 
-## Model boundary — real Anthropic Messages and tools
+## Model boundary — explicit provider APIs and shared tools
 
-(Not an in-process fake.) `server/generate.ts` calls an
-Anthropic-compatible endpoint via `@anthropic-ai/sdk`, declaring the
-resource-manipulation tools (`server/model/tools.ts`)
-and running the **bounded tool-use loop** as one growing Messages document:
-model → `tool_use` → backend executes → `tool_result` → another dependent batch
-or final prose. Endpoint and Session-provider transports share the executed-
-batch budget in `server/toolExecution.ts`; an over-budget request executes
-nothing and ends explicitly. The resource manipulations are therefore the
-model's *tool calls*, executed by the backend and surfaced as the consent-gated
-proposals the UI confirms (`message.relations` for relation edits,
-`message.escalation` for panel escalations) — they are part of the Messages API
-tool-use protocol, **not** a backend keyword overlay. `server/model/` is the dev
-mock of the endpoint: it *decides* which tools to call (matching the message by
-fixed string / keyword, `intents.ts`) and wraps canned prose around them
-(`replies.ts`), speaking the Messages wire format (JSON + streaming SSE,
-including `tool_use` blocks). Going live is `ANTHROPIC_BASE_URL` +
-`ANTHROPIC_API_KEY`, nothing more; model id `claude-opus-4-8`. This follows the
-project's broader rule: build the real boundaries now (the frontend is a cache of
-the backend; the backend is a client of the model; the model manipulates
-resources through tools), not prototype shortcuts a production system would have
-to unwind.
+(Not an in-process fake.) `server/generate.ts` selects an explicit configured
+endpoint adapter: Anthropic Messages via `@anthropic-ai/sdk`, or native OpenAI
+Responses. DeepSeek uses its official Anthropic-compatible URL preset and the
+Messages adapter. Provider-native tool calls are normalized at the wire edge;
+the backend runs the shared bounded tool-use loop, executing each declared call
+through `server/toolExecution.ts`, returning the provider's tool result, and
+continuing or streaming final prose. Endpoint and Session-provider transports
+share the executed-batch budget; an over-budget request executes nothing and
+ends explicitly. Resource changes remain model tool calls surfaced as
+consent-gated proposals the UI confirms (`message.relations` for relation edits,
+`message.escalation` for panel escalations), not a backend keyword overlay.
+OpenAI Responses preserves provider-managed reasoning items opaquely across
+tool continuations and disables server-side response storage. All adapters,
+including tool-free generation used by configured Agents, retain the shared
+usage, cancellation, and execution policy. `server/model/` remains the dev mock:
+it decides tools through deterministic intent matching and canned replies while
+speaking the Anthropic Messages wire format. The seeded OpenAI catalog entry is
+also a deterministic fixture, not an authenticated OpenAI connection. Provider
+setup stores protocol and connection state separately; fixture coverage is not
+live-provider acceptance. This follows the project's broader rule: build
+replaceable boundaries now (the frontend is a cache of the backend; the backend
+is a client of the model; the model manipulates resources through tools), not
+prototype shortcuts a production system would have to unwind.
 
 ## Authentication and deployment profiles
 

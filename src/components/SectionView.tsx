@@ -8,6 +8,7 @@ import { DeferredProjectWorkDraftPanel } from './DeferredProjectWorkDraftPanel.t
 import { DeferredWorkItemContributionPanel } from './DeferredWorkItemContributionPanel.tsx'
 import { DeferredWorkItemMcpProposalPanel } from './DeferredWorkItemMcpProposalPanel.tsx'
 import { DeferredChangesPanel } from './DeferredChangesPanel.tsx'
+import { DeferredProviderDialog, DeferredProviderConnectionDialog } from './DeferredProviderDialogs.tsx'
 import { AgentRequestsPage, AgentRequestsSummary } from './AgentRequestsPage.tsx'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { useScheduleDraftCommit } from '../controller/useScheduleDraftCommit.ts'
@@ -316,13 +317,10 @@ import {
 } from '../api/hooks.ts'
 import { API_BASE } from '../api/client.ts'
 import { a2aAgentCardUrl, reactToDiscussionPost, recordView, reportDiscussionPost } from '../api/commands.ts'
-import { desktopCredentialsAvailable } from '../api/desktopCredentials.ts'
 import { type ResourceUnavailableState, resolveResourceUnavailable, retryResourceQueries } from '../api/resourceRead.ts'
 import { invalidate } from '../api/cache.ts'
 import { keys } from '../api/keys.ts'
 import {
-  createProviderConnectionAttempt,
-  enqueueProviderConnection,
   isProviderConnectionHeld,
   useProviderConnectionStatus,
 } from '../controller/providerConnectionMutations.ts'
@@ -409,10 +407,8 @@ import {
 } from '../controller/commissionDeletionMutations.ts'
 import {
   isProviderDefinitionHeld,
-  updateProviderDefinition,
   useProviderDefinitionMutationStatus,
 } from '../controller/providerDefinitionMutations'
-import { enqueueProviderCreation } from '../controller/providerCreationMutations'
 import {
   PROVIDER_DELETE_SCOPE,
   enqueueProviderDeletion,
@@ -8958,10 +8954,10 @@ function ModelsSection({
           }}
         >
           {editing && (
-            <ProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+            <DeferredProviderDialog provider={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
           )}
           {updatingConnection && (
-            <ProviderConnectionDialog provider={updatingConnection} onClose={() => setUpdatingConnectionId(null)} />
+            <DeferredProviderConnectionDialog provider={updatingConnection} onClose={() => setUpdatingConnectionId(null)} />
           )}
         </ProviderDetailPage>
       )
@@ -9025,7 +9021,7 @@ function ModelsSection({
         )}
       />
       {editing && (
-        <ProviderDialog
+        <DeferredProviderDialog
           provider={editing === 'new' ? null : editing}
           onClose={() => setEditing(null)}
           onCreated={providerCreated}
@@ -9627,379 +9623,6 @@ function A2aCardDialog({
   )
 }
 
-/** Create / edit a Model provider. New providers pick their transport up front —
- *  an **API endpoint** we dial (slice 18) or **My AI session** (the delegated-cognition
- *  relay: nothing to dial, so the form asks only for a label; effort levels stay the
- *  standard vocabulary and are advisory on a session). New providers register the
- *  standard effort vocabulary and inherit the account plan + unrestricted authority
- *  (the advanced cascade fields aren't exposed here yet); the model family is editable
- *  because it drives the D10 prompt-fit warning. Minting a session kind hands back the
- *  one-time rendezvous secret, revealed via RelaySecretPanel before the dialog closes. */
-function ProviderDialog({
-  provider,
-  onClose,
-  onCreated,
-}: {
-  provider: ModelProvider | null
-  onClose: () => void
-  /** First-run Models owns the return policy; the canonical dialog only reports
-   * a verified endpoint row after its write-only credential lifecycle succeeds. */
-  onCreated?: (provider: CreatedProvider) => void
-}) {
-  // Freeze the editor's opening base. Ambient provider events may refresh the
-  // page behind this held draft; sparse intent must still mean what the user
-  // changed, not whatever a newer prop happens to contain.
-  const original = useRef(provider).current
-  const tenantId = useMe().data?.tenant.id
-  const [label, setLabel] = useState(provider?.label ?? '')
-  const [family, setFamily] = useState(provider?.modelFamily ?? 'claude')
-  const [kind, setKind] = useState<'endpoint' | 'session'>(provider?.kind ?? 'endpoint')
-  const [baseURL, setBaseURL] = useState('')
-  const [model, setModel] = useState('')
-  const [apiKeyEnv, setApiKeyEnv] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const hasSecureDeviceVault = desktopCredentialsAvailable()
-  // The default flag (the UI shortcut — spec: agents always bind explicitly; this only
-  // pre-selects the New-agent picker). Sent only when it changed, so an unrelated edit
-  // can't move another entry's flag.
-  const [isDefault, setIsDefault] = useState(provider?.isDefault ?? false)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  // A freshly minted Session provider: hold the one-time secret panel open until
-  // the user confirms they saved it — only then does the dialog resolve.
-  const [minted, setMinted] = useState<CreatedProvider | null>(null)
-  const isSession = kind === 'session'
-  const labelChanged = !!provider && label.trim() !== (original?.label ?? '')
-  const familyChanged = !!provider && !isSession && family.trim() !== (original?.modelFamily ?? '')
-  const defaultChanged = !!provider && isDefault !== (original?.isDefault ?? false)
-  const hasEditChanges = labelChanged || familyChanged || defaultChanged
-  const canSubmit =
-    label.trim().length > 0 &&
-    (isSession || (family.trim().length > 0 && (provider !== null || baseURL.trim().length > 0))) &&
-    (!!provider || !!tenantId) &&
-    (!provider || hasEditChanges) &&
-    !busy
-
-  const submit = async () => {
-    if (!canSubmit) return
-    setBusy(true)
-    setError(null)
-    try {
-      if (provider) {
-        const outcome = await updateProviderDefinition(provider.id, {
-          ...(labelChanged ? { label: label.trim() } : {}),
-          ...(familyChanged ? { modelFamily: family.trim() } : {}),
-          ...(defaultChanged ? { isDefault } : {}),
-        })
-        if (outcome === 'discarded') {
-          setError('Your held edits were not saved. Review the latest provider, then apply what you still want.')
-          setBusy(false)
-          return
-        }
-        onClose()
-      } else if (isSession) {
-        const result = await enqueueProviderCreation({
-          tenantId: tenantId!,
-          request: {
-            label: label.trim(),
-            modelFamily: 'claude', // advisory on a session — the far side picks its own model
-            effortLevels: ['Low', 'Medium', 'High'],
-            kind: 'session',
-            ...(isDefault ? { isDefault } : {}),
-          },
-        })
-        if (result.outcome === 'discarded') {
-          setError('Your provider details are still here. Review them, then create again when ready.')
-          setBusy(false)
-          return
-        }
-        if (!result.provider?.secret) {
-          throw new Error('The provider was created, but its relay secret could not be confirmed. Open the provider and rotate its secret.')
-        }
-        setMinted(result.provider) // the one-time reveal takes over; onClose comes from its Done
-      } else {
-        const result = await enqueueProviderCreation({
-          tenantId: tenantId!,
-          request: {
-            label: label.trim(),
-            modelFamily: family.trim(),
-            effortLevels: ['Low', 'Medium', 'High'],
-            config: {
-              baseURL: baseURL.trim(),
-              ...(model.trim() ? { model: model.trim() } : {}),
-              ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
-            },
-            ...(isDefault ? { isDefault } : {}),
-          },
-          ...(hasSecureDeviceVault && apiKey.trim() ? { deviceSecret: apiKey.trim() } : {}),
-        })
-        if (result.outcome === 'discarded') {
-          setError('Your provider details are still here. Review them, then create again when ready.')
-          setBusy(false)
-          return
-        }
-        if (!result.provider) {
-          throw new Error('The provider acknowledgement was incomplete. Review the registry before trying again.')
-        }
-        onClose()
-        onCreated?.(result.provider)
-        return
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save this provider.')
-      setBusy(false)
-    }
-  }
-
-  if (minted?.secret) return <RelaySecretPanel provider={minted} secret={minted.secret} onClose={onClose} />
-
-  return (
-    <FormDialog
-      title={provider ? 'Edit provider' : 'New provider'}
-      icon={<Cpu size={18} className="text-ink-soft" />}
-      submitLabel={provider ? 'Save' : 'Create'}
-      canSubmit={canSubmit}
-      onSubmit={submit}
-      onClose={onClose}
-      error={error}
-      busy={busy}
-    >
-      {!provider && (
-        <FormField label="Kind">
-          {/* The transport toggle: dial-out endpoint vs the dialed-in session relay. */}
-          <div className="flex gap-1 rounded-lg border border-line bg-panel p-1">
-            {(
-              [
-                ['endpoint', 'API endpoint'],
-                ['session', 'My AI session'],
-              ] as const
-            ).map(([value, text]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setKind(value)}
-                className={`flex-1 rounded-md px-2 py-1 text-[12px] font-medium transition ${
-                  kind === value ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-faint hover:text-ink-soft'
-                }`}
-              >
-                {text}
-              </button>
-            ))}
-          </div>
-          {isSession && (
-            <span className="mt-1.5 flex items-start gap-1.5 text-[11px] text-ink-faint">
-              <span className="mt-0.5 shrink-0">
-                <RelayBadge />
-              </span>
-              An AI session you already run does the thinking — nothing to dial, no key. You get a one-time rendezvous
-              secret and a drain loop to start; tool calls are relayed through your session unexecuted, so relation
-              cards and escalations still land here as consent prompts.
-            </span>
-          )}
-        </FormField>
-      )}
-      <FormField label="Name">
-        <input
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-          placeholder={isSession ? 'e.g. My laptop’s Claude' : 'e.g. Anthropic (prod)'}
-          className={FORM_INPUT_CLASS}
-        />
-      </FormField>
-      {!isSession && (
-        <>
-          <FormField label="Model family">
-            <input
-              value={family}
-              onChange={(e) => setFamily(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
-              placeholder="claude"
-              className={FORM_INPUT_CLASS}
-            />
-            <span className="mt-1 block text-[11px] text-ink-faint">
-              A system prompt tuned for a different family shows a fit warning when picked.
-            </span>
-          </FormField>
-          {!provider && (
-            <>
-              <FormField label="Messages API URL">
-                <input
-                  type="url"
-                  value={baseURL}
-                  onChange={(e) => setBaseURL(e.target.value)}
-                  placeholder="https://models.example.com/v1"
-                  className={FORM_INPUT_CLASS}
-                />
-                <span className="mt-1 block text-[11px] text-ink-faint">
-                  Must answer the Anthropic Messages protocol. The connection is verified before it is saved.
-                </span>
-              </FormField>
-              <FormField label="Model ID (optional)">
-                <input
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder="provider-model-id"
-                  className={FORM_INPUT_CLASS}
-                />
-              </FormField>
-              {hasSecureDeviceVault ? (
-                <FormField label="API key (optional)">
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Paste API key"
-                    autoComplete="new-password"
-                    spellCheck={false}
-                    className={FORM_INPUT_CLASS}
-                  />
-                  <span className="mt-1 block text-[11px] text-ink-faint">
-                    Encrypted for your OS account and kept outside Agent Commons data. The backend stores only a generated reference.
-                  </span>
-                </FormField>
-              ) : (
-                <FormField label="Credential variable (optional)">
-                  <input
-                    value={apiKeyEnv}
-                    onChange={(e) => setApiKeyEnv(e.target.value.toUpperCase())}
-                    placeholder="PROVIDER_TEAM_KEY"
-                    className={FORM_INPUT_CLASS}
-                  />
-                  <span className="mt-1 block text-[11px] text-ink-faint">
-                    Enter a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Only its name is stored; the secret never enters this app.
-                  </span>
-                </FormField>
-              )}
-            </>
-          )}
-        </>
-      )}
-      <DefaultToggle checked={isDefault} onChange={setIsDefault} entity="provider" />
-    </FormDialog>
-  )
-}
-
-/** Replace a private endpoint provider's write-only connection without ever
- * reading its current endpoint or credential back into the renderer. Blank
- * fields mean "keep"; every supplied value is merged and the effective
- * connection is probed before the atomic server swap. */
-function ProviderConnectionDialog({ provider, onClose }: { provider: ModelProvider; onClose: () => void }) {
-  const me = useMe().data
-  const mutation = useProviderConnectionStatus()
-  const [baseURL, setBaseURL] = useState('')
-  const [model, setModel] = useState('')
-  const [apiKeyEnv, setApiKeyEnv] = useState('')
-  const [apiKey, setApiKey] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const hasSecureDeviceVault = desktopCredentialsAvailable()
-  const recoveryOwned = mutation.activeResourceId === provider.id && Boolean(mutation.error)
-  const hasReplacement = Boolean(
-    baseURL.trim() || model.trim() || (hasSecureDeviceVault ? apiKey.trim() : apiKeyEnv.trim()),
-  )
-
-  const submit = async () => {
-    if (!hasReplacement || busy) return
-    if (!me) {
-      setError('Wait for your account to finish loading, then try again.')
-      return
-    }
-    setBusy(true)
-    setError(null)
-    const attempt = createProviderConnectionAttempt(
-      {
-        ...(baseURL.trim() ? { baseURL: baseURL.trim() } : {}),
-        ...(model.trim() ? { model: model.trim() } : {}),
-        ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
-      },
-      provider.connectionRevision ?? 0,
-      hasSecureDeviceVault && apiKey.trim() ? apiKey.trim() : undefined,
-      crypto.randomUUID(),
-    )
-    try {
-      const outcome = enqueueProviderConnection({ tenantId: me.tenant.id, providerId: provider.id, attempt })
-      if (!outcome) {
-        setError('Wait for the current provider change to settle before updating its connection.')
-        setBusy(false)
-        return
-      }
-      if (await outcome === 'applied') onClose()
-      else {
-        setError('Your connection details are still here. Review them, then update again when ready.')
-        setBusy(false)
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not update this connection.')
-      setBusy(false)
-    }
-  }
-
-  return (
-    <FormDialog
-      title="Update connection"
-      icon={<Plug size={18} className="text-ink-soft" />}
-      submitLabel="Verify & update"
-      canSubmit={hasReplacement && !busy}
-      onSubmit={submit}
-      onClose={onClose}
-      error={error}
-      busy={busy && !recoveryOwned}
-      fieldsDisabled={busy}
-      cancelLabel={recoveryOwned ? 'Close form' : 'Cancel'}
-    >
-      <p className="text-[12px] leading-relaxed text-ink-soft">
-        Replace only what changed for <span className="font-medium text-ink">{provider.label}</span>. Existing connection
-        details stay write-only; blank fields remain unchanged. The complete connection is verified before anything is saved.
-      </p>
-      <FormField label="Messages API URL" optional>
-        <input
-          type="url"
-          value={baseURL}
-          onChange={(e) => setBaseURL(e.target.value)}
-          placeholder="New URL — leave blank to keep"
-          className={FORM_INPUT_CLASS}
-        />
-      </FormField>
-      <FormField label="Model ID" optional>
-        <input
-          value={model}
-          onChange={(e) => setModel(e.target.value)}
-          placeholder="New model — leave blank to keep"
-          className={FORM_INPUT_CLASS}
-        />
-      </FormField>
-      {hasSecureDeviceVault ? (
-        <FormField label="Replacement API key" optional>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="Paste replacement API key"
-            autoComplete="new-password"
-            spellCheck={false}
-            className={FORM_INPUT_CLASS}
-          />
-          <span className="mt-1 block text-[11px] text-ink-faint">
-            Encrypted for your OS account. The previous device key is retired only after this connection is accepted.
-          </span>
-        </FormField>
-      ) : (
-        <FormField label="Replacement credential variable" optional>
-          <input
-            value={apiKeyEnv}
-            onChange={(e) => setApiKeyEnv(e.target.value.toUpperCase())}
-            placeholder="PROVIDER_REPLACEMENT_KEY"
-            className={FORM_INPUT_CLASS}
-          />
-          <span className="mt-1 block text-[11px] text-ink-faint">
-            Name a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Its value never enters this app.
-          </span>
-        </FormField>
-      )}
-    </FormDialog>
-  )
-}
 
 /** System prompts (D10) — the reusable, target-family-tagged prompts an Agent starts
  *  from. Each shows its target family and a downgrade warning when it wouldn't fit the

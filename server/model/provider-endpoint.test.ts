@@ -19,6 +19,7 @@ import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
 import { DEFAULT_AGENT } from '../data/workers.ts'
 import type { Attachment } from '../../contract/entities.ts'
 import { messageHistoryText, TOOL_RECEIPT_SYSTEM_ADDITION } from '../toolActivityHistory.ts'
+import type { ApiToolRuntime } from './apiTools.ts'
 
 let mock: Server
 let recorder: Server
@@ -31,6 +32,36 @@ interface SeenRequest {
   body: any
 }
 const seen: SeenRequest[] = []
+let fakeStreamModel: string | undefined
+let fakeStreamContent: Array<Record<string, unknown>> = []
+let fakeStreamStopReason: string | null = null
+let fakeProbeModel: string | undefined
+
+function anthropicStream(model: string, content: Array<Record<string, unknown>>, stopReason: string): string {
+  const events: Array<Record<string, unknown>> = [
+    { type: 'message_start', message: { id: `msg-${model}`, type: 'message', role: 'assistant', content: [], model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 17, output_tokens: 0 } } },
+  ]
+  for (const [index, block] of content.entries()) {
+    if (block.type === 'text') {
+      events.push(
+        { type: 'content_block_start', index, content_block: { type: 'text', text: '' } },
+        { type: 'content_block_delta', index, delta: { type: 'text_delta', text: block.text } },
+      )
+    } else if (block.type === 'tool_use') {
+      const input = JSON.stringify(block.input)
+      events.push(
+        { type: 'content_block_start', index, content_block: { type: 'tool_use', id: block.id, name: block.name, input: {} } },
+        { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: input } },
+      )
+    }
+    events.push({ type: 'content_block_stop', index })
+  }
+  events.push(
+    { type: 'message_delta', delta: { stop_reason: stopReason, stop_sequence: stopReason === 'stop_sequence' ? '<END>' : null }, usage: { output_tokens: 4 } },
+    { type: 'message_stop' },
+  )
+  return events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join('')
+}
 
 const session: ReplySession = { id: 's-provider-endpoint', title: 'Provider endpoint test' }
 
@@ -49,8 +80,23 @@ before(async () => {
     for await (const c of req) chunks.push(c as Buffer)
     const raw = Buffer.concat(chunks).toString('utf8')
     const apiKey = req.headers['x-api-key']
-    seen.push({ path: (req.url ?? '').split('?')[0], apiKey: Array.isArray(apiKey) ? apiKey[0] : apiKey, body: raw ? JSON.parse(raw) : undefined })
-    const upstream = await fetch(`${mockUrl}${req.url}`, {
+    const body = raw ? JSON.parse(raw) : undefined
+    seen.push({ path: (req.url ?? '').split('?')[0], apiKey: Array.isArray(apiKey) ? apiKey[0] : apiKey, body })
+    if (body?.model === fakeProbeModel) {
+      const status = body.tools?.length ? 400 : 422
+      res.writeHead(status, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: `SYNTHETIC_PRIVATE_PROVIDER_BODY_MARKER status=${status}` } }))
+      return
+    }
+    if (body?.model === fakeStreamModel && body.stream === true) {
+      res.writeHead(200, { 'content-type': 'text/event-stream' })
+      res.end(anthropicStream(fakeStreamModel!, fakeStreamContent, fakeStreamStopReason!))
+      return
+    }
+    // DeepSeek's official Anthropic-compatible root is `/anthropic`; preserve that
+    // request path in the recording assertion, then strip only this proxy mount.
+    const proxyPath = (req.url ?? '').startsWith('/anthropic/') ? req.url!.slice('/anthropic'.length) : req.url
+    const upstream = await fetch(`${mockUrl}${proxyPath}`, {
       method: req.method,
       headers: { 'content-type': 'application/json' },
       body: raw || undefined,
@@ -67,6 +113,7 @@ before(async () => {
 
   // The turn's credential is an env-var *reference* on the config, resolved at call time.
   process.env.PROVIDER_B_KEY = 'provider-b-secret'
+  process.env.PROVIDER_DEEPSEEK_KEY = 'deepseek-local-test-key'
   // The ambient default endpoint is the mock itself (NOT the recorder), so a
   // default-config turn landing zero recorder hits proves per-provider client isolation.
   process.env.ANTHROPIC_BASE_URL = mockUrl
@@ -75,6 +122,7 @@ before(async () => {
 after(() => {
   delete process.env.ANTHROPIC_BASE_URL
   delete process.env.PROVIDER_B_KEY
+  delete process.env.PROVIDER_DEEPSEEK_KEY
   recorder.closeAllConnections?.()
   mock.closeAllConnections?.()
   recorder.close()
@@ -126,6 +174,108 @@ test('endpoint transport declares attached inspected external tools as proposals
   assert.equal(next.body.messages[0].content, history[0].text)
   assert.match(next.body.messages[0].content, /"status":"uncertain"/)
   assert.ok(next.body.system.includes(TOOL_RECEIPT_SYSTEM_ADDITION))
+})
+
+test('DeepSeek official Anthropic-compatible path probes and keeps model tools consent-gated', async () => {
+  const id = `mcp-connection-${'d'.repeat(32)}`
+  const tool = { name: 'lookup', inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false } }
+  const connection = { id, label: 'External review', revision: 2, status: 'connected', authentication: 'none', inspectedAt: 1, protocolVersion: '2026-07-28', tools: [tool], execution: 'approval-required', executableTools: ['lookup'] }
+  const contexts = [{ id, type: 'mcp', label: 'External review', scope: '*' }]
+  const config: ProviderConfig = {
+    protocol: 'anthropic-messages',
+    baseURL: `${recorderUrl}/anthropic`,
+    apiKeyEnv: 'PROVIDER_DEEPSEEK_KEY',
+    model: 'deepseek-flash',
+    capabilities: { toolUse: true },
+  }
+
+  assert.deepEqual(await probeProviderEndpoint(config), { toolUse: true })
+  const result = await generateReply(session, DEFAULT_AGENT,
+    'Use the attached external MCP tool with query "deepseek-path-proof".', collect().handlers,
+    undefined, config, undefined, contexts, undefined, { externalMcpConnections: [connection] })
+  assert.equal(result.outcome, 'ok')
+  assert.equal(result.message.toolActivities?.length, 1)
+  assert.equal(result.message.toolActivities?.[0]?.status, 'proposed', 'provider tool requests remain consent proposals')
+  assert.deepEqual(result.message.toolActivities?.[0]?.input, { query: 'deepseek-path-proof' })
+
+  const hits = seen.filter(hit => hit.body?.model === 'deepseek-flash')
+  assert.ok(hits.length >= 2, 'both the capability probe and real generation reached the proxy')
+  assert.ok(hits.every(hit => hit.path === '/anthropic/v1/messages'), 'the recorder observes the official-compatible base path intact')
+  assert.ok(hits.every(hit => hit.apiKey === 'deepseek-local-test-key'), 'the provider key reference is used for both probe and turn')
+  assert.ok(hits.every(hit => hit.body.tools?.length > 0), 'probe and generation both exercise native Messages tools')
+  assert.ok(hits.every(hit => hit.body.model === 'deepseek-flash'), 'the exact configured DeepSeek model is sent')
+})
+
+test('failed tool and no-tools probes hide upstream error bodies while retaining status and both attempts', async () => {
+  const model = 'messages-private-error-body-proof'
+  fakeProbeModel = model
+  try {
+    await assert.rejects(probeProviderEndpoint({ baseURL: recorderUrl, model }), error => {
+      assert.ok(error instanceof ProviderProbeError)
+      assert.doesNotMatch(error.message, /SYNTHETIC_PRIVATE_PROVIDER_BODY_MARKER/)
+      assert.match(error.message, /HTTP 422/)
+      return true
+    })
+  } finally {
+    fakeProbeModel = undefined
+  }
+  const attempts = seen.filter(hit => hit.body?.model === model)
+  assert.equal(attempts.length, 2)
+  assert.ok(attempts.every(hit => hit.path === '/v1/messages'))
+  assert.ok(attempts[0]?.body.tools?.length, 'the first attempt checks native tool support')
+  assert.equal(attempts[1]?.body.tools, undefined, 'the one fallback attempt is tool-free')
+})
+
+test('valid refusal and stop-sequence prose are successful terminal Messages responses with no tool effects', async () => {
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => {
+      throw new Error('a terminal prose response must not dispatch a tool')
+    },
+  }
+  for (const [stopReason, model] of [['refusal', 'claude-valid-refusal'], ['stop_sequence', 'claude-valid-stop-sequence']] as const) {
+    fakeStreamModel = model
+    fakeStreamContent = [{ type: 'text', text: `A complete ${stopReason} answer.` }]
+    fakeStreamStopReason = stopReason
+    const c = collect()
+    const result = await generateReply(session, DEFAULT_AGENT, 'Please answer carefully.', c.handlers,
+      undefined, { baseURL: recorderUrl, model, capabilities: { toolUse: true } }, undefined, [], api)
+    assert.equal(result.outcome, 'ok')
+    assert.equal(c.text, `A complete ${stopReason} answer.`)
+    assert.equal(result.message.content, c.text)
+    assert.equal(result.message.toolActivities, undefined)
+  }
+  fakeStreamModel = undefined
+  fakeStreamContent = []
+  fakeStreamStopReason = null
+})
+
+test('a refusal carrying a tool block is invalid and cannot dispatch the tool', async () => {
+  fakeStreamModel = 'claude-refusal-with-tool'
+  fakeStreamContent = [
+    { type: 'text', text: 'This response is refused.' },
+    { type: 'tool_use', id: 'refusal-tool-1', name: 'api__get_usage', input: { query: {} } },
+  ]
+  fakeStreamStopReason = 'refusal'
+  let dispatches = 0
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => {
+      dispatches += 1
+      return { status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('{"remaining":42}') }
+    },
+  }
+  try {
+    const result = await generateReply(session, { ...DEFAULT_AGENT, tools: [] }, 'Check usage.', collect().handlers,
+      undefined, { baseURL: recorderUrl, model: fakeStreamModel, capabilities: { toolUse: true } }, undefined, [], api)
+    assert.equal(result.outcome, 'fallback')
+    assert.equal(result.failure, 'invalid_model_response')
+    assert.equal(dispatches, 0)
+  } finally {
+    fakeStreamModel = undefined
+    fakeStreamContent = []
+    fakeStreamStopReason = null
+  }
 })
 
 test('a turn on a provider with its own endpoint reaches THAT endpoint, carrying its model id and credential', async () => {

@@ -5,18 +5,26 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('provider onboarding is one acknowledgement-owned form and credential ceremony', () => {
   const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const dialogs = stripComments(read(join(ROOT, 'src', 'components', 'ProviderDialogs.tsx')))
+  const deferred = stripComments(read(join(ROOT, 'src', 'components', 'DeferredProviderDialogs.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'providerCreationCommands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'providerCreationMutations.ts')))
   const notice = stripComments(read(join(ROOT, 'src', 'components', 'ProviderCreationMutationNotice.tsx')))
+  const defaults = stripComments(read(join(ROOT, 'src', 'lib', 'providerSetup.ts')))
 
-  assert.doesNotMatch(view, /createProvider\(/, 'the dialog cannot bypass acknowledged creation')
+  assert.match(view, /DeferredProviderDialog[\s\S]*onCreated=\{providerCreated\}/, 'the page opens the deferred first-run form')
+  assert.doesNotMatch(view, /import \{ ProviderDialog \}/, 'the large pane does not eagerly import provider forms')
+  assert.match(deferred, /lazy\(\(\) => import\('\.\/ProviderDialogs\.tsx'\)[\s\S]*<Dialog \{\.\.\.props\} \/>/, 'provider form code is an on-demand module')
+  assert.match(deferred, /role=\{failed \? 'alert' : 'status'\}[\s\S]*data-provider-form-load=\{failed \? 'failed' : 'loading'\}/, 'loading/failure is announced in a provider-owned state')
+  assert.match(deferred, /submitLabel=\{failed \? 'Reload app' : 'Loading…'\}[\s\S]*onSubmit=\{\(\) => window\.location\.reload\(\)\}[\s\S]*Copy any unsent workspace text before reloading/, 'a failed chunk has explicit no-mutation recovery')
+  assert.doesNotMatch(dialogs, /createProvider\(/, 'the dialog cannot bypass acknowledged creation')
   assert.equal(
-    (view.match(/enqueueProviderCreation\(\{/g) ?? []).length,
+    (dialogs.match(/enqueueProviderCreation\(\{/g) ?? []).length,
     2,
     'endpoint and Session providers enter the same controller',
   )
-  assert.match(view, /busy=\{busy\}/, 'the shared dialog freezes the exact submitted fields')
-  assert.match(view, /Your provider details are still here/, 'Dismiss preserves the authored form')
+  assert.match(dialogs, /busy=\{busy\}/, 'the shared dialog freezes the exact submitted fields')
+  assert.match(dialogs, /Your provider details are still here/, 'Dismiss preserves the authored form')
   assert.match(controller, /intentId: crypto\.randomUUID\(\)/, 'one form submission owns one logical identity')
   assert.match(controller, /captureProviderCreationSource/, 'the activation account is frozen before native or transport work')
   assert.doesNotMatch(controller, /import\(/, 'provider submission cannot depend on a newly fetched runtime chunk')
@@ -28,4 +36,20 @@ test('provider onboarding is one acknowledgement-owned form and credential cerem
   assert.match(controller, /bindProviderCreationCredential\(intent, provider\.id, credentials\)/, 'only acknowledged server identity binds the key')
   assert.match(controller, /definitelyUnapplied[\s\S]*discardProviderCreationCredential/, 'only a definitive refusal discards before user recovery')
   assert.match(notice, /kind="provider-create"/, 'uncertainty has one shell-owned recovery surface')
+  assert.match(dialogs, /Provider preset[\s\S]*Custom[\s\S]*Claude \/ Anthropic[\s\S]*OpenAI[\s\S]*DeepSeek/,
+    'first-party setup offers the three protocols and an editable custom path')
+  assert.match(defaults, /https:\/\/api\.deepseek\.com\/anthropic[\s\S]*deepseek-flash/,
+    'DeepSeek uses its documented Anthropic-compatible base and real model ID')
+  assert.match(dialogs, /config:\s*\{\s*protocol,/,
+    'the selected protocol is sent with the write-only endpoint configuration')
+  assert.match(dialogs, /model\.trim\(\)\.length > 0[\s\S]*model: model\.trim\(\)/,
+    'endpoint creation requires and submits an explicit model ID')
+  assert.match(dialogs, /provider !== null \|\| \(model\.trim\(\)\.length > 0[\s\S]*\)\)\s*&&/,
+    'model-ID admission applies only to endpoint creation, not editing an existing provider')
+  assert.match(dialogs, /modelFamily: family\.trim\(\), effortLevels: \[\],[\s\S]*config:/,
+    'endpoint providers start with no claimed effort levels until their own catalog supplies them')
+  assert.match(dialogs, /effortLevels: \['Low', 'Medium', 'High'\],[\s\S]*kind: 'session'/,
+    'the existing Session provider vocabulary remains unchanged')
+  assert.match(dialogs, /providerSetupDefaults\(nextPreset\)[\s\S]*if \(!defaults\) return/,
+    'Custom keeps the authored values while named presets fill editable fields')
 })

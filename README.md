@@ -109,17 +109,18 @@ sidecar or a remote server; `GET /v1/capabilities` describes which host-bound
 operations are available, and unsupported native operations return
 `409 capability_unavailable` rather than being guessed from the environment.
 
-Generation runs through `@anthropic-ai/sdk` and a real, bounded Messages tool-use
-loop, including result-dependent follow-up tool batches. `MODEL_MAX_TOOL_ROUNDS`
+Generation uses explicit Anthropic Messages or native OpenAI Responses adapters
+and one real, bounded tool-use loop, including result-dependent follow-up batches.
+DeepSeek is a preset for its official Anthropic-compatible endpoint. `MODEL_MAX_TOOL_ROUNDS`
 sets the executed-batch budget (default 4, hard ceiling 8); the first over-budget
 request runs nothing and ends visibly.
 Development boots an Anthropic-compatible deterministic model server at `:8788`.
-Set `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY`, and optionally `ANTHROPIC_MODEL` to
-point the same seam at a live provider.
+Provider-specific connections are verified and stored separately; fixture tests
+do not constitute paid-provider acceptance.
 
 Routine cadence and execution are durable in the desktop process. A fire freezes
-its authored definition and endpoint binding, then runs the same guarded Messages
-loop under the bound Agent's live authority and budget. Transient failures retry
+its authored definition and endpoint binding, then runs the same guarded
+provider-neutral tool loop under the bound Agent's live authority and budget. Transient failures retry
 three times by default with exponential backoff; operators can tune
 `ROUTINE_MAX_ATTEMPTS` (1–8) and `ROUTINE_RETRY_BASE_MS` (default 5000).
 The worker queues excess runs without spending attempts: defaults are four active
@@ -413,8 +414,9 @@ For example: `AUTH_SECRET=replace-with-32-plus-random-characters CORS_ORIGIN=htt
 For remote-capability development without the release checks, use
 `BACKEND=remote npm run server`.
 
-In the Electron app, Models → New provider accepts a Messages API URL and an
-optional API key. The key is encrypted through the OS account (`safeStorage`) in
+In the Electron app, Models → New provider selects Anthropic Messages or OpenAI
+Responses and accepts its endpoint fields and an optional API key; Claude and
+DeepSeek presets use Anthropic Messages. The key is encrypted through the OS account (`safeStorage`) in
 the app's user-data directory; Agent Commons' database and HTTP requests retain
 only a generated `PROVIDER_DESKTOP_*` reference. The bridge is write-only—there
 is no renderer operation to read or list keys. Linux installations without a
@@ -426,7 +428,7 @@ a committed provider may already reference.
 
 On a fresh install, the opening draft detects that no model can answer and offers
 one **Connect a model** action. It opens the same Models provider form directly;
-after a Messages endpoint is verified, Agent Commons selects it and returns to the
+after a supported provider endpoint is verified, Agent Commons selects it and returns to the
 untouched draft ready for the first message. Creating an offline Session provider
 does not claim readiness—the session's drain loop still has to connect.
 
@@ -471,8 +473,8 @@ covers actual macOS selection and remembered-connection lifecycles on its named
 unsigned arm64 build; it is not a signed two-architecture release receipt.
 
 For a provider you created, Models → provider → **Update connection** replaces
-only the URL, model, or key you enter. The server merges those write-only fields,
-verifies the effective Messages connection before committing it, and leaves the
+only the protocol, URL, model, or key you enter. The server merges those write-only fields,
+verifies the effective provider connection before committing it, and leaves the
 previous connection intact on failure. A successful desktop key rotation retires
 the prior encrypted key; an interrupted post-save bind is repaired on restart.
 
@@ -490,7 +492,7 @@ npm run build
 ANTHROPIC_BASE_URL=https://api.anthropic.com ANTHROPIC_API_KEY=… npm run start
 ```
 
-Outside Electron, the Models page registers another Messages-compatible endpoint
+Outside Electron, the Models page registers another supported endpoint protocol
 using an optional `PROVIDER_*` environment-variable reference: launch the server
 with the variable already set, then enter only that variable's name. In both
 modes a custom endpoint is probed before it is saved or replaced; endpoint URLs,

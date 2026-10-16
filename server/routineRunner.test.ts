@@ -309,6 +309,28 @@ test('transient endpoint loss persists a retry cursor, then succeeds on the next
   assert.equal(state.completions.length, 1)
 })
 
+test('an invalid completed model response is terminal and never retries paid work', async () => {
+  const state = fakeState()
+  let calls = 0
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
+    calls += 1
+    reportUsage(args)
+    return generated({ outcome: 'fallback', failure: 'invalid_model_response' })
+  }) as RoutineGenerate
+  const runner = createRoutineRunner(fakeStore(state), generate, { now: () => 1_000, retryBaseMs: 1 })
+  runner.start()
+  await settle(state)
+  runner.stop()
+
+  assert.equal(calls, 1)
+  assert.equal(state.context.run.attempts, 1)
+  assert.deepEqual(state.deferrals, [])
+  assert.deepEqual(state.outcomes, ['fallback'])
+  assert.equal(state.failures[0]?.code, 'model_unavailable')
+  assert.deepEqual(state.completions, [])
+  assert.deepEqual(state.usage, [[12, 8, 'tenant-1']], 'settled usage remains accounted despite invalid output')
+})
+
 test('a deterministic tool-loop limit fails once and is never retried', async () => {
   const state = fakeState()
   let calls = 0

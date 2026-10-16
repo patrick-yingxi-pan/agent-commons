@@ -9,7 +9,7 @@
 import type { ModelExecution } from '../../contract/index.ts'
 
 type Env = Record<string, string | undefined>
-type EndpointConfig = { baseURL?: string; apiKeyEnv?: string }
+type EndpointConfig = { protocol?: string; baseURL?: string; apiKeyEnv?: string; model?: string }
 
 function loopback(url: string): boolean {
   try {
@@ -21,6 +21,13 @@ function loopback(url: string): boolean {
 }
 
 export function endpointExecution(config: EndpointConfig = {}, env: Env = process.env): ModelExecution {
+  const protocol = config.protocol ?? 'anthropic-messages'
+  if (protocol !== 'anthropic-messages' && protocol !== 'openai-responses') return 'unconfigured'
+  // Responses does not inherit Anthropic's ambient endpoint, model, key, or the
+  // development Messages mock. It is runnable only from a complete explicit
+  // provider connection.
+  if (protocol === 'openai-responses' && (!config.baseURL?.trim() || !config.model?.trim())) return 'unconfigured'
+
   if (config.baseURL) {
     return config.apiKeyEnv && !env[config.apiKeyEnv]?.trim() ? 'unconfigured' : 'configured'
   }

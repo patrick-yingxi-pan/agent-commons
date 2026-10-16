@@ -5,23 +5,28 @@ import { read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
 test('provider definitions use one sparse held-draft recovery path', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const dialogs = stripComments(read(join(ROOT, 'src', 'components', 'ProviderDialogs.tsx')))
   const form = stripComments(read(join(ROOT, 'src', 'components', 'FormDialog.tsx')))
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'commands.ts')))
   const controller = stripComments(read(join(ROOT, 'src', 'controller', 'providerDefinitionMutations.ts')))
 
-  assert.match(section, /import \{[\s\S]{0,200}updateProviderDefinition,[\s\S]{0,200}\} from '\.\.\/controller\/providerDefinitionMutations'/,
+  assert.match(dialogs, /import \{ updateProviderDefinition \} from '\.\.\/controller\/providerDefinitionMutations\.ts'/,
     'provider surfaces enter the acknowledgement queue, not the transport door')
   assert.doesNotMatch(section, /updateProvider,[\s\S]*from '\.\.\/api'/,
     'the component has no unconditional provider-definition command path')
-  assert.match(section, /const original = useRef\(provider\)\.current/,
+  assert.doesNotMatch(dialogs, /updateProvider,[\s\S]*from '\.\.\/api'/,
+    'the extracted forms cannot bypass acknowledgement either')
+  assert.match(dialogs, /const original = useRef\(provider\)\.current/,
     'ambient refresh cannot reinterpret a remote provider field as local intent')
-  assert.match(section, /labelChanged[\s\S]*familyChanged[\s\S]*defaultChanged/,
+  assert.match(dialogs, /labelChanged[\s\S]*familyChanged[\s\S]*defaultChanged/,
     'every exposed edit field has explicit dirty semantics')
-  assert.match(section, /const outcome = await updateProviderDefinition\(provider\.id, \{/,
+  assert.match(dialogs, /const outcome = await updateProviderDefinition\(provider\.id, \{/,
     'the exact sparse patch remains held through conflict recovery')
-  assert.match(section, /<fieldset disabled=\{busy\}/,
+  assert.match(dialogs, /busy=\{busy\}/,
+    'provider edits pass their held state to the shared form')
+  assert.match(form, /fieldsDisabled = busy[\s\S]*<fieldset disabled=\{fieldsDisabled\}/,
     'a queued draft cannot change underneath its frozen retry payload')
-  assert.match(section, /import \{ FormDialog, FormField \} from '\.\/FormDialog\.tsx'/,
+  assert.match(dialogs, /import \{ FormDialog, FormField \} from '\.\/FormDialog\.tsx'/,
     'provider dialogs use the guarded shared form')
   assert.match(form, /const close = \(\) => \{\s*if \(!busy\) onClose\(\)/,
     'Escape, scrim, Close, and Cancel cannot discard a held draft while its mutation is unresolved')
