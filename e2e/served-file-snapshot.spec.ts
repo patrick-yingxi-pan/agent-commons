@@ -454,7 +454,7 @@ test('lost Refresh acknowledgement retries the same durable request; send and re
     await expect(restored).toContainText(saved!.text)
     expect(intakeReads, 'reopening uses the persisted snapshot instead of the source').toBe(1)
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Summarize the saved note.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: /Read supplied attachment: # Notes/ })).toBeVisible({ timeout: ms(25_000) })

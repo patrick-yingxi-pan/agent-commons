@@ -99,7 +99,7 @@ test('folder snapshots survive reload, reach the model, and detach by opaque fol
     await sameFiles.last().click()
     await expect(panel).toContainText(`${nonce}-2`)
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Summarize the selected folders.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: `${nonce}-1` })).toBeVisible({ timeout: ms(20_000) })

@@ -72,7 +72,7 @@ test('a mid-generation account switch: the turn survives, the other tenant sees 
 
   // Send the paced turn from the fresh thread; wait until the reply is
   // demonstrably MID-STREAM (some text arrived, the marker's tail hasn't).
-  await page.getByPlaceholder('Reply to Claude…').fill(PACED_MESSAGE)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(PACED_MESSAGE)
   await page.keyboard.press('Enter')
   await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
   // The draft materialized into a real, persisted session (server-minted id,

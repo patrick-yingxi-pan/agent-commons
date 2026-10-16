@@ -174,7 +174,7 @@ test('native Git repository attaches saved tracked text and refreshes only on ex
     await captureMatrix(page, preview.locator('p').first(), testInfo, 'saved-preview', { preview: '[data-workspace-folder="' + folderId + '"]', file: /^src\/nested\/notes\.md(?: |$)/ })
     expect(await page.evaluate(() => (window as any).__nativeGitCalls.filter((call: unknown[]) => call[0] === 'snapshot').length)).toBe(1)
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Summarize the saved repository note.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: 'Read supplied attachment: Saved tracked repository text.' })).toBeVisible({ timeout: ms(20_000) })

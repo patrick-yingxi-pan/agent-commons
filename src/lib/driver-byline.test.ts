@@ -1,8 +1,4 @@
-/** Surface-audit S5 — a turn's byline is the Agent that DROVE it (per-turn provenance,
- *  so a D16 mid-thread hand-off is visible), not a flat 'Claude' constant. These lock
- *  the pure resolver: the default agent / an absent id / an unresolvable id all read
- *  'Claude' (ordinary single-agent threads are byte-unchanged), while a non-default
- *  worker Agent reads its own label. */
+/** Agent authorship is distinct from the model that supplied the reply. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { driverByline, DEFAULT_AGENT_ID } from './driverByline.ts'
@@ -12,20 +8,20 @@ const agents = [
   { id: 'agent-default', label: 'Default agent' },
 ]
 
-test('a user turn / a legacy message with no driver reads Claude', () => {
-  assert.equal(driverByline(undefined, agents), 'Claude')
+test('an unstamped legacy driver stays provider-neutral', () => {
+  assert.equal(driverByline(undefined, agents), 'Assistant')
 })
 
-test('the DEFAULT agent reads Claude, NOT its stored label ("Default agent")', () => {
-  assert.equal(driverByline(DEFAULT_AGENT_ID, agents), 'Claude')
-  assert.equal(driverByline('agent-default', agents), 'Claude', 'ordinary N=1 threads unchanged')
+test('the default Agent uses its registered label rather than a model-vendor alias', () => {
+  assert.equal(driverByline(DEFAULT_AGENT_ID, agents), 'Default agent')
+  assert.equal(driverByline(DEFAULT_AGENT_ID, [{ id: DEFAULT_AGENT_ID, label: 'Workspace assistant' }]), 'Workspace assistant')
 })
 
 test('a non-default agent that drove the turn reads its own label — the hand-off is visible', () => {
   assert.equal(driverByline('agent-scout', agents), 'Research scout')
 })
 
-test('an unresolvable (since-deleted) driver falls back to Claude, never blank', () => {
-  assert.equal(driverByline('agent-gone', agents), 'Claude')
-  assert.equal(driverByline('agent-scout', []), 'Claude')
+test('an unavailable driver never guesses a model vendor', () => {
+  assert.equal(driverByline('agent-gone', agents), 'Assistant')
+  assert.equal(driverByline('agent-scout', []), 'Assistant')
 })

@@ -69,13 +69,13 @@ async function exerciseStopRecovery(
     expect(created.ok(), 'a real fresh session is created for this viewport').toBe(true)
     sessionId = ((await created.json()) as { id: string }).id
     await page.goto(`/s/${sessionId}`)
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await expect(composer).toBeEnabled()
     await composer.fill(message)
     await composer.press('Enter')
 
     await expect(page).toHaveURL(new RegExp(`/s/${sessionId}$`), { timeout: ms(15_000) })
-    await expect(page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    await expect(page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
     await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
     const session = await (await page.request.get(`/api/v1/sessions/${sessionId}`)).json() as {
       activeTurnId?: string
@@ -90,7 +90,7 @@ async function exerciseStopRecovery(
       await splitPane(page, 'right')
       duplicatedPanes = page.locator(`[data-conversation-pane="${sessionId}"]`)
       await expect(duplicatedPanes).toHaveCount(2)
-      await expect(duplicatedPanes.getByText('Claude is writing…', { exact: true })).toHaveCount(2)
+      await expect(duplicatedPanes.getByText('Generating a reply…', { exact: true })).toHaveCount(2)
       await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(2)
       await duplicatedPanes.last().getByRole('button', { name: 'Stop', exact: true }).click()
     } else {
@@ -131,7 +131,7 @@ async function exerciseStopRecovery(
     // the paced model stream ends and its partial is durably persisted.
     const settled = await page.request.post(expectedCancelPath!)
     expect(settled.ok(), 'the real cancellation settles the same server-owned turn').toBe(true)
-    await expect(page.getByText('Claude is writing…', { exact: true })).toHaveCount(0, { timeout: ms(10_000) })
+    await expect(page.getByText('Generating a reply…', { exact: true })).toHaveCount(0, { timeout: ms(10_000) })
     await expect(page.getByText('Stop requested. Waiting for the reply to finish…', { exact: true })).toHaveCount(0)
     await expect(page.getByRole('alert').filter({ hasText: 'Couldn’t confirm Stop. The reply may still be running.' })).toHaveCount(0)
     await expect.poll(async () => {
@@ -224,7 +224,7 @@ test('a conversation viewer can follow its live reply but only the owner can sen
     const ownerComposer = owner.page.getByRole('textbox', { name: 'Message', exact: true })
     await ownerComposer.fill(message)
     await ownerComposer.press('Enter')
-    await expect(owner.page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    await expect(owner.page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
     await expect(owner.page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
     const live = await (await owner.page.request.get(`/api/v1/sessions/${sessionId}`)).json() as {
       activeTurnId?: string
@@ -235,7 +235,7 @@ test('a conversation viewer can follow its live reply but only the owner can sen
     // later. Reload while the turn is active to exercise the documented GET +
     // live reattach path; this does not claim start-time auto-discovery.
     await grace.page.reload()
-    await expect(grace.page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    await expect(grace.page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
     await expect(grace.page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
     await expect(grace.page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
     await expect(grace.page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0)
@@ -246,8 +246,8 @@ test('a conversation viewer can follow its live reply but only the owner can sen
 
     await expect(owner.page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
     await owner.page.getByRole('button', { name: 'Stop', exact: true }).click()
-    await expect(owner.page.getByText('Claude is writing…', { exact: true })).toHaveCount(0, { timeout: ms(10_000) })
-    await expect(grace.page.getByText('Claude is writing…', { exact: true })).toHaveCount(0, { timeout: ms(10_000) })
+    await expect(owner.page.getByText('Generating a reply…', { exact: true })).toHaveCount(0, { timeout: ms(10_000) })
+    await expect(grace.page.getByText('Generating a reply…', { exact: true })).toHaveCount(0, { timeout: ms(10_000) })
     await expect.poll(async () => {
       const full = await (await owner.page.request.get(`/api/v1/sessions/${sessionId}`)).json() as {
         messages?: Array<{ role: string; content: string }>

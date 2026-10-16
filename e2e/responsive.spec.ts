@@ -70,7 +70,7 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
 
   // The composer works at phone width; the turn round-trips.
   const message = `responsive phone hello ${STAMP}`
-  await page.getByPlaceholder('Reply to Claude…').fill(message)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(message)
   await page.keyboard.press('Enter')
   await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(20_000) })
   expect(await noHorizontalScroll(page), 'no horizontal scroll with a thread').toBe(true)
@@ -99,7 +99,7 @@ test('phone (375×812): rail drawer over a scrim, full-viewport panel takeover, 
 
   // Close returns to the thread (composer visible again).
   await panelClose.click()
-  await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
   await expect(page.locator('main section[inert]')).toHaveCount(0)
   expect(await noHorizontalScroll(page), 'no horizontal scroll after panel close').toBe(true)
 })
@@ -257,7 +257,7 @@ test('tablet (768×1024): the panel overlays the thread behind a scrim; the scri
 
   // Overlay mode: the thread keeps its full width under the panel (the composer
   // still spans the thread column rather than being squeezed by the panel).
-  const composerBox = (await page.getByPlaceholder('Reply to Claude…').boundingBox())!
+  const composerBox = (await page.getByRole('textbox', { name: 'Message', exact: true }).boundingBox())!
   expect(composerBox.width).toBeGreaterThan(300)
 
   // The scrim (not the panel) dismisses on click — near its left edge, clear of
@@ -301,7 +301,7 @@ test('landscape phone (844×390, short): compressed chrome, usable composer', as
 
   // Thread + composer are both on screen and a send works.
   const message = `responsive landscape hello ${STAMP}`
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await expect(composer).toBeInViewport()
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
   await composer.fill(message)

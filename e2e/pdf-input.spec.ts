@@ -61,8 +61,8 @@ test('a real PDF is extracted locally, delivered as text, restored and detached'
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
       await page.screenshot({ path: `.data/pdf-review/${viewport.width}x${viewport.height}-ready.png` })
     }
-    await page.getByPlaceholder('Reply to Claude…').fill('Summarize the attached document.')
-    await page.getByPlaceholder('Reply to Claude…').press('Enter')
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Summarize the attached document.')
+    await page.getByRole('textbox', { name: 'Message', exact: true }).press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: marker })).toBeVisible({ timeout: ms(20_000) })
     expect(endpoint.documents.at(-1)?.attached_files).toEqual([{
       name: 'research.pdf', status: 'ready', text: `[Page 1]\n${marker}\n\n[Page 3]\n${conclusion}`,
@@ -77,8 +77,8 @@ test('a real PDF is extracted locally, delivered as text, restored and detached'
     await expect(preview).toContainText(marker)
     await page.getByTitle('Remove file', { exact: true }).click()
     await expect(preview).toHaveCount(0)
-    await page.getByPlaceholder('Reply to Claude…').fill('What attached text remains?')
-    await page.getByPlaceholder('Reply to Claude…').press('Enter')
+    await page.getByRole('textbox', { name: 'Message', exact: true }).fill('What attached text remains?')
+    await page.getByRole('textbox', { name: 'Message', exact: true }).press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: 'No supplied attachment text.' })).toBeVisible({ timeout: ms(20_000) })
     expect(endpoint.seen.at(-1)).not.toContain(marker)
   } finally {

@@ -40,15 +40,15 @@ test('a failed workspace preview chunk keeps the conversation usable and reload 
   await expect(failed).toContainText('The workspace preview could not load')
   await expect(failed).toContainText('attached snapshots have not been removed')
   await expect(failed.getByRole('button', { name: 'Reload app', exact: true })).toBeVisible()
-  await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
   expect(intercepted, 'the test failed the real deferred ArtifactPanel request').toBe(true)
 
   fail = false
   await failed.getByRole('button', { name: 'Reload app', exact: true }).click()
-  await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible({ timeout: ms(20_000) })
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible({ timeout: ms(20_000) })
   await expect(page.locator('[data-workspace-load-failed]')).toHaveCount(0)
   await expect(page.locator('[data-folder-snapshot-preview]')).toContainText('Imported body must win over the same-name demo library.', { timeout: ms(20_000) })
   const restored = await page.request.get(`/api/v1/sessions/${session.id}`)
   expect((await restored.json()).workspace).toEqual(workspace)
-  await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
 })

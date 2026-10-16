@@ -1,13 +1,13 @@
 import { motion } from 'framer-motion'
 import { lazy, Suspense, useRef } from 'react'
-import { ArrowRight, Check, Radio } from 'lucide-react'
+import { ArrowRight, Bot, Check, Radio } from 'lucide-react'
 import type { EscalationProposal, Message as MessageT } from '../types'
 import { renderRich } from '../lib/rich'
 import { driverByline } from '../lib/driverByline'
+import { turnProvenance } from '../lib/turnProvenance'
 import { FOCUS_FLASH_CLASS, useFocusFlash, usePendingFocus } from '../lib/focusContext'
 import { useAgents, useProviders } from '../api'
 import { useRelations } from '../controller/useRelations'
-import { ClaudeMark } from './ClaudeMark'
 import { DeferredRelationActionCard as RelationActionCard } from './DeferredRelationActionCard'
 import { DeferredToolActivityCard } from './DeferredToolActivityCard'
 import { LocusGutter } from './LocusGutter'
@@ -18,20 +18,13 @@ const SessionForkAction = lazy(() =>
   import('./SessionForkAction.tsx').then((module) => ({ default: module.SessionForkAction })),
 )
 
-/** Whether this turn's cognition came over a Session provider — the
- *  delegated-cognition relay. Those words came from the user's OWN session's model,
- *  not an endpoint we dialed, and the reply is marked as such (external/untrusted
- *  provenance, docs/delegated-cognition-provider.md §5). Reads the per-turn
- *  provider stamp (`message.providerId` — how the turn actually routed, session
- *  pick included); legacy messages without one fall back to the driving Agent's
- *  provider. */
-function useIsRelayed(message: MessageT): boolean {
-  const agents = useAgents().data ?? []
-  const providers = useProviders().data ?? []
-  const providerId =
-    message.providerId ??
-    (message.agentId ? agents.find((a) => a.id === message.agentId)?.providerId : undefined)
-  return !!providerId && providers.find((p) => p.id === providerId)?.kind === 'session'
+/** Recorded and in-flight assistant replies wear the same provider-neutral cue. */
+function AssistantAvatar() {
+  return (
+    <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-tint">
+      <Bot size={16} aria-hidden="true" className="text-accent-strong" />
+    </div>
+  )
 }
 
 /** The applied face of a persisted escalation proposal (today: `create_project`)
@@ -74,7 +67,8 @@ function TurnMessageRow({
   tenantId?: string
   onOpenSession?: (id: string) => void
 }) {
-  const relayed = useIsRelayed(message)
+  const providers = useProviders()
+  const provenance = turnProvenance(message, providers.data, providers.status === 'error')
   // A turn is an ADDRESSABLE position (SOCIAL-6b): a discussion can anchor to
   // it, and the chip on that thread doors back here. Reading `pending` at
   // render is deliberate — `useFocusFlash` consumes it in the same effect that
@@ -82,8 +76,7 @@ function TurnMessageRow({
   const { pending } = usePendingFocus()
   const rowRef = useRef<HTMLDivElement>(null)
   const flash = useFocusFlash(pending?.messageId === message.id, rowRef)
-  // S5 — the byline is the Agent that DROVE this turn (per-turn provenance), so a D16
-  // hand-off is visible; the default agent / a user turn / a legacy message read 'Claude'.
+  // Agent identity and the model that answered are separate, exact-ID projections.
   const byline = driverByline(message.agentId, useAgents().data ?? [])
   const isUser = message.role === 'user'
   return (
@@ -102,30 +95,21 @@ function TurnMessageRow({
       className={`group px-4 py-3 transition ${flash ? FOCUS_FLASH_CLASS : ''}`}
     >
       <div className="mx-auto flex w-full max-w-3xl gap-3">
-        <div className="mt-0.5 shrink-0">
-          {isUser ? (
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-userbubble text-[12px] font-semibold text-ink-soft">
-              P
-            </div>
-          ) : (
-            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-accent-tint">
-              <ClaudeMark size={16} />
+        {isUser ? (
+          <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-userbubble text-[12px] font-semibold text-ink-soft">
+            P
+          </div>
+        ) : <AssistantAvatar />}
+        <div className="min-w-0 flex-1">
+          <div data-turn-author className="mb-0.5 min-w-0 text-[12px] font-semibold text-ink-soft [overflow-wrap:anywhere]">
+            {isUser ? 'You' : byline}
+          </div>
+          {!isUser && (
+            <div data-turn-model className="mb-1 flex min-w-0 items-start gap-1 text-[11px] text-ink-soft">
+              {provenance.relayed && <Radio size={12} aria-hidden="true" className="mt-0.5 shrink-0" />}
+              <span className="min-w-0 [overflow-wrap:anywhere]">{provenance.label}</span>
             </div>
           )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="mb-0.5 flex items-center gap-1.5 text-[12px] font-semibold text-ink-soft">
-            {isUser ? 'You' : byline}
-            {!isUser && relayed && (
-              <span
-                title="This reply was generated by your own delegated session (a Session provider), not an endpoint we dialed."
-                className="inline-flex items-center gap-1 rounded bg-panel-2 px-1.5 py-px text-[10px] font-medium text-ink-faint"
-              >
-                <Radio size={10} />
-                via your delegated session
-              </span>
-            )}
-          </div>
           <div className="whitespace-pre-wrap text-[15px] leading-relaxed text-ink">
             {renderRich(message.content)}
           </div>
@@ -192,9 +176,7 @@ export function TypingRow({ waitingOn }: { waitingOn?: string }) {
       className="px-4 py-3"
     >
       <div className="mx-auto flex w-full max-w-3xl gap-3">
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-tint">
-          <ClaudeMark size={16} />
-        </div>
+        <AssistantAvatar />
         <div className="flex items-center gap-1.5 pt-2">
           {[0, 1, 2].map((i) => (
             <span

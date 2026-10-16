@@ -137,7 +137,7 @@ test('a draft captures a confirmed readable Artifact as a complete copy on its f
   const artifact = await createArtifact(page, title, body)
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session', exact: true }).click()
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await expect(composer).toBeVisible()
   let sessionWrites = 0
   page.on('request', (request) => {

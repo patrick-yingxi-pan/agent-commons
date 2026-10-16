@@ -10,6 +10,7 @@ import {
   type ModelPick,
 } from '../lib/models'
 import type { ModelPrefs } from '../lib/modelPrefs'
+import { COMPOSER_MODEL_LAYOUT } from '../lib/composerLayout'
 import { updateModelPreferences, useModelPreferences } from '../controller/modelPreferences'
 import { useProviders } from '../api'
 import { useDismissable } from '../lib/useDismissable'
@@ -99,10 +100,10 @@ export function ModelEffortControl({
   const opus = isOpusModel(model?.id)
 
   return (
-    <div ref={wrapRef} className="relative">
+    <div ref={wrapRef} className={COMPOSER_MODEL_LAYOUT.picker}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium transition ${
+        className={`${COMPOSER_MODEL_LAYOUT.trigger} flex items-center gap-1.5 rounded-lg px-2 py-1 text-[12px] font-medium transition ${
           open ? 'bg-panel-2 text-ink' : 'text-ink-soft hover:bg-panel-2'
         }`}
         title="Model & effort"
@@ -126,7 +127,7 @@ export function ModelEffortControl({
         <span className="max-w-[160px] truncate text-ink">
           {displayModelLabel(providers, pick, onDefaultProvider ? effort : undefined)}
         </span>
-        <ChevronDown size={13} className={`transition ${open ? 'rotate-180' : ''}`} />
+        <ChevronDown size={13} className={`shrink-0 transition ${open ? 'rotate-180' : ''}`} />
       </button>
 
       {open && (

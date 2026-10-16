@@ -87,7 +87,7 @@ test('a retired live-turn handle recovers its saved reply without another send a
     await expect.poll(() => missingStreams).toBe(1)
     expect(detailReads).toBeGreaterThanOrEqual(2)
     await expect(page.getByText('Generation was interrupted.', { exact: false })).toHaveCount(0)
-    await expect(page.getByText('Claude is writing…')).toHaveCount(0)
+    await expect(page.getByText('Generating a reply…')).toHaveCount(0)
     await expect(page.locator('[data-turn]')).toHaveCount(2)
     expect(additionalSends).toBe(0)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

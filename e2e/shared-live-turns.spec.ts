@@ -134,7 +134,7 @@ async function sendPacedTurn(
   for (const page of [owner, ...ownerMirrors, ...readers]) {
     const replies = page.locator('[data-turn]').filter({ hasText: REPLY_MARKER })
     await expect(replies).toHaveCount(priorTurns + 1, { timeout: ms(15_000) })
-    await expect(page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    await expect(page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
     const partial = await replies.last().innerText()
     expect(partial, 'the rendered assistant reply is visibly partial while generation is active').not.toContain('digest')
   }
@@ -242,7 +242,7 @@ test('mounted shared readers and another owner window follow two live turns with
       const replies = page.locator('[data-turn]').filter({ hasText: REPLY_MARKER })
       await expect(replies).toHaveCount(1)
       await expect(replies.last()).toContainText('digest')
-      await expect(page.getByText('Claude is writing…', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('Generating a reply…', { exact: true })).toHaveCount(0)
     }
 
     await sendPacedTurn(owner.page, [ownerMirror.page], [reader.page], sessionId, secondMessage, 1)
@@ -254,7 +254,7 @@ test('mounted shared readers and another owner window follow two live turns with
       const replies = page.locator('[data-turn]').filter({ hasText: REPLY_MARKER })
       await expect(replies).toHaveCount(2)
       await expect(replies.last()).toContainText('digest')
-      await expect(page.getByText('Claude is writing…', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('Generating a reply…', { exact: true })).toHaveCount(0)
     }
     await expect(mirrorComposer).toHaveValue(mirrorDraft)
     expect({ ownerReloads, mirrorReloads, readerReloads }, 'all mounted windows observed both turns without reload').toEqual({
@@ -369,24 +369,24 @@ test('an owner mirror observes a next turn that starts before its prior reattach
     const ownerComposer = owner.page.getByRole('textbox', { name: 'Message', exact: true })
     await ownerComposer.fill(firstMessage)
     await ownerComposer.press('Enter')
-    await expect(owner.page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    await expect(owner.page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
     await expect(owner.page.locator('[data-turn]').filter({ hasText: REPLY_MARKER })).toBeVisible({ timeout: ms(15_000) })
     await expect.poll(() => !!firstActiveRead, { timeout: ms(15_000) }).toBe(true)
-    await expect(ownerMirror.page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    await expect(ownerMirror.page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
     await firstStreamStarted
 
     // The first server stream is real and complete, but its browser response is
     // held. This keeps the mirror's prior observation busy after turn one ends.
-    await expect(owner.page.getByText('Claude is writing…', { exact: true })).toHaveCount(0, { timeout: ms(20_000) })
+    await expect(owner.page.getByText('Generating a reply…', { exact: true })).toHaveCount(0, { timeout: ms(20_000) })
     await completeTurns(owner.page, sessionId, ['user', 'assistant'])
     const buffered = await firstStreamBuffered
     expect(buffered.status, 'the mirror fetched the real first-turn SSE response').toBe(200)
     expect(buffered.body, 'the held response contains the complete first turn').toContain('"type":"message.end"')
-    await expect(ownerMirror.page.getByText('Claude is writing…', { exact: true })).toBeVisible()
+    await expect(ownerMirror.page.getByText('Generating a reply…', { exact: true })).toBeVisible()
 
     await ownerComposer.fill(secondMessage)
     await ownerComposer.press('Enter')
-    await expect(owner.page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    await expect(owner.page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(15_000) })
     await expect(owner.page.locator('[data-turn]').filter({ hasText: REPLY_MARKER })).toHaveCount(2, { timeout: ms(15_000) })
     await expect.poll(async () => activeTurn(owner.page, sessionId), { timeout: ms(10_000) }).toBeTruthy()
     const secondTurnId = await activeTurn(owner.page, sessionId)
@@ -394,14 +394,14 @@ test('an owner mirror observes a next turn that starts before its prior reattach
     expect(secondActiveRead?.activeTurnId, 'the mirror performed an authoritative read of the second active turn').toBe(secondTurnId)
     expect(secondActiveRead?.messages?.some((message) => message.role === 'user' && message.content === secondMessage))
       .toBe(true)
-    await expect(ownerMirror.page.getByText('Claude is writing…', { exact: true })).toBeVisible()
+    await expect(ownerMirror.page.getByText('Generating a reply…', { exact: true })).toBeVisible()
     await expect(mirrorComposer).toBeDisabled()
     await expect(mirrorComposer).toHaveValue(mirrorDraft)
 
     releaseFirstStream()
     const mirrorReplies = ownerMirror.page.locator('[data-turn]').filter({ hasText: REPLY_MARKER })
     await expect(mirrorReplies).toHaveCount(2, { timeout: ms(15_000) })
-    await expect(ownerMirror.page.getByText('Claude is writing…', { exact: true })).toBeVisible({ timeout: ms(10_000) })
+    await expect(ownerMirror.page.getByText('Generating a reply…', { exact: true })).toBeVisible({ timeout: ms(10_000) })
     expect(await mirrorReplies.last().innerText(), 'the next reply appears before its server turn completes').not.toContain('digest')
     await expect.poll(() => activeTurn(owner.page, sessionId), { timeout: ms(10_000) }).toBeTruthy()
 
@@ -414,7 +414,7 @@ test('an owner mirror observes a next turn that starts before its prior reattach
       await expect(replies).toHaveCount(2)
       await expect(replies.nth(0)).toContainText('digest')
       await expect(replies.nth(1)).toContainText('digest')
-      await expect(page.getByText('Claude is writing…', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('Generating a reply…', { exact: true })).toHaveCount(0)
     }
     await expect(mirrorComposer).toBeEnabled()
     await expect(mirrorComposer).toHaveValue(mirrorDraft)

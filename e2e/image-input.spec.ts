@@ -128,7 +128,7 @@ test('real PNG, BMP, ICO and SVG images become durable references and model bloc
       await expect(preview).toHaveAttribute('data-attachment-preview', attachment.id)
       await expect.poll(() => preview.locator('img').last().evaluate((element: HTMLImageElement) => element.complete && element.naturalWidth > 0)).toBe(true)
       await assertWcag22Aa(page, `saved ${image.name} preview`)
-      const composer = page.getByPlaceholder('Reply to Claude…')
+      const composer = page.getByRole('textbox', { name: 'Message', exact: true })
       await composer.fill(`Describe the colors in ${image.name}.`)
       await composer.press('Enter')
       await expect(page.locator('[data-turn]').last().filter({ hasText: 'Received 1 supplied image(s).' })).toBeVisible({ timeout: ms(20_000) })

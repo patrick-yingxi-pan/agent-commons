@@ -29,7 +29,7 @@ test('a failed project create stays in place and retries the same logical mutati
   })
 
   await page.goto('/')
-  await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
   await page.getByRole('button', { name: 'New project' }).click()
   const dialog = page.getByRole('dialog', { name: 'New project' })

@@ -24,6 +24,7 @@ import type { UsageModelRef } from '../../contract/index.ts'
 import { planAttachmentInput, workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { workspaceFolders as foldersOf } from '../../contract/workspaceFolders.ts'
 import type { ModelPick } from '../lib/models'
+import { COMPOSER_MODEL_LAYOUT } from '../lib/composerLayout'
 import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
@@ -434,7 +435,7 @@ export function Composer({
                 submit()
               }
             }}
-            placeholder={disabled ? (disabledLabel ?? 'Claude is answering…') : 'Reply to Claude…'}
+            placeholder={disabled ? (disabledLabel ?? 'Generating a reply…') : 'Message…'}
             className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed short:max-h-24"
           />
           {/* Soft keyboards have no Enter-to-send convention — hide the hint. */}
@@ -457,7 +458,7 @@ export function Composer({
             />}
             <AudioInputControl />
           </div>
-          <div className="flex items-center gap-1.5">
+          <div data-composer-model-controls className={COMPOSER_MODEL_LAYOUT.group}>
             <ModelEffortControl pick={modelPick} onSelectModel={onSelectModel} />
             <ProvidersControl />
             <HostsControl />

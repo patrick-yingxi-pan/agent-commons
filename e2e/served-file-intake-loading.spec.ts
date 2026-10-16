@@ -24,7 +24,7 @@ test('served-file intake loads only after Files or Photos opens and cancel fence
   })
   try {
     await page.goto('/')
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('keep this draft while image intake loads')
     expect(requests, 'the optional read/parse/upload runtime is not in the boot graph').toBe(0)
 
@@ -54,7 +54,7 @@ test('a rejected served-file intake chunk stays local and only explicit reload r
   let blocked = true
   await page.route(MODULE, route => blocked ? route.abort() : route.continue())
   await page.goto('/')
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await composer.fill('keep this draft if intake is closed')
   const picker = await openKind(page, 'Photos')
   const failure = picker.locator('[data-served-file-intake="error"]')

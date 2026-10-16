@@ -71,7 +71,7 @@ test('deferred usage details remain contained, closable, and recover after a fai
     await page.goto(`/s/${encodeURIComponent(session.id)}`)
     const trigger = page.getByRole('button', { name: /^Usage — estimated context/ })
     await expect(trigger).toBeVisible({ timeout: ms(20_000) })
-    const draft = page.getByPlaceholder('Reply to Claude…')
+    const draft = page.getByRole('textbox', { name: 'Message', exact: true })
     await expect(draft).toBeVisible()
     await draft.fill(`Unsent usage-recovery draft ${stamp}`)
 
@@ -136,7 +136,7 @@ test('deferred usage details remain contained, closable, and recover after a fai
       page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
       cachedFailure.getByRole('button', { name: 'Reload usage details', exact: true }).click(),
     ])
-    await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
     const recoveredTrigger = page.getByRole('button', { name: /^Usage — estimated context/ })
     await expect(recoveredTrigger).toBeVisible()
     await recoveredTrigger.click()

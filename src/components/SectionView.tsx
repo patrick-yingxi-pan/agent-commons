@@ -4977,7 +4977,7 @@ function FeedCard({ item, standalone = false }: { item: CommonsItem; standalone?
           <div className="mt-1.5 space-y-1 border-t border-line pt-1.5">
             {item.subjectTurns.map((t, i) => (
               <p key={i} className="truncate text-[12px] text-ink-soft">
-                <span className="mr-1 font-medium text-ink-faint">{t.role === 'user' ? 'You' : 'Claude'}</span>
+                <span className="mr-1 font-medium text-ink-faint">{t.role === 'user' ? 'You' : 'Assistant'}</span>
                 {t.text}
               </p>
             ))}

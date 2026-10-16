@@ -47,7 +47,7 @@ test('create account via the wizard → own world → reload stays signed in →
 
   // The new account's world: fresh sidebar (none of Ada's sessions), own thread.
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
-  await page.getByPlaceholder('Reply to Claude…').fill(MESSAGE)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(MESSAGE)
   await page.keyboard.press('Enter')
   await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
 

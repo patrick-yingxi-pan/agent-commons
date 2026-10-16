@@ -262,7 +262,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
   // The article prose itself — each user asks their agent in their OWN chat; the mock
   // model returns the canned draft (the one mocked seam). Sessions are tenant-scoped.
   await ada.page.getByRole('main').getByRole('button', { name: 'New session' }).click()
-  await ada.page.getByPlaceholder('Reply to Claude…').fill('Draft the introduction of our co-authored article.')
+  await ada.page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft the introduction of our co-authored article.')
   await ada.page.keyboard.press('Enter')
   await expect(ada.page.getByText(/Coordinating Agent Work/)).toBeVisible({ timeout: ms(20_000) })
 
@@ -270,7 +270,7 @@ test('two tenants each contribute an agent to co-author an article on one shared
   // absent for him — his drafting session is his own tenant-scoped chat, started from
   // HIS sidebar like any other.
   await bo.page.getByRole('complementary').getByRole('button', { name: 'New session' }).click()
-  await bo.page.getByPlaceholder('Reply to Claude…').fill('Draft the conclusion of our co-authored article.')
+  await bo.page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft the conclusion of our co-authored article.')
   await bo.page.keyboard.press('Enter')
   await expect(bo.page.getByText(/Coordinating Agent Work/)).toBeVisible({ timeout: ms(20_000) })
 

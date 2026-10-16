@@ -38,7 +38,7 @@ export function TurnControls({
   const message = stopping === 'pending' ? 'Stopping…'
     : stopping === 'requested' ? 'Stop requested. Waiting for the reply to finish…'
       : stopping === 'failed' ? 'Couldn’t confirm Stop. The reply may still be running.'
-        : streaming ? 'Claude is writing…' : (reason ?? 'Generation was interrupted.')
+        : streaming ? 'Generating a reply…' : (reason ?? 'Generation was interrupted.')
   return (
     <InlineOperationStatus
       tone={streaming && stopping !== 'failed' ? 'status' : 'alert'}

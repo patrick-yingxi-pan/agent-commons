@@ -390,7 +390,7 @@ test('a draft saved preview remains Added after first send materializes its sess
   }, { connectionId: GIT_ID })
   await signIntoAdaAndGrace(page)
   await page.getByRole('navigation').getByRole('button', { name: 'New session', exact: true }).click()
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await expect(composer).toBeVisible()
   await page.getByRole('button', { name: 'Add context', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Add context', exact: true })

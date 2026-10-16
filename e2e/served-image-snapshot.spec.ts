@@ -343,7 +343,7 @@ test('served Photo and Files images normalize into durable snapshots reused by r
       await foreign.context.close()
     }
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Describe the saved images.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').last().filter({ hasText: 'Received 3 supplied image(s).' })).toBeVisible({ timeout: ms(25_000) })

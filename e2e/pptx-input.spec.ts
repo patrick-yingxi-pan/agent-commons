@@ -153,7 +153,7 @@ test('a real presentation projects visible slide text, persists its preview, rea
       await page.screenshot({ path: `.data/pptx-review/${viewport.width}x${viewport.height}-ready.png` })
     }
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Summarize the visible presentation text.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: marker })).toBeVisible({ timeout: ms(20_000) })

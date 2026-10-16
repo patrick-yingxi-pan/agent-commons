@@ -334,7 +334,7 @@ test('served PDF, DOCX, XLSX, and PPTX parse into saved snapshots and send the s
       await foreign.context.close()
     }
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Summarize the saved documents.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: /Read supplied attachment:/ })).toBeVisible({ timeout: ms(25_000) })

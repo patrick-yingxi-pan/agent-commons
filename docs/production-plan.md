@@ -6,7 +6,38 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: ordinary packaged verification now includes
+Current implementation checkpoint: multi-provider conversations distinguish the
+driving Agent from the recorded model. Composer/live-turn/typing chrome is vendor-
+neutral; each ordinary assistant turn shows its exact recorded provider/model,
+decorated only by that viewer's exact connection label. Loading registries,
+failed registry reads, and unavailable private/deleted connections are distinct;
+all preserve the recorded model ID, and a readable cached exact connection label
+survives a failed registry read. Missing legacy stamps remain unknown without
+guessing from today's Agent binding, catalog or default. The default Agent uses
+its registered label, and role-only SectionView conversation excerpts say
+Assistant without inventing provenance. This is a presentation correction, not
+automatic model routing or new model authority. Existing placeholder-based
+harness locators now use the composer's stable accessible name. The
+wrong-connection and guessed-legacy mutations were watched fail. A 320px capture
+also found that a long provider label could push Usage beyond the composer's
+local right bound (332.125px versus 308px) while shell clipping hid it from the
+document-wide width check. The layout correction constrains the model label to
+the shared control group's available width, without a viewport breakpoint, and
+adds a local Usage-bounds lock; the old layout was watched fail that assertion.
+All ten focused browser checks and the 135/135-cell UI sweep pass, with no sweep
+violations or skips. Five-viewport long-label captures were visually reviewed.
+The first full verifier passed all 6,599 unit tests but caught a 36-byte startup
+graph overrun and an independent Sheet-save assertion matching two disabled
+editor textareas. A shared assistant avatar removes duplicate markup and passes
+the unchanged build budget. The Sheet test now holds the accepted save response,
+proves the disabled editor, then awaits its removal and reads the exact rendered
+cell; the old ambiguous assertion was watched fail under that hold.
+The final focused conversation and structured-artifact browser run passes 12/12.
+The complete frozen-tree local and unsigned desktop verifiers remain required
+before landing. Paid-provider acceptance and the owner-preview account-stack
+handoff remain deferred/unverified respectively.
+
+Previous implementation checkpoint: ordinary packaged verification now includes
 native OpenAI Responses acceptance on the original executable, without patched
 ASAR or mock keychain. Rendered OpenAI setup/canonical catalog, an explicitly
 bound Agent Dispatch, streamed read-tool continuation and exact opaque reasoning
@@ -23,7 +54,8 @@ the following complete local run exposed an independent image-OCR browser
 locator that matched both file-access loading and recognition status. A held
 module response now reproduces their overlap deterministically: the old locator
 was watched fail, and recognition is scoped to its exact import-region status.
-The final frozen tree must pass the complete local verifier before landing.
+Revision `2bf931ab` passed the complete local verifier (all five lanes, 748
+browser tests) and full unsigned arm64 desktop verifier, then landed on main.
 No paid-provider call or signed/Intel acceptance is implied.
 
 Previous implementation checkpoint: local protocol fixtures reproduced false

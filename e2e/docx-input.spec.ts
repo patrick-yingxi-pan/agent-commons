@@ -186,7 +186,7 @@ test('a real Word document projects body text, reaches the model, survives reloa
       await assertWcag22Aa(page, `DOCX ready preview at ${viewport.width}x${viewport.height}`)
     }
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Summarize the attached Word document.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: marker })).toBeVisible({ timeout: ms(20_000) })

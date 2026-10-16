@@ -90,7 +90,7 @@ test('same-name local files reach the endpoint independently while preview-only 
     expect(secondId).not.toBe(firstId)
     await closePreview(page)
 
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Please summarize the attached note.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: NONCE })).toBeVisible({ timeout: ms(20_000) })

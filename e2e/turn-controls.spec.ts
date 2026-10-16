@@ -29,16 +29,16 @@ test('Stop mid-stream: the partial persists, the streaming state stands down', a
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
 
-  await page.getByPlaceholder('Reply to Claude…').fill(PACED_MESSAGE)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(PACED_MESSAGE)
   await page.keyboard.press('Enter')
 
   // Mid-stream: the stop affordance is up and some text has arrived.
-  await expect(page.getByText('Claude is writing…')).toBeVisible({ timeout: ms(15_000) })
+  await expect(page.getByText('Generating a reply…')).toBeVisible({ timeout: ms(15_000) })
   await expect(page.getByText(/free-form chat is canned/).first()).toBeVisible({ timeout: ms(15_000) })
   await page.getByRole('button', { name: 'Stop', exact: true }).click()
 
   // The affordance stands down (the stream's own message.end cleared it).
-  await expect(page.getByText('Claude is writing…')).toHaveCount(0, { timeout: ms(10_000) })
+  await expect(page.getByText('Generating a reply…')).toHaveCount(0, { timeout: ms(10_000) })
 
   // The RECORD holds the cancelled partial: one user turn + one (truncated)
   // assistant turn — shorter than the full canned reply, which ends "…digest.".
@@ -113,7 +113,7 @@ test('Retry replays one logical send without duplicating the user turn or work',
 
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
-  await page.getByPlaceholder('Reply to Claude…').fill(RETRY_MESSAGE)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(RETRY_MESSAGE)
   await page.keyboard.press('Enter')
 
   const interrupted = page.getByRole('alert')
@@ -185,7 +185,7 @@ test('a committed send heals automatically after its response is lost', async ({
 
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
-  await page.getByPlaceholder('Reply to Claude…').fill(message)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(message)
   await page.keyboard.press('Enter')
 
   const reply = page.locator('[data-turn]').filter({ hasText: 'free-form chat is canned' })
@@ -238,7 +238,7 @@ test('Retry rematerializes a failed draft before sending its preserved user turn
 
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
-  await page.getByPlaceholder('Reply to Claude…').fill(DRAFT_RETRY_MESSAGE)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(DRAFT_RETRY_MESSAGE)
   await page.keyboard.press('Enter')
 
   const interrupted = page.getByRole('alert')
@@ -290,7 +290,7 @@ test('a committed draft is adopted automatically when its materialization respon
 
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session' }).click()
-  await page.getByPlaceholder('Reply to Claude…').fill(LOST_DRAFT_RESPONSE_MESSAGE)
+  await page.getByRole('textbox', { name: 'Message', exact: true }).fill(LOST_DRAFT_RESPONSE_MESSAGE)
   await page.keyboard.press('Enter')
 
   await expect(page).toHaveURL(/\/s\/sess-new-/, { timeout: ms(20_000) })

@@ -372,7 +372,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       await firstProviderDialog.waitFor({ state: 'hidden' })
       await page.waitForURL(`${origin}/`)
       await page.getByRole('heading', { name: 'What should we work on?' }).waitFor()
-      if (await page.getByPlaceholder('Reply to Claude…').isDisabled()) {
+      if (await page.getByRole('textbox', { name: 'Message', exact: true }).isDisabled()) {
         throw new Error('A verified packaged provider did not reopen an executable first draft.')
       }
 
@@ -476,7 +476,7 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       await page.goto(`${origin}/`)
       await page.getByRole('heading', { name: 'What should we work on?' }).waitFor()
       await expect(page.getByRole('button', { name: 'Model and effort' })).toContainText(created.label)
-      if (await page.getByPlaceholder('Reply to Claude…').isDisabled()) {
+      if (await page.getByRole('textbox', { name: 'Message', exact: true }).isDisabled()) {
         throw new Error('The packaged relaunch lost its configured provider on a fresh draft.')
       }
       const reopenedDirectArtifacts = await page.evaluate(async (created) => {

@@ -181,7 +181,7 @@ test('a blocked deferred Add context workflow fails locally and Done preserves t
   })
 
   await page.goto('/')
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await composer.fill('Keep this draft while the optional picker fails.')
   await page.getByRole('button', { name: 'Add context', exact: true }).click()
   const picker = page.getByRole('dialog', { name: 'Add context', exact: true })
@@ -209,7 +209,7 @@ test('a draft captures a confirmed readable discussion on its first send', async
 
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session', exact: true }).click()
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await expect(composer).toBeVisible()
   await attachDiscussion(page, source.title, { isDraft: true })
   expect(sessionCreates, 'confirming a discussion target does not persist a session or copy').toBe(0)
@@ -263,7 +263,7 @@ test('a refused first-send capture stays removable and Retry reuses its material
 
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session', exact: true }).click()
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await attachDiscussion(page, source.title, { isDraft: true })
   const queuedRemove = page.getByRole('button', { name: `Remove ${source.title} from the conversation`, exact: true })
   await expect(queuedRemove, 'the confirmed source stays removable before send').toBeVisible()
@@ -341,7 +341,7 @@ test('a lost first-send capture acknowledgement flushes removal before Retry sen
 
   await page.goto('/')
   await page.getByRole('navigation').getByRole('button', { name: 'New session', exact: true }).click()
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await attachDiscussion(page, source.title, { isDraft: true })
   const queuedRemove = page.getByRole('button', { name: `Remove ${source.title} from the conversation`, exact: true })
   await expect(queuedRemove, 'the confirmed source stays removable before send').toBeVisible()

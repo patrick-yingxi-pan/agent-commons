@@ -281,7 +281,7 @@ test('a draft local document copy keeps its identity when first Send materialize
   await page.goto('/')
   await expect(page.getByTestId('account-chip')).toContainText('Ada Lovelace')
   await page.getByRole('navigation').getByRole('button', { name: 'New session', exact: true }).click()
-  const composer = page.getByPlaceholder('Reply to Claude…')
+  const composer = page.getByRole('textbox', { name: 'Message', exact: true })
   await expect(composer).toBeVisible()
   const messagePosts: string[] = []
   page.on('request', request => {

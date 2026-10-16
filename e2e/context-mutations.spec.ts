@@ -28,7 +28,7 @@ test('a failed context update stays unchanged and retries in place', async ({ pa
   })
 
   await page.goto(`/s/${session.id}`)
-  await expect(page.getByPlaceholder('Reply to Claude…')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Add context' }).click()
   const picker = page.getByRole('dialog', { name: 'Add context' })
   await picker.getByRole('button', { name: /^Connector/ }).click()

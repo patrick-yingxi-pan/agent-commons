@@ -278,11 +278,38 @@ test('successful structured save refreshes Edited recency without ambient events
     expect(relationProjectionStaled).toBe(true)
     await expect(detail.getByText('Edited 2 days ago', { exact: true })).toBeVisible()
 
+    let releaseSaveResponse!: () => void
+    let markSaveResponseHeld!: () => void
+    const saveResponseGate = new Promise<void>((resolve) => { releaseSaveResponse = resolve })
+    const saveResponseHeld = new Promise<void>((resolve) => { markSaveResponseHeld = resolve })
+    await owner.page.route(`**${API}/artifacts/${encodeURIComponent(artifact.id)}/content`, async (route) => {
+      if (route.request().method() !== 'PATCH') return route.continue()
+      const response = await route.fetch()
+      expect(response.ok(), 'the server accepts the structured save before its response is released').toBeTruthy()
+      markSaveResponseHeld()
+      await saveResponseGate
+      await route.fulfill({ response })
+    })
+
     await detail.getByRole('button', { name: 'Edit sheet', exact: true }).click()
     await detail.getByRole('textbox', { name: 'Sheet row 1 value 2' }).fill('00777')
     await detail.getByRole('button', { name: 'Save changes', exact: true }).click()
 
-    await expect(detail.getByText('00777', { exact: true })).toBeVisible()
+    try {
+      await saveResponseHeld
+      const editor = detail.locator('[data-structured-artifact-editor="sheet"]')
+      await expect(editor).toBeVisible()
+      await expect(editor.getByRole('button', { name: 'Saving…', exact: true })).toBeDisabled()
+    } finally {
+      releaseSaveResponse()
+    }
+
+    const editor = detail.locator('[data-structured-artifact-editor="sheet"]')
+    await expect(editor).toHaveCount(0)
+    const preview = detail.getByRole('region', { name: 'Sheet preview', exact: true })
+    await expect(preview).toBeVisible()
+    const savedValueCell = preview.locator('tbody > tr').nth(0).locator('td').nth(1)
+    await expect(savedValueCell).toHaveText('00777')
     await expect(detail.getByText('Edited just now', { exact: true })).toBeVisible()
     expect(artifactReads).toBeGreaterThanOrEqual(2)
     expect(relationReads).toBeGreaterThanOrEqual(2)

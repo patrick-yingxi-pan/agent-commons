@@ -45,5 +45,5 @@ test('an established conversation has a navigable title and named message field'
   const pane = page.locator('[data-conversation-pane="auth-refactor"]')
 
   await expect(pane.getByRole('heading', { level: 1, name: 'Refactor auth middleware' })).toBeVisible()
-  await expect(pane.getByRole('textbox', { name: 'Message' })).toHaveAttribute('placeholder', 'Reply to Claude…')
+  await expect(pane.getByRole('textbox', { name: 'Message', exact: true })).toHaveAttribute('placeholder', 'Message…')
 })

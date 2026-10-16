@@ -97,7 +97,7 @@ test('a clean draft connects a verified model and returns ready for its first co
     // conversation. Removing routes mid-handoff races its registry refresh.
     await expect(page).toHaveURL(/\/$/)
     await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible()
-    const composer = page.getByPlaceholder('Reply to Claude…')
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await expect(composer).toBeEnabled()
 
     // The setup handoff is not merely a browser-origin preference. Packaged
@@ -122,7 +122,7 @@ test('a clean draft connects a verified model and returns ready for its first co
     await page.evaluate(() => localStorage.clear())
     await page.reload()
     await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible()
-    await expect(page.getByPlaceholder('Reply to Claude…')).toBeEnabled()
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
     await expect(page.getByRole('button', { name: 'Model and effort' })).toContainText(FIRST_PROVIDER)
 
     await composer.fill(FIRST_MESSAGE)
