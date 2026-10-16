@@ -19,3 +19,18 @@ test('every truncated h1 consumer uses the shared full-identity disclosure', () 
     assert.match(heading, /identityTitleProps\(/, `${path.replace(ROOT + '/', '')} must expose its full identity through the shared helper`)
   }
 })
+
+test('both conversation home breadcrumbs use the bounded identity funnel', () => {
+  const source = stripComments(read('src/components/SessionTitleBar.tsx'))
+  const breadcrumbs = [...source.matchAll(/<button\b[^>]*onClick=\{\(\) => runOf \? onOpenSchedule\([\s\S]*?<\/button>/g)]
+  assert.equal(breadcrumbs.length, 1, 'Routine and Project doors share one renderer')
+  for (const [button] of breadcrumbs) {
+    assert.match(button, /onOpenProject\(home.id\)/)
+    assert.match(button, /runOf \? 'Scheduled run of' : 'In'/)
+    assert.match(button, /identityBreadcrumbProps\(/, 'home breadcrumb must be bounded by its identity column')
+    assert.match(button, /className=\{IDENTITY_BREADCRUMB_TEXT_CLASS\}/, 'breadcrumb prose must shrink inside its button')
+  }
+  assert.match(source, /data-identity-header-group className=\{IDENTITY_HEADER_GROUP_CLASS\}/)
+  assert.match(source, /data-identity-header-actions className=\{IDENTITY_HEADER_ACTIONS_CLASS\}/)
+  assert.match(source, /flex-wrap/)
+})

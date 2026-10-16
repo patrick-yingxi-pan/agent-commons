@@ -17,7 +17,7 @@ import { useRelations } from '../controller/useRelations'
 import { BackButton } from './BackButton'
 import { RunHistoryMenu } from './RunHistoryMenu'
 import { SessionShareButton } from './SessionShareButton'
-import { identityTitleProps } from '../lib/identityTitle'
+import { identityTitleProps, identityBreadcrumbProps, IDENTITY_BREADCRUMB_TEXT_CLASS, IDENTITY_HEADER_GROUP_CLASS, IDENTITY_HEADER_ACTIONS_CLASS } from '../lib/identityTitle'
 
 /** The slice of a Session the bar reads — a pane without the full server row
  *  (a run session outside the list) can pass a shell. */
@@ -59,56 +59,52 @@ export function SessionTitleBar({
   // the routine without a client-side lookup.
   const runOf = session.scheduledRunOf
   const homeProject = runOf ? undefined : projectForSessionId(session.id)
+  const home = runOf ? { id: runOf.taskId, name: runOf.taskName } : homeProject
+  const HomeIcon = runOf ? CalendarClock : Folder
   return (
     <div
-      className={`flex min-h-[52px] shrink-0 items-center gap-1.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
+      className={`flex min-h-[52px] shrink-0 flex-wrap items-center gap-1.5 border-b border-line bg-canvas/80 py-2 pr-4 ${
         leading ? 'pl-2' : 'pl-4'
       }`}
       data-session-title-bar
     >
-      {leading}
-      {back && <BackButton to={back.to} onBack={back.onBack} />}
-      {/* flex-1: the title block absorbs the free space, so every trailing
-          control sits in one right-aligned cluster. (Two siblings each carrying
-          `ml-auto` would SPLIT the free space instead and strand the run
-          switcher mid-bar — RunHistoryMenu already carries one.) */}
-      <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
-        <h1 {...identityTitleProps(session.title)} className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
-          {session.title}
-        </h1>
-        {runOf && (
-          <button
-            onClick={() => onOpenSchedule(runOf.taskId)}
-            title={`Open the ${runOf.taskName} routine`}
-            className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
-          >
-            <CalendarClock size={12} className="shrink-0" />
-            <span>
-              Scheduled run of <span className="font-medium">{runOf.taskName}</span>
-            </span>
-          </button>
-        )}
-        {homeProject && (
-          <button
-            onClick={() => onOpenProject(homeProject.id)}
-            title={`Open ${homeProject.name}`}
-            className="inline-flex w-fit items-center gap-1 text-[12px] text-ink-faint transition hover:text-ink"
-          >
-            <Folder size={12} className="shrink-0" />
-            <span>
-              In <span className="font-medium">{homeProject.name}</span>
-            </span>
-          </button>
-        )}
+      <div data-identity-header-group className={IDENTITY_HEADER_GROUP_CLASS}>
+        {leading}
+        {back && <BackButton to={back.to} onBack={back.onBack} />}
+        {/* The identity group owns free space. Its intrinsic basis moves the
+            action cluster below when a pane cannot fit both readable groups. */}
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
+          <h1 {...identityTitleProps(session.title)} className="truncate font-serif text-[15px] font-semibold leading-tight text-ink">
+            {session.title}
+          </h1>
+          {home && (
+            <button
+              onClick={() => runOf ? onOpenSchedule(home.id) : onOpenProject(home.id)}
+              {...identityBreadcrumbProps(runOf ? `Open the ${home.name} routine` : `Open ${home.name}`)}
+            >
+              <HomeIcon size={12} className="shrink-0" />
+              <span className={IDENTITY_BREADCRUMB_TEXT_CLASS}>
+                {runOf ? 'Scheduled run of' : 'In'} <span className="font-medium">{home.name}</span>
+              </span>
+            </button>
+          )}
+        </div>
       </div>
-      {runOf && onSelectRun && (
-        <RunHistoryMenu taskId={runOf.taskId} activeRunSessionId={session.id} onSelectRun={onSelectRun} />
-      )}
-      {session.own && <SessionShareButton sessionId={session.id} />}
-      {onFind && <button type="button" onClick={onFind} aria-label="Find in conversation" title="Find in conversation"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-soft transition hover:bg-panel-2 hover:text-ink"><Search size={16} /></button>}
-      {onDownload && <button type="button" onClick={onDownload} aria-label="Download conversation" title="Download conversation"
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-soft transition hover:bg-panel-2 hover:text-ink"><Download size={16} /></button>}
+      <div data-identity-header-actions className={IDENTITY_HEADER_ACTIONS_CLASS}>
+        {runOf && onSelectRun && (
+          <RunHistoryMenu taskId={runOf.taskId} activeRunSessionId={session.id} onSelectRun={onSelectRun} />
+        )}
+        {session.own && <SessionShareButton sessionId={session.id} />}
+        {[
+          { label: 'Find in conversation', onClick: onFind, Icon: Search },
+          { label: 'Download conversation', onClick: onDownload, Icon: Download },
+        ].map(({ label, onClick, Icon }) => onClick && (
+          <button key={label} type="button" onClick={onClick} aria-label={label} title={label}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-ink-soft transition hover:bg-panel-2 hover:text-ink">
+            <Icon size={16} />
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

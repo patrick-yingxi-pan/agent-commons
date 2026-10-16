@@ -6,7 +6,30 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: optional model-written Agent Request replies
+Current checkpoint: rendered provider → Agent → Routine acceptance now covers
+Claude Messages, DeepSeek Anthropic-compatible Messages, and native OpenAI
+Responses. Each test creates the connection, family-matched prompt, tool-free
+Agent and paused Routine through the UI, edits its instruction, explicitly
+applies the execution binding, and runs once. Exact wire route/model, output
+limit, saved result/provenance, foreign isolation and reload without replay are
+checked against authored loopback peers. This is not live-vendor acceptance;
+paid-provider tests remain deferred. Five-viewport review caught Routine home
+breadcrumbs painting beneath run-history controls at 320px. A shared bounded
+breadcrumb and intrinsically wrapping identity/actions layout now serves both
+Routine and Project conversations. The geometry and source locks failed before
+repair; all four focused browser tests pass. Deliberately dropping the selected
+Routine model also fails the exact saved-binding assertion. The separate UI
+sweep passed 135/135 cells with no violations or skips. Landing requires the
+complete local verifier and unsigned desktop acceptance. Signed/notarized,
+native Intel and paid-service gates stay open.
+The unchanged startup budget caught a 287-byte overrun; shared breadcrumb and
+header-action rendering removes duplicate markup, and typecheck/build now pass.
+Project header captures explicitly close the seeded Repository panel before
+review and restore that test preference afterward.
+
+Previous checkpoint `12f53c4c` passed all five local verification lanes (756
+browser tests), the separate 135-cell UI sweep and unsigned arm64 desktop
+acceptance. Optional model-written Agent Request replies
 extend the reply-first workflow. An explicit owner action sends only the frozen
 request, receiving Agent instructions and optional owner notes to its configured
 endpoint model. It reuses Claude/DeepSeek Messages and native OpenAI Responses,
