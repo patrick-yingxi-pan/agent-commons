@@ -100,6 +100,86 @@ test('stdio bridge carries modern client discovery and calls through an owned na
   assert.equal(JSON.stringify(utility.sent).includes('ownerUserId'), true, 'the fixed private binding is explicit')
 })
 
+test('stdio bridge completes legacy discovery and one approved call after fresh initialization', { skip: process.platform !== 'darwin' }, async t => {
+  const { utility, native } = pair()
+  const supervisor = createMcpStdioSupervisor()
+  // Authored peer only: no package, network, credentials or user files.
+  const peer = `
+    import readline from 'node:readline';
+    const input = readline.createInterface({ input: process.stdin });
+    const methods = [];
+    let initialized = false;
+    input.on('line', line => {
+      const row = JSON.parse(line); methods.push(row.method);
+      const send = value => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: row.id, ...value }) + '\\n');
+      if (row.method === 'server/discover') return send({ error: { code: -32601, message: 'Method not found' } });
+      if (row.method === 'initialize') return send({ result: { protocolVersion: '2025-11-25',
+        capabilities: { tools: {} }, serverInfo: { name: 'owned legacy bridge peer', version: '1' } } });
+      if (row.method === 'notifications/initialized' && row.id === undefined) { initialized = true; return; }
+      if (!initialized) return send({ error: { code: -32000, message: 'Not initialized' } });
+      if (row.method === 'tools/list') return send({ result: { tools: [{ name: 'echo',
+        inputSchema: { type: 'object' }, annotations: { methods } }] } });
+      if (row.method === 'tools/call') return send({ result: { content: [{ type: 'text', text: 'literal legacy result' }],
+        structuredContent: { methods } } });
+    });
+  `
+  let opens = 0, physicalCloses = 0
+  const host = createMcpStdioHost(native, {
+    isCurrent: () => true, synchronize: async () => ({ available: true }),
+    open: (_reference, _binding, options) => {
+      assert.equal(physicalCloses, opens, 'legacy fallback waits for physical probe closure')
+      opens += 1
+      const connection = supervisor.open({ executable: process.execPath,
+        args: ['--input-type=module', '-e', peer], cwd: tmpdir(), env: {} }, options)
+      void connection.closed.then(() => { physicalCloses += 1 })
+      return connection
+    },
+  })
+  const runtime = installMcpStdioRuntime(utility)!
+  t.after(async () => { await runtime.close(); await host.close(); await supervisor.dispose() })
+  const client = (purpose: 'inspect' | 'call') => createMcpStdioClient({
+    open: options => runtime.open(reference, binding, { ...options, purpose }),
+  })
+  const catalog = await client('inspect').discover({ isCurrent: () => true })
+  assert.equal(catalog.protocolVersion, '2025-11-25')
+  assert.equal(catalog.cleanup, 'released')
+  assert.deepEqual(catalog.tools[0].annotations?.methods, ['initialize', 'notifications/initialized', 'tools/list'])
+  assert.equal(physicalCloses, 2)
+  const call = await client('call').callTool({ tool: catalog.tools[0], arguments: {} },
+    { isCurrent: () => true, beforeCall: () => true, expectedProtocolVersion: '2025-11-25' })
+  assert.equal(call.cleanup, 'released')
+  assert.deepEqual(call.result.content, [{ type: 'text', text: 'literal legacy result' }])
+  assert.deepEqual(call.result.structuredContent, { methods: ['initialize', 'notifications/initialized', 'tools/call'] })
+  assert.equal(opens, 4)
+  assert.equal(physicalCloses, 4)
+  const calls = utility.sent.filter((row: any) => row.type === MCP_STDIO_PROTOCOL.rpc) as any[]
+  assert.deepEqual(calls.map(row => row.method), [
+    'server/discover', 'initialize', 'initialized', 'tools/list',
+    'server/discover', 'initialize', 'initialized', 'tools/call',
+  ])
+  for (const notification of calls.filter(row => row.method === 'initialized')) {
+    assert.deepEqual(Object.keys(notification).sort(), ['method', 'requestId', 'sessionId', 'type'])
+  }
+})
+
+test('initialized is notification-only and does not widen the stdio request allowlist', async t => {
+  const { utility, native } = pair(), conn = connection()
+  const host = createMcpStdioHost(native, { open: async () => conn.value,
+    synchronize: async () => ({ available: true }), isCurrent: () => true })
+  const runtime = installMcpStdioRuntime(utility)!
+  t.after(async () => { conn.value.finish(); await runtime.close(); await host.close() })
+  const stream = runtime.open(reference, binding, { isCurrent: () => true, purpose: 'inspect' })
+  for (const method of ['initialized', 'notifications/initialized', 'notifications/cancelled', 'unknown']) {
+    await assert.rejects(stream.request(method, {}), error => error.code === 'invalid')
+  }
+  await assert.rejects(stream.request('tools/call', { name: 'echo', arguments: {} }, { beforeDispatch: () => true }),
+    error => error.code === 'invalid')
+  assert.deepEqual(conn.calls, [])
+  assert.equal(utility.sent.some((row: any) => row.type === MCP_STDIO_PROTOCOL.rpc), false)
+  await stream.initialized()
+  assert.deepEqual(conn.calls, [['initialized', undefined]])
+})
+
 test('inspection purpose cannot dispatch, request IDs cannot replay, and final dispatch checks current authority', async t => {
   const { utility, native } = pair(), conn = connection()
   let current = true

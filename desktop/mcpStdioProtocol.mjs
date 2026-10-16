@@ -295,8 +295,8 @@ export function installMcpStdioRuntime(parentPort = globalThis.process?.parentPo
     }
     void opening.catch(error => { session.rejectOpen(error) })
     const sendRpc = async (method, params, rawCallOptions = {}, notification = false) => {
-      if (!METHODS.has(method) || (session.purpose === 'inspect' && method === 'tools/call') ||
-          (notification && method !== 'initialized') || (!notification && method === 'initialized')) fail('invalid')
+      if ((notification ? method !== 'initialized' : !METHODS.has(method)) ||
+          (session.purpose === 'inspect' && method === 'tools/call')) fail('invalid')
       const callOptions = snapshotOptions(rawCallOptions, ['signal', 'beforeDispatch'])
       if (callOptions.beforeDispatch !== undefined && typeof callOptions.beforeDispatch !== 'function') fail('invalid')
       if (method === 'tools/call' && typeof callOptions.beforeDispatch !== 'function') fail('stale')

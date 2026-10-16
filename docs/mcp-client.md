@@ -656,6 +656,14 @@ before the initialized notification. Catalogs reuse the same eight-page,
 128-tool, 512-KiB budgets and inert tool parser as HTTP. Schemas still need the
 isolated semantic admission step before a product integration can use them.
 
+The desktop utility/native bridge preserves that legacy sequence: its dedicated
+`initialized()` operation alone forwards the notification. The ordinary request
+allowlist excludes `initialized` and arbitrary notification methods; inspection
+still cannot dispatch `tools/call`. The bridge subprocess lock exercises both
+catalog discovery and one separately approved call after confirmed probe closure.
+The [bounded third-party filesystem review](acceptance/third-party-filesystem-mcp-2026-10-15.md)
+records the real-server defect that exposed this crossing and its native follow-through.
+
 Calls snapshot their complete bounded intent before launch, can pin the reviewed
 catalog's protocol, and require a final synchronous exact-true authority check
 at the native write. Only the tool request contributes `mayHaveExecuted`;
