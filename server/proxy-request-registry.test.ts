@@ -19,14 +19,17 @@ import {
   PROXY_RESULT_MAX_BYTES,
   beginProxyRequest,
   beginProxyArgumentDraft,
+  beginProxyReplyDraft,
   cancelProxyRequest,
   createProxyRequest,
   denyProxyRequest,
   settleProxyArgumentDraft,
+  settleProxyReplyDraft,
   settleProxyRequest,
   shareProxyReply,
 } from './proxyRequestState.ts'
 import { proxyArgumentReservationId } from './proxyArgumentDraftState.ts'
+import { PROXY_REPLY_DRAFT_MAX_BYTES, proxyReplyReservationId } from './proxyReplyDraftState.ts'
 
 const requester = { tenantId: 'tenant-requester', userId: 'person-requester', agentId: 'agent-requester' }
 const owner = { tenantId: 'tenant-owner', userId: 'person-owner', agentId: 'agent-owner' }
@@ -62,6 +65,10 @@ function draftBinding(transport: 'http' | 'stdio' = 'http') {
   return { agentRevision: 0, providerId: 'provider-owner', providerRevision: 0, providerConnectionRevision: 0,
     model: 'model-owner', connectionId: 'mcp-connection-owner', connectionRevision: 3,
     toolName: 'invoice_lookup', schemaHash: 'b'.repeat(64), transport }
+}
+function replyBinding() {
+  return { agentRevision: 0, providerId: 'provider-owner', providerRevision: 0,
+    providerConnectionRevision: 0, model: 'model-owner' }
 }
 const PRE_DRAFT_WAITING_HEADROOM = 65_536 + PROXY_RESULT_MAX_BYTES + 2 * PROXY_REPLY_MAX_BYTES + 8_192
 function nearCapacityWaitingRows() {
@@ -173,6 +180,26 @@ test('pre-draft near-capacity waiting history remains readable after optional dr
   isolated.put(complete)
   assert.equal(isolated.get(one.intent.id)?.argumentDraft?.status, 'done',
     'pending headroom covers the maximum bounded detached argument receipt')
+})
+
+test('pending reply draft reserves its maximum escaped text only when admitted', () => {
+  const rows = nearCapacityWaitingRows()
+  const actual = rows.reduce((size, row) => size + Buffer.byteLength(JSON.stringify(row), 'utf8') + 1, 2)
+  const oldReserved = actual + rows.length * PRE_DRAFT_WAITING_HEADROOM
+  const maxTextHeadroom = 2 * PROXY_REPLY_DRAFT_MAX_BYTES + 4_096
+  assert.ok(oldReserved < MAX_PROXY_HISTORY_BYTES, 'valid legacy waiting rows fit without reply-draft reservation')
+  assert.ok(oldReserved + maxTextHeadroom > MAX_PROXY_HISTORY_BYTES, 'the maximum reply receipt cannot be reserved in this history')
+  const registry = new ProxyRequestRegistry()
+  registry.rehydrate(rows)
+  const first = rows[0]!
+  const pending = beginProxyReplyDraft(first,
+    { tenantId: first.intent.owner.tenantId, userId: first.intent.owner.userId }, first.revision,
+    replyBinding(), 'e'.repeat(64), '', createdAt + 1)
+  assert.throws(() => registry.put(pending),
+    (error: unknown) => error instanceof ProxyRequestError && error.code === 'limit',
+    'admission fails before provider work if the maximum private output cannot be retained')
+  assert.equal(registry.get(first.intent.id)?.replyDraft, undefined)
+  assert.equal(parseProxyRequests(rows).length, rows.length, 'legacy history is not penalized by hypothetical draft headroom')
 })
 
 test('direct replies persist, and restore-fenced rows use exact final bytes without unreserved headroom', () => {
@@ -308,6 +335,30 @@ test('draft receipts reserve bounded result headroom, join their exact historica
   assert.throws(() => atCapacity.put(create({ id: proxyRequestId(requesterActor, 'reserved-draft-capacity') })),
     (error: unknown) => error instanceof ProxyRequestError && error.code === 'limit',
     'a pending draft still consumes the per-person active request budget')
+})
+
+test('reply drafts reserve only pending text headroom and recover to private uncertainty without replay', () => {
+  const waiting = create()
+  const pending = beginProxyReplyDraft(waiting, ownerActor, waiting.revision, replyBinding(), 'a'.repeat(64), '', createdAt + 1)
+  assert.equal(proxyReplyReservationId(pending.intent.id), `${pending.intent.id}:reply`)
+  const registry = new ProxyRequestRegistry()
+  registry.put(waiting)
+  registry.put(pending)
+  assert.equal(registry.recover(createdAt + 2), true)
+  const recovered = registry.get(waiting.intent.id)!
+  assert.equal(recovered.replyDraft?.status, 'uncertain')
+  assert.equal(recovered.revision, pending.revision + 1)
+  assert.equal(registry.recover(createdAt + 3), false)
+  assert.throws(() => beginProxyReplyDraft(recovered, ownerActor, recovered.revision, replyBinding(), 'b'.repeat(64), '', createdAt + 4))
+
+  const completed = beginProxyReplyDraft(create({ id: proxyRequestId(requesterActor, 'done-reply-draft') }), ownerActor, 1,
+    replyBinding(), 'c'.repeat(64), '', createdAt + 1)
+  const done = settleProxyReplyDraft(completed, 'c'.repeat(64), { status: 'done', text: 'x'.repeat(PROXY_REPLY_DRAFT_MAX_BYTES) }, createdAt + 2)
+  const terminal = new ProxyRequestRegistry()
+  terminal.put(completed)
+  terminal.put(done)
+  assert.equal(terminal.get(done.intent.id)?.replyDraft?.status, 'done')
+  assert.equal(terminal.get(done.intent.id)?.replyDraft?.text.length, PROXY_REPLY_DRAFT_MAX_BYTES)
 })
 
 test('registry keeps intent immutable, requires adjacent revision, and exposes history only to exact parties', () => {

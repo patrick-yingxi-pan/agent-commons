@@ -7,6 +7,7 @@ import type { AgentOwnership } from './agentOwnership.ts'
 import type { McpConnectionState } from './mcpConnections.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { PROXY_ARGUMENT_DRAFT_MAX_BYTES } from './proxyArgumentDraftState.ts'
+import { PROXY_REPLY_DRAFT_MAX_BYTES } from './proxyReplyDraftState.ts'
 import { parseStoredProxyRequest, interruptProxyRequest, PROXY_RESULT_MAX_BYTES, PROXY_REPLY_MAX_BYTES,
   type ProxyActor, type StoredProxyRequest } from './proxyRequestState.ts'
 
@@ -27,17 +28,23 @@ function reservedBytes(row: StoredProxyRequest): number {
   // controls with six-byte JSON escapes are rejected by the state parser.
   const replyBytes = 2 * PROXY_REPLY_MAX_BYTES
   const draftHeadroom = PROXY_ARGUMENT_DRAFT_MAX_BYTES + 4_096
+  const replyDraftHeadroom = 2 * PROXY_REPLY_DRAFT_MAX_BYTES + 4_096
+  const hasPendingDraft = row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending'
   const extra = row.status === 'waiting' && !row.executionBlockedByRestore
     ? 65_536 + PROXY_RESULT_MAX_BYTES + replyBytes + 8_192 +
-      (row.argumentDraft?.status === 'pending' ? draftHeadroom : 0)
-    : row.argumentDraft?.status === 'pending' ? draftHeadroom
-    : row.execution?.status === 'pending' ? PROXY_RESULT_MAX_BYTES + replyBytes + 8_192
-    : row.status === 'awaiting-reply' ? replyBytes + 4_096
-    : row.status === 'waiting' ? 4_096 : 0
+      (row.argumentDraft?.status === 'pending' ? draftHeadroom : 0) +
+      (row.replyDraft?.status === 'pending' ? replyDraftHeadroom : 0)
+    : hasPendingDraft
+      ? (row.argumentDraft?.status === 'pending' ? draftHeadroom : 0) +
+        (row.replyDraft?.status === 'pending' ? replyDraftHeadroom : 0) +
+        (row.status === 'awaiting-reply' ? replyBytes + 4_096 : 0)
+      : row.execution?.status === 'pending' ? PROXY_RESULT_MAX_BYTES + replyBytes + 8_192
+        : row.status === 'awaiting-reply' ? replyBytes + 4_096
+          : row.status === 'waiting' ? 4_096 : 0
   return bytes(row) + 1 + extra
 }
 const active = (row: StoredProxyRequest) => ['waiting', 'running', 'awaiting-reply'].includes(row.status) ||
-  row.execution?.status === 'pending' || row.argumentDraft?.status === 'pending'
+  row.execution?.status === 'pending' || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending'
 const sameActor = (left: ProxyActor, right: ProxyActor) => left.tenantId === right.tenantId && left.userId === right.userId
 
 export function proxyRequestId(actor: ProxyActor, key: unknown): string {
@@ -153,7 +160,7 @@ export class ProxyRequestRegistry {
   /** Only after an old process/worker is gone. The Store commits before serving. */
   recover(at: number): boolean {
     let changed = false
-    for (const row of [...this.rows.values()]) if (row.execution?.status === 'pending' || row.argumentDraft?.status === 'pending') {
+    for (const row of [...this.rows.values()]) if (row.execution?.status === 'pending' || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending') {
       this.put(interruptProxyRequest(row, Math.max(at, row.updatedAt)))
       changed = true
     }

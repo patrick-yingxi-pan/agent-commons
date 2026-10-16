@@ -41,6 +41,7 @@ export const keys = {
   agentRequestOptions: 'agent-request-options',
   agentRequest: (id: string) => `agent-request:${id}`,
   agentRequestReview: (id: string) => `agent-request-review:${id}`,
+  agentRequestReplyReview: (id: string) => `agent-request-review:${id}:reply`,
   /** Commissions, keyed per project so a Project's Contributor list caches on its own. */
   commissions: (projectId?: string) => (projectId ? `commissions:${projectId}` : 'commissions'),
   /** A commission's effective (Project-clamped) authority — the D12 reach. */
@@ -211,6 +212,7 @@ export const paths = {
   agentRequestOptions: '/agent-request-options',
   agentRequest: (id: string) => `/agent-requests/${encodePathSegment(id)}`,
   agentRequestReview: (id: string) => `/agent-requests/${encodePathSegment(id)}/review`,
+  agentRequestReplyReview: (id: string) => `/agent-requests/${encodePathSegment(id)}/reply-review`,
   agentRequestDecision: (id: string) => `/agent-requests/${encodePathSegment(id)}/decision`,
   agent: (id: string) => `/agents/${encodePathSegment(id)}`,
   commissions: (projectId?: string) =>

@@ -49,6 +49,7 @@ test('a failed Agent request decision revalidates list, detail, and owner review
     'invalidate(keys.agentRequests)',
     'invalidate(keys.agentRequest(id))',
     'invalidate(keys.agentRequestReview(id))',
+    'invalidate(keys.agentRequestReplyReview(id))',
   ]) assert.ok(refresh.includes(exactInvalidation), `decision failure refreshes ${exactInvalidation}`)
 
   for (const status of [409, 503]) {

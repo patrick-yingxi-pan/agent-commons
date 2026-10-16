@@ -79,6 +79,7 @@ import { parseMcpActivityAuthorities, validateMcpActivityAuthorities, type McpAc
 import { parseAgentOwnership, validateAgentOwnershipJoins, type AgentOwnership } from '../agentOwnership.ts'
 import { parseProxyRequests, validateProxyRequestJoins } from '../proxyRequestRegistry.ts'
 import { proxyArgumentReservationId } from '../proxyArgumentDraftState.ts'
+import { proxyReplyReservationId } from '../proxyReplyDraftState.ts'
 import type { StoredProxyRequest } from '../proxyRequestState.ts'
 import { parseMcpInputFlows, validateMcpInputFlows, type McpInputFlow } from '../mcpInputState.ts'
 import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.ts'
@@ -94,6 +95,7 @@ import { parseMcpToolResult } from '../mcpToolResult.ts'
 import { parsePersistedModelPreferences, type PersistedModelPreferences } from '../modelPreferences.ts'
 import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
 import { isReplyOutputTokens } from '../../contract/providerReplyLimits.ts'
+import type { AgentRequestArgumentDraft, AgentRequestReplyDraft } from '../../contract/agentRequests.ts'
 import { join } from 'node:path'
 import { persistencePath } from './persistencePath.ts'
 
@@ -1155,9 +1157,13 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       const reservations = parseUsageReservations(state.usageReservations)
       const claims = new Map((state.commissionMcp?.claims ?? []).map(claim => [claim.id, claim]))
       const requests = parseProxyRequests(state.agentRequests)
-      const draftRows = requests.filter(row => row.argumentDraft !== undefined)
-      const drafts = new Map(draftRows.map(row => [proxyArgumentReservationId(row.intent.id), row]))
-      if (drafts.size !== draftRows.length ||
+      const draftRows = requests.filter(row => row.argumentDraft !== undefined || row.replyDraft !== undefined)
+      const draftEntries = draftRows.flatMap(row => [
+        ...(row.argumentDraft ? [[proxyArgumentReservationId(row.intent.id), { request: row, draft: row.argumentDraft }] as const] : []),
+        ...(row.replyDraft ? [[proxyReplyReservationId(row.intent.id), { request: row, draft: row.replyDraft }] as const] : []),
+      ])
+      const drafts = new Map<string, { request: StoredProxyRequest; draft: AgentRequestArgumentDraft | AgentRequestReplyDraft }>(draftEntries)
+      if (drafts.size !== draftRows.reduce((count, row) => count + Number(!!row.argumentDraft) + Number(!!row.replyDraft), 0) ||
           reservations.length !== claims.size + drafts.size) return false
       for (const reservation of reservations) {
         const claim = claims.get(reservation.id)
@@ -1166,10 +1172,11 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
               (reservation.status === 'active' && claim.phase !== 'preparing')) return false
           continue
         }
-        const request = drafts.get(reservation.id)
-        const draft = request?.argumentDraft
-        if (!request || !draft || reservation.id !== proxyArgumentReservationId(request.intent.id) ||
-            reservation.tenantId !== request.intent.owner.tenantId) return false
+        const joined = drafts.get(reservation.id)
+        const request = joined?.request, draft = joined?.draft
+        if (!request || !draft || reservation.tenantId !== request.intent.owner.tenantId ||
+            (draft === request.argumentDraft ? reservation.id !== proxyArgumentReservationId(request.intent.id) :
+              reservation.id !== proxyReplyReservationId(request.intent.id))) return false
         if (draft.status === 'pending') {
           // The model response may be durable before output validation/receipt
           // settlement, but a request hold cannot be detached from its draft.
@@ -1184,7 +1191,7 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
   } else {
     try {
       if ((state?.commissionMcp?.claims.length ?? 0) > 0 ||
-          parseProxyRequests(state?.agentRequests).some(row => row.argumentDraft !== undefined)) {
+          parseProxyRequests(state?.agentRequests).some(row => row.argumentDraft !== undefined || row.replyDraft !== undefined)) {
         // Current snapshots with claims must retain their model usage receipt or
         // uncertainty hold; the v6 migration materializes legacy zero-usage rows.
         return false

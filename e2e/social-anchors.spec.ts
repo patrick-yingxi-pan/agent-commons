@@ -31,7 +31,8 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   // The FIRST turn — the one the bottom landing scrolls past.
   const target = turns.first()
   await expect(target).not.toBeInViewport()
-  await target.scrollIntoViewIfNeeded()
+  // Hover scrolls with a live locator; a separate ElementHandle-based scroll
+  // can detach while the conversation finishes rendering its turn controls.
   await target.hover()
   await target.click()
   await page.getByRole('textbox', { name: 'Post to this turn’s discussion' }).fill(TURN_POST)

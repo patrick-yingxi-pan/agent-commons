@@ -6,7 +6,46 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: the receiving owner can answer an Agent
+Current implementation checkpoint: optional model-written Agent Request replies
+extend the reply-first workflow. An explicit owner action sends only the frozen
+request, receiving Agent instructions and optional owner notes to its configured
+endpoint model. It reuses Claude/DeepSeek Messages and native OpenAI Responses,
+with one tool-free attempt, durable usage admission, shared bounded capacity and
+no automatic retry. The private suggestion must be explicitly adopted, edited,
+reviewed and shared; raw MCP results and conversation history are not included.
+Private notes are input-only and never enter the durable receipt. Restart and
+restore interrupt pending drafts without replay. Current model/Agent revisions
+are required for adoption; manual reply remains available without a provider.
+Argument and reply drafts now share the same physical-worker lifecycle while
+retaining separate input/output grammars. Full local verification, responsive
+owner/requester/foreign review, the separate shell sweep and unsigned packaged
+relaunch acceptance are mandatory before landing. Paid-provider calls remain
+deferred; this checkpoint does not close signed/Intel or live-service gates.
+
+The first complete verifier exposed a missing exact intrinsic-route manifest
+entry and a pre-existing process-group fixture race. The manifest now includes
+the human-only reply review and checks that it is not a model self-consent tool.
+The fixture now waits for the actual request and an observed response before
+exiting its parent, while retaining independent descendant-shutdown assertions.
+The initial verifier was stopped cleanly and is not passing evidence; the full
+local gate must pass on the corrected final tree before landing.
+
+The next full run passed checks and three browser shards but exposed two
+test-synchronization failures in the remaining shard. Project draft review now
+waits for the new saved run row before selecting it; observing the model request
+alone does not prove the receipt has rendered. The turn-discussion walk retains
+its off-screen and final anchor-landing assertions while using the locator's
+actionable hover to scroll, avoiding a detached intermediate element handle.
+No retries, timeouts or assertions were relaxed. The corrected specs and a
+complete traced local verifier must pass before landing. The separate UI sweep
+passed 135/135 cells with no violations or skips, and the unsigned arm64 package
+and complete desktop smoke suite passed. The owner preview is available again,
+with all six demo accounts stacked and Ada signed in on Models; the earlier
+preview handoff blocker below is resolved.
+
+Previous checkpoint `db4cf4e7` passed all five local verification lanes (755
+browser tests), the separate 135-cell UI sweep with zero violations or skips,
+and the complete unsigned arm64 desktop verifier. The receiving owner can answer an Agent
 request directly, without first running an unrelated MCP call or configuring
 a model provider. The reply-first page mounts private tool inspection only
 after explicit Use a tool. Reply review freezes both exact text and request

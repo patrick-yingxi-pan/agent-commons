@@ -1,4 +1,4 @@
-import type { AgentRequestCreate, AgentRequestDecision, AgentRequestOptions, AgentRequestReview, AgentRequestSummary, AgentRequestView } from '../../contract/agentRequests.ts'
+import type { AgentRequestCreate, AgentRequestDecision, AgentRequestOptions, AgentRequestReplyReview, AgentRequestReview, AgentRequestSummary, AgentRequestView } from '../../contract/agentRequests.ts'
 import { apiGet, apiPost, type ApiMutationOptions } from './client.ts'
 import { invalidate, peek, setData, useQuery } from './cache.ts'
 import { keys, paths } from './keys.ts'
@@ -19,6 +19,7 @@ export function acceptAgentRequest(row: AgentRequestView, id = row.id): AgentReq
   if (!previous || previous.revision <= row.revision) setData(keys.agentRequest(id), row)
   invalidate(keys.agentRequests)
   invalidate(keys.agentRequestReview(id))
+  invalidate(keys.agentRequestReplyReview(id))
   return row
 }
 export async function readAgentRequest(id: string, options: ApiMutationOptions = {}): Promise<AgentRequestView> {
@@ -38,6 +39,10 @@ export function useAgentRequest(id: string) {
 export function useAgentRequestReview(id: string, enabled: boolean) {
   return useQuery<AgentRequestReview>(keys.agentRequestReview(id), () => apiGet(paths.agentRequestReview(id), privateOptions()), enabled, true)
 }
+export function useAgentRequestReplyReview(id: string, enabled: boolean) {
+  return useQuery<AgentRequestReplyReview>(keys.agentRequestReplyReview(id),
+    () => apiGet(paths.agentRequestReplyReview(id), privateOptions()), enabled, true)
+}
 export async function createAgentRequest(input: AgentRequestCreate, id: string, options: ApiMutationOptions): Promise<AgentRequestView> {
   return acceptAgentRequest(await apiPost<AgentRequestView>(paths.agentRequests, input,
     privateOptions(options)), id)
@@ -56,7 +61,7 @@ export async function decideAgentRequest(id: string, input: AgentRequestDecision
 export function refreshAgentRequests(id?: string): void {
   invalidate(keys.agentRequests)
   invalidate(keys.agentRequestOptions)
-  if (id) { invalidate(keys.agentRequest(id)); invalidate(keys.agentRequestReview(id)) }
+  if (id) { invalidate(keys.agentRequest(id)); invalidate(keys.agentRequestReview(id)); invalidate(keys.agentRequestReplyReview(id)) }
 }
 /** Browser twin of the durable person-and-namespace request identity. */
 export async function agentRequestId(tenantId: string, userId: string, key: string): Promise<string> {

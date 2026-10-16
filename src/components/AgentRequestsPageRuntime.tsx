@@ -12,6 +12,7 @@ import { FORM_ACTION_GROUP_CLASS, SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } fr
 import { FORM_INPUT_CLASS } from '../lib/formInput.ts'
 import { useRelations } from '../controller/useRelations.tsx'
 import { AgentRequestArgumentDraft } from './AgentRequestArgumentDraft.tsx'
+import { AgentRequestReplyDraft } from './AgentRequestReplyDraft.tsx'
 
 const button = `${SOFT_BUTTON_CLASS} px-3 py-2 text-[13px] disabled:cursor-not-allowed disabled:opacity-50`
 const secondary = `${SECONDARY_BUTTON_CLASS} px-3 py-2 text-[13px]`
@@ -67,7 +68,7 @@ function OwnerRun({ row, held }: { row: AgentRequestView; held: boolean }) {
   const formId = useId(), query = useAgentRequestReview(row.id, true), state = useAgentRequestActions(), draft = state.draft(row.id)
   const [reviewed, setReviewed] = useState<AgentRequestApproval | null>(null), [local, setLocal] = useState(false), [error, setError] = useState<string | null>(null)
   const chosen = query.data?.tools.find(tool => toolKey(tool) === draft.tool)
-  const fresh = query.status === 'success' && query.data?.request.revision === row.revision && !query.data.blockedReason && row.argumentDraft?.status !== 'pending'
+  const fresh = query.status === 'success' && query.data?.request.revision === row.revision && !query.data.blockedReason && row.argumentDraft?.status !== 'pending' && row.replyDraft?.status !== 'pending'
   const matches = !!reviewed && query.data?.tools.some(tool => tool.connectionId === reviewed.call.connectionId &&
     tool.connectionRevision === reviewed.call.connectionRevision && tool.tool.name === reviewed.call.toolName &&
     tool.schemaHash === reviewed.call.schemaHash && tool.transport === reviewed.transport)
@@ -117,7 +118,9 @@ function ShareReply({ row, held }: { row: AgentRequestView; held: boolean }) {
   const fresh = reviewed === null || reviewed.revision === row.revision
   return <section className="space-y-3" aria-label="Share reviewed reply"><h2 className="font-medium text-ink">Write a reply to share</h2>
     <p className="text-[13px] text-ink-soft">You can answer or ask for clarification without running a tool. Only the exact text you approve goes to the requester. Remove credentials, personal data and anything you do not intend to disclose.</p>
-    {row.argumentDraft?.status === 'pending' && <p role="status" className="text-[13px] text-ink-soft">Wait for the private argument draft to settle before sharing, or cancel this request. No tool is running.</p>}
+    {(row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending') && <p role="status" className="text-[13px] text-ink-soft">Wait for the private model draft to settle before sharing, or cancel this request. No tool is running.</p>}
+    <AgentRequestReplyDraft row={row} held={held || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending'}
+      onUse={text => { setAgentRequestDraft(row.id, { ...draft, reply: text }); setReviewed(null) }} />
     {reviewed === null ? <><div className="space-y-1 text-[13px]"><label htmlFor={`${formId}-reply`}>Reply</label><textarea id={`${formId}-reply`} className={FORM_INPUT_CLASS} rows={4} value={reply} disabled={held} onChange={event => setAgentRequestDraft(row.id, { ...draft, reply: event.target.value })} /></div><button className={button} disabled={held || !valid} onClick={() => setReviewed({ reply, revision: row.revision })}>Review reply</button></> : <>
       <p className="whitespace-pre-wrap break-words text-[13px] text-ink">{reviewed.reply}</p>
       <p className="text-[13px] text-ink-soft">Share this text with the person behind {row.fromAgentLabel}? Sharing completes this request. This disclosure cannot be undone here.</p>
@@ -132,7 +135,7 @@ function RequestDetail({ id, onOpenRequest, onBack, backTo }: { id: string; onOp
   const [cancelReview, setCancelReview] = useState(false), [toolsOpen, setToolsOpen] = useState(false)
   const toolsId = useId()
   const held = attempts.some(attempt => attempt.id === id && !['settled', 'refused'].includes(attempt.state))
-  useEffect(() => { if (row?.status !== 'running' && row?.argumentDraft?.status !== 'pending') return; const timer = setInterval(() => refreshAgentRequests(id), 5_000); return () => clearInterval(timer) }, [id, row?.status, row?.argumentDraft?.status])
+  useEffect(() => { if (row?.status !== 'running' && row?.argumentDraft?.status !== 'pending' && row?.replyDraft?.status !== 'pending') return; const timer = setInterval(() => refreshAgentRequests(id), 5_000); return () => clearInterval(timer) }, [id, row?.status, row?.argumentDraft?.status, row?.replyDraft?.status])
   if (!row) return <ResourceUnavailablePage title="Agent request" state={resolveResourceUnavailable([query], { notFoundIsMissing: true })} message="This request is unavailable to this person." backTo={backTo} onBack={onBack} onRetry={() => refreshAgentRequests(id)} />
   const editable = !held && query.status === 'success'
   return <AtomicResourcePage data-agent-request={id}>
@@ -145,15 +148,16 @@ function RequestDetail({ id, onOpenRequest, onBack, backTo }: { id: string; onOp
       {row.execution && <section className="space-y-2" aria-label="Private execution receipt"><h2 className="font-medium text-ink">Private execution receipt</h2><p className="text-[13px] text-ink-soft">{row.execution.status === 'pending' ? 'The call is still settling. A cancellation cannot undo its effects.' : row.execution.summary}</p>
         <details className="text-[12px] text-ink-soft"><summary>Exact call and raw result · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.execution)}</pre></details></section>}
       {row.role === 'owner' && row.argumentDraft && (row.status !== 'waiting' || !toolsOpen) && <section className="space-y-2 text-[13px] text-ink-soft" aria-label="Private argument draft receipt"><h2 className="font-medium text-ink">Private argument draft receipt</h2><p>Model draft: {row.argumentDraft.status}. This is not a tool-execution receipt or consent to share.</p><p className="break-words">{row.argumentDraft.binding.toolName} · {row.argumentDraft.binding.model}</p><details className="text-[12px]"><summary>Saved model draft · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.argumentDraft)}</pre></details></section>}
-      {row.role === 'owner' && ['waiting', 'awaiting-reply'].includes(row.status) && <ShareReply key={id} row={row} held={!editable || row.argumentDraft?.status === 'pending'} />}
+      {row.role === 'owner' && ['waiting', 'awaiting-reply'].includes(row.status) && <ShareReply key={id} row={row} held={!editable || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending'} />}
+      {row.role === 'owner' && row.replyDraft && !['waiting', 'awaiting-reply'].includes(row.status) && <section className="space-y-2 text-[13px] text-ink-soft" aria-label="Private reply draft receipt"><h2 className="font-medium text-ink">Private reply draft receipt</h2><p>Model draft: {row.replyDraft.status}. This suggestion was not shared automatically.</p><details className="text-[12px]"><summary>Saved reply draft · visible only to you</summary><pre className="whitespace-pre-wrap break-words">{literal(row.replyDraft)}</pre></details></section>}
       {row.role === 'owner' && row.status === 'waiting' && <section className="space-y-3" aria-label="Optional tool use">
         <button className={secondary} aria-expanded={toolsOpen} aria-controls={toolsId} onClick={() => setToolsOpen(!toolsOpen)}>{toolsOpen ? 'Hide tool options' : 'Use a tool…'}</button>
-        <div id={toolsId}>{toolsOpen && <OwnerRun key={id} row={row} held={!editable} />}</div>
+        <div id={toolsId}>{toolsOpen && <OwnerRun key={id} row={row} held={!editable || row.replyDraft?.status === 'pending'} />}</div>
       </section>}
       {row.reply !== undefined && <section className="space-y-2" aria-label="Shared reply"><h2 className="font-medium text-ink">Shared reply</h2><p className="whitespace-pre-wrap break-words text-[13px] text-ink">{row.reply}</p></section>}
       {['waiting', 'running', 'awaiting-reply'].includes(row.status) && <div className="space-y-3">
         {cancelReview ? <><p className="text-[13px] text-ink-soft">Cancel this request and close sharing? An in-flight call may still finish and cannot be undone.</p><div className={FORM_ACTION_GROUP_CLASS}><button className={secondary} disabled={!editable} onClick={() => { decideRequest(id, { action: 'cancel', expectedRevision: row.revision }); setCancelReview(false) }}>Confirm cancellation</button><button className={secondary} onClick={() => setCancelReview(false)}>Keep request</button></div></> :
-          <div className={FORM_ACTION_GROUP_CLASS}>{row.role === 'owner' && row.status === 'waiting' && <button className={secondary} disabled={!editable || row.argumentDraft?.status === 'pending'} title={row.argumentDraft?.status === 'pending' ? 'Cancel the request to stop a pending draft.' : undefined} onClick={() => decideRequest(id, { action: 'deny', expectedRevision: row.revision })}>Decline request</button>}<button className={secondary} disabled={!editable} onClick={() => setCancelReview(true)}>Cancel request</button></div>}
+          <div className={FORM_ACTION_GROUP_CLASS}>{row.role === 'owner' && row.status === 'waiting' && <button className={secondary} disabled={!editable || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending'} title={row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending' ? 'Cancel the request to stop a pending draft.' : undefined} onClick={() => decideRequest(id, { action: 'deny', expectedRevision: row.revision })}>Decline request</button>}<button className={secondary} disabled={!editable} onClick={() => setCancelReview(true)}>Cancel request</button></div>}
       </div>}
     </div>
   </AtomicResourcePage>

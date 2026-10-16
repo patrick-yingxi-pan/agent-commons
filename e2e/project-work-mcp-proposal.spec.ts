@@ -236,6 +236,9 @@ async function startDraft(panel: ReturnType<Page['locator']>) {
 async function reviewDraft(fixture: Fixture, panel: ReturnType<Page['locator']>, expectedTurns = 1) {
   await expect.poll(() => admittedModelRequests(fixture).length).toBe(expectedTurns)
   const helper = panel.locator('[data-contribution-mcp-draft-helper]')
+  // A model request reaching the peer precedes Dispatch/cache settlement; wait
+  // for its saved run row before selecting the newest receipt.
+  await expect(helper.locator('[data-contribution-mcp-draft-run]')).toHaveCount(expectedTurns)
   // The helper lists newest saved Dispatch first.
   const run = helper.locator('[data-contribution-mcp-draft-run]').first()
   await expect(run).toBeVisible({ timeout: ms(30_000) })

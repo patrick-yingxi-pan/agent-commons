@@ -4,13 +4,16 @@ import type { PersistedState } from './format.ts'
 import { parseProxyRequests } from '../proxyRequestRegistry.ts'
 import { interruptProxyRequest, parseStoredProxyRequest } from '../proxyRequestState.ts'
 import { proxyArgumentReservationId } from '../proxyArgumentDraftState.ts'
+import { proxyReplyReservationId } from '../proxyReplyDraftState.ts'
 
 export function prepareAgentRequestRestoreState(state: PersistedState, now = Date.now()): PersistedState {
   if (!Number.isSafeInteger(now) || now < 0) throw new Error('Invalid Agent request restore timestamp.')
   if (state.agentRequests === undefined) return state
   const rows = parseProxyRequests(state.agentRequests)
-  const pendingDraftIds = new Set(rows.filter(row => row.argumentDraft?.status === 'pending')
-    .map(row => proxyArgumentReservationId(row.intent.id)))
+  const pendingDraftIds = new Set(rows.flatMap(row => [
+    ...(row.argumentDraft?.status === 'pending' ? [proxyArgumentReservationId(row.intent.id)] : []),
+    ...(row.replyDraft?.status === 'pending' ? [proxyReplyReservationId(row.intent.id)] : []),
+  ]))
   state.agentRequests = rows.map(row => {
     const interrupted = interruptProxyRequest(row, Math.max(now, row.updatedAt))
     return row.status === 'waiting'

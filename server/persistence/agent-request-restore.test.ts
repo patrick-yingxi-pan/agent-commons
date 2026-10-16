@@ -13,7 +13,9 @@ import { prepareAgentRequestRestoreState } from './agentRequestRestore.ts'
 import { beginProxyRequest, cancelProxyRequest, createProxyRequest, denyProxyRequest,
   settleProxyRequest, shareProxyReply, type StoredProxyRequest } from '../proxyRequestState.ts'
 import { proxyArgumentReservationId } from '../proxyArgumentDraftState.ts'
+import { proxyReplyReservationId } from '../proxyReplyDraftState.ts'
 import { beginProxyArgumentDraft } from '../proxyRequestState.ts'
+import { beginProxyReplyDraft } from '../proxyRequestState.ts'
 
 const root = join(tmpdir(), `agent-request-restore-${process.pid}`)
 const portable = join(root, 'source.json')
@@ -154,6 +156,29 @@ test('portable restore interrupts pending argument drafts before fencing and pre
   assert.equal(restoredCancelled?.argumentDraft?.status, 'uncertain')
   assert.deepEqual(restored.usageReservations?.map(row => row.status), ['uncertain', 'uncertain'])
   assert.equal(restored.usageReservations?.[0]?.report, null, 'restore does not invent model usage')
+})
+
+test('portable restore interrupts pending reply drafts before fencing and preserves usage uncertainty', () => {
+  const binding = { agentRevision: 2, providerId: 'provider-owner', providerRevision: 3,
+    providerConnectionRevision: 4, model: 'configured-model' }
+  const pending = beginProxyReplyDraft(request('e'), ownerActor, 1, binding, 'f'.repeat(64), 'notes are not part of this receipt', now + 1)
+  const cancelledPending = cancelProxyRequest(
+    beginProxyReplyDraft(request('f'), ownerActor, 1, binding, 'e'.repeat(64), '', now + 1), requesterActor, 2, now + 2)
+  const state = restoreFixture([pending, cancelledPending])
+  const usage = (id: string) => ({ id, tenantId: owner.tenantId, allowance: 10_000,
+    fiveHourStart: now, weeklyStart: now, status: 'active' as const, report: null })
+  state.usageReservations = [usage(proxyReplyReservationId(pending.intent.id)), usage(proxyReplyReservationId(cancelledPending.intent.id))]
+  const restored = prepareAgentRequestRestoreState(structuredClone(state), now + 10)
+  const [restoredWaiting, restoredCancelled] = restored.agentRequests!
+  assert.equal(restoredWaiting?.status, 'waiting')
+  assert.equal(restoredWaiting?.executionBlockedByRestore, true)
+  assert.equal(restoredWaiting?.replyDraft?.status, 'uncertain')
+  assert.equal(restoredWaiting?.revision, 3)
+  assert.equal(restoredCancelled?.status, 'cancelled')
+  assert.equal(restoredCancelled?.replyDraft?.status, 'uncertain')
+  assert.deepEqual(restored.usageReservations?.map(row => row.status), ['uncertain', 'uncertain'])
+  assert.equal(restored.usageReservations?.[0]?.report, null)
+  assert.equal(JSON.stringify(restored.agentRequests).includes('notes are not part'), false)
 })
 
 for (const backendKind of ['json', 'sqlite'] as const) {

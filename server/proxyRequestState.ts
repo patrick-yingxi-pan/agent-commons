@@ -4,13 +4,14 @@
  * No caller of this module may infer dispatch permission from a restored row. */
 import { createHash } from 'node:crypto'
 import type { McpJsonValue, McpToolResult } from '../contract/mcpExecution.ts'
-import type { AgentRequestApproval, AgentRequestArgumentDraft, AgentRequestArgumentDraftBinding, AgentRequestExecution, AgentRequestStateView, AgentRequestStatus } from '../contract/agentRequests.ts'
+import type { AgentRequestApproval, AgentRequestArgumentDraft, AgentRequestArgumentDraftBinding, AgentRequestReplyDraft, AgentRequestReplyDraftBinding, AgentRequestExecution, AgentRequestStateView, AgentRequestStatus } from '../contract/agentRequests.ts'
 import { AGENT_REQUEST_TASK_MAX_BYTES, AGENT_REQUEST_REPLY_MAX_BYTES } from '../contract/agentRequests.ts'
 import type { McpBoundExecutionOutcome } from './mcpBoundExecution.ts'
 import { snapshotMcpJson } from './mcpJson.ts'
 import { snapshotMcpBoundToolCall } from './mcpBoundCall.ts'
 import { parseMcpToolResult, MCP_TOOL_RESULT_MODERN_VERSION } from './mcpToolResult.ts'
 import { createPendingProxyArgumentDraft, parseProxyArgumentDraft, parseProxyArgumentDraftBinding, settleProxyArgumentDraft as settleDraftReceipt } from './proxyArgumentDraftState.ts'
+import { createPendingProxyReplyDraft, parseProxyReplyDraft, parseProxyReplyDraftBinding, parseProxyReplyDraftNotes, settleProxyReplyDraft as settleReplyDraftReceipt } from './proxyReplyDraftState.ts'
 
 export interface ProxyActor { tenantId: string; userId: string }
 export interface ProxyParty extends ProxyActor { agentId: string }
@@ -37,6 +38,7 @@ export interface StoredProxyRequest {
   updatedAt: number
   execution?: ProxyExecution
   argumentDraft?: AgentRequestArgumentDraft
+  replyDraft?: AgentRequestReplyDraft
   reply?: string
   /** Directly owner-authored replies have no preceding MCP receipt. Absence on
    * old replied rows means the historical post-execution flow. */
@@ -151,16 +153,31 @@ export function createProxyRequest(input: ProxyIntent): StoredProxyRequest {
 export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
   try {
     const copy = detached(value)
-    fields(copy, ['version', 'intent', 'revision', 'status', 'updatedAt'], ['execution', 'argumentDraft', 'reply', 'replySource', 'cancelledAt', 'cancelledBy', 'executionBlockedByRestore'])
+    fields(copy, ['version', 'intent', 'revision', 'status', 'updatedAt'], ['execution', 'argumentDraft', 'replyDraft', 'reply', 'replySource', 'cancelledAt', 'cancelledBy', 'executionBlockedByRestore'])
     if (copy.version !== 1 || !record(copy.intent) || !stamp(copy.updatedAt)) return invalid()
     const source = intent(copy.intent)
     const run = Object.hasOwn(copy, 'execution') ? execution(copy.execution, source) : undefined
     const draft = Object.hasOwn(copy, 'argumentDraft') ? parseProxyArgumentDraft(copy.argumentDraft, source.createdAt) : undefined
-    const draftRevision = draft?.revision ?? 0
+    const replyDraft = Object.hasOwn(copy, 'replyDraft') ? parseProxyReplyDraft(copy.replyDraft, source.createdAt) : undefined
+    const draftRevision = (draft?.revision ?? 0) + (replyDraft?.revision ?? 0)
     const phaseRevision = (base: number) => base + draftRevision
-    const draftTouchedAt = draft?.status === 'pending' ? draft.startedAt : draft?.finishedAt
-    if (draft?.status === 'pending' && run) return invalid()
+    const draftTimes = [draft && (draft.status === 'pending' ? draft.startedAt : draft.finishedAt),
+      replyDraft && (replyDraft.status === 'pending' ? replyDraft.startedAt : replyDraft.finishedAt)].filter((value): value is number => value !== undefined)
+    const draftTouchedAt = draftTimes.length ? Math.max(...draftTimes) : undefined
+    if (draft?.status === 'pending' && (run || replyDraft?.status === 'pending')) return invalid()
+    if (replyDraft?.status === 'pending' && run?.status === 'pending') return invalid()
+    if (draft && replyDraft) {
+      if (draft.status === 'pending' && replyDraft.status !== 'pending' && replyDraft.finishedAt > draft.startedAt ||
+          replyDraft.status === 'pending' && draft.status !== 'pending' && draft.finishedAt > replyDraft.startedAt ||
+          draft.status !== 'pending' && replyDraft.status !== 'pending' &&
+            !(draft.finishedAt <= replyDraft.startedAt || replyDraft.finishedAt <= draft.startedAt)) return invalid()
+    }
     if (run && draft && draft.status !== 'pending' && run.startedAt < draft.finishedAt) return invalid()
+    if (run && replyDraft) {
+      const beforeRun = replyDraft.status !== 'pending' && replyDraft.finishedAt <= run.startedAt
+      const afterRun = run.status !== 'pending' && replyDraft.startedAt >= run.finishedAt
+      if (!beforeRun && !afterRun) return invalid()
+    }
     if (Object.hasOwn(copy, 'executionBlockedByRestore') &&
         (copy.executionBlockedByRestore !== true || run ||
           !(['waiting', 'denied', 'cancelled'].includes(String(copy.status)) ||
@@ -178,22 +195,23 @@ export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
         if (!run || run.status !== 'pending' || copy.revision !== phaseRevision(2) || copy.updatedAt !== run.startedAt) return invalid()
         break
       case 'awaiting-reply':
-        if (!run || run.status === 'pending' || copy.revision !== phaseRevision(3) || copy.updatedAt !== run.finishedAt) return invalid()
+        if (!run || run.status === 'pending' || copy.revision !== phaseRevision(3) ||
+            copy.updatedAt !== Math.max(run.finishedAt, draftTouchedAt ?? 0)) return invalid()
         break
       case 'replied':
         if (!prose(copy.reply, PROXY_REPLY_MAX_BYTES) ||
             (copy.replySource === 'direct'
-              ? run !== undefined || draft?.status === 'pending' || copy.revision !== phaseRevision(2)
-              : !run || run.status === 'pending' || copy.revision !== phaseRevision(4))) return invalid()
+              ? run !== undefined || draft?.status === 'pending' || replyDraft?.status === 'pending' || copy.revision !== phaseRevision(2)
+              : !run || run.status === 'pending' || draft?.status === 'pending' || replyDraft?.status === 'pending' || copy.revision !== phaseRevision(4))) return invalid()
         break
       case 'denied':
-        if (run || draft?.status === 'pending' || copy.revision !== phaseRevision(2)) return invalid()
+        if (run || draft?.status === 'pending' || replyDraft?.status === 'pending' || copy.revision !== phaseRevision(2)) return invalid()
         break
       case 'cancelled':
         if (!stamp(copy.cancelledAt) || copy.cancelledAt < source.createdAt ||
             (copy.cancelledBy !== 'requester' && copy.cancelledBy !== 'owner') ||
             (run && copy.cancelledAt < run.startedAt) ||
-            (draft && copy.cancelledAt < draft.startedAt) ||
+            (draft && copy.cancelledAt < draft.startedAt) || (replyDraft && copy.cancelledAt < replyDraft.startedAt) ||
             copy.updatedAt !== Math.max(copy.cancelledAt, run && run.status !== 'pending' ? run.finishedAt : 0, draftTouchedAt ?? 0) ||
             copy.revision !== phaseRevision(run ? run.status === 'pending' ? 3 : 4 : 2)) return invalid()
         break
@@ -203,6 +221,7 @@ export function parseStoredProxyRequest(value: unknown): StoredProxyRequest {
       version: 1, intent: source, revision: copy.revision as number, status: copy.status, updatedAt: copy.updatedAt,
       ...(run ? { execution: run } : {}),
       ...(draft ? { argumentDraft: draft } : {}),
+      ...(replyDraft ? { replyDraft } : {}),
       ...(copy.status === 'replied' ? { reply: copy.reply as string } : {}),
       ...(copy.replySource === 'direct' ? { replySource: 'direct' as const } : {}),
       ...(copy.status === 'cancelled' ? { cancelledAt: copy.cancelledAt as number, cancelledBy: copy.cancelledBy as 'requester' | 'owner' } : {}),
@@ -230,7 +249,7 @@ function editable(value: StoredProxyRequest, actor: ProxyActor, revision: number
  * then must commit the returned pending row before one physical dispatch. */
 export function beginProxyRequest(value: StoredProxyRequest, actor: ProxyActor, revision: number, input: ProxyApproval, at: number): StoredProxyRequest {
   const row = editable(value, actor, revision, at, true)
-  if (row.status !== 'waiting' || row.executionBlockedByRestore || row.argumentDraft?.status === 'pending') return invalid()
+  if (row.status !== 'waiting' || row.executionBlockedByRestore || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending') return invalid()
   let approved: ProxyApproval
   try { approved = approval(detached(input)) } catch { return invalid() }
   return parseStoredProxyRequest({ ...row, revision: row.revision + 1, status: 'running', updatedAt: at,
@@ -248,10 +267,50 @@ export function beginProxyArgumentDraft(
   at: number,
 ): StoredProxyRequest {
   const row = editable(value, actor, revision, at, true)
-  if (row.status !== 'waiting' || row.execution || row.argumentDraft || row.executionBlockedByRestore) return invalid()
+  if (row.status !== 'waiting' || row.execution || row.argumentDraft || row.replyDraft?.status === 'pending' || row.executionBlockedByRestore) return invalid()
   const frozenBinding = parseProxyArgumentDraftBinding(detached(binding))
   const draft = createPendingProxyArgumentDraft(frozenBinding, inputHash, at, row.intent.createdAt)
   return parseStoredProxyRequest({ ...row, revision: row.revision + 1, updatedAt: at, argumentDraft: draft })
+}
+
+/** One owner-only tool-free reply draft attempt; notes are validated input only
+ * and never persisted in the receipt. */
+export function beginProxyReplyDraft(
+  value: StoredProxyRequest,
+  actor: ProxyActor,
+  revision: number,
+  binding: AgentRequestReplyDraftBinding,
+  inputHash: string,
+  notes: string,
+  at: number,
+): StoredProxyRequest {
+  const row = editable(value, actor, revision, at, true)
+  if (!['waiting', 'awaiting-reply'].includes(row.status) || row.replyDraft ||
+      row.argumentDraft?.status === 'pending' || row.execution?.status === 'pending' || row.executionBlockedByRestore) return invalid()
+  parseProxyReplyDraftNotes(notes)
+  const frozenBinding = parseProxyReplyDraftBinding(detached(binding))
+  const replyDraft = createPendingProxyReplyDraft(frozenBinding, inputHash, at, row.intent.createdAt)
+  return parseStoredProxyRequest({ ...row, revision: row.revision + 1, updatedAt: at, replyDraft })
+}
+
+export function settleProxyReplyDraft(
+  value: StoredProxyRequest,
+  inputHash: string,
+  outcome: { status: 'done'; text: string } | { status: 'failed' | 'uncertain' },
+  at: number,
+): StoredProxyRequest {
+  const row = parseStoredProxyRequest(value)
+  if (!row.replyDraft || row.replyDraft.status !== 'pending' || row.replyDraft.inputHash !== inputHash ||
+      !stamp(at) || at < row.updatedAt) return invalid()
+  const replyDraft = settleReplyDraftReceipt(row.replyDraft, inputHash, outcome, at, row.intent.createdAt)
+  return parseStoredProxyRequest({ ...row, revision: row.revision + 1, updatedAt: at, replyDraft })
+}
+
+export function interruptPendingProxyReplyDraft(value: StoredProxyRequest, at: number): StoredProxyRequest {
+  const row = parseStoredProxyRequest(value)
+  return row.replyDraft?.status === 'pending'
+    ? settleProxyReplyDraft(row, row.replyDraft.inputHash, { status: 'uncertain' }, at)
+    : row
 }
 
 /** The matching worker alone may settle its pending draft. Late results after
@@ -310,7 +369,7 @@ export function cancelProxyRequest(value: StoredProxyRequest, actor: ProxyActor,
 
 export function denyProxyRequest(value: StoredProxyRequest, actor: ProxyActor, revision: number, at: number): StoredProxyRequest {
   const row = editable(value, actor, revision, at, true)
-  if (row.status !== 'waiting' || row.argumentDraft?.status === 'pending') return invalid()
+  if (row.status !== 'waiting' || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending') return invalid()
   return parseStoredProxyRequest({ ...row, revision: row.revision + 1, status: 'denied', updatedAt: at })
 }
 
@@ -318,8 +377,8 @@ export function denyProxyRequest(value: StoredProxyRequest, actor: ProxyActor, r
  * This is intentional disclosure; automatic secret scanning cannot prove safety. */
 export function shareProxyReply(value: StoredProxyRequest, actor: ProxyActor, revision: number, reply: string, at: number): StoredProxyRequest {
   const row = editable(value, actor, revision, at, true)
-  const direct = row.status === 'waiting' && !row.execution && row.argumentDraft?.status !== 'pending'
-  const afterRun = row.status === 'awaiting-reply' && row.execution !== undefined && row.execution.status !== 'pending'
+  const direct = row.status === 'waiting' && !row.execution && row.argumentDraft?.status !== 'pending' && row.replyDraft?.status !== 'pending'
+  const afterRun = row.status === 'awaiting-reply' && row.execution !== undefined && row.execution.status !== 'pending' && row.replyDraft?.status !== 'pending'
   if ((!direct && !afterRun) || !prose(reply, PROXY_REPLY_MAX_BYTES)) return invalid()
   return parseStoredProxyRequest({ ...row, revision: row.revision + 1, status: 'replied', updatedAt: at, reply,
     ...(direct ? { replySource: 'direct' } : {}) })
@@ -329,7 +388,7 @@ export function shareProxyReply(value: StoredProxyRequest, actor: ProxyActor, re
  * again. For a still-live worker, cancel/abort and retain its pending receipt
  * and capacity until physical settlement instead of calling this prematurely. */
 export function interruptProxyRequest(value: StoredProxyRequest, at: number): StoredProxyRequest {
-  const row = interruptPendingProxyArgumentDraft(parseStoredProxyRequest(value), at)
+  const row = interruptPendingProxyReplyDraft(interruptPendingProxyArgumentDraft(parseStoredProxyRequest(value), at), at)
   return row.execution?.status === 'pending'
     ? settleProxyRequest(row, row.execution.callHash, { status: 'uncertain', summary: '' }, at)
     : row
@@ -345,6 +404,7 @@ export function proxyRequestView(value: StoredProxyRequest, actor: ProxyActor): 
     revision: row.revision, status: row.status,
     ...(row.reply === undefined ? {} : { reply: row.reply }),
     ...(who === 'owner' && row.argumentDraft ? { argumentDraft: row.argumentDraft } : {}),
+    ...(who === 'owner' && row.replyDraft ? { replyDraft: row.replyDraft } : {}),
     ...(who === 'owner' && row.execution ? { execution: row.execution } : {}),
     ...(row.executionBlockedByRestore ? { executionBlockedByRestore: true } : {}),
   }

@@ -6,6 +6,8 @@ import type { McpDiscoveredTool } from './mcpConnections.ts'
 export const AGENT_REQUEST_TASK_MAX_BYTES = 8_192
 export const AGENT_REQUEST_REPLY_MAX_BYTES = 65_536
 export const AGENT_REQUEST_ARGUMENT_DRAFT_MAX_BYTES = 48 * 1_024
+export const AGENT_REQUEST_REPLY_DRAFT_MAX_BYTES = 32 * 1_024
+export const AGENT_REQUEST_REPLY_NOTES_MAX_BYTES = 8 * 1_024
 /** Strict prose rejects controls other than tab/CR/LF and unpaired surrogates.
  * Its JSON encoding can at most double (quotes, backslashes and whitespace). */
 export const AGENT_REQUEST_CREATE_MAX_BYTES = 2 * AGENT_REQUEST_TASK_MAX_BYTES + 1_024
@@ -48,6 +50,14 @@ export interface AgentRequestArgumentDraftBinding {
   schemaHash: string
   transport: 'http' | 'stdio'
 }
+/** Non-credential coordinates for one private owner-started reply draft. */
+export interface AgentRequestReplyDraftBinding {
+  agentRevision: number
+  providerId: string
+  providerRevision: number
+  providerConnectionRevision: number
+  model: string
+}
 export type AgentRequestArgumentDraft = {
   revision: 1 | 2
   binding: AgentRequestArgumentDraftBinding
@@ -56,6 +66,16 @@ export type AgentRequestArgumentDraft = {
 } & (
   | { revision: 1; status: 'pending' }
   | { revision: 2; status: 'done'; finishedAt: number; arguments: Record<string, McpJsonValue> }
+  | { revision: 2; status: 'failed' | 'uncertain'; finishedAt: number }
+)
+export type AgentRequestReplyDraft = {
+  revision: 1 | 2
+  binding: AgentRequestReplyDraftBinding
+  inputHash: string
+  startedAt: number
+} & (
+  | { revision: 1; status: 'pending' }
+  | { revision: 2; status: 'done'; finishedAt: number; text: string }
   | { revision: 2; status: 'failed' | 'uncertain'; finishedAt: number }
 )
 export interface AgentRequestDraftModel {
@@ -77,6 +97,8 @@ export interface AgentRequestStateView {
   status: AgentRequestStatus
   /** Private owner-only model-draft receipt; omitted from requester projections. */
   argumentDraft?: AgentRequestArgumentDraft
+  /** Private owner-only generated reply suggestion; never shared implicitly. */
+  replyDraft?: AgentRequestReplyDraft
   reply?: string
   execution?: AgentRequestExecution
   /** Explicit backup restore cannot prove this old waiting request never ran. */
@@ -91,7 +113,7 @@ export interface AgentRequestView extends AgentRequestStateView {
   toAgentAvailable: boolean
 }
 /** History/navigation never fetch potentially large private receipts or replies. */
-export type AgentRequestSummary = Omit<AgentRequestView, 'execution' | 'reply' | 'argumentDraft'>
+export type AgentRequestSummary = Omit<AgentRequestView, 'execution' | 'reply' | 'argumentDraft' | 'replyDraft'>
 export interface AgentRequestReview {
   request: AgentRequestView
   /** Owner-only inspected tools under the receiving Agent's current reach. */
@@ -101,10 +123,16 @@ export interface AgentRequestReview {
   /** Exact current owner-visible endpoint/model coordinates eligible for one draft. */
   draftModel?: AgentRequestDraftModel
 }
+export interface AgentRequestReplyReview {
+  request: AgentRequestView
+  blockedReason: string | null
+  draftModel?: AgentRequestDraftModel
+}
 /** A stale decision never repeats work. Read the canonical request to recover
  * after an ambiguous response instead of manufacturing a new execution. */
 export type AgentRequestDecision =
   | { action: 'deny' | 'cancel'; expectedRevision: number }
   | { action: 'draft-arguments'; expectedRevision: number; binding: AgentRequestArgumentDraftBinding }
+  | { action: 'draft-reply'; expectedRevision: number; binding: AgentRequestReplyDraftBinding; notes: string }
   | { action: 'run'; expectedRevision: number; approval: AgentRequestApproval }
   | { action: 'share'; expectedRevision: number; reply: string }

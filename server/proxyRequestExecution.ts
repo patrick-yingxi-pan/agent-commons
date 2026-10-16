@@ -42,7 +42,7 @@ export class ProxyRequestExecution {
           !Number.isSafeInteger(copy.expectedRevision) || Number(copy.expectedRevision) < 1) throw new Error()
       input = copy
     } catch { throw new ProxyRequestError('invalid') }
-    if (row.revision !== input.expectedRevision || row.status !== 'waiting' || row.executionBlockedByRestore || row.argumentDraft?.status === 'pending') throw new ProxyRequestError('conflict')
+    if (row.revision !== input.expectedRevision || row.status !== 'waiting' || row.executionBlockedByRestore || row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending') throw new ProxyRequestError('conflict')
     let pending: StoredProxyRequest
     try { pending = beginProxyRequest(row, actor, row.revision, input.approval as AgentRequestApproval, Math.max(p.now(), row.updatedAt)) }
     catch { throw new ProxyRequestError('invalid') }

@@ -2,11 +2,13 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import ts from 'typescript'
+import type { AgentRequestReplyDraftBinding } from '../contract/agentRequests.ts'
 import type { McpBoundToolCall } from '../contract/mcpExecution.ts'
 import type { McpBoundExecutionOutcome } from './mcpBoundExecution.ts'
 import {
   beginProxyRequest,
   beginProxyArgumentDraft,
+  beginProxyReplyDraft,
   cancelProxyRequest,
   createProxyRequest,
   denyProxyRequest,
@@ -16,6 +18,7 @@ import {
   proxyRequestView,
   settleProxyRequest,
   settleProxyArgumentDraft,
+  settleProxyReplyDraft,
   shareProxyReply,
 } from './proxyRequestState.ts'
 
@@ -69,6 +72,10 @@ function draftBinding(overrides: Record<string, unknown> = {}) {
   } as const
 }
 const draftHash = 'c'.repeat(64)
+const replyDraftBinding: AgentRequestReplyDraftBinding = {
+  agentRevision: 2, providerId: 'provider-anthropic', providerRevision: 0,
+  providerConnectionRevision: 3, model: 'claude-test-model',
+}
 
 function outcome(status: McpBoundExecutionOutcome['status'] = 'done'): McpBoundExecutionOutcome {
   if (status === 'uncertain') return { status, summary: 'The remote result is uncertain.' }
@@ -173,6 +180,26 @@ test('owner may directly share reviewed prose from waiting without an execution 
   assert.throws(() => parseStoredProxyRequest({ ...pendingDraft, status: 'replied', revision: pendingDraft.revision + 1,
     reply: 'No sharing while a model draft is pending.', replySource: 'direct' }),
     'direct terminal rows cannot retain pending model work')
+})
+
+test('a private reply draft may follow a completed MCP run and still share only on explicit review', () => {
+  const run = beginProxyRequest(createProxyRequest(input()), ownerActor, 1, httpApproval(), createdAt + 1)
+  const awaiting = settleProxyRequest(run, run.execution!.callHash, outcome(), createdAt + 2)
+  const pending = beginProxyReplyDraft(awaiting, ownerActor, awaiting.revision, replyDraftBinding,
+    'd'.repeat(64), 'Ask for the invoice number.', createdAt + 3)
+  assert.equal(pending.status, 'awaiting-reply')
+  assert.equal(pending.replyDraft?.status, 'pending')
+  const settled = settleProxyReplyDraft(pending, 'd'.repeat(64), { status: 'done', text: 'Please send the invoice number.' }, createdAt + 4)
+  assert.equal(settled.status, 'awaiting-reply')
+  assert.deepEqual(parseStoredProxyRequest(settled), settled, 'the exact terminal draft survives strict restart parsing')
+  assert.equal(settled.reply, undefined, 'model text remains private after settlement')
+  const shared = shareProxyReply(settled, ownerActor, settled.revision,
+    'Please send the invoice number.', createdAt + 5)
+  assert.equal(shared.status, 'replied')
+  assert.equal(shared.revision, 6)
+  assert.equal(shared.reply, 'Please send the invoice number.')
+  assert.equal(shared.replyDraft?.text, 'Please send the invoice number.')
+  assert.equal(shared.execution?.status, 'done', 'sharing retains the historical MCP receipt')
 })
 
 test('owner may use either explicitly selected transport, with local execution opt-in carried in its approval', () => {
@@ -584,7 +611,7 @@ test('pure state kernel has no runtime, store, authentication, or route dependen
       assert.ok(ts.isStringLiteral(node.moduleSpecifier))
       return node.moduleSpecifier.text
     }).sort()
-    assert.deepEqual(valueImports, ['../contract/agentRequests.ts', './mcpBoundCall.ts', './mcpJson.ts', './mcpToolResult.ts', './proxyArgumentDraftState.ts', 'node:crypto'].sort(),
+    assert.deepEqual(valueImports, ['../contract/agentRequests.ts', './mcpBoundCall.ts', './mcpJson.ts', './mcpToolResult.ts', './proxyArgumentDraftState.ts', './proxyReplyDraftState.ts', 'node:crypto'].sort(),
       'only portable contract limits, deterministic crypto and inert MCP/draft receipt parsing helpers may be loaded at runtime')
     function visit(node: ts.Node): void {
       assert.equal(ts.isImportEqualsDeclaration(node), false, 'no import-equals runtime escape')

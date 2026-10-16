@@ -144,3 +144,43 @@ test('argument advice is explicitly requested, private, stale-bound and only cop
   assert.throws(() => assert.match(draft.replace('if (!held) onUse(', 'onUse('), use), assert.AssertionError,
     'a held request cannot replace the editable arguments')
 })
+
+test('reply advice is lazy, one-shot, private, binding-current and only adopted after an explicit replacement choice', () => {
+  const draft = stripComments(read(join(ROOT, 'src/components/AgentRequestReplyDraft.tsx')))
+  const runtime = stripComments(read(join(ROOT, 'src/components/AgentRequestsPageRuntime.tsx')))
+  const share = runtime.slice(runtime.indexOf('function ShareReply('), runtime.indexOf('function RequestDetail('))
+  const detail = runtime.slice(runtime.indexOf('function RequestDetail('))
+
+  assert.match(draft, /useAgentRequestReplyReview\(row\.id, expanded\)/,
+    'opening the optional branch is the sole trigger for private model binding reads')
+  assert.match(draft, /aria-expanded=\{expanded\}[\s\S]*Draft a reply…/)
+  assert.match(draft, /action: 'draft-reply', expectedRevision: row\.revision, binding, notes/,
+    'generation is a revision-pinned owner decision with exactly the explicit notes field')
+  assert.match(draft, /This sends only the request, Agent instructions and your notes/)
+  assert.match(draft, /does not send conversation history, tool descriptions, schemas, tool results or connection credentials/)
+  assert.match(draft, /One attempt per request; local token limits are not a billing cap/)
+  assert.match(draft, /Suggested reply · private to you/)
+  assert.match(draft, /Object\.keys\(binding\)\.every\(key =>[\s\S]*saved\.binding/,
+    'the saved text is current only when every server-resolved model coordinate matches')
+  assert.match(draft, /!reviewCurrent \|\| !bindingCurrent/,
+    'stale request or model review leaves the suggestion private and unusable')
+  assert.match(draft, /onClick=\{\(\) => setConfirmReplace\(true\)\}>Use reply draft/)
+  assert.match(draft, /onUse\(saved\.text\)/,
+    'text moves into the manually editable reply only after explicit confirmation')
+  assert.match(draft, /This one attempt will not repeat automatically/)
+  assert.doesNotMatch(draft, /localStorage|sessionStorage/)
+
+  assert.match(share, /<AgentRequestReplyDraft row=\{row\}/)
+  assert.match(share, /row\.replyDraft\?\.status === 'pending'/,
+    'pending model work holds manual Review/Share and remains cancelable')
+  const adopt = /onUse=\{text => \{ setAgentRequestDraft\(row\.id, \{ \.\.\.draft, reply: text \}\); setReviewed\(null\) \}\}/
+  assert.match(share, adopt, 'adopting new text clears the previous exact-text review')
+  assert.throws(() => assert.match(share.replace('; setReviewed(null)', ''), adopt), assert.AssertionError,
+    'a suggestion cannot inherit an earlier manual reply review')
+  assert.match(detail, /row\?\.replyDraft\?\.status !== 'pending'/,
+    'the page polls for the one in-flight reply draft after reload')
+  assert.match(detail, /held=\{!editable \|\| row\.replyDraft\?\.status === 'pending'\}/,
+    'a reply draft blocks optional tool execution while leaving Cancel request outside this gate')
+  assert.match(detail, /row\.replyDraft\?\.status === 'pending'\}\s*title=/,
+    'declining cannot overtake a pending private model attempt')
+})

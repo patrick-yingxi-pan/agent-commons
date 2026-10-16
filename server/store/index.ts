@@ -50,10 +50,12 @@ import { ProxyRequestRegistry } from '../proxyRequestRegistry.ts'
 import { ProxyRequestHost } from '../proxyRequestHost.ts'
 import { ProxyRequestExecution } from '../proxyRequestExecution.ts'
 import { ProxyArgumentExecution, type ProxyArgumentSource } from '../proxyArgumentExecution.ts'
+import { ProxyReplyExecution, type ProxyReplySource } from '../proxyReplyExecution.ts'
 import type { StoredProxyRequest } from '../proxyRequestState.ts'
 import { prepareAgentRequestArguments } from '../proxyArgumentPreparation.ts'
+import { prepareAgentRequestReply } from '../proxyReplyPreparation.ts'
 import type { AgentRequestArgumentDraftBinding, AgentRequestDraftModel } from '../../contract/agentRequests.ts'
-import type { AgentRequestReview } from '../../contract/agentRequests.ts'
+import type { AgentRequestReview, AgentRequestReplyReview, AgentRequestReplyDraftBinding } from '../../contract/agentRequests.ts'
 import type { ProxyActor } from '../proxyRequestState.ts'
 import { agentPerson } from '../agentPerson.ts'
 import { parseMcpInputFlows, validateMcpInputFlows, mcpInputFlowKey, mcpInputBindingHash, mcpInputCommandHash, hasMcpInputFlowCapacity, MCP_INPUT_MAX_ROUNDS, MCP_INPUT_MAX_FLOWS, MCP_INPUT_TTL_MS, type McpInputFlow } from '../mcpInputState.ts'
@@ -235,7 +237,7 @@ import { endpointExecution } from '../model/endpointExecution.ts'
 import { SYSTEM_PROMPTS, SP_DEFAULT_ID, DEFAULT_SYSTEM_PROMPT_BODY } from '../data/prompts.ts'
 import { SEED_COMMISSIONS } from '../data/commissions.ts'
 import { baseToolDefinitions } from '../model/tools.ts'
-import { systemPrompt, resolvedModelId, generateContributionReview, generateDelegatedJudgment, generateCommissionMcpArguments, generateAgentRequestArguments } from '../generate.ts'
+import { systemPrompt, resolvedModelId, generateContributionReview, generateDelegatedJudgment, generateCommissionMcpArguments, generateAgentRequestArguments, generateAgentRequestReply } from '../generate.ts'
 import { RunnerRegistry } from '../registry.ts'
 import { RunnerJournal } from '../journal.ts'
 import { RelayRuntime, hashRelaySecret, mintRelaySecret, relaySecretHint, sameSecretHash } from '../relay.ts'
@@ -1856,7 +1858,7 @@ const proxyRequestHost = new ProxyRequestHost({
 const proxyRequestExecution: ProxyRequestExecution = new ProxyRequestExecution({
   registry: proxyRequestRegistry,
   ready: () => persistenceFault === null && !draining,
-  otherWorkers: () => proxyArgumentExecution.activeActors(),
+  otherWorkers: () => [...proxyArgumentExecution.activeActors(), ...proxyReplyExecution.activeActors()],
   permitted: (row, approval) => proxyRequestHost.executable(row) && proxyRequestTools(row.intent.owner.agentId,
     row.intent.owner).some(tool => tool.connectionId === approval.call.connectionId &&
       tool.connectionRevision === approval.call.connectionRevision && tool.tool.name === approval.call.toolName &&
@@ -1873,12 +1875,23 @@ const proxyArgumentExecution: ProxyArgumentExecution = new ProxyArgumentExecutio
   usage: usageRegistry,
   ready: () => persistenceFault === null && !draining,
   source: proxyArgumentSource,
-  otherWorkers: () => proxyRequestExecution.activeActors(),
+  otherWorkers: () => [...proxyRequestExecution.activeActors(), ...proxyReplyExecution.activeActors()],
   generate: generateAgentRequestArguments,
   commit: operation => commitMutationBatch(operation),
   changed: requestId => { emit({ type: 'agent-request.changed', requestId }); persist() },
   now: () => Date.now(),
   onError: () => { console.error('[Agent request] argument-draft settlement failed; read saved status after recovery') },
+})
+const proxyReplyExecution: ProxyReplyExecution = new ProxyReplyExecution({
+  registry: proxyRequestRegistry, usage: usageRegistry,
+  ready: () => persistenceFault === null && !draining,
+  source: proxyReplySource,
+  otherWorkers: () => [...proxyRequestExecution.activeActors(), ...proxyArgumentExecution.activeActors()],
+  generate: generateAgentRequestReply,
+  commit: operation => commitMutationBatch(operation),
+  changed: requestId => { emit({ type: 'agent-request.changed', requestId }); persist() },
+  now: () => Date.now(),
+  onError: () => { console.error('[Agent request] reply-draft settlement failed; read saved status after recovery') },
 })
 function proxyRequestDraftModel(row: StoredProxyRequest): AgentRequestDraftModel | undefined {
   if (!proxyRequestHost.executable(row) || row.executionBlockedByRestore) return undefined
@@ -1893,10 +1906,22 @@ function proxyRequestDraftModel(row: StoredProxyRequest): AgentRequestDraftModel
     providerRevision: provider.definitionRevision ?? 0, providerConnectionRevision: provider.connectionRevision ?? 0,
     model: resolvedModelId(config) }
 }
-function proxyArgumentSource(row: StoredProxyRequest, binding: AgentRequestArgumentDraftBinding): ProxyArgumentSource | undefined {
+function proxyDraftModelMatches(row: StoredProxyRequest, binding: AgentRequestReplyDraftBinding): boolean {
   const model = proxyRequestDraftModel(row)
-  if (!model || model.agentRevision !== binding.agentRevision || model.providerId !== binding.providerId ||
-      model.providerRevision !== binding.providerRevision || model.providerConnectionRevision !== binding.providerConnectionRevision || model.model !== binding.model) return undefined
+  return !!model && model.agentRevision === binding.agentRevision && model.providerId === binding.providerId &&
+    model.providerRevision === binding.providerRevision && model.providerConnectionRevision === binding.providerConnectionRevision && model.model === binding.model
+}
+function proxyReplySource(row: StoredProxyRequest, binding: AgentRequestReplyDraftBinding, notes: string): ProxyReplySource | undefined {
+  if (!proxyDraftModelMatches(row, binding)) return undefined
+  const agent = WORKER_AGENTS.get(row.intent.owner.agentId)!
+  const provider = store.listProviders(row.intent.owner.tenantId).find(item => item.id === binding.providerId)!
+  try {
+    return { prepared: prepareAgentRequestReply({ task: row.intent.task, agent, notes }),
+      config: structuredClone({ ...PROVIDER_CONFIGS.get(provider.id), model: binding.model }), budgets: [agent.budget, provider.plan] }
+  } catch { return undefined }
+}
+function proxyArgumentSource(row: StoredProxyRequest, binding: AgentRequestArgumentDraftBinding): ProxyArgumentSource | undefined {
+  if (!proxyDraftModelMatches(row, binding)) return undefined
   const selected = proxyRequestTools(row.intent.owner.agentId, row.intent.owner).find(tool =>
     tool.connectionId === binding.connectionId && tool.connectionRevision === binding.connectionRevision &&
     tool.tool.name === binding.toolName && tool.schemaHash === binding.schemaHash && tool.transport === binding.transport)
@@ -6348,10 +6373,21 @@ export const store = {
     const draftModel = row.status === 'waiting' ? proxyRequestDraftModel(row) : undefined
     return { request, tools: row.status === 'waiting' ? tools : [], blockedReason, ...(draftModel ? { draftModel } : {}) }
   },
+  agentRequestReplyReview(id: string, actor: ProxyActor): AgentRequestReplyReview | undefined {
+    const request = proxyRequestHost.read(id, actor), row = proxyRequestRegistry.get(id)
+    if (!request || request.role !== 'owner' || !row) return undefined
+    const draftModel = proxyRequestDraftModel(row)
+    const blockedReason = row.executionBlockedByRestore ? 'This restored request cannot start model work. You can still write a reply yourself.' :
+      row.status !== 'waiting' && row.status !== 'awaiting-reply' ? 'This request can no longer receive a reply draft.' :
+      row.argumentDraft?.status === 'pending' ? 'Wait for the argument draft to finish before drafting a reply.' :
+      !proxyRequestHost.executable(row) ? 'An original Agent, person membership or visibility is no longer available.' :
+      !draftModel ? 'Configure an endpoint model provider for the receiving Agent before drafting a reply.' : null
+    return { request, blockedReason, ...(draftModel ? { draftModel } : {}) }
+  },
   createAgentRequest(actor: ProxyActor, key: unknown, input: unknown) { return proxyRequestHost.create(actor, key, input) },
   decideAgentRequest(id: string, actor: ProxyActor, input: unknown) {
     const view = proxyRequestHost.decide(id, actor, input)
-    if (view.status === 'cancelled' || view.status === 'denied') { proxyRequestExecution.cancel(id); proxyArgumentExecution.cancel(id) }
+    if (view.status === 'cancelled' || view.status === 'denied') { proxyRequestExecution.cancel(id); proxyArgumentExecution.cancel(id); proxyReplyExecution.cancel(id) }
     return view
   },
   runAgentRequest(id: string, actor: ProxyActor, input: unknown, authenticated: () => boolean) {
@@ -6362,7 +6398,11 @@ export const store = {
     proxyArgumentExecution.start(id, actor, input, authenticated)
     return proxyRequestHost.read(id, actor)
   },
-  async stopAgentRequests() { await Promise.all([proxyRequestExecution.stop(), proxyArgumentExecution.stop()]) },
+  draftAgentRequestReply(id: string, actor: ProxyActor, input: unknown, authenticated: () => boolean) {
+    proxyReplyExecution.start(id, actor, input, authenticated)
+    return proxyRequestHost.read(id, actor)
+  },
+  async stopAgentRequests() { await Promise.all([proxyRequestExecution.stop(), proxyArgumentExecution.stop(), proxyReplyExecution.stop()]) },
   /** Mint a worker Agent through the D8 creation funnel (docs/agent-commons.md): both
    *  faces of the cascade are enforced here against the Agent's **provider** (D9 — the
    *  cascade root), so the *agent ⊆ provider* invariant holds by construction.

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -95,24 +95,56 @@ test('direct parent exit still kills a stdio-inheriting descendant before closed
   const directory = mkdtempSync(join(tmpdir(), 'mcp-stdio-process-group-exit-'))
   const pidFile = join(directory, 'parent.json')
   const readyFile = join(directory, 'descendant-ready.json')
+  const requestFile = join(directory, 'descendant-request.json')
+  const exitFile = join(directory, 'parent-exit')
   const descendant = `
-    const { writeFileSync } = require('node:fs');
+    const { renameSync, writeFileSync } = require('node:fs');
+    const publishJson = (path, value) => {
+      const temporary = path + '.tmp-' + process.pid;
+      writeFileSync(temporary, JSON.stringify(value));
+      renameSync(temporary, path);
+    };
     process.on('SIGTERM', () => {});
     setInterval(() => {}, 1_000);
-    writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid }));
-    process.stdin.resume();
+    publishJson(process.argv[1], { pid: process.pid });
+    let input = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', chunk => {
+      input += chunk;
+      let newline;
+      while ((newline = input.indexOf('\\n')) >= 0) {
+        const line = input.slice(0, newline); input = input.slice(newline + 1);
+        const request = JSON.parse(line);
+        publishJson(process.argv[2], { id: request.id, method: request.method });
+      }
+    });
   `
   const parent = `
     const { spawn } = require('node:child_process');
-    const { existsSync, readFileSync, writeFileSync } = require('node:fs');
+    const { existsSync, readFileSync, renameSync, writeFileSync } = require('node:fs');
+    const publishJson = (path, value) => {
+      const temporary = path + '.tmp-' + process.pid;
+      writeFileSync(temporary, JSON.stringify(value));
+      renameSync(temporary, path);
+    };
     process.on('SIGTERM', () => {});
-    writeFileSync(process.argv[1], JSON.stringify({ pid: process.pid }));
-    const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}, process.argv[2]], { stdio: 'inherit' });
+    publishJson(process.argv[1], { pid: process.pid });
+    const child = spawn(process.execPath, ['-e', ${JSON.stringify(descendant)}, process.argv[2], process.argv[3]], { stdio: 'inherit' });
     const publishAndExit = () => {
-      if (!existsSync(process.argv[2])) { setTimeout(publishAndExit, 10); return; }
+      if (!existsSync(process.argv[2]) || !existsSync(process.argv[3])) { setTimeout(publishAndExit, 10); return; }
       const details = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-      const response = { jsonrpc: '2.0', id: 1, result: { parent: process.pid, descendant: details.pid } };
-      process.stdout.write(JSON.stringify(response) + '\\n', () => process.exit(0));
+      const request = JSON.parse(readFileSync(process.argv[3], 'utf8'));
+      const response = { jsonrpc: '2.0', id: request.id, result: { parent: process.pid, descendant: details.pid } };
+      process.stdout.write(JSON.stringify(response) + '\\n', () => {
+        // Let the test observe the response before the leader exits. This
+        // isolates the intended assertion: direct leader exit must kill the
+        // still-live stdio-inheriting descendant before the closed signal resolves.
+        const exitAfterResponseObserved = () => {
+          if (!existsSync(process.argv[4])) { setTimeout(exitAfterResponseObserved, 10); return; }
+          process.exit(0);
+        };
+        exitAfterResponseObserved();
+      });
     };
     publishAndExit();
   `
@@ -130,12 +162,17 @@ test('direct parent exit still kills a stdio-inheriting descendant before closed
     rmSync(directory, { recursive: true, force: true })
   })
 
-  connection = supervisor.open({ ...launch(directory), args: ['-e', parent, pidFile, readyFile] }, { isCurrent: () => true })
+  connection = supervisor.open({ ...launch(directory), args: ['-e', parent, pidFile, readyFile, requestFile, exitFile] }, { isCurrent: () => true })
   const response = await within(connection.request('tools/list'), 5_000, 'parent response')
   pids = { parent: response.result.parent, descendant: response.result.descendant }
   assert.ok(pids.parent > 0 && pids.descendant > 0)
   assert.notEqual(pids.parent, pids.descendant)
   assert.equal(new Set([pids.parent, pids.descendant]).size, 2)
+  assert.deepEqual(JSON.parse(readFileSync(requestFile, 'utf8')), { id: 1, method: 'tools/list' },
+    'the descendant receives the actual pending request before the parent responds')
+  assert.equal(pidIsRunning(pids.parent), true, 'the parent remains alive until the request response is observed')
+  assert.equal(pidIsRunning(pids.descendant), true, 'the inherited-stdio descendant is still alive when the parent exits')
+  writeFileSync(exitFile, 'response-observed')
 
   await within(connection.closed, 5_000, 'closed after parent exit')
   await waitForExit(pids.parent, exitedPids)

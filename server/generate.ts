@@ -46,6 +46,9 @@ import {
   type PreparedProxyArgumentInput,
   type ProxyArgumentDraft,
 } from './proxyArgumentPreparation.ts'
+import { parseProxyReplyDraft, PROXY_REPLY_PREPARATION_MAX_OUTPUT_TOKENS, ProxyReplyPreparationInputError,
+  ProxyReplyPreparationOutputError, ProxyReplyPreparationTransportError, ProxyReplyPreparationUsageError,
+  snapshotPreparedProxyReplyInput, type PreparedProxyReplyInput } from './proxyReplyPreparation.ts'
 import {
   delegatedJudgmentSnapshot,
   DelegatedJudgmentGenerationError,
@@ -679,6 +682,29 @@ export async function generateAgentRequestArguments(
     throw new ProxyArgumentPreparationOutputError()
   }
   return parseProxyArgumentDraft(response.content[0].text, frozen.toolName)
+}
+
+/** One paid, tool-free attempt; never adopts or discloses its private result. */
+export async function generateAgentRequestReply(
+  prepared: PreparedProxyReplyInput, provider: ProviderConfig, signal: AbortSignal | undefined, onUsage: ModelUsageHandler,
+): Promise<string> {
+  let frozen: PreparedProxyReplyInput
+  try { frozen = snapshotPreparedProxyReplyInput(prepared) } catch { throw new ProxyReplyPreparationInputError() }
+  let response: EndpointMessage
+  try {
+    response = await clientFor(provider, 0).messages.create({ model: provider.model ?? MODEL,
+      max_tokens: PROXY_REPLY_PREPARATION_MAX_OUTPUT_TOKENS, system: frozen.system,
+      messages: [{ role: 'user', content: frozen.prompt }],
+    }, { signal })
+  } catch (cause) { throw new ProxyReplyPreparationTransportError({ cause }) }
+  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
+  const inputTokens = usage?.input_tokens, outputTokens = usage?.output_tokens
+  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
+      !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
+      !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) throw new ProxyReplyPreparationUsageError()
+  createModelUsageRecorder(onUsage).record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  if (response.stop_reason !== 'end_turn' || !Array.isArray(response.content) || response.content.length !== 1 || response.content[0]?.type !== 'text') throw new ProxyReplyPreparationOutputError()
+  return parseProxyReplyDraft(response.content[0].text)
 }
 
 /** Stream an assistant reply through the Messages API tool-use loop. Fires the

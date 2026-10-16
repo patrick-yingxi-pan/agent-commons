@@ -43,10 +43,10 @@ async function asarSha256(path) {
   return createHash('sha256').update(await readFile(path)).digest('hex')
 }
 
-/** Local-only model peer; a captured request is the proof of an actual Messages
- * call. The interrupted branch intentionally never sends a model response. */
+/** Local-only model peer; captures argument and reply-draft Messages requests.
+ * The two interrupted branches intentionally never receive a response. */
 async function startArgumentModel() {
-  const requests = [], sockets = new Set()
+  const requests = [], argumentRequests = [], replyRequests = [], sockets = new Set()
   const server = createServer(async (req, res) => {
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(body)) }
     if (req.method === 'GET' && req.url === '/v1/models') return json(200, { data: [{ id: MODEL, display_name: MODEL }] })
@@ -60,24 +60,39 @@ async function startArgumentModel() {
       }
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       const probe = body.tools?.some(tool => tool.name === 'probe_noop')
+      let replyDraft = false
       if (!probe) {
         assert.equal(body.tools, undefined)
         assert.equal(body.model, MODEL)
-        assert.match(body.system, /You draft arguments for one owner-reviewed Agent request/)
         assert.equal(body.messages.length, 1)
         assert.equal(body.messages[0].role, 'user')
         assert.equal(JSON.stringify(body).includes(SECRET), false, 'private results never enter drafting input')
         requests.push(body)
-        if (body.messages[0].content.includes('hold-model-until-relaunch')) return
+        const input = body.messages[0].content
+        if (input.includes('reply-draft-smoke-')) {
+          replyDraft = true
+          assert.match(body.system, /^You draft a private reply for the receiving owner of an Agent request\./)
+          assert.equal(input.includes('reply-draft-tool-result-forbidden'), false)
+          assert.equal(input.includes('records.search'), false, 'tool names never enter reply drafting input')
+          assert.equal(input.includes('AC_MCP_STDIO_FIXTURE_ALLOW'), false, 'fixture credentials never enter reply drafting input')
+          replyRequests.push(body)
+          if (input.includes('reply-draft-smoke-hold')) return
+        } else {
+          assert.match(body.system, /You draft arguments for one owner-reviewed Agent request/)
+          argumentRequests.push(body)
+          if (input.includes('hold-model-until-relaunch')) return
+        }
       }
       json(200, { id: `msg_${randomUUID()}`, type: 'message', role: 'assistant', model: MODEL,
-        content: [{ type: 'text', text: probe ? 'ok' : JSON.stringify({ toolName: 'records.search', arguments: { query: 'agent-request-smoke-success' } }) }],
+        content: [{ type: 'text', text: probe ? 'ok' : replyDraft
+          ? 'Suggested reply for reply-draft-smoke-success: the owner can confirm the requested details.'
+          : JSON.stringify({ toolName: 'records.search', arguments: { query: 'agent-request-smoke-success' } }) }],
         stop_reason: 'end_turn', usage: { input_tokens: 17, output_tokens: 9 } })
     } catch { if (!res.destroyed) json(400, { error: { type: 'invalid_request_error', message: 'Invalid authored fixture request' } }) }
   })
   server.on('connection', socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)) })
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve) })
-  return { origin: `http://127.0.0.1:${server.address().port}`, requests,
+  return { origin: `http://127.0.0.1:${server.address().port}`, requests, argumentRequests, replyRequests,
     close: () => new Promise(resolve => { server.close(resolve); for (const socket of sockets) socket.destroy() }) }
 }
 
@@ -128,10 +143,10 @@ async function creationDefaults(page) {
   return { providerId: provider.id, systemPromptId: prompt.id }
 }
 
-async function createAgent(page, label, authority, providerId) {
+async function createAgent(page, label, authority, providerId, instructions = '') {
   const defaults = await creationDefaults(page)
   return api(page, '/agents', {
-    label, ...defaults, ...(providerId ? { providerId } : {}), tools: [], instructions: '',
+    label, ...defaults, ...(providerId ? { providerId } : {}), tools: [], instructions,
     ...(authority ? { authority } : {}),
   })
 }
@@ -173,7 +188,7 @@ async function ownerRun(page, origin, requestId, query, expectedResult, model) {
     await expect(suggestion).toContainText('Your workspace pays for model usage')
     await suggestion.getByRole('button', { name: 'Draft arguments', exact: true }).click()
     await expect(suggestion.getByRole('button', { name: 'Use draft', exact: true })).toBeEnabled({ timeout: WAIT })
-    assert.equal(model.requests.length, 1, 'one explicitly started model call')
+    assert.equal(model.argumentRequests.length, 1, 'one explicitly started argument model call')
     await expect(page.getByLabel('Arguments (JSON)', { exact: true })).toHaveValue('{}', { timeout: WAIT })
     assert.equal((await api(page, `/agent-requests/${requestId}`)).execution, undefined, 'the suggested arguments do not execute a tool')
     await suggestion.getByRole('button', { name: 'Use draft', exact: true }).click()
@@ -203,6 +218,93 @@ async function ownerDirectReply(page, origin, requestId, reply) {
   await page.getByLabel('Reply', { exact: true }).fill(reply)
   await page.getByRole('button', { name: 'Review reply', exact: true }).click()
   await expect(page.getByText(reply, { exact: true })).toBeVisible()
+  const share = page.waitForResponse(response => response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === `/api/v1/agent-requests/${requestId}/decision`, { timeout: WAIT })
+  await page.getByRole('button', { name: 'Share reply', exact: true }).click()
+  assert.equal((await share).status(), 200)
+}
+
+async function ownerDraftReply(page, origin, requestId, {
+  task, notes, model, providerId, agentId, agentRevision, providerRevision, connectionId, executablePath,
+  replyCallNumber, pending = false,
+}) {
+  await page.goto(`${origin}/agents/requests/${encodeURIComponent(requestId)}`)
+  await expect(page.getByLabel('Reply', { exact: true })).toBeVisible({ timeout: WAIT })
+  await expect(page.getByRole('button', { name: 'Draft a reply…', exact: true })).toBeVisible({ timeout: WAIT })
+  await page.getByRole('button', { name: 'Draft a reply…', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Optional reply draft', exact: true })
+  await expect(page.getByLabel('Reply', { exact: true })).toBeVisible()
+  await expect(panel.getByLabel('Notes for a reply draft', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Use a tool…', exact: true })).toBeVisible()
+  await expect(page.getByLabel('Inspected tool', { exact: true })).toHaveCount(0)
+  await panel.getByLabel('Notes for a reply draft', { exact: true }).fill(notes)
+
+  const before = await api(page, `/agent-requests/${requestId}`)
+  const review = await api(page, `/agent-requests/${requestId}/reply-review`)
+  assert.equal(before.toAgentId, agentId, 'the draft review uses the request’s exact receiving Agent')
+  assert.equal(review.request.toAgentId, agentId)
+  assert.equal(review.draftModel.model, MODEL, 'reply advice uses the receiving Agent model')
+  assert.equal(review.draftModel.providerId, providerId, 'reply advice uses the exact receiving Agent provider')
+  assert.equal(review.draftModel.agentRevision, agentRevision)
+  assert.equal(review.draftModel.providerRevision, providerRevision)
+  const submitted = page.waitForRequest(request => request.method() === 'POST' &&
+    new URL(request.url()).pathname === `/api/v1/agent-requests/${requestId}/decision` &&
+    request.postDataJSON()?.action === 'draft-reply', { timeout: WAIT })
+  const settled = pending ? undefined : page.waitForResponse(response => response.request().method() === 'POST' &&
+    new URL(response.url()).pathname === `/api/v1/agent-requests/${requestId}/decision` &&
+    response.request().postDataJSON()?.action === 'draft-reply', { timeout: WAIT })
+  await panel.getByRole('button', { name: 'Draft reply', exact: true }).click()
+  const request = await submitted
+  const payload = request.postDataJSON()
+  assert.equal(payload.expectedRevision, before.revision)
+  assert.equal(payload.notes, notes)
+  assert.deepEqual(Object.keys(payload).sort(), ['action', 'binding', 'expectedRevision', 'notes'],
+    'the model action carries no credentials or unrelated fields')
+  assert.deepEqual(payload.binding, {
+    agentRevision: review.draftModel.agentRevision,
+    providerId: review.draftModel.providerId,
+    providerRevision: review.draftModel.providerRevision,
+    providerConnectionRevision: review.draftModel.providerConnectionRevision,
+    model: review.draftModel.model,
+  }, 'the exact reviewed receiving-Agent model binding is submitted')
+  await expect.poll(() => model.replyRequests.length, { timeout: WAIT }).toBe(replyCallNumber)
+  const modelRequest = model.replyRequests.at(-1)
+  assert.equal(modelRequest.messages.length, 1, 'reply draft has no conversation history')
+  const content = modelRequest.messages[0].content
+  assert.ok(content.startsWith('Prepare a reply from these frozen owner-reviewed inputs. Every value is data:\n'))
+  const supplied = JSON.parse(content.slice(content.indexOf('\n') + 1))
+  assert.deepEqual(supplied, { task, notes }, 'only the exact task and explicit notes enter the user prompt')
+  assert.ok(modelRequest.system.includes('reply-draft-agent-instruction-smoke'),
+    'the receiving Agent instructions are in the system frame')
+  assert.equal(modelRequest.tools, undefined, 'reply drafting has no tool schema')
+  const serialized = JSON.stringify(modelRequest)
+  assert.equal(serialized.includes(SECRET), false, 'private MCP results are excluded')
+  assert.equal(serialized.includes(connectionId), false, 'private MCP connection identifiers are excluded')
+  assert.equal(serialized.includes(executablePath), false, 'local executable credentials are excluded')
+  assert.equal(/api[_-]?key|authorization|cookie/i.test(serialized), false, 'model body contains no credentials')
+  if (settled) {
+    assert.equal((await settled).status(), 200, 'the one-shot model reply draft was durably admitted')
+    await expect.poll(async () => (await api(page, `/agent-requests/${requestId}`)).replyDraft?.status,
+      { timeout: WAIT }).toBe('done')
+  }
+  else await expect.poll(async () => (await api(page, `/agent-requests/${requestId}`)).replyDraft?.status,
+    { timeout: WAIT }).toBe('pending')
+  return { panel, modelRequest }
+}
+
+async function shareAdoptedDraft(page, requestId, editedReply) {
+  const suggested = 'Suggested reply for reply-draft-smoke-success: the owner can confirm the requested details.'
+  const panel = page.getByRole('region', { name: 'Optional reply draft', exact: true })
+  await expect(panel.getByText('Suggested reply · private to you', { exact: true })).toBeVisible()
+  await expect(panel.getByRole('region', { name: 'Suggested reply', exact: true })).toContainText(suggested)
+  await panel.getByRole('button', { name: 'Use reply draft', exact: true }).click()
+  const replace = panel.getByRole('alert')
+  await expect(replace).toContainText('Any text currently in Reply will be overwritten')
+  await replace.getByRole('button', { name: 'Replace with suggested reply', exact: true }).click()
+  await expect(page.getByLabel('Reply', { exact: true })).toHaveValue(suggested)
+  await page.getByLabel('Reply', { exact: true }).fill(editedReply)
+  await page.getByRole('button', { name: 'Review reply', exact: true }).click()
+  await expect(page.getByText(editedReply, { exact: true })).toBeVisible()
   const share = page.waitForResponse(response => response.request().method() === 'POST' &&
     new URL(response.url()).pathname === `/api/v1/agent-requests/${requestId}/decision`, { timeout: WAIT })
   await page.getByRole('button', { name: 'Share reply', exact: true }).click()
@@ -304,7 +406,9 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
       models: [{ id: MODEL, label: 'Authored argument model' }],
       authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] }, config: { baseURL: model.origin, model: MODEL },
     })
-    const receiver = await createAgent(page, 'Private receiving Agent', { connectors: [connectionId] }, provider.id)
+    const replyInstructions = 'Agent instruction for reply draft smoke: reply-draft-agent-instruction-smoke.'
+    const receiver = await createAgent(page, 'Private receiving Agent', { connectors: [connectionId] }, provider.id,
+      replyInstructions)
     const draftReceiver = await createAgent(page, 'Interrupted model Agent', { connectors: [connectionId] }, provider.id)
     await api(page, `/agents/${draftReceiver.id}`, { published: true, expectedRevision: draftReceiver.revision ?? 0 }, { method: 'PATCH' })
     const published = await api(page, `/agents/${receiver.id}`, { published: true, expectedRevision: receiver.revision ?? 0 },
@@ -419,6 +523,45 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     assert.equal(toolCalls(traceAfterDirectReply).length, directCallsBefore,
       'a direct reply never calls MCP')
 
+    stage = 'request-model-reply-draft-adopt-edit-review-share'
+    await switchAccount(page, origin, requester.user.id, requester.user.name)
+    const replyDraftTask = `Please answer using the receiving Agent’s guidance (reply-draft-smoke-success-${randomUUID().slice(0, 8)}).`
+    const replyDraftRequest = await createRequestThroughUi(page, origin, source.id, published.id, replyDraftTask)
+    const replyDraftNotes = 'reply-draft-smoke-notes: keep the response concise and confirm availability.'
+    const editedReply = 'I checked the request and can confirm the item is available.'
+    await switchAccount(page, origin, owner.user.id, owner.user.name)
+    const replyTraceBefore = await peerTrace(tracePath)
+    await ownerDraftReply(page, origin, replyDraftRequest.id, {
+      task: replyDraftTask, notes: replyDraftNotes, model, providerId: provider.id, agentId: published.id,
+      agentRevision: published.revision, providerRevision: provider.definitionRevision ?? 0, connectionId,
+      executablePath: launch.executable, replyCallNumber: 1,
+    })
+    const ownerWithReplyDraft = await api(page, `/agent-requests/${replyDraftRequest.id}`)
+    assert.equal(ownerWithReplyDraft.status, 'waiting')
+    assert.equal(ownerWithReplyDraft.replyDraft.status, 'done')
+    assert.equal(ownerWithReplyDraft.replyDraft.text,
+      'Suggested reply for reply-draft-smoke-success: the owner can confirm the requested details.')
+    assert.equal(ownerWithReplyDraft.reply, undefined, 'a private suggestion is not yet shared')
+    const storedReplyDraft = storedRequest(profile, replyDraftRequest.id)
+    assert.deepEqual(storedReplyDraft.replyDraft, ownerWithReplyDraft.replyDraft,
+      'SQLite preserves the exact private model reply receipt')
+    assert.equal(Object.hasOwn(storedReplyDraft.replyDraft, 'notes'), false,
+      'owner notes are never persisted with the private reply receipt')
+    await shareAdoptedDraft(page, replyDraftRequest.id, editedReply)
+    const sharedReplyDraft = await api(page, `/agent-requests/${replyDraftRequest.id}`)
+    assert.equal(sharedReplyDraft.status, 'replied')
+    assert.equal(sharedReplyDraft.reply, editedReply)
+    assert.equal(sharedReplyDraft.replyDraft.text, ownerWithReplyDraft.replyDraft.text,
+      'the private model receipt stays separate from edited shared prose')
+    const storedSharedReplyDraft = storedRequest(profile, replyDraftRequest.id)
+    assert.deepEqual(storedSharedReplyDraft.replyDraft, ownerWithReplyDraft.replyDraft)
+    assert.equal(storedSharedReplyDraft.reply, editedReply)
+    const replyTraceAfter = await peerTrace(tracePath)
+    assert.equal(toolCalls(replyTraceAfter).length, toolCalls(replyTraceBefore).length,
+      'model-written replies never start a tool call')
+    assert.equal(processStarts(replyTraceAfter).length, processStarts(replyTraceBefore).length,
+      'model-written replies never start the local connector')
+
     stage = 'pending-interruption-and-same-profile-relaunch-without-replay'
     const secondTask = `Please inspect one more record (${randomUUID().slice(0, 8)}).`
     await switchAccount(page, origin, requester.user.id, requester.user.name)
@@ -439,9 +582,10 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await page.getByRole('button', { name: 'Use a tool…', exact: true }).click()
     await page.getByLabel('Inspected tool', { exact: true }).selectOption({ label: 'Native private request fixture · records.search · Local program' })
     await page.getByRole('button', { name: 'Draft arguments', exact: true }).click()
-    await expect.poll(() => model.requests.length, { timeout: WAIT }).toBe(2)
+    await expect.poll(() => model.argumentRequests.length, { timeout: WAIT }).toBe(2)
     await expect(page.getByRole('region', { name: 'Optional argument draft', exact: true })).toContainText('Drafting arguments')
     assert.equal(storedRequest(profile, third.id).argumentDraft.status, 'pending', 'the provider attempt is durable before process exit')
+
     const authRoot = await readFile(join(profile, AUTH_ROOT_FILE))
     const oldOrigin = origin
     await page.screenshot({ path: join(evidence, 'owner-pending-request.png'), fullPage: true })
@@ -459,15 +603,23 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     const recovered = await api(page, `/agent-requests/${second.id}`)
     const recoveredDraft = await api(page, `/agent-requests/${third.id}`)
     const recoveredDirect = await api(page, `/agent-requests/${direct.id}`)
+    const recoveredReplyDraft = await api(page, `/agent-requests/${replyDraftRequest.id}`)
     assert.equal(recoveredDraft.argumentDraft.status, 'uncertain')
     assert.equal(recoveredDraft.execution, undefined, 'interrupted advice cannot become a tool execution')
-    assert.equal(model.requests.length, 2, 'relaunch never repeats either model request')
+    assert.equal(recoveredReplyDraft.replyDraft.status, 'done')
+    assert.deepEqual(recoveredReplyDraft.replyDraft, ownerWithReplyDraft.replyDraft)
+    assert.equal(recoveredReplyDraft.reply, editedReply)
+    assert.equal(model.argumentRequests.length, 2, 'argument advice runs exactly twice, including the interrupted attempt')
+    assert.equal(model.replyRequests.length, 1, 'the completed reply advice runs exactly once before the reply interruption phase')
+    assert.equal(model.requests.length, 3, 'two argument calls and the completed reply call precede the isolated interruption phase')
     assert.equal(recovered.status, 'awaiting-reply')
     assert.equal(recovered.execution.status, 'uncertain', 'shutdown or startup closes an interrupted call without replay')
     assert.equal(recovered.execution.result, undefined)
     assert.deepEqual(storedRequest(profile, first.id), storedShared, 'the completed and shared request survives byte-for-byte')
     assert.deepEqual(storedRequest(profile, direct.id), storedDirect,
       'the direct reply and its absent execution receipt survive byte-for-byte')
+    assert.deepEqual(storedRequest(profile, replyDraftRequest.id), storedSharedReplyDraft,
+      'the private reply receipt and edited shared prose survive byte-for-byte')
     assert.equal(recoveredDirect.status, 'replied')
     assert.equal(recoveredDirect.reply, directReply)
     assert.equal(recoveredDirect.execution, undefined)
@@ -485,6 +637,15 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await page.screenshot({ path: join(evidence, 'owner-recovered-uncertainty.png'), fullPage: true })
 
     await switchAccount(page, origin, requester.user.id, requester.user.name)
+    const requesterReplyDraft = await api(page, `/agent-requests/${replyDraftRequest.id}`)
+    assert.equal(requesterReplyDraft.reply, editedReply)
+    assert.equal(requesterReplyDraft.replyDraft, undefined, 'the requester cannot read the private model reply receipt')
+    assert.equal(JSON.stringify(requesterReplyDraft).includes(ownerWithReplyDraft.replyDraft.text), false)
+    await page.goto(`${origin}/agents/requests/${encodeURIComponent(replyDraftRequest.id)}`)
+    await expect(page.getByRole('region', { name: 'Shared reply', exact: true })).toContainText(editedReply)
+    await expect(page.locator('body')).not.toContainText(ownerWithReplyDraft.replyDraft.text)
+    await expect(page.getByRole('region', { name: 'Private execution receipt', exact: true })).toHaveCount(0)
+    await page.screenshot({ path: join(evidence, 'requester-edited-model-reply-after-relaunch.png'), fullPage: true })
     await page.goto(`${origin}/agents/requests/${encodeURIComponent(direct.id)}`)
     await expect(page.getByRole('region', { name: 'Shared reply', exact: true })).toContainText(directReply)
     await expect(page.getByRole('region', { name: 'Private execution receipt', exact: true })).toHaveCount(0)
@@ -496,6 +657,61 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
     await expect(page.locator('body')).not.toContainText(SECRET)
     assert.equal(JSON.stringify(await api(page, '/agent-requests')).includes('execution'), false,
       'both request summaries omit raw receipts')
+
+    // Keep the two existing interruptions (pending MCP on the published Agent
+    // and pending argument advice on a second Agent) in their own process
+    // lifecycle. Only after their recovery has made both non-active do we
+    // exercise an interrupted reply draft on the published Agent.
+    stage = 'pending-reply-draft-interruption-and-second-same-profile-relaunch-without-replay'
+    await switchAccount(page, origin, requester.user.id, requester.user.name)
+    const pendingReplyTask = 'Please answer this request after restart (reply-draft-smoke-hold).'
+    const pendingReplyRequest = await createRequestThroughUi(page, origin, source.id, published.id, pendingReplyTask)
+    await switchAccount(page, origin, owner.user.id, owner.user.name)
+    const pendingReplyNotes = 'reply-draft-smoke-pending-notes'
+    const pendingReplyTraceBefore = await peerTrace(tracePath)
+    await ownerDraftReply(page, origin, pendingReplyRequest.id, {
+      task: pendingReplyTask, notes: pendingReplyNotes, model, providerId: provider.id, agentId: published.id,
+      agentRevision: published.revision, providerRevision: provider.definitionRevision ?? 0, connectionId,
+      executablePath: launch.executable, replyCallNumber: 2, pending: true,
+    })
+    const pendingReplyOwner = await api(page, `/agent-requests/${pendingReplyRequest.id}`)
+    assert.equal(pendingReplyOwner.replyDraft.status, 'pending')
+    const pendingReplySaved = storedRequest(profile, pendingReplyRequest.id)
+    assert.equal(pendingReplySaved.replyDraft.status, 'pending', 'the private reply attempt is durable before its isolated process exit')
+    const pendingReplyTraceAfter = await peerTrace(tracePath)
+    assert.equal(toolCalls(pendingReplyTraceAfter).length, toolCalls(pendingReplyTraceBefore).length,
+      'the isolated reply interruption does not add an MCP call')
+    assert.equal(processStarts(pendingReplyTraceAfter).length, processStarts(pendingReplyTraceBefore).length,
+      'the isolated reply interruption does not start another connector process')
+    const oldReplyOrigin = origin
+    await page.screenshot({ path: join(evidence, 'owner-pending-reply-draft.png'), fullPage: true })
+    await closePackagedDesktop(run); run = undefined
+    await assert.rejects(fetch(`${oldReplyOrigin}/api/v1/me`, { signal: AbortSignal.timeout(1_000) }))
+
+    run = await launchPackagedDesktop(fixture?.executable ?? executable, profile)
+    ;({ page, origin } = run)
+    assert.equal((await api(page, '/me')).user.id, owner.user.id, 'the owner session also survives the isolated reply-draft relaunch')
+    assert.deepEqual(await readFile(join(profile, AUTH_ROOT_FILE)), authRoot, 'the second relaunch retains the exact OS authentication root')
+    const recoveredPendingReply = await api(page, `/agent-requests/${pendingReplyRequest.id}`)
+    assert.equal(recoveredPendingReply.replyDraft.status, 'uncertain', 'shutdown settles interrupted reply advice as uncertain')
+    const storedRecoveredPendingReply = storedRequest(profile, pendingReplyRequest.id)
+    assert.equal(storedRecoveredPendingReply.replyDraft.status, 'uncertain')
+    assert.deepEqual(storedRecoveredPendingReply.replyDraft, recoveredPendingReply.replyDraft,
+      'SQLite retains the exact uncertain private reply receipt after the isolated relaunch')
+    assert.equal(storedRecoveredPendingReply.replyDraft.inputHash, pendingReplySaved.replyDraft.inputHash)
+    assert.deepEqual(storedRecoveredPendingReply.replyDraft.binding, pendingReplySaved.replyDraft.binding)
+    assert.equal(model.argumentRequests.length, 2, 'argument advice was not replayed across either relaunch')
+    assert.equal(model.replyRequests.length, 2, 'the successful and isolated interrupted reply attempts are exact and never repeated')
+    assert.equal(model.requests.length, 4, 'two argument calls and two reply calls are the exact aggregate after both relaunches')
+    await switchAccount(page, origin, requester.user.id, requester.user.name)
+    const requesterPendingReply = await api(page, `/agent-requests/${pendingReplyRequest.id}`)
+    assert.equal(requesterPendingReply.replyDraft, undefined, 'the requester cannot read an uncertain private reply receipt')
+    assert.equal(JSON.stringify(requesterPendingReply).includes(pendingReplyNotes), false)
+    await page.goto(`${origin}/agents/requests/${encodeURIComponent(pendingReplyRequest.id)}`)
+    await expect(page.getByRole('main')).toContainText(pendingReplyTask)
+    await expect(page.getByRole('region', { name: 'Optional reply draft', exact: true })).toHaveCount(0)
+    await expect(page.locator('body')).not.toContainText(pendingReplyNotes)
+    await page.screenshot({ path: join(evidence, 'requester-uncertain-reply-draft-after-relaunch.png'), fullPage: true })
 
     const finalTrace = await peerTrace(tracePath)
     assert.deepEqual(toolCalls(finalTrace).map(row => row.params.arguments), [
@@ -514,9 +730,13 @@ export async function smokePackagedAgentRequests({ executable = packagedExecutab
       crossTenantPublishedTarget: true, ownerOnlyRawReceipt: true, separatelyReviewedReply: true,
       pendingRestartRecoveredUncertainWithoutReplay: true, directReplyWithoutExecution: true,
       requesterDirectReplySurvivesRelaunch: true, exactToolCalls: toolCalls(finalTrace).length,
-      argumentDraft: { explicitUseBeforeReview: true, calls: model.requests.length, interruptedStatus: recoveredDraft.argumentDraft.status,
+      argumentDraft: { explicitUseBeforeReview: true, calls: model.argumentRequests.length, interruptedStatus: recoveredDraft.argumentDraft.status,
         knownReceiptRetained: storedShared.argumentDraft.status === 'done', requesterRedacted: privateRequester.argumentDraft === undefined },
-      sqliteRows: [storedShared, storedDirect, storedRecovered].map(row => ({ id: row.intent.id, status: row.status,
+      replyDraft: { successfulModelCalls: 1, attemptsIncludingUncertain: model.replyRequests.length,
+        interruptedStatus: recoveredPendingReply.replyDraft.status,
+        requesterRedacted: requesterReplyDraft.replyDraft === undefined },
+      sqliteRows: [storedShared, storedDirect, storedSharedReplyDraft, storedRecovered,
+        storedRecoveredPendingReply].map(row => ({ id: row.intent.id, status: row.status,
         revision: row.revision, executionStatus: row.execution?.status ?? null, hasReply: typeof row.reply === 'string' })),
       scope: nativeReview
         ? 'Original unsigned macOS app with actual Cancel/fresh Allow setup dialogs and an authored local peer. Not signing/notarization, third-party MCP, paid-provider, or Intel acceptance.'

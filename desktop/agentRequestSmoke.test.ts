@@ -41,7 +41,18 @@ test('private Agent Requests packaged acceptance is mandatory locally and exclud
     "completedOwner.argumentDraft.status, 'done'",
     "privateRequester.argumentDraft, undefined",
     "recoveredDraft.argumentDraft.status, 'uncertain'",
-    "model.requests.length, 2, 'relaunch never repeats either model request'",
+    "model.argumentRequests.length, 2, 'argument advice runs exactly twice, including the interrupted attempt'",
+    "model.replyRequests.length, 2, 'the successful and isolated interrupted reply attempts are exact and never repeated'",
+    "model.requests.length, 4, 'two argument calls and two reply calls are the exact aggregate after both relaunches'",
+    "recoveredPendingReply.replyDraft.status, 'uncertain'",
+    "storedRecoveredPendingReply.replyDraft.inputHash, pendingReplySaved.replyDraft.inputHash",
+    "assert.deepEqual(storedRequest(profile, replyDraftRequest.id), storedSharedReplyDraft",
+    "Object.hasOwn(storedReplyDraft.replyDraft, 'notes'), false",
+    "requesterReplyDraft.replyDraft, undefined, 'the requester cannot read the private model reply receipt'",
+    "requester-edited-model-reply-after-relaunch.png",
+    "assert.deepEqual(supplied, { task, notes }, 'only the exact task and explicit notes enter the user prompt')",
+    "modelRequest.tools, undefined, 'reply drafting has no tool schema'",
+    "'the exact reviewed receiving-Agent model binding is submitted'",
     "execution.status, 'uncertain'",
     'toolCalls(afterRestart).length, 2',
     'fixture?.close()',
@@ -86,8 +97,8 @@ function assertNativeAgentRequestReviewContract(source) {
   const firstLaunch = source.indexOf('launchPackagedDesktop(fixture?.executable ?? executable, profile)')
   assert.ok(nativeHash >= 0 && fixtureBuild > nativeHash && firstLaunch > fixtureBuild,
     'the original ASAR hash is captured before any fixture build or app launch')
-  assert.equal(source.split('launchPackagedDesktop(fixture?.executable ?? executable, profile)').length - 1, 2,
-    'initial startup and relaunch use the original executable in native-review mode')
+  assert.equal(source.split('launchPackagedDesktop(fixture?.executable ?? executable, profile)').length - 1, 3,
+    'initial startup and both relaunches use the original executable in native-review mode')
   assert.match(source, /if \(!nativeReview\)\s*fixture = await createMcpFixturePackage\(executable, mcpStdioSmokePatches\(\)\)/)
 
   const clearEnv = source.indexOf('for (const key of ENV_KEYS) delete process.env[key]')
@@ -205,4 +216,87 @@ test('direct Agent Request replies have a watched packaged no-execution persiste
     '')
   assert.notEqual(mutant, source, 'the scoped mutation removes the SQLite no-execution receipt check')
   assert.throws(() => assertDirectReplySmokeContract(mutant), assert.AssertionError)
+})
+
+function assertReplyDraftSmokeContract(source) {
+  const helper = source.match(/async function ownerDraftReply\(page, origin, requestId, \{([\s\S]*?)\n\}(?=\n)/)?.[0]
+  assert.ok(helper, 'the packaged workflow has a rendered reply-draft path')
+  for (const required of [
+    "agent-requests/${requestId}/reply-review",
+    "assert.deepEqual(supplied, { task, notes }",
+    "modelRequest.tools, undefined, 'reply drafting has no tool schema'",
+    "modelRequest.messages.length, 1, 'reply draft has no conversation history'",
+    'the exact reviewed receiving-Agent model binding is submitted',
+  ]) assert.ok(helper.includes(required), `rendered model reply drafting retains ${required}`)
+
+  for (const required of [
+    "action === 'draft-reply'",
+    "name: 'Draft a reply…', exact: true",
+    "Notes for a reply draft', { exact: true",
+    "name: 'Draft reply', exact: true",
+    "name: 'Use a tool…', exact: true",
+    "name: 'Use reply draft', exact: true",
+    "name: 'Replace with suggested reply', exact: true",
+    "page.getByLabel('Reply', { exact: true }).fill(editedReply)",
+    "name: 'Review reply', exact: true",
+    "name: 'Share reply', exact: true",
+    "storedReplyDraft.replyDraft, ownerWithReplyDraft.replyDraft",
+    "toolCalls(replyTraceAfter).length, toolCalls(replyTraceBefore).length",
+    "processStarts(replyTraceAfter).length, processStarts(replyTraceBefore).length",
+    "recoveredPendingReply.replyDraft.status, 'uncertain'",
+    "model.replyRequests.length, 2, 'the successful and isolated interrupted reply attempts are exact and never repeated'",
+    "requesterReplyDraft.replyDraft, undefined, 'the requester cannot read the private model reply receipt'",
+    "requester-edited-model-reply-after-relaunch.png",
+  ]) assert.ok(source.includes(required), `packaged model reply evidence retains ${required}`)
+}
+
+test('model-written Agent Request replies have watched packaged input and relaunch locks', () => {
+  const source = readFileSync(new URL('./agentRequestSmoke.mjs', import.meta.url), 'utf8')
+  assertReplyDraftSmokeContract(source)
+  const withoutNoToolsCheck = source.replace(
+    "  assert.equal(modelRequest.tools, undefined, 'reply drafting has no tool schema')\n",
+    '')
+  assert.notEqual(withoutNoToolsCheck, source, 'the scoped mutation removes the model no-tools assertion')
+  assert.throws(() => assertReplyDraftSmokeContract(withoutNoToolsCheck), assert.AssertionError)
+})
+
+test('reply-draft interruption runs only after pending MCP and argument advice recover', () => {
+  const source = readFileSync(new URL('./agentRequestSmoke.mjs', import.meta.url), 'utf8')
+  const dualPhase = source.indexOf("stage = 'pending-interruption-and-same-profile-relaunch-without-replay'")
+  const firstRelaunch = source.indexOf('run = await launchPackagedDesktop(fixture?.executable ?? executable, profile)', dualPhase)
+  const recoveredArguments = source.indexOf("assert.equal(recoveredDraft.argumentDraft.status, 'uncertain')", firstRelaunch)
+  const recoveredMcp = source.indexOf("assert.equal(recovered.status, 'awaiting-reply')", recoveredArguments)
+  const replyPhase = source.indexOf("stage = 'pending-reply-draft-interruption-and-second-same-profile-relaunch-without-replay'", recoveredMcp)
+  const pendingReply = source.indexOf('const pendingReplyRequest = await createRequestThroughUi', replyPhase)
+  const replyPendingReceipt = source.indexOf("assert.equal(pendingReplyOwner.replyDraft.status, 'pending')", pendingReply)
+  const secondClose = source.indexOf('await closePackagedDesktop(run); run = undefined', replyPendingReceipt)
+  const secondRelaunch = source.indexOf('run = await launchPackagedDesktop(fixture?.executable ?? executable, profile)', secondClose)
+  const uncertain = source.indexOf("recoveredPendingReply.replyDraft.status, 'uncertain'", secondRelaunch)
+  for (const [label, index] of [
+    ['dual interruption phase', dualPhase], ['first relaunch', firstRelaunch], ['argument recovery', recoveredArguments],
+    ['MCP recovery', recoveredMcp], ['isolated reply phase', replyPhase], ['pending reply receipt', replyPendingReceipt],
+    ['second relaunch', secondRelaunch], ['uncertain reply recovery', uncertain],
+  ]) assert.ok(index >= 0, `packaged workflow keeps ${label}`)
+  assert.ok(dualPhase < firstRelaunch && firstRelaunch < recoveredArguments && recoveredArguments < recoveredMcp &&
+    recoveredMcp < replyPhase && replyPhase < pendingReply && pendingReply < replyPendingReceipt &&
+    replyPendingReceipt < secondClose && secondClose < secondRelaunch && secondRelaunch < uncertain,
+  'reply generation starts only after both earlier workers recovered, then has its own shutdown and relaunch')
+  assert.equal(source.slice(dualPhase, replyPhase).includes('pendingReplyRequest'), false,
+    'no reply draft can compete with the two existing pending workers')
+  const replyPhaseSource = source.slice(replyPhase, source.indexOf('const finalTrace', replyPhase))
+  assert.match(replyPhaseSource, /assert\.equal\(model\.replyRequests\.length, 2, .*never repeated/)
+  assert.match(replyPhaseSource, /storedRecoveredPendingReply\.replyDraft\.inputHash, pendingReplySaved\.replyDraft\.inputHash/)
+  assert.match(replyPhaseSource, /assert\.deepEqual\(storedRecoveredPendingReply\.replyDraft, recoveredPendingReply\.replyDraft/)
+
+  const withoutSecondRelaunch = source.replace(
+    '    run = await launchPackagedDesktop(fixture?.executable ?? executable, profile)\n    ;({ page, origin } = run)\n    assert.equal((await api(page, \'/me\')).user.id, owner.user.id, \'the owner session also survives the isolated reply-draft relaunch\')\n',
+    '')
+  assert.notEqual(withoutSecondRelaunch, source, 'the scoped mutation removes the isolated second relaunch')
+  const mutantSecondRelaunch = withoutSecondRelaunch.indexOf('reply-draft-interruption-and-second-same-profile-relaunch-without-replay')
+  assert.ok(mutantSecondRelaunch >= 0)
+  assert.throws(() => {
+    const second = withoutSecondRelaunch.indexOf('run = await launchPackagedDesktop(fixture?.executable ?? executable, profile)', mutantSecondRelaunch)
+    const uncertainAfter = withoutSecondRelaunch.indexOf("recoveredPendingReply.replyDraft.status, 'uncertain'", mutantSecondRelaunch)
+    assert.ok(second >= 0 && second < uncertainAfter)
+  }, assert.AssertionError, 'source lock rejects recovering the private draft without its dedicated relaunch')
 })

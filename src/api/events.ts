@@ -191,6 +191,7 @@ function route(e: ServerEvent): void {
       invalidate(keys.agentRequests)
       invalidate(keys.agentRequest(e.requestId))
       invalidate(keys.agentRequestReview(e.requestId))
+      invalidate(keys.agentRequestReplyReview(e.requestId))
       break
     case 'systemprompt.changed':
       invalidate(keys.systemPrompts)

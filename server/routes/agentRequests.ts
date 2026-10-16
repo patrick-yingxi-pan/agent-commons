@@ -49,6 +49,14 @@ export function registerAgentRequestRoutes(router: Router, sourceMatches: (req: 
     if (!review) return refuse(res, new ProxyRequestError('unavailable'))
     sendJson(res, review)
   })
+  router.intrinsicGet('/agent-requests/:id/reply-review', 'the receiving person reviews private model inputs before requesting reply advice; this grants no model self-consent', ({ req, res, params }) => {
+    res.setHeader('Cache-Control', 'no-store')
+    if (!sourceMatches(req, res)) return
+    const actor = store.agentRequestActor(req.headers)
+    const review = actor && store.agentRequestReplyReview(params.id, actor)
+    if (!review) return refuse(res, new ProxyRequestError('unavailable'))
+    sendJson(res, review)
+  })
   router.post('/agent-requests', async ({ req, res, body }) => {
     res.setHeader('Cache-Control', 'no-store')
     if (!sourceMatches(req, res)) return
@@ -89,6 +97,7 @@ export function registerAgentRequestRoutes(router: Router, sourceMatches: (req: 
       const action = input !== null && typeof input === 'object' && !Array.isArray(input) && 'action' in input ? input.action : undefined
       const view = action === 'run' ? store.runAgentRequest(params.id, actor, input, authenticated) :
         action === 'draft-arguments' ? store.draftAgentRequestArguments(params.id, actor, input, authenticated) :
+        action === 'draft-reply' ? store.draftAgentRequestReply(params.id, actor, input, authenticated) :
         store.decideAgentRequest(params.id, actor, input)
       if (!view) return refuse(res, new ProxyRequestError('unavailable'))
       sendJson(res, view)
