@@ -52,9 +52,13 @@ test('rehydrate re-stamps the default provider’s code-owned catalog; a stored 
     // created provider whose stored static catalog must survive the re-stamp.
     providers: [
       [DEFAULT_PROVIDER_ID, { id: DEFAULT_PROVIDER_ID, label: 'Anthropic', modelFamily: 'claude', effortLevels: ['Low', 'Medium', 'High'] }],
-      ['provider-2', { id: 'provider-2', label: 'Static kept', modelFamily: 'llama', effortLevels: ['Standard'], models: [{ id: 'kept-1', label: 'Kept model' }], catalogSource: 'static' }],
+      ['provider-2', {
+        id: 'provider-2', label: 'Static kept', modelFamily: 'llama', effortLevels: ['Standard'],
+        models: [{ id: 'kept-1', label: 'Kept model' }], catalogSource: 'static',
+        replyOutputTokens: 256, // forged/stale read annotation must not override server config
+      }],
     ],
-    providerConfigs: [[DEFAULT_PROVIDER_ID, {}], ['provider-2', {}]],
+    providerConfigs: [[DEFAULT_PROVIDER_ID, {}], ['provider-2', { model: 'served-model', replyOutputTokens: 4096 }]],
     seq: { session: 0, message: 0, schedule: 0, run: 0, artifact: 0, provider: 2, systemPrompt: 1, agent: 1, commission: 1, dispatch: 0 },
   }
   saveState(snap)
@@ -70,6 +74,8 @@ test('rehydrate re-stamps the default provider’s code-owned catalog; a stored 
   const kept = providers.find((p) => p.id === 'provider-2')
   assert.deepEqual(kept?.models, [{ id: 'kept-1', label: 'Kept model' }], 'a stored catalog survives verbatim')
   assert.equal(kept?.catalogSource, 'static')
+  assert.equal(kept?.defaultModelId, 'served-model', 'the concrete model is re-derived from private provider config')
+  assert.equal(kept?.replyOutputTokens, 4096, 'the safe read limit is re-derived from private provider config after restart')
 
   // A seed row the snapshot predates is re-inserted whole — the OpenAI provider
   // (and its server-only config: `defaultModelId` resolves to its configured

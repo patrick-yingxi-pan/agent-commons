@@ -355,7 +355,7 @@ export async function buildComprehensive(): Promise<PersistedState> {
       effortLevels: ['Low', 'Medium', 'High'],
       authority: { tools: ['*'], connectors: ['*'], scopes: ['*'] },
     },
-    { model: 'claude-opus-4-8' },
+    { model: 'claude-opus-4-8', replyOutputTokens: 4096 },
   )
   store.updateProvider(provider.id, { modelFamily: 'claude-playground' }, provider.definitionRevision)
   const relayTenant = store.defaultTenantId()

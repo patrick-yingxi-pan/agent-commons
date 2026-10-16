@@ -458,6 +458,14 @@ base prompt, at roughly four characters per token. Attachments, runtime tools
 and provider-managed context are excluded, not invented as fixed inventory.
 The popover keeps that limitation visible even when its rows collapse and
 distinguishes local rolling counters from provider quota or billing.
+Provider creation and connection editing share one bounded Reply output limit
+field. It is per model call including reasoning, not context capacity or a total
+spend cap. New connections start at 8,192; editing begins from server-computed
+effective connection truth. Unrelated edits omit the field, while protocol
+replacement pins the displayed limit so a legacy absent value cannot silently
+change defaults. Saved details show the acknowledged limit; a failed update
+retains the draft and previous connection. Tool-free reviews and summaries keep
+their separate limits.
 When adding a picker for a registry concept,
 drive it from the registry hook and route it through the shared menu — and if the
 concept's entries are usable in sessions, make the registry a first-class rail

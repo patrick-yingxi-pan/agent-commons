@@ -45,7 +45,7 @@ const sample = {
   // locks that they (and the server-only provider config) survive save → load.
   providers: [['provider-x', { id: 'provider-x', label: 'P', modelFamily: 'claude', effortLevels: ['Low'] }]],
   providerConfigs: [
-    ['provider-x', { protocol: 'openai-responses', baseURL: 'https://api.openai.com/v1', model: 'gpt-5.1' }],
+    ['provider-x', { protocol: 'openai-responses', baseURL: 'https://api.openai.com/v1', model: 'gpt-5.1', replyOutputTokens: 4096 }],
     ['provider-legacy', { model: 'claude-opus-4-8' }],
   ],
   systemPrompts: [['sp-x', { id: 'sp-x', label: 'S', body: 'b', targetFamily: 'claude' }]],
@@ -68,6 +68,8 @@ test('saveState → loadState round-trips the snapshot', () => {
   saveState(sample)
   assert.ok(existsSync(FILE), 'the snapshot file is written')
   assert.deepEqual(loadState(), sample, 'the loaded state equals what was saved')
+  assert.equal(loadState()?.providerConfigs?.[0]?.[1].replyOutputTokens, 4096,
+    'the server-only provider reply limit survives JSON snapshot storage')
 })
 
 test('loadState returns null when the file is absent (caller seeds fresh)', () => {

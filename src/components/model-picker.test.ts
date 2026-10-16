@@ -122,6 +122,16 @@ test('composer and provider surfaces project the server-computed execution postu
   assert.ok(section.includes("provider.execution === 'unconfigured'"), 'the canonical Models surfaces show status')
 })
 
+test('an empty model list never claims an unconfigured endpoint can run', () => {
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenuBody.tsx')))
+  const emptyModelCopy = menu.slice(menu.indexOf('{catalog.length === 0 && ('), menu.indexOf('\n      </div>', menu.indexOf('{catalog.length === 0 && (')))
+  assert.match(emptyModelCopy, /provider\.execution === 'unconfigured'/)
+  assert.match(emptyModelCopy, /turns are blocked before they are written/)
+  assert.match(emptyModelCopy, /Choose a provider to see its model choices/)
+  assert.match(emptyModelCopy, /provider\.execution === 'unconfigured'[\s\S]*turns are blocked before they are written[\s\S]*provider\.execution === 'mock'[\s\S]*turns run its configured model/,
+    'the configured-model claim is reached only after unconfigured and mock states are handled')
+})
+
 test('the longer endpoint workflow stays inside the shared scroll-bounded form dialog', () => {
   const section = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   assert.match(section, /import \{ FormDialog, FormField \} from '\.\/FormDialog\.tsx'/,

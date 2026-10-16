@@ -171,9 +171,15 @@ export function ModelPickerMenuBody({
         ))}
         {catalog.length === 0 && (
           <p className="px-1.5 pb-1 text-[11px] leading-snug text-ink-soft">
-            {provider?.kind === 'session'
-              ? 'Whatever model your connected session runs — the provider can’t enumerate it.'
-              : 'This provider doesn’t list models — turns run its configured model.'}
+            {!provider
+              ? 'Choose a provider to see its model choices.'
+              : provider.kind === 'session'
+                ? 'Whatever model your connected session runs — the provider can’t enumerate it.'
+                : provider.execution === 'unconfigured'
+                  ? 'This endpoint is not configured — turns are blocked before they are written.'
+                  : provider.execution === 'mock'
+                    ? 'Development mock — no model list; turns use its deterministic local fixture.'
+                    : 'This provider doesn’t list models — turns run its configured model.'}
           </p>
         )}
       </div>

@@ -18,7 +18,7 @@ const VIEWPORTS = [
 
 const MODEL_ID = `deepseek-browser-${randomUUID()}`
 
-type WireRequest = { model?: string; messages?: Array<{ role: string; content: unknown }>; stream?: boolean; tools?: unknown[] }
+type WireRequest = { model?: string; messages?: Array<{ role: string; content: unknown }>; stream?: boolean; tools?: unknown[]; max_tokens?: number }
 
 /** Test-owned Anthropic Messages endpoint. Listing is absent until explicitly
  * enabled; probe and generation remain valid the whole time. */
@@ -121,13 +121,20 @@ test('configured model supports provider setup, explicit Dispatch, and later cat
     await create.getByRole('textbox', { name: 'Name', exact: true }).fill(`Loopback DeepSeek ${stamp.slice(0, 8)}`)
     await create.getByLabel('Endpoint URL').fill(peer.baseURL)
     await create.getByLabel('Model ID', { exact: true }).fill(MODEL_ID)
+    const createReplyLimit = create.getByLabel('Reply output limit', { exact: true })
+    await expect(createReplyLimit).toHaveValue('8192')
+    await createReplyLimit.fill('127')
+    await expect(create.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+    await createReplyLimit.fill('65537')
+    await expect(create.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+    await createReplyLimit.fill('8192')
+    await expect(create.getByRole('button', { name: 'Create', exact: true })).toBeEnabled()
 
     for (const viewport of VIEWPORTS) {
       await page.setViewportSize(viewport)
       await expectContainedDialog(page, create)
-      const modelField = create.getByLabel('Model ID', { exact: true })
-      await modelField.scrollIntoViewIfNeeded()
-      await expect(modelField).toBeVisible()
+      await createReplyLimit.scrollIntoViewIfNeeded()
+      await expect(createReplyLimit).toBeVisible()
       await page.screenshot({ path: testInfo.outputPath(`configured-provider-${viewport.width}x${viewport.height}.png`) })
     }
 
@@ -138,8 +145,12 @@ test('configured model supports provider setup, explicit Dispatch, and later cat
     const providers = await providersResponse.json() as ModelProvider[]
     const provider = providers.find((item) => item.label.startsWith('Loopback DeepSeek'))
     expect(provider, 'the owner can read the newly registered endpoint').toBeTruthy()
-    expect(submittedProvider).toMatchObject({ config: { baseURL: peer.baseURL, model: MODEL_ID, protocol: 'anthropic-messages' } })
-    expect(provider).toMatchObject({ modelFamily: 'deepseek', execution: 'configured', defaultModelId: MODEL_ID })
+    expect(submittedProvider).toMatchObject({ config: {
+      baseURL: peer.baseURL, model: MODEL_ID, protocol: 'anthropic-messages', replyOutputTokens: 8192,
+    } })
+    expect(provider).toMatchObject({
+      modelFamily: 'deepseek', execution: 'configured', defaultModelId: MODEL_ID, replyOutputTokens: 8192,
+    })
     expect(provider!.models ?? [], 'the endpoint has no model catalog yet').toHaveLength(0)
     expect(peer.requests.length, 'registration verifies the configured model through Messages').toBeGreaterThan(0)
     expect(peer.requests.every((request) => request.model === MODEL_ID), 'probe uses the exact configured model ID').toBe(true)
@@ -220,7 +231,9 @@ test('configured model supports provider setup, explicit Dispatch, and later cat
     expect(sessionResponse.ok()).toBe(true)
     const session = await sessionResponse.json() as { messages: Array<{ role: string; providerId?: string; modelId?: string }> }
     expect(session.messages.find((message) => message.role === 'assistant')).toMatchObject({ providerId: provider!.id, modelId: MODEL_ID })
-    expect(peer.requests.some((request) => request.model === MODEL_ID && request.stream), 'generation used the selected model').toBe(true)
+    const streamRequests = peer.requests.filter((request) => request.model === MODEL_ID && request.stream)
+    expect(streamRequests.length, 'generation used the selected model').toBeGreaterThan(0)
+    expect(streamRequests.at(-1)?.max_tokens, 'the configured limit reaches the Messages protocol').toBe(8192)
     await page.goto(`/s/${encodeURIComponent(run!.execution!.sessionId)}`)
     const reply = page.locator('[data-turn]').filter({ hasText: 'A local DeepSeek fixture completed this turn.' })
     await expect(reply.locator('[data-turn-model]')).toHaveText(`${provider!.label} · ${MODEL_ID}`)
@@ -255,6 +268,53 @@ test('configured model supports provider setup, explicit Dispatch, and later cat
     }
     await page.getByRole('button', { name: 'Model and effort', exact: true }).click()
     await expect(picker).toHaveCount(0)
+
+    // Changing only the output limit is a sparse connection update. Keep the
+    // first server refusal visible in the form to prove the numeric draft is
+    // retained, then accept the explicit second submission.
+    await page.goto(`/models/${encodeURIComponent(provider!.id)}`)
+    await page.getByRole('button', { name: 'Update connection', exact: true }).click()
+    const connection = page.getByRole('dialog', { name: 'Update connection', exact: true })
+    const updateReplyLimit = connection.getByLabel('Reply output limit', { exact: true })
+    await expect(updateReplyLimit).toHaveValue('8192')
+    const connectionPatches: Array<{ body: Record<string, unknown>; key: string }> = []
+    await page.route(`**/api/v1/providers/${encodeURIComponent(provider!.id)}/connection`, async (route) => {
+      const request = route.request()
+      const body = request.postDataJSON() as Record<string, unknown>
+      connectionPatches.push({ body, key: request.headers()['idempotency-key'] ?? '' })
+      if (connectionPatches.length === 1) {
+        await route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({
+          error: { code: 'bad_request', message: 'The browser fixture refused this first attempt.' },
+        }) })
+      } else await route.continue()
+    })
+    await updateReplyLimit.fill('16384')
+    await updateReplyLimit.fill('65537')
+    await expect(connection.getByRole('button', { name: 'Verify & update', exact: true })).toBeDisabled()
+    await updateReplyLimit.fill('16384')
+    await expect(connection.getByRole('button', { name: 'Verify & update', exact: true })).toBeEnabled()
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      await expectContainedDialog(page, connection)
+      await updateReplyLimit.scrollIntoViewIfNeeded()
+      await expect(updateReplyLimit).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath(`configured-provider-update-${viewport.width}x${viewport.height}.png`) })
+    }
+    await connection.getByRole('button', { name: 'Verify & update', exact: true }).click()
+    await expect(connection.getByText('Your connection details are still here. Review them, then update again when ready.', { exact: true })).toBeVisible()
+    await expect(updateReplyLimit).toHaveValue('16384')
+    await connection.getByRole('button', { name: 'Verify & update', exact: true }).click()
+    await expect(connection).toHaveCount(0)
+    expect(connectionPatches).toHaveLength(2)
+    expect(connectionPatches[0]?.body).toEqual(connectionPatches[1]?.body)
+    expect(connectionPatches[0]?.body).toEqual({ replyOutputTokens: 16384, expectedRevision: provider!.connectionRevision })
+    expect(connectionPatches[0]?.key).not.toBe(connectionPatches[1]?.key)
+    const updatedConnection = await page.request.get(`/api/v1/providers/${encodeURIComponent(provider!.id)}`)
+    expect(updatedConnection.ok()).toBe(true)
+    expect(await updatedConnection.json()).toMatchObject({
+      replyOutputTokens: 16384, connectionRevision: (provider!.connectionRevision ?? 0) + 1,
+    })
+    await expect(page.locator('[data-provider-reply-output-limit]')).toHaveText('Reply output limit: 16,384 tokens per model call.')
 
     // The Models surface states that the one configured model runs even though
     // no catalog can be enumerated. A failed Refresh remains recoverable.

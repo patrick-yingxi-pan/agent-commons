@@ -238,7 +238,7 @@ test('streamed function calls use the shared tool loop, meter before effect, and
   const result = await generateReply(session, { ...DEFAULT_AGENT, tools: [] }, 'Check my usage.', {
     ...c.handlers,
     onUsage: row => usage.push(row),
-  }, undefined, provider(), undefined, [], api)
+  }, undefined, { ...provider(), replyOutputTokens: 16384 }, undefined, [], api)
 
   assert.equal(result.outcome, 'ok')
   assert.equal(c.text, 'The account has 42 units remaining.')
@@ -252,6 +252,7 @@ test('streamed function calls use the shared tool loop, meter before effect, and
     assert.equal(request.authorization, 'Bearer openai-local-test-key')
     assert.equal(request.body.store, false, 'requests do not create server-side provider state')
     assert.equal(request.body.model, 'gpt-test')
+    assert.equal(request.body.max_output_tokens, 16384, 'every continuation keeps the explicit per-call output limit')
   }
   const first = requests[0]!.body
   assert.equal(first.stream, true)
@@ -364,6 +365,9 @@ test('incomplete terminal tool response records usage but never dispatches its c
 
   assert.equal(result.outcome, 'fallback')
   assert.equal(requests[0]?.path, '/v1/responses')
+  assert.equal(result.failure, 'invalid_model_response')
+  assert.match(result.message.content, /reply output limit.*Models.*not.*retried automatically/s)
+  assert.equal(requests.length, 1, 'output exhaustion never automatically retries')
   assert.deepEqual(usage, [{ inputTokens: 21, outputTokens: 9 }], 'settled usage is recorded before terminal-status handling')
   assert.equal(dispatches, 0)
 })

@@ -9223,6 +9223,11 @@ function ProviderDetailSections({
       </div>
       <p className="mt-2 text-[12px] text-ink-soft">Grants {authorityLabel(provider.authority)}</p>
       <p className="mt-0.5 text-[12px] text-ink-faint">{providerPlanLabel(provider)}</p>
+      {!isSession && provider.replyOutputTokens !== undefined && (
+        <p data-provider-reply-output-limit className="mt-1 text-[11px] text-ink-faint">
+          Reply output limit: {provider.replyOutputTokens.toLocaleString()} tokens per model call.
+        </p>
+      )}
       {provider.execution === 'unconfigured' && (
         <p className="mt-2 text-[12px] text-warn-strong">
           Turns are blocked before they are written. Add a configured provider for this account, or supply the

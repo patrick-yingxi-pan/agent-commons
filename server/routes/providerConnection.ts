@@ -1,8 +1,9 @@
 /** Validation and merge semantics for the write-only provider connection PATCH.
  * Kept outside the route monolith so absence/clear behavior has one testable
- * owner: absent preserves, `null` clears, and only the four declared fields
+ * owner: absent preserves, `null` clears, and only declared fields
  * may cross into the durable server config. */
 import { isEndpointProtocol, type ProviderConnectionPatch } from '../../contract/index.ts'
+import { isReplyOutputTokens } from '../../contract/providerReplyLimits.ts'
 import { ValidationError } from '../conflict.ts'
 import { validApiKeyEnv, type ProviderConfig } from '../data/providers.ts'
 
@@ -12,7 +13,7 @@ const FIELD_LIMITS = {
   apiKeyEnv: 128,
   model: 256,
 } as const
-const FIELDS = Object.keys(FIELD_LIMITS) as Array<keyof ProviderConnectionPatch>
+const FIELDS = [...Object.keys(FIELD_LIMITS), 'replyOutputTokens'] as Array<keyof ProviderConnectionPatch>
 
 function cleanString(field: keyof typeof FIELD_LIMITS, value: unknown): string | undefined {
   if (value === null) return undefined
@@ -47,6 +48,9 @@ export interface ProviderConnectionUpdate {
 
 /** Validate the protocol-specific fields without probing or performing I/O. */
 export function validateProviderProtocolConfig(config: ProviderConfig): void {
+  if (config.replyOutputTokens !== undefined && !isReplyOutputTokens(config.replyOutputTokens)) {
+    throw new ValidationError('replyOutputTokens must be an integer from 128 to 65536.')
+  }
   if (config.protocol !== undefined && !isEndpointProtocol(config.protocol)) {
     throw new ValidationError(`protocol must be 'anthropic-messages' or 'openai-responses'.`)
   }
@@ -72,9 +76,16 @@ export function providerConnectionUpdate(
     ...(current.baseURL ? { baseURL: current.baseURL } : {}),
     ...(current.apiKeyEnv ? { apiKeyEnv: current.apiKeyEnv } : {}),
     ...(current.model ? { model: current.model } : {}),
+    ...(current.replyOutputTokens !== undefined ? { replyOutputTokens: current.replyOutputTokens } : {}),
     ...(current.capabilities ? { capabilities: { ...current.capabilities } } : {}),
   }
   for (const field of supplied) {
+    if (field === 'replyOutputTokens') {
+      if (input[field] === null) delete next.replyOutputTokens
+      else if (!isReplyOutputTokens(input[field])) throw new ValidationError('replyOutputTokens must be an integer from 128 to 65536.')
+      else next.replyOutputTokens = input[field]
+      continue
+    }
     const value = cleanString(field, input[field])
     if (field === 'protocol') {
       if (value === undefined) delete next.protocol

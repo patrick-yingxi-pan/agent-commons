@@ -13,6 +13,7 @@ const provider = (overrides: Partial<ModelProvider> = {}): ModelProvider => ({
   models: [{ id: 'current-model', label: 'Current model' }],
   execution: 'configured',
   protocol: 'anthropic-messages',
+  replyOutputTokens: 4096,
   online: true,
   activeConversations: 2,
   isDefault: true,
@@ -29,6 +30,7 @@ test('a newer provider definition preserves newer connection and live state', ()
     models: [{ id: 'stale-model', label: 'Stale model' }],
     execution: 'unconfigured',
     protocol: 'openai-responses',
+    replyOutputTokens: 8192,
     online: false,
     activeConversations: 0,
     isDefault: false,
@@ -40,6 +42,7 @@ test('a newer provider definition preserves newer connection and live state', ()
   assert.equal(merged.models?.[0]?.id, 'current-model')
   assert.equal(merged.execution, 'configured')
   assert.equal(merged.protocol, 'anthropic-messages', 'definition acknowledgement cannot replace connection protocol')
+  assert.equal(merged.replyOutputTokens, 4096, 'definition acknowledgement cannot replace the current request limit')
   assert.equal(merged.online, true)
   assert.equal(merged.activeConversations, 2)
   assert.equal(merged.isDefault, true)
@@ -60,6 +63,7 @@ test('a newer provider connection preserves definition and live/default state', 
     models: [{ id: 'new-model', label: 'New model' }],
     protocol: 'openai-responses',
     execution: 'unconfigured',
+    replyOutputTokens: 16384,
     online: false,
     isDefault: false,
   })
@@ -70,6 +74,7 @@ test('a newer provider connection preserves definition and live/default state', 
   assert.equal(merged.models?.[0]?.id, 'new-model')
   assert.equal(merged.execution, 'unconfigured')
   assert.equal(merged.protocol, 'openai-responses', 'connection acknowledgement immediately publishes the selected protocol')
+  assert.equal(merged.replyOutputTokens, 16384, 'connection acknowledgement publishes the selected reply limit')
   assert.equal(merged.online, true)
   assert.equal(merged.isDefault, true)
 })
@@ -92,9 +97,10 @@ test('an older provider connection acknowledgement cannot rewind its catalog', (
 
 test('an accepted connection without a protocol clears the stale cached projection', () => {
   const current = provider({ protocol: 'openai-responses' })
-  const incoming = provider({ connectionRevision: 5, protocol: undefined })
+  const incoming = provider({ connectionRevision: 5, protocol: undefined, replyOutputTokens: undefined })
   const merged = mergeProviderConnection(current, incoming)
   assert.equal(Object.hasOwn(merged, 'protocol'), false)
+  assert.equal(Object.hasOwn(merged, 'replyOutputTokens'), false)
   assert.equal(merged.connectionRevision, 5)
 })
 

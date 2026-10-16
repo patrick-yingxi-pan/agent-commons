@@ -15,6 +15,7 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { providerModelChoices } from '../../contract/providers.ts'
+import { isReplyOutputTokens, resolveReplyOutputTokens } from '../../contract/providerReplyLimits.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
 import { automationRuntimeMode, requireAutomationFixture } from '../automationRuntime.ts'
 import { dispatchPrompt, parseRealDispatchInput, type RealDispatchInput, type DispatchBinding } from '../../contract/dispatchExecution.ts'
@@ -2226,6 +2227,9 @@ const PROVIDER_CONFIGS = new Map<string, ProviderConfig>(SEED_PROVIDER_CONFIGS)
 const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
 
 function validateProviderProtocolConfig(config: ProviderConfig): void {
+  if (config.replyOutputTokens !== undefined && !isReplyOutputTokens(config.replyOutputTokens)) {
+    throw new ProviderProbeError('replyOutputTokens must be an integer from 128 to 65536.')
+  }
   if (config.protocol !== undefined && !isEndpointProtocol(config.protocol)) {
     throw new ProviderProbeError(`A provider protocol must be 'anthropic-messages' or 'openai-responses'.`)
   }
@@ -6610,7 +6614,7 @@ export const store = {
       .map((p) => {
         // Protocol is connection truth, never provider-row truth. Strip any
         // stale/legacy row field before deriving the safe read projection.
-        const { protocol: _storedProtocol, ...storedProvider } = p
+        const { protocol: _storedProtocol, replyOutputTokens: _storedReplyLimit, ...storedProvider } = p
         const provider = { ...storedProvider, definitionRevision: p.definitionRevision ?? 0 }
         const config = PROVIDER_CONFIGS.get(p.id)
         return p.kind === 'session'
@@ -6631,6 +6635,7 @@ export const store = {
                   ? { protocol: config.protocol }
                   : {}),
               defaultModelId: resolvedModelId(config),
+              replyOutputTokens: resolveReplyOutputTokens(config ?? {}),
               execution: endpointExecution(config),
             }
       })
@@ -6721,8 +6726,8 @@ export const store = {
     // and is forced tenant-scoped (a shared relay would route one tenant's prompts to
     // another tenant's session model).
     if (config.kind === 'session') {
-      if (config.baseURL || config.apiKeyEnv || config.protocol) {
-        throw new ProviderProbeError('A Session provider has no endpoint to dial — it must not carry a baseURL, protocol, or credential.')
+      if (config.baseURL || config.apiKeyEnv || config.protocol || config.replyOutputTokens !== undefined) {
+        throw new ProviderProbeError('A Session provider has no endpoint to dial — it must not carry a baseURL, protocol, credential, or reply output limit.')
       }
       if (input.models) {
         throw new ProviderProbeError('A Session provider has no model catalog — its cognition is whatever session drains its mailbox.')

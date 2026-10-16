@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Cpu, Plug } from 'lucide-react'
 import { useMe } from '../api/hooks.ts'
 import { desktopCredentialsAvailable } from '../api/desktopCredentials.ts'
@@ -15,6 +15,30 @@ import { FormDialog, FormField } from './FormDialog.tsx'
 import { DefaultToggle } from './Checkbox.tsx'
 import { RelayBadge, RelaySecretPanel } from './RelaySecretPanel.tsx'
 import type { CreatedProvider, ModelProvider } from '../../contract/index.ts'
+import {
+  DEFAULT_REPLY_OUTPUT_TOKENS,
+  MAX_REPLY_OUTPUT_TOKENS,
+  MIN_REPLY_OUTPUT_TOKENS,
+  isReplyOutputTokens,
+  resolveReplyOutputTokens,
+} from '../../contract/providerReplyLimits.ts'
+
+function ReplyOutputLimitField({ value, onChange }: {
+  value: number | ''
+  onChange: (value: number | '') => void
+}) {
+  const controlId = useId()
+  return <FormField label="Reply output limit" controlId={controlId}>
+    <input id={controlId} aria-describedby={`${controlId}-help`} type="number" min={MIN_REPLY_OUTPUT_TOKENS} max={MAX_REPLY_OUTPUT_TOKENS} step={1} value={value}
+      onChange={event => {
+        const next = event.currentTarget.valueAsNumber
+        onChange(Number.isFinite(next) ? next : '')
+      }} className={FORM_INPUT_CLASS} />
+    <span id={`${controlId}-help`} className="mt-1 block text-[11px] leading-relaxed text-ink-faint">
+      Per model call for conversation, Dispatch, Routine, and Project-draft replies ({MIN_REPLY_OUTPUT_TOKENS.toLocaleString()}–{MAX_REPLY_OUTPUT_TOKENS.toLocaleString()} tokens; reasoning included). This is not a total-spend cap; tool-free reviews and summaries use separate limits.
+    </span>
+  </FormField>
+}
 
 export interface ProviderDialogProps {
   provider: ModelProvider | null
@@ -40,6 +64,7 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
   const [protocol, setProtocol] = useState<ProviderProtocol>(provider?.protocol ?? 'anthropic-messages')
   const [baseURL, setBaseURL] = useState('')
   const [model, setModel] = useState('')
+  const [replyOutputTokens, setReplyOutputTokens] = useState<number | ''>(DEFAULT_REPLY_OUTPUT_TOKENS)
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [apiKey, setApiKey] = useState('')
   const hasSecureDeviceVault = desktopCredentialsAvailable()
@@ -53,7 +78,7 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
   const defaultChanged = !!provider && isDefault !== (original?.isDefault ?? false)
   const hasEditChanges = labelChanged || familyChanged || defaultChanged
   const canSubmit = label.trim().length > 0 &&
-    (isSession || (family.trim().length > 0 && (provider !== null || (model.trim().length > 0 && baseURL.trim().length > 0)))) &&
+    (isSession || (family.trim().length > 0 && (provider !== null || (model.trim().length > 0 && baseURL.trim().length > 0 && isReplyOutputTokens(replyOutputTokens))))) &&
     (!!provider || !!tenantId) && (!provider || hasEditChanges) && !busy
 
   const submit = async () => {
@@ -86,11 +111,12 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
         if (!result.provider?.secret) throw new Error('The provider was created, but its relay secret could not be confirmed. Open the provider and rotate its secret.')
         setMinted(result.provider)
       } else {
+        if (!isReplyOutputTokens(replyOutputTokens)) return
         const result = await enqueueProviderCreation({
           tenantId: tenantId!,
           request: {
             label: label.trim(), modelFamily: family.trim(), effortLevels: [],
-            config: { protocol, baseURL: baseURL.trim(), model: model.trim(), ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}) },
+            config: { protocol, baseURL: baseURL.trim(), model: model.trim(), replyOutputTokens, ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}) },
             ...(isDefault ? { isDefault } : {}),
           },
           ...(hasSecureDeviceVault && apiKey.trim() ? { deviceSecret: apiKey.trim() } : {}),
@@ -144,6 +170,7 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
         <FormField label="Endpoint URL"><input type="url" value={baseURL} onChange={e => setBaseURL(e.target.value)} placeholder="https://models.example.com/v1" className={FORM_INPUT_CLASS} />
           <span className="mt-1 block text-[11px] text-ink-faint">The URL is editable. The selected protocol is verified before it is saved.</span></FormField>
         <FormField label="Model ID"><input value={model} onChange={e => setModel(e.target.value)} placeholder="Enter the model ID from the provider" className={FORM_INPUT_CLASS} /></FormField>
+        <ReplyOutputLimitField value={replyOutputTokens} onChange={setReplyOutputTokens} />
         <p className="text-[11px] leading-snug text-ink-faint">Provider API access uses a separate API key; a consumer chat subscription does not supply one.</p>
         {hasSecureDeviceVault ? <FormField label="API key (optional)"><input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Paste API key" autoComplete="new-password" spellCheck={false} className={FORM_INPUT_CLASS} />
           <span className="mt-1 block text-[11px] text-ink-faint">Encrypted for your OS account and kept outside Agent Commons data. The backend stores only a generated reference.</span></FormField>
@@ -162,6 +189,8 @@ export function ProviderConnectionDialog({ provider, onClose }: ProviderConnecti
   const mutation = useProviderConnectionStatus()
   const [baseURL, setBaseURL] = useState('')
   const [model, setModel] = useState('')
+  const originalReplyOutputTokens = useRef(resolveReplyOutputTokens({ protocol: provider.protocol, replyOutputTokens: provider.replyOutputTokens })).current
+  const [replyOutputTokens, setReplyOutputTokens] = useState<number | ''>(originalReplyOutputTokens)
   const [protocol, setProtocol] = useState<ProviderProtocol>(provider.protocol ?? 'anthropic-messages')
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -169,14 +198,19 @@ export function ProviderConnectionDialog({ provider, onClose }: ProviderConnecti
   const [busy, setBusy] = useState(false)
   const hasSecureDeviceVault = desktopCredentialsAvailable()
   const recoveryOwned = mutation.activeResourceId === provider.id && Boolean(mutation.error)
-  const hasReplacement = Boolean(baseURL.trim() || model.trim() || protocol !== (provider.protocol ?? 'anthropic-messages') || (hasSecureDeviceVault ? apiKey.trim() : apiKeyEnv.trim()))
+  const replyOutputTokensChanged = isReplyOutputTokens(replyOutputTokens) && replyOutputTokens !== originalReplyOutputTokens
+  const protocolChanged = protocol !== (provider.protocol ?? 'anthropic-messages')
+  const hasReplacement = Boolean(baseURL.trim() || model.trim() || protocolChanged || replyOutputTokensChanged || (hasSecureDeviceVault ? apiKey.trim() : apiKeyEnv.trim()))
   const submit = async () => {
-    if (!hasReplacement || busy) return
+    if (!hasReplacement || busy || !isReplyOutputTokens(replyOutputTokens)) return
     if (!me) { setError('Wait for your account to finish loading, then try again.'); return }
     setBusy(true); setError(null)
     const attempt = createProviderConnectionAttempt({
-      ...(protocol !== (provider.protocol ?? 'anthropic-messages') ? { protocol } : {}),
+      ...(protocolChanged ? { protocol } : {}),
       ...(baseURL.trim() ? { baseURL: baseURL.trim() } : {}), ...(model.trim() ? { model: model.trim() } : {}),
+      // Pin the effective value shown in the form when changing protocol. Otherwise
+      // an absent legacy Messages value would silently become the Responses default.
+      ...(replyOutputTokensChanged || protocolChanged ? { replyOutputTokens } : {}),
       ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
     }, provider.connectionRevision ?? 0, hasSecureDeviceVault && apiKey.trim() ? apiKey.trim() : undefined, crypto.randomUUID())
     try {
@@ -187,7 +221,7 @@ export function ProviderConnectionDialog({ provider, onClose }: ProviderConnecti
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not update this connection.'); setBusy(false) }
   }
   return <FormDialog title="Update connection" icon={<Plug size={18} className="text-ink-soft" />} submitLabel="Verify & update"
-    canSubmit={hasReplacement && !busy} onSubmit={submit} onClose={onClose} error={error} busy={busy && !recoveryOwned} fieldsDisabled={busy}
+    canSubmit={hasReplacement && isReplyOutputTokens(replyOutputTokens) && !busy} onSubmit={submit} onClose={onClose} error={error} busy={busy && !recoveryOwned} fieldsDisabled={busy}
     cancelLabel={recoveryOwned ? 'Close form' : 'Cancel'}>
     <p className="text-[12px] leading-relaxed text-ink-soft">Replace only what changed for <span className="font-medium text-ink">{provider.label}</span>. Existing connection details stay write-only; blank fields remain unchanged. The complete connection is verified before anything is saved.</p>
     <FormField label="Endpoint URL" optional><input type="url" value={baseURL} onChange={e => setBaseURL(e.target.value)} placeholder="New URL — leave blank to keep" className={FORM_INPUT_CLASS} /></FormField>
@@ -195,6 +229,7 @@ export function ProviderConnectionDialog({ provider, onClose }: ProviderConnecti
       <option value="anthropic-messages">Anthropic Messages</option><option value="openai-responses">OpenAI Responses</option>
     </select><span className="mt-1 block text-[11px] text-ink-faint">Current protocol: {providerProtocolLabel(provider.protocol)}. Leave it unchanged to keep the existing protocol.</span></FormField>
     <FormField label="Model ID" optional><input value={model} onChange={e => setModel(e.target.value)} placeholder="New model — leave blank to keep" className={FORM_INPUT_CLASS} /></FormField>
+    <ReplyOutputLimitField value={replyOutputTokens} onChange={setReplyOutputTokens} />
     {hasSecureDeviceVault ? <FormField label="Replacement API key" optional><input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Paste replacement API key" autoComplete="new-password" spellCheck={false} className={FORM_INPUT_CLASS} />
       <span className="mt-1 block text-[11px] text-ink-faint">Encrypted for your OS account. The previous device key is retired only after this connection is accepted.</span></FormField>
       : <FormField label="Replacement credential variable" optional><input value={apiKeyEnv} onChange={e => setApiKeyEnv(e.target.value.toUpperCase())} placeholder="PROVIDER_REPLACEMENT_KEY" className={FORM_INPUT_CLASS} />

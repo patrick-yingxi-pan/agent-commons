@@ -31,6 +31,8 @@ export function mergeProviderConnection(current: ModelProvider, incoming: ModelP
   }
   if (incoming.protocol === undefined) delete next.protocol
   else next.protocol = incoming.protocol
+  if (incoming.replyOutputTokens === undefined) delete next.replyOutputTokens
+  else next.replyOutputTokens = incoming.replyOutputTokens
   if (incoming.models === undefined) delete next.models
   else next.models = incoming.models
   if (incoming.catalogSource === undefined) delete next.catalogSource

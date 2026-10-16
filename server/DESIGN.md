@@ -146,7 +146,20 @@ consent-gated proposals the UI confirms (`message.relations` for relation edits,
 OpenAI Responses preserves provider-managed reasoning items opaquely across
 tool continuations and disables server-side response storage. All adapters,
 including tool-free generation used by configured Agents, retain the shared
-usage, cancellation, and execution policy. `server/model/` remains the dev mock:
+usage, cancellation, and execution policy.
+
+Private connection `replyOutputTokens` bounds each shared reply-loop call,
+including reasoning: integer 128–65,536, with explicit 8,192 for new first-party
+setup. Legacy absence retains 1,024 for Messages or 8,192 for Responses; PATCH
+absence preserves and null clears to that protocol default. The server exposes
+only an effective read annotation in the connection revision domain, never a
+catalog capability or total-cost guarantee. Dedicated tool-free summary/review/
+argument operations retain their task bounds. Exhaustion records settled usage,
+preserves earlier effects, admits no tools from the incomplete response and is
+terminal for automatic routine retries. Local wire fixtures prove this contract,
+not real model capacity or paid-provider acceptance.
+
+`server/model/` remains the dev mock:
 it decides tools through deterministic intent matching and canned replies while
 speaking the Anthropic Messages wire format. The seeded OpenAI catalog entry is
 also a deterministic fixture, not an authenticated OpenAI connection. Provider

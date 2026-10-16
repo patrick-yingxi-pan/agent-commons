@@ -60,7 +60,7 @@ const sample: PersistedState = {
   } as unknown as PersistedState['graph'],
   savedContexts: [{ id: 'sc1', type: 'connector', label: 'GitHub', status: 'connected', tenantId: 'tenant-b' }] as unknown as PersistedState['savedContexts'],
   providers: [['provider-x', { id: 'provider-x', label: 'P', modelFamily: 'claude', effortLevels: ['Low'] }]] as unknown as PersistedState['providers'],
-  providerConfigs: [['provider-x', { model: 'claude-opus-4-8' }]] as unknown as PersistedState['providerConfigs'],
+  providerConfigs: [['provider-x', { model: 'claude-opus-4-8', replyOutputTokens: 4096 }]] as unknown as PersistedState['providerConfigs'],
   systemPrompts: [['sp-x', { id: 'sp-x', label: 'S', body: 'b', targetFamily: 'claude' }]] as unknown as PersistedState['systemPrompts'],
   agents: [['agent-x', { id: 'agent-x', label: 'A', systemPrompt: 'b', tools: [], instructions: '' }]] as unknown as PersistedState['agents'],
   commissions: [['commission-x', { id: 'commission-x', agentId: 'agent-x', projectId: 'p1' }]] as unknown as PersistedState['commissions'],
@@ -99,6 +99,8 @@ test('SQLite backend round-trips the JSON-canonical snapshot exactly', () => {
   assert.deepEqual(loaded?.workspaces?.[0]?.[1].attachments[0]?.textSnapshot, sample.workspaces?.[0]?.[1].attachments[0]?.textSnapshot)
   // Spell out the isolation-critical bit: a session's tenantId must survive the round-trip.
   assert.equal(loaded?.sessions?.[0]?.tenantId, 'tenant-a', 'a session keeps its tenantId across persistence')
+  assert.equal(loaded?.providerConfigs?.[0]?.[1].replyOutputTokens, 4096,
+    'the server-only provider output limit survives SQLite storage')
   db.close()
 })
 
@@ -143,6 +145,33 @@ test('persisted served snapshots fail admission when malformed or detached from 
   mismatchedPath.workspaces[0]![1].attachments[0]!.id = 'cloud::other.md'
   assert.equal(hasCorePersistedShape(mismatchedPath), false)
   assert.equal(attachment.textSnapshot?.text, 'durable text', 'validation leaves the canonical fixture unchanged')
+})
+
+test('provider reply output limits are optional for legacy configs but strict when present', () => {
+  const valid = JSON.parse(JSON.stringify(sample)) as PersistedState
+  assert.equal(hasCorePersistedShape(valid), true)
+
+  const legacy = JSON.parse(JSON.stringify(valid)) as PersistedState
+  delete (legacy.providerConfigs![0]![1] as { replyOutputTokens?: number }).replyOutputTokens
+  assert.equal(hasCorePersistedShape(legacy), true, 'legacy provider configs may omit the new limit')
+
+  for (const invalidLimit of [null, 127, 128.5, 65_537, '4096']) {
+    const malformed = JSON.parse(JSON.stringify(valid)) as PersistedState
+    ;(malformed.providerConfigs![0]![1] as { replyOutputTokens?: unknown }).replyOutputTokens = invalidLimit
+    assert.equal(hasCorePersistedShape(malformed), false, `invalid persisted limit ${String(invalidLimit)} refuses admission`)
+  }
+
+  for (const malformedRows of [
+    [['provider-x', { replyOutputTokens: null }, 'extra']],
+    [['provider-x', null]],
+    [['provider-x', 17]],
+    [['provider-x']],
+    [[17, {}]],
+  ]) {
+    const malformed = JSON.parse(JSON.stringify(valid)) as PersistedState
+    malformed.providerConfigs = malformedRows as unknown as PersistedState['providerConfigs']
+    assert.equal(hasCorePersistedShape(malformed), false, 'malformed provider config map rows refuse admission')
+  }
 })
 
 test('persisted local folder captures fail admission when their connection binding or file bytes are malformed', () => {

@@ -509,8 +509,8 @@ test('build produces a snapshot covering every persisted slice', async () => {
     'the edited provider definition revision rides in the snapshot',
   )
   assert.ok(
-    s.providerConfigs?.some(([, c]) => c.model === 'claude-opus-4-8'),
-    'the provider config (server-only model id) rides along',
+    s.providerConfigs?.some(([, c]) => c.model === 'claude-opus-4-8' && c.replyOutputTokens === 4096),
+    'server-only provider model id and reply output limit ride along',
   )
   assert.ok(
     s.providers?.some(([, provider]) =>

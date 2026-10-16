@@ -1648,6 +1648,7 @@ export function buildRouter(): Router {
       apiKeyEnv: str(endpoint?.apiKeyEnv),
       model: str(endpoint?.model),
       ...(endpoint?.protocol === undefined ? {} : { protocol: endpoint.protocol }),
+      ...(endpoint?.replyOutputTokens === undefined ? {} : { replyOutputTokens: endpoint.replyOutputTokens }),
     }
     try {
       validateProviderProtocolConfig(config)

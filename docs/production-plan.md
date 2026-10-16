@@ -6,7 +6,28 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: configured endpoints remain usable for explicit
+Current implementation checkpoint: provider connections expose a bounded per-call
+Reply output limit shared by Claude/DeepSeek Messages and native OpenAI Responses.
+New setup explicitly starts at 8,192; legacy absence retains former protocol
+defaults. The private value is revisioned and persisted, with a server-derived
+safe read annotation and connection-only cache merges. Protocol edits pin the
+reviewed value; unrelated sparse edits preserve it. Both wire fixtures retain
+the cap through continuations. Exhaustion records usage, preserves prior effects,
+rejects tools from the incomplete response and offers actionable guidance with
+no automatic retry. Dedicated tool-free operations retain their own task limits;
+the cap is neither catalog capability nor total-spend control. Restoring the old
+hardcoded limits and generic truncation note failed the new runtime locks. Route
+bounds, cache-domain and malformed-snapshot locks also failed before repair.
+JSON/SQLite/restart fixtures preserve the exact value and ignore forged stored
+read annotations. First browser acceptance caught the field help being folded
+into its accessible name; the shared explicit-label/description pattern now
+keeps the short name separate, with the exact-label browser assertion as a lock.
+Browser review, UI sweep, complete local verification and the
+unsigned desktop gate are required before landing. Paid-provider acceptance
+remains deferred, and the owner-preview handoff remains unavailable under the
+existing in-app browser URL policy.
+
+Previous implementation checkpoint: configured endpoints remain usable for explicit
 Agent and conversation model choices when model listing is unavailable. One
 framework-free selection projection uses the authoritative catalog when present,
 or only the available endpoint's exact server-stamped configured model otherwise.
@@ -25,8 +46,9 @@ reviewed without actionable visual findings. The build caught an 82-byte startup
 budget overrun; display-only model/effort descriptions now load with the deferred
 picker and provider page instead of the eager selection projection. The boundary
 lock was watched fail before extraction; the size limits are unchanged. The
-isolated UI sweep and complete local and unsigned desktop gates remain required
-before landing. Paid-provider acceptance stays deferred; the owner-preview
+isolated UI sweep passed 135/135 cells, the complete local verifier passed all
+five lanes and 754 browser tests, and unsigned arm64 desktop verification passed.
+Revision `767cf3bb` landed on main. Paid-provider acceptance stays deferred; the owner-preview
 account-stack handoff remains blocked by the in-app browser URL policy.
 
 Previous implementation checkpoint: multi-provider conversations distinguish the

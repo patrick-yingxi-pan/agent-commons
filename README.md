@@ -473,10 +473,19 @@ covers actual macOS selection and remembered-connection lifecycles on its named
 unsigned arm64 build; it is not a signed two-architecture release receipt.
 
 For a provider you created, Models → provider → **Update connection** replaces
-only the protocol, URL, model, or key you enter. The server merges those write-only fields,
+only the protocol, URL, model, key, or reply output limit you change. The server merges those connection fields,
 verifies the effective provider connection before committing it, and leaves the
 previous connection intact on failure. A successful desktop key rotation retires
 the prior encrypted key; an interrupted post-save bind is repaired on restart.
+
+**Reply output limit** bounds each conversation, Dispatch, Routine or Project-draft
+model call, including reasoning. New connections start at 8,192 tokens; existing
+connections retain their prior limit until explicitly changed. The allowed app
+range is 128–65,536, not a claim that every model supports that maximum. This is
+not a total-spend cap: tool continuations are separate calls, and tool-free
+reviews, argument advice and summaries retain their own task limits. Exhaustion
+keeps recorded usage and any earlier effects, refuses tools from the incomplete
+response, and ends with guidance rather than automatically retrying.
 
 **Edit provider** is intentionally a separate definition workflow. It sends only
 the name, model family, or default choice actually changed and compares the

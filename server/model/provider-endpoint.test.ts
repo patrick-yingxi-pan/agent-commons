@@ -35,6 +35,7 @@ const seen: SeenRequest[] = []
 let fakeStreamModel: string | undefined
 let fakeStreamContent: Array<Record<string, unknown>> = []
 let fakeStreamStopReason: string | null = null
+let fakeStreamMinimumOutputTokens: number | undefined
 let fakeProbeModel: string | undefined
 
 function anthropicStream(model: string, content: Array<Record<string, unknown>>, stopReason: string): string {
@@ -90,7 +91,9 @@ before(async () => {
     }
     if (body?.model === fakeStreamModel && body.stream === true) {
       res.writeHead(200, { 'content-type': 'text/event-stream' })
-      res.end(anthropicStream(fakeStreamModel!, fakeStreamContent, fakeStreamStopReason!))
+      const stopReason = fakeStreamMinimumOutputTokens !== undefined && body.max_tokens < fakeStreamMinimumOutputTokens
+        ? 'max_tokens' : fakeStreamStopReason!
+      res.end(anthropicStream(fakeStreamModel!, fakeStreamContent, stopReason))
       return
     }
     // DeepSeek's official Anthropic-compatible root is `/anthropic`; preserve that
@@ -186,6 +189,7 @@ test('DeepSeek official Anthropic-compatible path probes and keeps model tools c
     baseURL: `${recorderUrl}/anthropic`,
     apiKeyEnv: 'PROVIDER_DEEPSEEK_KEY',
     model: 'deepseek-flash',
+    replyOutputTokens: 16384,
     capabilities: { toolUse: true },
   }
 
@@ -204,6 +208,41 @@ test('DeepSeek official Anthropic-compatible path probes and keeps model tools c
   assert.ok(hits.every(hit => hit.apiKey === 'deepseek-local-test-key'), 'the provider key reference is used for both probe and turn')
   assert.ok(hits.every(hit => hit.body.tools?.length > 0), 'probe and generation both exercise native Messages tools')
   assert.ok(hits.every(hit => hit.body.model === 'deepseek-flash'), 'the exact configured DeepSeek model is sent')
+  assert.ok(hits.filter(hit => hit.body.stream).every(hit => hit.body.max_tokens === 16384), 'every tool continuation keeps the configured output limit')
+})
+
+test('Messages reply limit reaches the wire, meters truncation, and never runs an exhausted tool response', async t => {
+  fakeStreamModel = 'messages-reply-limit-proof'
+  fakeStreamMinimumOutputTokens = 8192
+  fakeStreamStopReason = 'end_turn'
+  fakeStreamContent = [{ type: 'text', text: 'A bounded local fixture answer.' }]
+  t.after(() => {
+    fakeStreamModel = undefined
+    fakeStreamMinimumOutputTokens = undefined
+    fakeStreamStopReason = null
+    fakeStreamContent = []
+  })
+  const config = { baseURL: recorderUrl, model: fakeStreamModel, capabilities: { toolUse: true } }
+  const successful = await generateReply(session, DEFAULT_AGENT, 'Answer.', collect().handlers,
+    undefined, { ...config, replyOutputTokens: 8192 })
+  assert.equal(successful.outcome, 'ok', 'raising the explicit limit allows the same fixture to complete')
+  fakeStreamContent.push({ type: 'tool_use', id: 'exhausted-tool', name: 'api__get_usage', input: { query: {} } })
+  let dispatches = 0
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => { dispatches += 1; throw new Error('exhausted output cannot dispatch') },
+  }
+  const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+  const streamed = collect()
+  const truncated = await generateReply(session, DEFAULT_AGENT, 'Answer.', { ...streamed.handlers, onUsage: row => usage.push(row) },
+    undefined, { ...config, replyOutputTokens: 128 }, undefined, [], api)
+  assert.equal(truncated.failure, 'invalid_model_response', 'terminal classification prevents automatic routine retries')
+  assert.equal(truncated.outcome, 'fallback')
+  assert.match(truncated.message.content, /reply output limit.*Models.*not.*retried automatically/s)
+  assert.equal(truncated.message.content, streamed.text, 'live and persisted failure remain identical')
+  assert.deepEqual(usage, [{ inputTokens: 17, outputTokens: 4 }])
+  assert.equal(dispatches, 0)
+  assert.deepEqual(seen.filter(hit => hit.body?.model === config.model).map(hit => hit.body.max_tokens), [8192, 128], 'one request per explicit turn, without automatic retries')
 })
 
 test('failed tool and no-tools probes hide upstream error bodies while retaining status and both attempts', async () => {

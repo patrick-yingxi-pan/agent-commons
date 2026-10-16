@@ -48,6 +48,14 @@ test('provider onboarding is one acknowledgement-owned form and credential cerem
     'model-ID admission applies only to endpoint creation, not editing an existing provider')
   assert.match(dialogs, /modelFamily: family\.trim\(\), effortLevels: \[\],[\s\S]*config:/,
     'endpoint providers start with no claimed effort levels until their own catalog supplies them')
+  assert.match(dialogs, /ReplyOutputLimitField value=\{replyOutputTokens\}/,
+    'new endpoint setup visibly chooses its per-call reply output limit')
+  assert.match(dialogs, /DEFAULT_REPLY_OUTPUT_TOKENS[\s\S]*config:\s*\{[\s\S]*replyOutputTokens/,
+    'the explicit default output limit enters the acknowledged write-only configuration')
+  assert.match(dialogs, /MIN_REPLY_OUTPUT_TOKENS[\s\S]*MAX_REPLY_OUTPUT_TOKENS[\s\S]*step=\{1\}/,
+    'the field communicates and enforces the shared integer bounds')
+  assert.match(view, /data-provider-reply-output-limit[\s\S]*provider\.replyOutputTokens/,
+    'the saved Provider page displays the server-safe effective annotation')
   assert.match(dialogs, /effortLevels: \['Low', 'Medium', 'High'\],[\s\S]*kind: 'session'/,
     'the existing Session provider vocabulary remains unchanged')
   assert.match(dialogs, /providerSetupDefaults\(nextPreset\)[\s\S]*if \(!defaults\) return/,

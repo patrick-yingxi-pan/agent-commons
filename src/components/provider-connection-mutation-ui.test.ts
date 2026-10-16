@@ -24,7 +24,11 @@ test('Provider connection replacement is private, navigation-safe, and shell rec
     'the frozen dialog may leave once shell recovery owns an uncertain result')
   assert.match(dialogs, /Current protocol: \{providerProtocolLabel\(provider\.protocol\)\}[\s\S]*Leave it unchanged to keep/,
     'replacement displays only the safe protocol and explains sparse intent')
-  assert.match(dialogs, /\.\.\.\(protocol !== \(provider\.protocol \?\? 'anthropic-messages'\) \? \{ protocol \} : \{\}\)/,
+  assert.match(dialogs, /resolveReplyOutputTokens\(\{ protocol: provider\.protocol, replyOutputTokens: provider\.replyOutputTokens \}\)/,
+    'the form begins with the current safe effective limit, including legacy protocol defaults')
+  assert.match(dialogs, /replyOutputTokensChanged \|\| protocolChanged \? \{ replyOutputTokens \} : \{\}/,
+    'numeric-only changes stay sparse, while protocol replacement pins the effective value shown in the form')
+  assert.match(dialogs, /\.\.\.\(protocolChanged \? \{ protocol \} : \{\}\)/,
     'credential-only replacement must not freeze an unedited protocol into its retry intent')
   assert.match(dialogs, /useProviderConnectionStatus\(\)/,
     'the dialog reads current held connection state')

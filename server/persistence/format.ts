@@ -93,6 +93,7 @@ import { isProjectContextSource } from '../../contract/cowork.ts'
 import { parseMcpToolResult } from '../mcpToolResult.ts'
 import { parsePersistedModelPreferences, type PersistedModelPreferences } from '../modelPreferences.ts'
 import { MCP_MODERN_VERSION } from '../mcpProtocol.ts'
+import { isReplyOutputTokens } from '../../contract/providerReplyLimits.ts'
 import { join } from 'node:path'
 import { persistencePath } from './persistencePath.ts'
 
@@ -684,6 +685,15 @@ function exactFieldSet(value: Record<string, unknown>, required: readonly string
     Object.keys(value).every((key) => allowed.has(key))
 }
 
+function validProviderReplyOutputLimits(value: unknown): boolean {
+  if (!Array.isArray(value)) return false
+  return value.every((entry) => {
+    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== 'string' || !persistedRecord(entry[1])) return false
+    const config = entry[1]
+    return !Object.hasOwn(config, 'replyOutputTokens') || isReplyOutputTokens(config.replyOutputTokens)
+  })
+}
+
 function canonicalMcpJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalMcpJson)
   if (persistedRecord(value)) return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalMcpJson(value[key])]))
@@ -890,6 +900,9 @@ function validStoredContributionEffectAttempts(contribution: StoredContribution)
  * TypeScript cannot protect a filesystem/import boundary; optional additive
  * slices deliberately stay optional for backward compatibility. */
 export function hasCorePersistedShape(state: PersistedState | null): state is PersistedState {
+  // Provider reply limits were added to server-only connection config. Old rows
+  // may omit them, but a present malformed value must not become a runtime cap.
+  if (state?.providerConfigs !== undefined && !validProviderReplyOutputLimits(state.providerConfigs)) return false
   if (state?.delegations !== undefined && !validStoredDelegations(state.delegations)) return false
   if (state?.delegationRetirements !== undefined && !validDelegationRetirements(state.delegationRetirements, state.delegations ?? [])) return false
   if (state?.contributions !== undefined) {

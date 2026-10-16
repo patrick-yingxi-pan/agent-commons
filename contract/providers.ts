@@ -156,6 +156,10 @@ export interface ModelProvider {
    *  inherit display can't drift from what a turn actually runs. Endpoint kind
    *  only — a Session provider's model is whatever session drains its mailbox. */
   defaultModelId?: string
+  /** Effective per-call output limit for conversation, Dispatch and Routine
+   * replies, including reasoning. Server-derived from private config, not model
+   * capability metadata or a total spending guarantee. Session providers omit it. */
+  replyOutputTokens?: number
   /** The provider plan — the **root** of the D8 attenuation cascade (token face): an
    *  Agent's budget (and a Commission's grant) must be a subset of it. Optional: a
    *  provider with no declared plan imposes no token ceiling of its own (the account
@@ -212,6 +216,11 @@ export interface ProviderEndpointConfig {
   /** The concrete model id a turn on this provider runs against. Unset = the env
    *  default (`ANTHROPIC_MODEL`). */
   model?: string
+  /** Per-call output cap for the shared conversation/Agent reply loop, including
+   * reasoning. Integer 128–65536. Absence retains legacy protocol defaults
+   * (Messages 1024, Responses 8192); tool-free bounded operations keep their own
+   * limits. New setup forms explicitly start at 8192. */
+  replyOutputTokens?: number
 }
 
 /** Replace selected fields of an existing endpoint provider's write-only

@@ -4,6 +4,7 @@
  * Provider choice never acquires separate execution policy. The local Messages
  * server on :8788 remains an explicitly deterministic development fixture. */
 import Anthropic from '@anthropic-ai/sdk'
+import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
 import { EndpointHttpError, EndpointResponseError, openaiResponsesClient, type EndpointMessage } from './model/openaiResponses.ts'
 import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import type { ChangesetVersion } from '../contract/contributions.ts'
@@ -349,6 +350,7 @@ export interface ReplyResult {
 }
 
 class InvalidModelResponseError extends Error {}
+class ReplyOutputLimitError extends InvalidModelResponseError {}
 
 export interface ReplyExecutionOptions {
   /** Explicit server-owned read-only drafting policy. Unlike provider capability
@@ -762,7 +764,7 @@ export async function generateReply(
 
     for (;;) {
       const stream = clientFor(provider).messages.stream(
-        { model, max_tokens: provider.protocol === 'openai-responses' ? 8192 : 1024, system, ...toolsParam, ...outputConfig, messages },
+        { model, max_tokens: resolveReplyOutputTokens(provider), system, ...toolsParam, ...outputConfig, messages },
         { signal: withDeadline(signal) },
       )
       stream.on('streamEvent', (event: { type: string; message?: { id: string } }) => {
@@ -775,6 +777,7 @@ export async function generateReply(
       const response = await stream.finalMessage()
       usage.record({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens })
       onStartOnce(response.id) // safety net if message_start was missed
+      if (response.stop_reason === 'max_tokens') throw new ReplyOutputLimitError('The reply output limit was reached.')
       const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
       const completedProse = response.stop_reason === 'end_turn' || response.stop_reason === 'refusal' || response.stop_reason === 'stop_sequence'
       if ((!completedProse && response.stop_reason !== 'tool_use') || (toolUses.length > 0 && response.stop_reason !== 'tool_use')) {
@@ -832,7 +835,10 @@ export async function generateReply(
     if (signal?.aborted) throw err // the turn was cancelled — let the route persist the partial
     if (err instanceof InvalidModelResponseError || err instanceof EndpointResponseError) {
       onStartOnce(`msg_incomplete_${Date.now().toString(36)}`)
-      const note = `${fullText ? '\n\n' : ''}_(The model returned an incomplete or invalid response. No tools were run from that response, and it will not be retried automatically.)_`
+      const reason = err instanceof ReplyOutputLimitError
+        ? 'The model reached this connection’s reply output limit. Ask for a shorter reply or adjust the limit in Models.'
+        : 'The model returned an incomplete or invalid response.'
+      const note = `${fullText ? '\n\n' : ''}_(${reason} No tools were run from that response, and it will not be retried automatically.)_`
       handlers.onDelta(note)
       return { message: completedMessage(fullText + note), usage: usage.snapshot(), outcome: 'fallback', failure: 'invalid_model_response' }
     }
