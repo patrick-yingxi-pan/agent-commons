@@ -149,6 +149,26 @@ function providerProbeFailureDetail(error: unknown): string {
   return 'The endpoint request failed.'
 }
 
+/** Static recovery advice only: SDK messages can reflect credentials, private
+ * URLs or request bodies. Keep transient 408/409/429 and 5xx on the existing
+ * bounded retry path; other 4xx need a changed request or connection. */
+function providerRejectionDetail(error: unknown): string | undefined {
+  if (error instanceof ProviderProbeError) {
+    return 'The model connection is not ready. Check its connection settings and API key availability in Models.'
+  }
+  if (!(error instanceof Anthropic.APIError || error instanceof EndpointHttpError)) return
+  const status = error.status
+  if (typeof status !== 'number' || status < 400 || status >= 500 || [408, 409, 429].includes(status)) return
+  switch (status) {
+    case 401: return 'The model provider rejected authentication (HTTP 401). Check the API key and account access for this connection in Models.'
+    case 402: return 'The model provider requires a billing change (HTTP 402). Check billing and available credits with the provider.'
+    case 403: return 'The model provider denied access (HTTP 403). Check account permissions, model access and regional availability with the provider.'
+    case 404: return 'The model endpoint or model was not found (HTTP 404). Check the endpoint URL and selected model in Models.'
+    case 413: return 'The model request was too large (HTTP 413). Use a shorter conversation or fewer attachments.'
+    default: return `The model provider rejected this request (HTTP ${status}). Check the endpoint, selected model and reply output limit in Models, or simplify the request.`
+  }
+}
+
 /** A successful HTTP exchange is not conformance. The deliberately tiny probe
  * may exhaust its token budget, but must still have a valid terminal envelope,
  * usage and supported content. Probe tools are never executed. */
@@ -338,15 +358,15 @@ export interface ReplyResult {
   message: Message
   usage: TurnUsage
   /** How the turn resolved — `'ok'` when the model answered, `'fallback'` when the endpoint
-   *  was unreachable/slow and the local degraded reply was streamed instead. The route feeds
+   *  could not complete and a local failure note was streamed instead. The route feeds
    *  this to the generation-outcome metric (F6 PD31 observability) so a degraded model path is
    *  visible in `/metrics`, not silent. (Client-abort / fatal outcomes are observed by the
    *  route — generateReply rethrows those — so they're not represented here.) */
   outcome: 'ok' | 'fallback'
   /** Why a fallback happened. Callers such as the durable routine worker use
-   *  this to retry transient endpoint loss but never retry a deterministic tool
-   *  loop refusal. Interactive callers may ignore it. */
-  failure?: 'endpoint_unavailable' | 'tool_loop_limit' | 'invalid_model_response'
+   *  this to retry transient endpoint loss, not request/configuration refusals
+   *  or deterministic model/tool failures. Interactive callers may ignore it. */
+  failure?: 'endpoint_unavailable' | 'provider_rejected' | 'tool_loop_limit' | 'invalid_model_response'
 }
 
 class InvalidModelResponseError extends Error {}
@@ -833,6 +853,13 @@ export async function generateReply(
   } catch (err) {
     if (err instanceof UsageRecordingError) throw err
     if (signal?.aborted) throw err // the turn was cancelled — let the route persist the partial
+    const rejection = providerRejectionDetail(err)
+    if (rejection) {
+      onStartOnce(`msg_rejected_${Date.now().toString(36)}`)
+      const note = `${fullText ? '\n\n' : ''}*(${rejection} This turn will not be retried automatically.)*`
+      handlers.onDelta(note)
+      return { message: completedMessage(fullText + note), usage: usage.snapshot(), outcome: 'fallback', failure: 'provider_rejected' }
+    }
     if (err instanceof InvalidModelResponseError || err instanceof EndpointResponseError) {
       onStartOnce(`msg_incomplete_${Date.now().toString(36)}`)
       const reason = err instanceof ReplyOutputLimitError

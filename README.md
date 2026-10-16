@@ -487,6 +487,13 @@ reviews, argument advice and summaries retain their own task limits. Exhaustion
 keeps recorded usage and any earlier effects, refuses tools from the incomplete
 response, and ends with guidance rather than automatically retrying.
 
+**Provider refusals** distinguish authentication, access, billing, missing model/
+endpoint and oversized requests from temporary outages. Conversation replies
+and Routine failures show safe recovery advice without exposing upstream error
+bodies or credentials. Permanent 4xx refusals stop automatic Routine retries;
+408/409/429 and server/network failures retain the existing bounded retry policy.
+Earlier streamed prose, recorded usage and settled tool proposals remain intact.
+
 **Edit provider** is intentionally a separate definition workflow. It sends only
 the name, model family, or default choice actually changed and compares the
 definition revision the form opened on. A concurrent edit stays visible behind

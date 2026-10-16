@@ -6,7 +6,29 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: provider connections expose a bounded per-call
+Current implementation checkpoint: the provider-priority audit found permanent
+authentication/configuration refusals being described as outages and retried by
+Routines. Shared generation now emits safe status-specific recovery advice and
+a terminal provider-rejected cause for 4xx except 408/409/429, plus unavailable
+local connection settings. Both Messages and Responses preserve prior prose,
+usage and tool proposals after a refused continuation. No raw provider error
+body, credential or private URL is reflected. Routines fail without a retry
+deferral; the existing bounded transient policy is unchanged. Authored loopback
+tests reproduced the old classification and retry defect before repair.
+The 141 focused protocol/Routine/documentation checks and complete unsigned
+arm64 desktop acceptance passed. The first browser attempt exposed a test
+selector using the raw model ID after catalog refresh supplied a display name;
+the corrected selector uses that rendered name and verifies the exact saved ID.
+The next rendered assertion caught literal underscore emphasis in the new note;
+it now uses the renderer's supported asterisk syntax, keeping the exact browser
+text assertion as the lock. The focused browser walk now passes, including exact
+stored text, reload, one generation request and five-viewport captures reviewed
+without further visual findings. Complete local and unsigned desktop verification
+on the final revision are required before landing; paid
+provider tests stay deferred. The owner-preview handoff remains unavailable
+under the existing in-app browser URL policy.
+
+Previous implementation checkpoint: provider connections expose a bounded per-call
 Reply output limit shared by Claude/DeepSeek Messages and native OpenAI Responses.
 New setup explicitly starts at 8,192; legacy absence retains former protocol
 defaults. The private value is revisioned and persisted, with a server-derived
@@ -22,8 +44,10 @@ JSON/SQLite/restart fixtures preserve the exact value and ignore forged stored
 read annotations. First browser acceptance caught the field help being folded
 into its accessible name; the shared explicit-label/description pattern now
 keeps the short name separate, with the exact-label browser assertion as a lock.
-Browser review, UI sweep, complete local verification and the
-unsigned desktop gate are required before landing. Paid-provider acceptance
+The focused browser checks passed 10/10, the UI sweep passed 135/135 with no
+violations or skips, the full local verifier passed all five lanes and 754
+browser tests, and the unsigned arm64 desktop gate passed. Revision `10d86238`
+landed on main. Paid-provider acceptance
 remains deferred, and the owner-preview handoff remains unavailable under the
 existing in-app browser URL policy.
 

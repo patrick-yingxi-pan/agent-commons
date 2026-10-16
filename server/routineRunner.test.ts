@@ -309,6 +309,35 @@ test('transient endpoint loss persists a retry cursor, then succeeds on the next
   assert.equal(state.completions.length, 1)
 })
 
+test('provider rejection is terminal and does not retry a known rejected request', async () => {
+  const state = fakeState()
+  let calls = 0
+  const generate = (async (...args: Parameters<RoutineGenerate>) => {
+    calls += 1
+    reportUsage(args)
+    return generated({
+      outcome: 'fallback',
+      failure: 'provider_rejected',
+      message: {
+        id: 'm-routine', role: 'assistant',
+        content: 'The provider rejected this request (HTTP 401). Check the saved API key and endpoint.',
+      },
+    })
+  }) as RoutineGenerate
+  const runner = createRoutineRunner(fakeStore(state), generate, { now: () => 1_000, retryBaseMs: 100_000 })
+  runner.start()
+  await settle(state)
+  runner.stop()
+
+  assert.equal(calls, 1)
+  assert.equal(state.context.run.attempts, 1)
+  assert.deepEqual(state.deferrals, [])
+  assert.deepEqual(state.outcomes, ['fallback'])
+  assert.equal(state.failures[0]?.code, 'model_unavailable')
+  assert.match(state.failures[0]?.detail ?? '', /HTTP 401/i)
+  assert.deepEqual(state.completions, [])
+})
+
 test('an invalid completed model response is terminal and never retries paid work', async () => {
   const state = fakeState()
   let calls = 0

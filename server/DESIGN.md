@@ -159,6 +159,20 @@ preserves earlier effects, admits no tools from the incomplete response and is
 terminal for automatic routine retries. Local wire fixtures prove this contract,
 not real model capacity or paid-provider acceptance.
 
+The shared reply loop classifies HTTP 4xx refusals (except 408/409/429) and
+unavailable local connection configuration as terminal `provider_rejected`.
+Static status-specific advice replaces the misleading generic outage/retry note;
+upstream bodies, headers, URLs and credential references never enter that advice.
+Both wire protocols retain earlier prose, usage and tool effects on a refused
+continuation. Routines persist `model_unavailable` without deferring that attempt;
+network, timeout, conflict, rate/quota and 5xx failures keep the existing bounded
+retry policy. Status alone cannot distinguish a 429 quota failure from rate
+limiting. This conservative app policy is informed by the official
+[OpenAI errors](https://developers.openai.com/api/docs/guides/error-codes) and
+[Claude errors](https://platform.claude.com/docs/en/api/errors), not by reflecting
+untrusted provider error text. Dedicated tool-free workflows retain their own
+single-shot failure handling.
+
 `server/model/` remains the dev mock:
 it decides tools through deterministic intent matching and canned replies while
 speaking the Anthropic Messages wire format. The seeded OpenAI catalog entry is

@@ -4,7 +4,7 @@ import { once } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { test, expect, type Page, type Locator } from '@playwright/test'
 import { DEFAULT_PROVIDER_ID, type Agent, type ModelProvider, type SystemPromptEntry } from '../contract/index.ts'
-import { settledNarrowRail } from './accessibility-helpers.ts'
+import { settledNarrowRail, settledOpaquePaint } from './accessibility-helpers.ts'
 import { newUser } from './social-helpers.ts'
 import { ms } from './budget.ts'
 
@@ -17,13 +17,15 @@ const VIEWPORTS = [
 ] as const
 
 const MODEL_ID = `deepseek-browser-${randomUUID()}`
+const PRIVATE_AUTH_ERROR_MARKER = `private-upstream-auth-body-${randomUUID()}`
 
 type WireRequest = { model?: string; messages?: Array<{ role: string; content: unknown }>; stream?: boolean; tools?: unknown[]; max_tokens?: number }
 
 /** Test-owned Anthropic Messages endpoint. Listing is absent until explicitly
- * enabled; probe and generation remain valid the whole time. */
+ * enabled; probe stays valid while generation can be switched to an auth refusal. */
 async function startNoListMessagesPeer() {
   let listEnabled = false
+  let rejectGenerationWith401 = false
   let listRequests = 0
   const requests: WireRequest[] = []
   let sequence = 0
@@ -49,6 +51,11 @@ async function startNoListMessagesPeer() {
     const body = (chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}) as WireRequest
     requests.push(body)
     sequence += 1
+    if (body.stream && rejectGenerationWith401) {
+      res.writeHead(401, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: { type: 'authentication_error', message: PRIVATE_AUTH_ERROR_MARKER } }))
+      return
+    }
     const id = `msg_configured_model_${sequence}`
     const content = 'A local DeepSeek fixture completed this turn.'
     if (!body.stream) {
@@ -77,6 +84,7 @@ async function startNoListMessagesPeer() {
     requests,
     get listRequestCount() { return listRequests },
     enableListing() { listEnabled = true },
+    rejectGenerationWith401() { rejectGenerationWith401 = true },
     async close() {
       server.closeAllConnections()
       await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -333,6 +341,70 @@ test('configured model supports provider setup, explicit Dispatch, and later cat
     const refreshed = await page.request.get(`/api/v1/providers/${encodeURIComponent(provider!.id)}`)
     expect(refreshed.ok()).toBe(true)
     expect(await refreshed.json()).toMatchObject({ catalogSource: 'listed', models: [{ id: MODEL_ID }] })
+
+    // A permanent upstream auth refusal is actionable but never reflects the
+    // synthetic private response body into the conversation or durable record.
+    await page.goto(`/s/${encodeURIComponent(run!.execution!.sessionId)}`)
+    await page.getByRole('button', { name: 'Model and effort', exact: true }).click()
+    const conversationPicker = page.getByRole('dialog', { name: 'Model and effort', exact: true })
+    await conversationPicker.getByRole('button').filter({ hasText: provider!.label }).click()
+    await conversationPicker.getByRole('button', { name: 'Configured DeepSeek fixture No metadata from this provider.', exact: true }).click()
+    await expect.poll(async () => {
+      const response = await page.request.get(`/api/v1/sessions/${encodeURIComponent(run!.execution!.sessionId)}`)
+      expect(response.ok()).toBe(true)
+      const current = await response.json() as { providerId?: string; modelId?: string }
+      return [current.providerId, current.modelId]
+    }, { timeout: ms(10_000), message: 'the real conversation is bound to the configured DeepSeek provider/model' })
+      .toEqual([provider!.id, MODEL_ID])
+    await page.getByRole('button', { name: 'Model and effort', exact: true }).click()
+    await expect(conversationPicker).toHaveCount(0)
+
+    const rejectedTurn = `Check this local provider authentication failure ${stamp.slice(0, 8)}`
+    const failureCopy = 'The model provider rejected authentication (HTTP 401). Check the API key and account access for this connection in Models. This turn will not be retried automatically.'
+    const generationCountBefore = peer.requests.filter((request) => request.stream).length
+    peer.rejectGenerationWith401()
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await composer.fill(rejectedTurn)
+    await composer.press('Enter')
+    const renderedFailureCopy = `(${failureCopy})`
+    const persistedFailureCopy = `*(${failureCopy})*`
+    const safeFailure = page.getByText(renderedFailureCopy, { exact: true })
+    await expect(safeFailure).toBeVisible({ timeout: ms(20_000) })
+    expect(peer.requests.filter((request) => request.stream)).toHaveLength(generationCountBefore + 1)
+    await expect.poll(async () => {
+      const response = await page.request.get(`/api/v1/sessions/${encodeURIComponent(run!.execution!.sessionId)}`)
+      expect(response.ok()).toBe(true)
+      return (await response.json() as { messages: Array<{ content: string }> }).messages.at(-1)?.content
+    }, { message: 'the streamed provider refusal is durably acknowledged' }).toBe(persistedFailureCopy)
+    const failedSessionResponse = await page.request.get(`/api/v1/sessions/${encodeURIComponent(run!.execution!.sessionId)}`)
+    expect(failedSessionResponse.ok()).toBe(true)
+    const failedSession = await failedSessionResponse.json() as { messages: Array<{ role: string; content: string }> }
+    expect(failedSession.messages.filter((message) => message.role === 'user' && message.content === rejectedTurn)).toHaveLength(1)
+    expect(failedSession.messages.at(-1)).toMatchObject({ role: 'assistant', content: persistedFailureCopy })
+    expect(JSON.stringify(failedSession)).not.toContain(PRIVATE_AUTH_ERROR_MARKER)
+    expect(await page.locator('body').innerText()).not.toContain(PRIVATE_AUTH_ERROR_MARKER)
+
+    const failedTurn = page.locator('[data-turn]').filter({ hasText: failureCopy })
+    await expect(failedTurn).toBeVisible()
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      await settledNarrowRail(page)
+      await safeFailure.scrollIntoViewIfNeeded()
+      await expect(safeFailure).toBeVisible()
+      await settledOpaquePaint(failedTurn)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+        `the permanent provider error has no horizontal page overflow at ${viewport.width}×${viewport.height}`).toBe(true)
+      await page.screenshot({ path: testInfo.outputPath(`configured-provider-401-${viewport.width}x${viewport.height}.png`) })
+    }
+    await page.reload()
+    await expect(page.getByText(renderedFailureCopy, { exact: true })).toBeVisible({ timeout: ms(15_000) })
+    const reloadedSessionResponse = await page.request.get(`/api/v1/sessions/${encodeURIComponent(run!.execution!.sessionId)}`)
+    expect(reloadedSessionResponse.ok()).toBe(true)
+    const reloadedSession = await reloadedSessionResponse.json() as { messages: Array<{ role: string; content: string }> }
+    expect(reloadedSession.messages.filter((message) => message.role === 'user' && message.content === rejectedTurn)).toHaveLength(1)
+    expect(reloadedSession.messages.at(-1)).toMatchObject({ role: 'assistant', content: persistedFailureCopy })
+    expect(JSON.stringify(reloadedSession)).not.toContain(PRIVATE_AUTH_ERROR_MARKER)
+    expect(peer.requests.filter((request) => request.stream)).toHaveLength(generationCountBefore + 1)
   } finally {
     await Promise.allSettled([owner.context.close(), foreign?.context.close()])
     await peer.close()
