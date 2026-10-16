@@ -50,12 +50,6 @@ export function shortModelLabel(label: string): string {
   return label.replace(/^Claude\s+/, '')
 }
 
-/** Whether a catalog model is Opus-class — gates the composer's Fast-output
- *  toggle (fast mode is an Opus affordance). */
-export function isOpusModel(id?: string): boolean {
-  return /opus/i.test(id ?? '')
-}
-
 /** What the trigger button shows for a pick: the default provider reads as its
  *  model (+ effort) — 'Opus 4.8 · High'; a registered provider leads with its
  *  own label — 'OpenRouter · Llama 3 70B', or just the label when it can't

@@ -34,12 +34,15 @@ test('missing Agents block sends and live/pending operations freeze binding chan
   assert.ok(picker.includes('invalidate(keys.workerAgents)'), 'an initial registry failure has a read-only retry')
 })
 
-test('optional Agent choices and mode toggles share the existing lazy catalog boundary', () => {
+test('optional Agent choices share the existing lazy catalog boundary', () => {
   const control = source('components/ModelEffortControl.tsx')
   assert.ok(control.includes('agentControl={agentId ? { agentId, onSelect: onSelectAgent } : undefined}'))
   assert.ok(!control.includes("from './ConversationAgentPicker'"))
   assert.ok(!control.includes("from './ModelModeToggles'"))
-  assert.ok(control.includes('modes={{ config, update: updateModelPreferences, onSelectModel }}'))
-  assert.ok(source('components/ModelPickerMenuBody.tsx').includes('modes ? modes.onSelectModel &&'), 'lazy preference writes require the conversation write path')
+  assert.ok(control.includes('personalPreferences={{ update: updateModelPreferences, onSelectModel }}'))
+  assert.ok(source('components/ModelPickerMenuBody.tsx').includes('personalPreferences ? personalPreferences.onSelectModel &&'),
+    'lazy preference writes require the conversation write path')
+  assert.ok(!source('components/ModelPickerMenuBody.tsx').includes('ModelModeToggles'),
+    'unsupported mode toggles are absent from the shared menu')
   assert.ok(source('components/ModelPickerMenuBody.tsx').includes('<ConversationAgentPicker'))
 })

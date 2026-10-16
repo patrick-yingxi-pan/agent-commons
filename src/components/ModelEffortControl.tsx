@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { DEFAULT_PROVIDER_ID } from '../../contract/index.ts'
-import { ChevronDown, Workflow, Zap } from 'lucide-react'
+import { ChevronDown } from 'lucide-react'
 import {
   displayModelLabel,
   effortLevelsFor,
-  isOpusModel,
   pickedModel,
   pickedProvider,
   resolveEffort,
@@ -50,10 +49,8 @@ export function ModelEffortControl({
   const model = pickedModel(provider, pick)
   const levels = effortLevelsFor(provider, model)
 
-  const { ultracode, fast } = config
   const effort = resolveEffort(levels, config.effort)
   const onDefaultProvider = (pick?.providerId ?? DEFAULT_PROVIDER_ID) === DEFAULT_PROVIDER_ID
-  const opus = isOpusModel(model?.id)
   const label = `${agentId && agentId !== 'agent-default' ? `${agent?.label ?? 'Unavailable Agent'} · ` : ''}${displayModelLabel(providers, pick, onDefaultProvider ? effort : undefined)}`
 
   return (
@@ -68,14 +65,6 @@ export function ModelEffortControl({
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        {/* Orthogonal modes, when on, show as icons to the left so the
-            model/effort text stays put next to the usage button. */}
-        {onDefaultProvider && ([
-          [ultracode, Workflow, 'Ultracode — multi-agent workflow'],
-          [fast && opus, Zap, 'Fast output'],
-        ] as const).map(([enabled, Icon, title]) => enabled && (
-          <span key={title} title={title} className="flex items-center text-accent"><Icon size={14} /></span>
-        ))}
         {provider?.kind === 'session' && <OnlineDot online={provider.online} />}
         <span className="max-w-[160px] truncate text-ink">
           {label}
@@ -93,7 +82,7 @@ export function ModelEffortControl({
           <ModelPickerMenu
             disabled={held}
             agentControl={agentId ? { agentId, onSelect: onSelectAgent } : undefined}
-            modes={{ config, update: updateModelPreferences, onSelectModel }}
+            personalPreferences={{ update: updateModelPreferences, onSelectModel }}
             pick={pick ?? {}}
             effort={config.effort}
           />

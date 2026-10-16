@@ -5,6 +5,8 @@ export interface ModelPreferences {
   providerId?: string
   modelId?: string
   effort?: string
+  /** Dormant compatibility values: preserved on unrelated preference edits,
+   * never offered as controls or interpreted as execution capabilities. */
   ultracode: boolean
   fast: boolean
 }

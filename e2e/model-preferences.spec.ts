@@ -2,7 +2,7 @@
  * fresh composer, Customize, and first-run setup without inferring registry
  * defaults or trusting origin-local storage. */
 import { test, expect, type Browser, type Locator, type Page } from '@playwright/test'
-import type { ModelProvider, ViewerModelPreferences } from '../contract/index.ts'
+import { DEFAULT_PROVIDER_ID, type ModelProvider, type ViewerModelPreferences } from '../contract/index.ts'
 import { newUser, openSection } from './social-helpers.ts'
 import { ms } from './budget.ts'
 
@@ -39,6 +39,51 @@ async function readPreference(page: Page): Promise<ViewerModelPreferences> {
   const response = await page.request.get(`${API}/viewer-preferences/model`)
   expect(response.ok(), await response.text()).toBeTruthy()
   return response.json() as Promise<ViewerModelPreferences>
+}
+
+async function writePreferences(page: Page, before: ViewerModelPreferences, preferences: ViewerModelPreferences['preferences'], key: string) {
+  const response = await page.request.patch(`${API}/viewer-preferences/model`, {
+    data: {
+      expectedTenantId: before.tenantId,
+      expectedUserId: before.userId,
+      expectedRevision: before.revision,
+      preferences,
+    },
+    headers: { 'Idempotency-Key': key },
+  })
+  expect(response.ok(), await response.text()).toBeTruthy()
+  return response.json() as Promise<ViewerModelPreferences>
+}
+
+async function expectNoModeAffordances(dialog: Locator, trigger?: Locator) {
+  await expect(dialog).not.toContainText(/Ultracode|Fast output/)
+  for (const label of ['Ultracode', 'Fast output']) {
+    await expect(dialog.getByRole('button').filter({ hasText: new RegExp(`^${label}\\b`) })).toHaveCount(0)
+  }
+  if (trigger) {
+    await expect(trigger).not.toContainText(/Ultracode|Fast output/)
+    await expect(trigger.locator('[title="Ultracode — multi-agent workflow"], [title="Fast output"]')).toHaveCount(0)
+  }
+}
+
+async function closePicker(page: Page, dialog: Locator) {
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+}
+
+async function openFreshDraft(page: Page) {
+  await expect(page.locator('main').first()).toBeVisible()
+  const sidebarControl = page.locator('button[aria-label="Expand sidebar"], button[aria-label="Collapse sidebar"]').first()
+  await expect(sidebarControl).toBeVisible()
+  const expandSidebar = page.getByRole('button', { name: 'Expand sidebar', exact: true }).first()
+  if (await expandSidebar.isVisible()) await expandSidebar.click()
+  await expect(page.getByRole('button', { name: 'Collapse sidebar', exact: true }).first()).toBeVisible()
+  const createNavigation = page.getByRole('navigation', { name: 'Create', exact: true })
+  await expect(createNavigation).toBeVisible()
+  const newSession = createNavigation.getByRole('button', { name: 'New session', exact: true })
+  await expect(newSession).toBeVisible()
+  await newSession.click()
+  await expect(page.getByRole('heading', { name: 'What should we work on?' })).toBeVisible()
 }
 
 async function defaultModelSurface(page: Page) {
@@ -183,6 +228,107 @@ test('Customize preference survives storage-free reload and remains scoped witho
   }
 })
 
+test('legacy mode booleans stay inert while model and effort choices remain durable and scoped', async ({ browser }) => {
+  test.setTimeout(ms(120_000))
+  const stamp = Date.now().toString(36)
+  const owner = await newUser(browser, testIdentity(stamp, 'legacy-modes'))
+  const isolated = await newUser(browser, testIdentity(stamp, 'legacy-modes-isolated'))
+
+  try {
+    await owner.page.goto('/')
+    const baseline = await readPreference(owner.page)
+    const seeded = await writePreferences(owner.page, baseline, {
+      ...baseline.preferences,
+      ultracode: true,
+      fast: true,
+    }, `seed-legacy-mode-intent-${stamp}`)
+    expect(seeded.preferences.ultracode).toBe(true)
+    expect(seeded.preferences.fast).toBe(true)
+
+    const providersResponse = await owner.page.request.get(`${API}/providers`)
+    expect(providersResponse.ok(), await providersResponse.text()).toBeTruthy()
+    const providers = await providersResponse.json() as ModelProvider[]
+    const defaultProvider = providers.find((provider) => provider.id === DEFAULT_PROVIDER_ID)
+    expect(defaultProvider, 'the default provider is present').toBeTruthy()
+    const nonOpus = defaultProvider!.models?.find((model) => !/opus/i.test(model.id))
+    expect(nonOpus, 'the default catalog declares a non-Opus model').toBeTruthy()
+    const changedEffort = nonOpus!.effortLevels?.[0] ?? defaultProvider!.effortLevels[0]
+    const shortModelLabel = nonOpus!.label.replace('Claude ', '')
+    expect(changedEffort, 'the selected non-Opus model declares an effort level').toBeTruthy()
+    expect(nonOpus!.effortLevels?.length ?? defaultProvider!.effortLevels.length).toBeGreaterThan(0)
+
+    await owner.page.goto('/customize')
+    await openSection(owner.page, 'Default model')
+    const card = owner.page.locator('section.group\\/section').filter({
+      has: owner.page.locator('[data-section-title]', { hasText: /^Default model$/ }),
+    })
+    const customizeTrigger = card.locator('button[aria-haspopup="dialog"]')
+    await customizeTrigger.click()
+    const customizeDialog = owner.page.getByRole('dialog', { name: 'Default model and effort' })
+    await expect(customizeDialog).toBeVisible()
+    const modelChoice = customizeDialog.locator('[data-model-choice]').filter({ hasText: nonOpus!.label })
+    await expect(modelChoice).toBeVisible()
+    await modelChoice.click()
+    await expect.poll(async () => (await readPreference(owner.page)).preferences.modelId).toBe(nonOpus!.id)
+    await customizeDialog.getByRole('button', { name: changedEffort, exact: true }).click()
+    await expect.poll(async () => {
+      const preferences = (await readPreference(owner.page)).preferences
+      return [preferences.modelId, preferences.effort, preferences.ultracode, preferences.fast]
+    }).toEqual([nonOpus!.id, changedEffort, true, true])
+
+    // A true legacy value is retained as stored data, but neither picker may
+    // advertise an execution mode or paint an active mode icon.
+    for (const viewport of VIEWPORTS) {
+      await owner.page.setViewportSize(viewport)
+      const surface = await defaultModelSurface(owner.page)
+      await surface.trigger.click()
+      const dialog = owner.page.getByRole('dialog', { name: 'Default model and effort' })
+      await expect(dialog.locator('[data-model-choice]').filter({ hasText: nonOpus!.label })).toBeVisible()
+      await expectPopoverContained(owner.page, dialog, `${viewport.width}x${viewport.height} Customize picker`)
+      await expectNoModeAffordances(dialog, surface.trigger)
+      await capturePreferenceSurface(owner.page, 'customize-supported-choices')
+      await closePicker(owner.page, dialog)
+    }
+
+    // Root navigation can restore the active Customize pane; use the explicit
+    // New session action to select the composer before asserting its control.
+    await openFreshDraft(owner.page)
+    const composerTrigger = owner.page.getByRole('button', { name: 'Model and effort' })
+    await expect(composerTrigger).toContainText(`${shortModelLabel} · ${changedEffort}`)
+    for (const viewport of VIEWPORTS) {
+      await owner.page.setViewportSize(viewport)
+      await composerTrigger.click()
+      const dialog = owner.page.getByRole('dialog', { name: 'Model and effort' })
+      await expect(dialog.locator('[data-model-choice]').filter({ hasText: nonOpus!.label })).toBeVisible()
+      await expectPopoverContained(owner.page, dialog, `${viewport.width}x${viewport.height} composer picker`)
+      await expectNoModeAffordances(dialog, composerTrigger)
+      await capturePreferenceSurface(owner.page, 'composer-supported-choices')
+      await closePicker(owner.page, dialog)
+    }
+
+    const beforeReload = await readPreference(owner.page)
+    expect(beforeReload.preferences).toMatchObject({ modelId: nonOpus!.id, effort: changedEffort, ultracode: true, fast: true })
+    await owner.page.evaluate(() => localStorage.clear())
+    await owner.page.reload()
+    await openFreshDraft(owner.page)
+    await expect(owner.page.getByRole('button', { name: 'Model and effort' })).toContainText(`${shortModelLabel} · ${changedEffort}`)
+    expect((await readPreference(owner.page)).preferences).toMatchObject({
+      modelId: nonOpus!.id,
+      effort: changedEffort,
+      ultracode: true,
+      fast: true,
+    })
+
+    await isolated.page.goto('/')
+    const isolatedPreferences = await readPreference(isolated.page)
+    expect(isolatedPreferences.preferences).toMatchObject({ ultracode: false, fast: false })
+    expect(isolatedPreferences.preferences.modelId).toBeUndefined()
+    await expect(isolated.page.getByRole('button', { name: 'Model and effort' })).not.toContainText(shortModelLabel)
+  } finally {
+    await Promise.allSettled([owner.context.close(), isolated.context.close()])
+  }
+})
+
 test('pre-commit failure holds every model control and Retry preserves one exact intent', async ({ page }) => {
   test.setTimeout(ms(120_000))
   const stamp = Date.now().toString(36)
@@ -245,8 +391,7 @@ test('pre-commit failure holds every model control and Retry preserves one exact
         await expect(choice).toHaveCSS('opacity', '0.5')
         await expect(choice).toHaveCSS('cursor', 'not-allowed')
       }
-      await expect(dialog.getByRole('button').filter({ hasText: /^Ultracode/ })).toBeDisabled()
-      await expect(dialog.getByRole('button').filter({ hasText: /^Fast output/ })).toBeDisabled()
+      await expectNoModeAffordances(dialog)
       await capturePreferenceSurface(page, 'composer-held')
     }
     expect((await readPreference(page)).revision).toBe(baseline.revision)
@@ -267,8 +412,7 @@ test('pre-commit failure holds every model control and Retry preserves one exact
       await expect(choice).toBeDisabled()
       await expect(choice).toHaveCSS('opacity', '0.5')
     }
-    await expect(dialog.getByRole('button').filter({ hasText: /^Ultracode/ })).toBeDisabled()
-    await expect(dialog.getByRole('button').filter({ hasText: /^Fast output/ })).toBeDisabled()
+    await expectNoModeAffordances(dialog)
     await expect(failed.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
     await capturePreferenceSurface(page, 'composer-error')
   }
@@ -289,7 +433,7 @@ test('pre-commit failure holds every model control and Retry preserves one exact
       await expect(choice).toBeEnabled()
       await expect(choice).toHaveCSS('opacity', '1')
     }
-    await expect(dialog.getByRole('button').filter({ hasText: /^Ultracode/ })).toBeEnabled()
+    await expectNoModeAffordances(dialog)
     await capturePreferenceSurface(page, 'composer-recovered')
   }
   expect(requests).toHaveLength(2)

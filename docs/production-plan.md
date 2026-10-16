@@ -6,7 +6,20 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: native OpenAI assistant phase is retained per output message,
+Current checkpoint: simplify the shared model picker to supported Agent,
+provider, model and effort choices. Fast/Ultracode have no execution adapter,
+so their controls and active icons are removed rather than presented as working
+modes. Dormant persisted booleans remain compatible and are not silently cleared
+by model or effort edits. The lazy menu still preserves exact conversation
+write authority and acknowledgement holds. Source enumeration was watched fail
+before repair; the new browser lock also failed when the old silent reset was
+temporarily restored. Five-viewport browser walks cover both personal pickers, reload
+and account isolation. Full local, responsive and unsigned desktop gates remain
+required before landing. Paid-provider tests remain deferred.
+
+Previous checkpoint `e6d1e3b9` passed all five local verifier lanes (771 browser
+checks) and the complete unsigned arm64 desktop suite, then landed on main.
+Native OpenAI assistant phase is retained per output message,
 not attached to a flattened turn. Exact visible prose boundaries survive tool
 continuation, HTTP completion/keyed replay, later sends and JSON/SQLite process
 restart. Null and absence remain distinct; malformed phase or text mismatch
@@ -16,13 +29,9 @@ and Markdown export remains prose-only. Messages/DeepSeek and Session relay keep
 their plain-text history; opaque reasoning remains same-turn-only. Loopback
 regressions were watched fail before implementation, and packaged Electron smoke
 now asserts SQLite phase metadata and the fresh post-relaunch native request.
-No UI controls or paid-provider calls are added. Complete local and unsigned
-desktop gates remain required before landing.
-
-Next core-workflow checkpoint: make the stored Fast/Ultracode intent truthful
-in the model picker. Neither existing effort mapping nor adaptive thinking
-implements those modes; remove misleading execution affordances or label their
-unavailability before release, without inventing provider support.
+No UI controls or paid-provider calls were added. Further checkpoints continue
+the DeepSeek/OpenAI/Claude and core-workflow audit; fixture evidence does not
+replace deferred paid-provider or signed/notarized release acceptance.
 
 Previous checkpoint `60c23e59` passed all five local verifier lanes (6771 Node
 and 771 browser checks) and the full unsigned arm64 desktop suite, then landed

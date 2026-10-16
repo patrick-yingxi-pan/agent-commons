@@ -90,7 +90,6 @@ import { type CadenceSpec, type Frequency, TIMED_FREQS, WEEKDAY_NAMES, describeC
 import {
   displayModelLabel,
   effortLevelsFor,
-  isOpusModel,
   pickedModel,
   pickedProvider,
   resolveEffort,
@@ -14201,7 +14200,6 @@ function DefaultModelCard() {
                 void updateModelPreferences({
                   providerId: next.providerId,
                   modelId: next.modelId,
-                  ...(isOpusModel(next.modelId) ? {} : { fast: false }),
                 })
               }
               onPickEffort={(effort) => { void updateModelPreferences({ effort }) }}

@@ -7,14 +7,12 @@ import {
   pickedModel,
   pickedProvider,
   resolveEffort,
-  isOpusModel,
   type ModelPick,
 } from '../lib/models'
 import { EFFORT_BLURBS, modelBlurb } from '../lib/modelDescriptions.ts'
 import { useProviders } from '../api'
 import { OnlineDot } from './ModelPickerMenu'
 import { ConversationAgentPicker } from './ConversationAgentPicker'
-import { ModelModeToggles } from './ModelModeToggles'
 import type { ModelPrefs } from '../lib/modelPrefs'
 import { DISABLED_CONTROL_CLASS } from '../lib/button'
 
@@ -102,8 +100,7 @@ export function ModelPickerMenuBody({
   disabled = false,
   endpointOnly = false,
   agentControl,
-  modes,
-  children,
+  personalPreferences,
 }: {
   /** The active two-level selection (absences inherit — see lib/models). */
   pick: ModelPick
@@ -123,22 +120,19 @@ export function ModelPickerMenuBody({
   /** Unattended routines cannot be drained by a foreground Session provider. */
   endpointOnly?: boolean
   agentControl?: { agentId: string; onSelect?: (agentId: string) => void }
-  modes?: { config: ModelPrefs; update: (patch: Partial<ModelPrefs>) => void; onSelectModel?: (pick: ModelPick) => void }
-  /** Caller extras rendered below the effort section while the default provider
-   *  is active (the composer's orthogonal-mode toggles). */
-  children?: ReactNode
+  personalPreferences?: { update: (patch: Partial<Pick<ModelPrefs, 'providerId' | 'modelId' | 'effort'>>) => void; onSelectModel?: (pick: ModelPick) => void }
 }) {
   // Composer preferences and session routing move together only when that
   // conversation grants a write path. Other menu callers own their callbacks.
-  const onPickModel = modes ? modes.onSelectModel && ((next: Required<Pick<ModelPick, 'modelId'>> & ModelPick) => {
-    modes.update({ providerId: next.providerId, modelId: next.modelId, ...(isOpusModel(next.modelId) ? {} : { fast: false }) })
-    modes.onSelectModel!(next)
+  const onPickModel = personalPreferences ? personalPreferences.onSelectModel && ((next: Required<Pick<ModelPick, 'modelId'>> & ModelPick) => {
+    personalPreferences.update({ providerId: next.providerId, modelId: next.modelId })
+    personalPreferences.onSelectModel!(next)
   }) : suppliedPickModel
-  const onPickProvider = modes ? modes.onSelectModel && ((providerId?: string) => {
-    modes.update({ providerId, modelId: undefined })
-    modes.onSelectModel!({ providerId })
+  const onPickProvider = personalPreferences ? personalPreferences.onSelectModel && ((providerId?: string) => {
+    personalPreferences.update({ providerId, modelId: undefined })
+    personalPreferences.onSelectModel!({ providerId })
   }) : suppliedPickProvider
-  const onPickEffort = modes ? (effort: string) => modes.update({ effort }) : suppliedPickEffort
+  const onPickEffort = personalPreferences ? (effort: string) => personalPreferences.update({ effort }) : suppliedPickEffort
   // The live registry — a provider minted in the Models section is immediately in
   // every picker (the registry cache refreshes on provider events).
   const allProviders = useProviders().data ?? []
@@ -149,7 +143,6 @@ export function ModelPickerMenuBody({
   const catalog = providerModelChoices(provider)
   const levels = effortLevelsFor(provider, activeModel)
   const activeEffort = resolveEffort(levels, effort)
-  const onDefaultProvider = (provider?.id ?? DEFAULT_PROVIDER_ID) === DEFAULT_PROVIDER_ID
 
   return (
     <>
@@ -248,9 +241,6 @@ export function ModelPickerMenuBody({
               : 'This provider declares no effort levels.'}
         </p>
       )}
-
-      {onDefaultProvider && children}
-      {onDefaultProvider && modes && <ModelModeToggles {...modes} modelId={activeModel?.id} disabled={disabled} />}
     </>
   )
 }
