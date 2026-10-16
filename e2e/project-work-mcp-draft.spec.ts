@@ -61,6 +61,13 @@ async function startModelPeer(reply: string): Promise<ModelPeer> {
     if (request.method !== 'POST' || path !== '/v1/messages') { response.writeHead(404).end(); return }
     requests.push({ body })
     const id = `msg_project_mcp_draft_${requests.length}`
+    if (body.stream !== true) {
+      response.writeHead(200, { 'content-type': 'application/json' })
+      response.end(JSON.stringify({ id, type: 'message', role: 'assistant', model: MODEL_ID,
+        content: [{ type: 'text', text: currentReply }], stop_reason: 'end_turn', stop_sequence: null,
+        usage: { input_tokens: 11, output_tokens: 9 } }))
+      return
+    }
     response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', connection: 'keep-alive' })
     sse(response, 'message_start', { type: 'message_start', message: {
       id, type: 'message', role: 'assistant', model: MODEL_ID, content: [], stop_reason: null,

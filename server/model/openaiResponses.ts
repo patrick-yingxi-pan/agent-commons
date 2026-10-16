@@ -7,7 +7,7 @@ import { positiveNumberEnv } from '../env.ts'
 type Request = Anthropic.MessageCreateParamsNonStreaming
 type Options = { signal?: AbortSignal | null }
 type Json = Record<string, unknown>
-export type EndpointMessage = Pick<Anthropic.Message, 'id' | 'content' | 'stop_reason'> & {
+export type EndpointMessage = Pick<Anthropic.Message, 'id' | 'role' | 'content' | 'stop_reason'> & {
   usage: Pick<Anthropic.Usage, 'input_tokens' | 'output_tokens'>
 }
 type StartEvent = { type: 'message_start'; message: { id: string } }
@@ -112,7 +112,7 @@ function normalize(value: unknown): EndpointMessage {
     if (!value || typeof value !== 'object' || Array.isArray(value)) { invalid = true; continue }
     const item = value as Json
     if (item.type === 'reasoning') continue
-    if (item.type === 'message' && Array.isArray(item.content)) {
+    if (item.type === 'message' && item.role === 'assistant' && Array.isArray(item.content)) {
       for (const value of item.content) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) { invalid = true; continue }
         const part = value as Json
@@ -137,11 +137,13 @@ function normalize(value: unknown): EndpointMessage {
   const tokens = (value: unknown) => typeof value === 'number' ? value : Number.NaN
   // Null is our invalid sentinel; `refusal` is a legitimate completed Messages
   // answer and must not double as a wire-validation error in the shared loop.
-  const stop: EndpointMessage['stop_reason'] = invalid || raw.status === 'failed' ? null
-    : raw.status !== 'completed' ? 'max_tokens'
+  const tokenLimited = raw.status === 'incomplete' && raw.incomplete_details !== null &&
+    typeof raw.incomplete_details === 'object' && (raw.incomplete_details as Json).reason === 'max_output_tokens'
+  const stop: EndpointMessage['stop_reason'] = invalid || (raw.status !== 'completed' && !tokenLimited) ? null
+    : tokenLimited ? 'max_tokens'
     : content.some(b => b.type === 'tool_use') ? 'tool_use' : 'end_turn'
   replay.set(content, output)
-  return { id, content, stop_reason: stop, usage: {
+  return { id, role: 'assistant', content, stop_reason: stop, usage: {
     input_tokens: tokens(usage.input_tokens), output_tokens: tokens(usage.output_tokens),
   } }
 }

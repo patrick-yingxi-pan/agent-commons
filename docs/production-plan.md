@@ -6,7 +6,25 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current implementation checkpoint: the approved official filesystem MCP review
+Current implementation checkpoint: local protocol fixtures reproduced false
+success in provider setup. HTTP 200 with a failed response or invalid usage
+could publish a new connection or replace a working one. Both the tool-bearing
+probe and its request-shape-only no-tools fallback now require valid assistant
+content, terminal status and usage. Failed/nonterminal/invalid replies stop
+without another capability attempt and expose no provider body or error cause.
+The deliberately small probe still accepts valid token exhaustion, including
+OpenAI's explicit `incomplete` / `max_output_tokens` result with no visible prose,
+as described in the [official reasoning guide](https://developers.openai.com/api/docs/guides/reasoning).
+Probe tool requests remain inert and never run or continue. New protocol and
+create/replacement locks were watched fail against the previous implementation;
+the status-mapping and wrong-role regressions were separately demonstrated.
+The first completed full verifier exposed three browser model fixtures that
+always sent SSE to non-streaming probes; those peers now honor the requested
+transport instead of weakening production validation or test timing budgets.
+Complete frozen-tree local and packaged verification remain required before
+landing. This does not resume paid-provider testing or close release gates.
+
+Previous implementation checkpoint: the approved official filesystem MCP review
 exposed and fixed a desktop-only legacy initialization failure. The bridge now
 admits its dedicated initialized notification without widening ordinary requests
 or inspection authority. Both new regression locks failed before correction;
@@ -16,7 +34,8 @@ actual native Cancel/fresh Allow, catalog inspection and separately approved
 generated-file list/read calls on unsigned arm64. Exact private receipts survive
 source-absent relaunch and remain hidden on loaded requester pages. No paid model,
 write tool, public service, sandbox, signed or Intel acceptance is claimed.
-Complete frozen-tree local and packaged verification remain mandatory before landing.
+Revision `e6c5fa53` passed the complete local verifier (all five lanes and 748
+browser tests) and the full unsigned arm64 desktop verifier, then landed on main.
 
 Previous implementation checkpoint: provider setup offers Claude/Anthropic, OpenAI,
 DeepSeek and Custom connections, with explicit protocol selection and protected

@@ -17,7 +17,7 @@ async function fixture() {
       return
     }
     if (req.method !== 'POST' || req.url !== '/v1/messages') return res.writeHead(404).end()
-    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { messages?: Array<{ role: string; content: unknown }> }
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { stream?: boolean; messages?: Array<{ role: string; content: unknown }> }
     const latest = [...(body.messages ?? [])].reverse().find((item) => item.role === 'user')?.content
     const text = typeof latest === 'string' ? latest : JSON.stringify(latest ?? '')
     seen.push(text)
@@ -25,8 +25,15 @@ async function fixture() {
     const document = marker >= 0 ? JSON.parse(text.slice(marker + 2)) as { attached_files?: Array<{ status: string; text?: string }> } : undefined
     const supplied = document?.attached_files?.find((item) => item.status === 'ready')?.text
     const reply = supplied ? `Folder supplied: ${supplied}` : 'No supplied attachment text.'
-    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', connection: 'keep-alive' })
     const id = `folder_fixture_${Date.now().toString(36)}`
+    if (body.stream !== true) {
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ id, type: 'message', role: 'assistant', model: 'folder-input-model',
+        content: [{ type: 'text', text: reply }], stop_reason: 'end_turn', stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 } }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', connection: 'keep-alive' })
     sse(res, 'message_start', { type: 'message_start', message: { id, type: 'message', role: 'assistant', model: 'folder-input-model', content: [], stop_reason: null, usage: { input_tokens: 1, output_tokens: 0 } } })
     sse(res, 'content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
     sse(res, 'content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: reply } })

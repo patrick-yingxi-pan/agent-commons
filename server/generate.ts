@@ -133,7 +133,7 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
 }
 
 /** Registration-time conformance probe (docs/agent-commons.md, D9): one tiny real
- *  Messages call against the config's endpoint, `tools` declared, to verify it speaks
+ *  provider-native call against the config's endpoint, `tools` declared, to verify it speaks
  *  the protocol and to learn its capability record. An endpoint that rejects the
  *  `tools` param but answers a plain call is conformant-without-tool-use; one that
  *  answers neither fails the probe (`ProviderProbeError`) — the route turns that into
@@ -148,6 +148,36 @@ function providerProbeFailureDetail(error: unknown): string {
   return 'The endpoint request failed.'
 }
 
+/** A successful HTTP exchange is not conformance. The deliberately tiny probe
+ * may exhaust its token budget, but must still have a valid terminal envelope,
+ * usage and supported content. Probe tools are never executed. */
+function assertProviderProbeResponse(value: unknown, withTools: boolean): void {
+  const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+  const identifier = (v: unknown) => typeof v === 'string' && v.trim().length > 0
+  const invalid = () => { throw new ProviderProbeError('The endpoint returned an invalid or unsuccessful verification response.') }
+  if (!record(value) || !identifier(value.id) || value.role !== 'assistant' || !Array.isArray(value.content) || !record(value.usage)) return invalid()
+  const stops = ['end_turn', 'stop_sequence', 'refusal', 'tool_use', 'max_tokens']
+  if (!stops.includes(value.stop_reason as string)) return invalid()
+  try {
+    createModelUsageRecorder().record({ inputTokens: value.usage.input_tokens as number, outputTokens: value.usage.output_tokens as number })
+  } catch { return invalid() }
+  let text = false, tools = 0
+  for (const block of value.content) {
+    if (!record(block)) return invalid()
+    if (block.type === 'text' && typeof block.text === 'string') {
+      text ||= block.text.trim().length > 0
+    } else if (block.type === 'thinking' && typeof block.thinking === 'string' && typeof block.signature === 'string') {
+      // Opaque provider reasoning is not proof of a completed visible answer.
+    } else if (block.type === 'redacted_thinking' && typeof block.data === 'string') {
+      // Retain compatibility without interpreting or retaining this payload.
+    } else if (block.type === 'tool_use' && withTools && identifier(block.id) && block.name === 'probe_noop' && record(block.input)) {
+      tools += 1
+    } else return invalid()
+  }
+  if (value.stop_reason === 'max_tokens') return
+  if (value.stop_reason === 'tool_use' ? tools === 0 : !text || tools > 0) invalid()
+}
+
 export async function probeProviderEndpoint(config: ProviderConfig): Promise<ProviderCapabilities> {
   // The credential-reference wall, checked BEFORE any request leaves: the reference
   // and the endpoint are both caller-supplied, so an unconstrained reference would
@@ -158,8 +188,8 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
   if (config.apiKeyEnv && !process.env[config.apiKeyEnv]?.trim()) {
     throw new ProviderProbeError(`The provider credential '${config.apiKeyEnv}' is not available to this server.`)
   }
-  const probe = (withTools: boolean) =>
-    clientFor(config).messages.create(
+  const probe = async (withTools: boolean) => {
+    const response = await clientFor(config).messages.create(
       {
         model: config.model ?? MODEL,
         max_tokens: config.protocol === 'openai-responses' ? 32 : 8,
@@ -170,6 +200,8 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
       },
       { signal: AbortSignal.timeout(positiveNumberEnv(process.env.PROVIDER_PROBE_TIMEOUT_MS, 10_000)) },
     )
+    assertProviderProbeResponse(response, withTools)
+  }
   try {
     await probe(true)
     return { toolUse: true }
@@ -179,7 +211,9 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
     // permanently misclassify the provider as lacking tools.
     if (!(err instanceof Anthropic.APIError || err instanceof EndpointHttpError) || typeof err.status !== 'number') {
       const detail = providerProbeFailureDetail(err)
-      throw new ProviderProbeError(`The endpoint could not be reached: ${detail}`)
+      const failure = err instanceof EndpointResponseError || err instanceof ProviderProbeError
+        ? 'The endpoint did not pass verification' : 'The endpoint could not be reached'
+      throw new ProviderProbeError(`${failure}: ${detail}`)
     }
     if (err.status !== 400 && err.status !== 422) throw new ProviderProbeError(`The endpoint refused verification (HTTP ${err.status}). Check the API key, model and provider quota.`)
     try {
