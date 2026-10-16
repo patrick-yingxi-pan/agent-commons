@@ -176,7 +176,10 @@ test('stamped conversation provenance stays with each turn after the current mod
     }).toEqual(['provider-openai', 'gpt-5.1-mini'])
     await expect(turn(page, MESSAGE_IDS.openai).locator('[data-turn-model]')).toHaveText(`${LONG_OPENAI} · gpt-5.1`)
     await expect(turn(page, MESSAGE_IDS.anthropic).locator('[data-turn-model]')).toHaveText(`${LONG_ANTHROPIC} · claude-opus-4-8`)
-    await page.getByRole('button', { name: 'Model and effort', exact: true }).click()
+    // The Agent selector makes the popover taller; when it is clamped for a
+    // short viewport, it may overlap the trigger. Dismiss through its keyboard
+    // contract rather than trying to click through the open dialog.
+    await page.keyboard.press('Escape')
     await expect(picker).toHaveCount(0)
 
     for (const viewport of VIEWPORTS) {

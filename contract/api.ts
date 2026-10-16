@@ -123,6 +123,9 @@ export interface CreateSessionRequest {
    *  generation; omitted means `firstMessage` remains metadata-only, preserving
    *  the draft materialization contract. Requires a non-blank `firstMessage`. */
   persistFirstMessage?: true
+  /** The caller's visible Agent selected for this draft. Omitted preserves the
+   *  default Agent, matching ordinary Session creation. */
+  agentId?: string
   /** The model picked in the draft's composer before first send — becomes the
    *  session's `providerId`. Validated against the caller's visible providers. */
   providerId?: string
@@ -146,6 +149,8 @@ export interface SessionMetadataPatch {
   title?: string
   status?: 'active' | 'archived'
   pinned?: boolean
+  /** Rebind the Conversation's current driver to a caller- and owner-visible Agent. */
+  agentId?: string
   providerId?: string
   modelId?: string
 }

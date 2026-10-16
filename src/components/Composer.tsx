@@ -88,6 +88,8 @@ export function Composer({
   onRemoveFolder,
   sessionId,
   modelPick,
+  agentId,
+  onSelectAgent,
   onSelectModel,
   usageModel,
   messageTokens,
@@ -108,6 +110,8 @@ export function Composer({
   /** The session's two-level model pick (`session.providerId` + `session.modelId`)
    *  — absences inherit (the default provider / its configured model). */
   modelPick?: ModelPick
+  agentId?: string
+  onSelectAgent?: (agentId: string) => void
   /** Write the pick through (controller-owned: PATCH for a real session, held
    *  locally for a draft until it materializes). Absences clear to inherit. */
   onSelectModel?: (pick: ModelPick) => void
@@ -459,7 +463,7 @@ export function Composer({
             <AudioInputControl />
           </div>
           <div data-composer-model-controls className={COMPOSER_MODEL_LAYOUT.group}>
-            <ModelEffortControl pick={modelPick} onSelectModel={onSelectModel} />
+            <ModelEffortControl pick={modelPick} agentId={agentId} onSelectAgent={onSelectAgent} onSelectModel={onSelectModel} />
             <ProvidersControl />
             <HostsControl />
             <UsageControl sessionId={sessionId} messageTokens={messageTokens} model={usageModel} />

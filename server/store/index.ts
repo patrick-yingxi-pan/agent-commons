@@ -6281,7 +6281,7 @@ export const store = {
     tenantId: string = defaultTenantId(),
     providerId?: string,
     modelId?: string,
-    options: { logicalId?: string; persistFirstMessage?: true } = {},
+    options: { logicalId?: string; persistFirstMessage?: true; agentId?: string } = {},
   ): Session {
     if (options.logicalId) {
       if (!isDraftSessionCreationId(options.logicalId)) {
@@ -6299,14 +6299,18 @@ export const store = {
     if (options.persistFirstMessage && (typeof firstMessage !== 'string' || !firstMessage.trim())) {
       throw new ValidationError('Persisting a first message requires non-empty text.')
     }
+    if (options.agentId !== undefined && !WORKER_AGENTS.has(options.agentId)) {
+      throw new ValidationError(`No Agent '${options.agentId}' is available.`)
+    }
     // A draft's concrete model pick must name an entry in its effective provider's
-    // catalog (the picked provider's, else the default Agent's) — refused otherwise.
-    if (modelId) assertModelInCatalog(modelId, providerId)
+    // catalog (the picked provider's, else the chosen Agent's) — refused otherwise.
+    if (modelId) assertModelInCatalog(modelId, providerId, options.agentId)
     return mintSession({
       id: options.logicalId ?? `sess-${(sessionSeq += 1)}`,
       title: titleFrom(firstMessage),
       preview: (firstMessage ?? '').slice(0, 120),
       tenantId,
+      agentId: options.agentId,
       // The composer's model pick, when the draft made one (route-validated).
       providerId,
       modelId,
@@ -7742,14 +7746,29 @@ export const store = {
         `This conversation changed elsewhere (expected revision ${expectedRevision}, current revision ${currentRevision}).`,
       )
     }
+    if (patch.agentId !== undefined && !WORKER_AGENTS.has(patch.agentId)) {
+      throw new ValidationError(`No Agent '${patch.agentId}' is available.`)
+    }
+    const nextAgentId = patch.agentId ?? session.agentId
+    const providerPatched = patch.providerId !== undefined
+    const nextProviderId = providerPatched
+      ? (patch.providerId || undefined)
+      : session.providerId
     // Validate the model pick BEFORE anything mutates (a refused patch must change
     // nothing): it must name an entry in the catalog of the provider this patch
-    // leaves the session on — the incoming providerId when the patch carries one,
-    // else the session's current effective provider.
+    // leaves the session on — including a newly selected Agent when there is no
+    // explicit Session provider override.
     if (patch.modelId) {
-      const nextProviderId = patch.providerId !== undefined ? patch.providerId || undefined : session.providerId
-      assertModelInCatalog(patch.modelId, nextProviderId, session.agentId)
+      assertModelInCatalog(patch.modelId, nextProviderId, nextAgentId)
     }
+    // A Session provider is an explicit override and survives an Agent change.
+    // Without that override, changing Agents may move the model namespace; clear
+    // only an inherited pick that is no longer valid, as part of this same row
+    // mutation (one revision, one event, one durable write).
+    const clearInheritedModelPick =
+      !providerPatched && !session.providerId && patch.agentId !== undefined && !!session.modelId &&
+      !modelChoicesOf(resolveProvider(resolveAgent(nextAgentId).providerId)).some((model) => model.id === session.modelId)
+    if (patch.agentId !== undefined) session.agentId = patch.agentId
     if (patch.title !== undefined) session.title = patch.title
     if (patch.status !== undefined) session.status = patch.status
     if (patch.pinned !== undefined) session.pinned = patch.pinned
@@ -7757,13 +7776,14 @@ export const store = {
     // none/default — or a JSON null, which the route's validation skip lets through)
     // clears back to the Agent's own provider; only a real id is ever stored, so the
     // persisted row can't violate the wire type (`providerId?: string`).
-    if (patch.providerId !== undefined) {
+    if (providerPatched) {
       if (patch.providerId) session.providerId = patch.providerId
       else delete session.providerId
       // The provider changed, so the model pick's namespace changed — clear it (the
       // documented cascade); a modelId in this same patch re-picks right below.
       delete session.modelId
     }
+    if (clearInheritedModelPick) delete session.modelId
     // The concrete-model half of the pick (validated above); falsy clears back to
     // the provider's configured model — the INV-9 inherit state.
     if (patch.modelId !== undefined) {

@@ -15,6 +15,7 @@ import {
   type RevisionedMutationStatus,
 } from './revisionedMutationCore'
 import { cachedSession, reconcileSession } from './sessionMutationState'
+import { isConversationBindingPatch } from '../lib/conversationBinding'
 
 function describeFailure(error: unknown): RevisionedMutationFailure {
   if (error instanceof AccountSwitchedError) {
@@ -53,6 +54,8 @@ const controller = createRevisionedMutationController<Session, SessionMetadataPa
   revision: (session) => session.metadataRevision ?? 0,
   mutate: patchSession,
   describeFailure,
+  retainOnDismissReadFailure: (patch, error) => isConversationBindingPatch(patch) &&
+    !(error instanceof ApiRequestError && error.status === 404),
   setStatus: publish,
   mintIdempotencyKey: () => crypto.randomUUID(),
 })
@@ -68,6 +71,9 @@ export function enqueueSessionMetadataMutation(
 
 export const retrySessionMetadataMutation = controller.retry
 export const discardSessionMetadataMutation = controller.discard
+
+export const isSessionBindingHeld = (sessionId: string): boolean =>
+  controller.isPending(sessionId, isConversationBindingPatch)
 
 export function useSessionMetadataMutationStatus(): RevisionedMutationStatus {
   return useSyncExternalStore(

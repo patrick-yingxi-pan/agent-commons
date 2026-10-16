@@ -15,11 +15,13 @@ test('every personal model setting uses one durable controller, never mount-time
   const composer = stripComments(read(join(ROOT, 'src/components/ModelEffortControl.tsx')))
   assert.doesNotMatch(composer, /useEffect\(/, 'mounting a saved conversation is not a preference edit')
   assert.match(composer, /<ModelPickerMenu\s+disabled=\{held\}/, 'the complete menu shares the operation hold')
-  assert.match(composer, /disabled=\{held \|\| !opus\}/, 'mode toggles share the hold')
+  const modes = stripComments(read(join(ROOT, 'src/components/ModelModeToggles.tsx')))
+  assert.match(modes, /disabled=\{disabled \|\| !opus\}/, 'mode toggles share the forwarded menu hold')
   const section = stripComments(read(join(ROOT, 'src/components/SectionView.tsx')))
   const card = section.slice(section.indexOf('function DefaultModelCard()'), section.indexOf('const SYSTEM_PROMPT_PREF_KEY'))
   assert.match(card, /<ModelPickerMenu[\s\S]*disabled=\{held\}/, 'Customize retains the same menu while held')
   const menu = stripComments(read(join(ROOT, 'src/components/ModelPickerMenuBody.tsx')))
+  assert.match(menu, /<ModelModeToggles[^>]*disabled=\{disabled\}/, 'lazy modes retain the complete menu hold')
   assert.match(menu, /onSelect=\{disabled \? undefined/, 'held providers remain visible disabled')
   assert.match(menu, /!disabled && onPickModel \?/, 'held model rows remain visible disabled')
   assert.match(menu, /disabled=\{disabled \|\| !onPickEffort\}/, 'held effort rows remain visible disabled')
@@ -31,7 +33,7 @@ test('workspace hydration and untouched drafts cannot guess an unread preference
   const app = stripComments(read(join(ROOT, 'src/App.tsx')))
   assert.match(app, /<ModelPreferencesGate key=\{`\$\{resolvedIdentity\.user\.id\}:\$\{resolvedIdentity\.tenant\.id\}`\}>\s*<Workspace/)
   const pane = stripComments(read(join(ROOT, 'src/components/ConversationPane.tsx')))
-  assert.match(pane, /localDraftPick \?\? \{\s*providerId: preferences\.providerId,\s*modelId: preferences\.modelId/)
+  assert.match(pane, /conv\.draftBinding \?\? \{\s*providerId: preferences\.providerId,\s*modelId: preferences\.modelId/)
 })
 
 test('a crossed startup identity offers full reload, not a preference-only retry loop', () => {

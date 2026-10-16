@@ -25,7 +25,7 @@
  *  Sends serialize PER SESSION (the backend enforces one live turn per
  *  session); different sessions run concurrently — the singleton's one global
  *  chain serialized those too, a restriction no pane model can keep. */
-import type { EscalationProposal, Message } from '../../contract/index'
+import type { EscalationProposal, Message, Session } from '../../contract/index'
 import type { Live } from '../data/liveSession'
 import type { PanelFocus } from '../types'
 
@@ -103,6 +103,8 @@ export interface PaneReadReceipt {
  *  thread and its composer affordances. */
 export interface ConversationState {
   live: Live
+  /** One memory-only draft binding, shared by every pane and cleared on reset. */
+  draftBinding: Pick<Session, 'agentId' | 'providerId' | 'modelId'> | null
   /** Unsent, memory-only text belongs to the conversation, not a pane mount.
    * Account disposal and explicit reset clear it with the rest of this entry. */
   composerText: string
@@ -217,6 +219,7 @@ export function createConversationStore(
 
   const blank = (): ConversationState => ({
     live: empty(),
+    draftBinding: null,
     composerText: '',
     typing: false,
     busy: false,

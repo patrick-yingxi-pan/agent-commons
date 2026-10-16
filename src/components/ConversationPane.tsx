@@ -16,9 +16,11 @@ import { EmptyState } from './EmptyState'
 import { AtomicResourcePage } from './ResourcePage'
 import type { MainPaneNav, PaneBackOut } from './MainSplit'
 import { navLocationOfLoc } from '../lib/paneHistory'
-import { useSessions, useSchedules, useProviders, keys, peek } from '../api'
+import { useSessions, useSchedules, useProviders, useAgents, keys, peek } from '../api'
 import { runSessionId } from '../../contract/ids.ts'
 import { pickedModel, pickedProvider, type ModelPick } from '../lib/models'
+import { conversationModelPick, type ConversationBinding } from '../lib/conversationBinding'
+import { DEFAULT_PROVIDER_ID } from '../../contract/index.ts'
 import { useModelPreferences } from '../controller/modelPreferences'
 import { conversations } from '../controller/conversationStore'
 import { usePaneConversation } from '../controller/usePaneConversation'
@@ -75,28 +77,29 @@ export function ConversationPane({
     return undefined
   }, [row, schedules, sessionId])
 
-  // The DRAFT's model pick is held locally (no server row to PATCH) — seeded
-  // from the Customize default prefs, WRITABLE (the composer's picker), and
-  // read at dispatch by the funnel. The usage strip resolves it against the
-  // live registry (identity + context window; absent = honest unknown).
-  const [localDraftPick, setDraftPick] = useState<ModelPick | null>(null)
-  const draftPick: ModelPick = localDraftPick ?? {
+  // A single draft binding survives pane remounts and is shared across splits.
+  // Explicit New session/account disposal resets it with the conversation.
+  const agents = useAgents().data ?? []
+  const draftPick: ConversationBinding = conv.draftBinding ?? {
     providerId: preferences.providerId,
     modelId: preferences.modelId,
   }
   const draftPickRef = useRef(draftPick)
   draftPickRef.current = draftPick
+  const binding = isDraft ? draftPick : row ?? {}
+  const agentId = binding.agentId ?? 'agent-default'
+  const modelPick = conversationModelPick(binding, agents)
   const draftModelRef = useMemo(() => {
     if (!isDraft) return undefined
-    const provider = pickedProvider(providers, draftPick)
+    const provider = pickedProvider(providers, modelPick)
     if (!provider) return undefined
-    const model = pickedModel(provider, draftPick)
+    const model = pickedModel(provider, modelPick)
     return {
       providerId: provider.id,
       providerLabel: provider.label,
       ...(model ? { modelId: model.id, modelLabel: model.label, windowTokens: model.contextWindow } : {}),
     }
-  }, [isDraft, providers, draftPick])
+  }, [isDraft, providers, modelPick])
 
   // A pane-hosted DRAFT sends through the SHARED draft funnel (draftCore.ts —
   // coalesced materialization, FWD-1 flush before the turn, FWD-2 focus
@@ -150,16 +153,18 @@ export function ConversationPane({
     void conversations.retryTurn(sessionId)
   }, [isDraft, nav, sessionId])
 
-  // The session's two-level model pick: the draft's local hold, or the live
-  // row's persisted fields (the same PATCH every picker writes — one wire).
-  const modelPick: ModelPick = isDraft ? draftPick : { providerId: row?.providerId, modelId: row?.modelId }
-  const selectModel = useCallback(
-    (pick: ModelPick) => {
-      if (sessionId === DRAFT_ID) setDraftPick(pick)
-      else void enqueueSessionMetadataMutation(sessionId, { providerId: pick.providerId ?? '', modelId: pick.modelId ?? '' })
-    },
-    [sessionId],
-  )
+  // One write funnel for both controls. Agent selection omits overrides;
+  // the wire's empty strings explicitly clear them on a saved conversation.
+  const selectBinding = (next: ConversationBinding) => {
+    if (isDraft) conversations.patch(DRAFT_ID, { draftBinding: next })
+    else void enqueueSessionMetadataMutation(sessionId, { ...next, providerId: next.providerId ?? '', modelId: next.modelId ?? '' })
+  }
+  const selectAgent = (agentId: string) => selectBinding({ agentId })
+  // The menu's absent provider means an explicit registry-default override,
+  // while a draft must retain its independently chosen Agent.
+  const selectModel = (pick: ModelPick) => selectBinding({
+    ...(isDraft ? draftPickRef.current : {}), providerId: pick.providerId ?? DEFAULT_PROVIDER_ID, modelId: pick.modelId,
+  })
 
   return (
     <AtomicResourcePage layout="workspace" data-conversation-pane={sessionId}>
@@ -218,6 +223,8 @@ export function ConversationPane({
         onDismissContext={() => dismissContextMutation(sessionId)}
         canCompact={!!row && row.own !== false}
         modelPick={modelPick}
+        agentId={agentId}
+        onSelectAgent={canControlTurn ? selectAgent : undefined}
         onSelectModel={canControlTurn ? selectModel : undefined}
         usageModel={draftModelRef}
         focus={conv.focus}

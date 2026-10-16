@@ -31,6 +31,10 @@ export interface RevisionedMutationDeps<Resource, Patch> {
     idempotencyKey: string,
   ) => Promise<Resource>
   describeFailure: (error: unknown) => RevisionedMutationFailure
+  /** Some mutations must keep their local intent held when Dismiss cannot
+   *  establish authoritative truth. Returning true opts that patch into the
+   *  hold; returning false treats the read error as safe to discard. */
+  retainOnDismissReadFailure?: (patch: Readonly<Patch>, error?: unknown) => boolean
   setStatus: (status: RevisionedMutationStatus) => void
   mintIdempotencyKey: () => string
 }
@@ -136,20 +140,30 @@ export function createRevisionedMutationController<Resource, Patch>(
 
   const discard = (): void => {
     if (!failure || running || queue.length === 0) return
-    const entry = queue.shift()!
+    const entry = queue[0]!
     const issuedGeneration = generation
     failure = null
     running = true
-    entry.settle('discarded')
+    const retainOnReadFailure = deps.retainOnDismissReadFailure?.(entry.patch)
+    // Legacy intents settle immediately, but keep their FIFO slot until the
+    // read finishes. Binding intents settle only after confirmed truth. One
+    // queue therefore owns every pending hold, including Dismiss recovery.
+    if (!retainOnReadFailure) entry.settle('discarded')
     publish()
-    // Reconcile the uncertain commit BEFORE releasing later intent. Otherwise
-    // the next queue head could pin the stale revision Dismiss was meant to heal.
-    void deps.reconcile(entry.resourceId).catch(() => {}).finally(() => {
-      if (generation !== issuedGeneration) return
+    const finish = (readFailed = false, error?: unknown): void => {
+      if (generation !== issuedGeneration || queue[0] !== entry) return
       running = false
+      if (readFailed && retainOnReadFailure && deps.retainOnDismissReadFailure?.(entry.patch, error)) {
+        // Failed Dismiss offers another read, never a replay of the write.
+        failure = { message: 'Couldn’t read saved changes. Dismiss again to recheck without resending.', retryable: false }
+      } else {
+        queue.shift()
+        entry.settle('discarded')
+      }
       publish()
       drain()
-    })
+    }
+    void deps.reconcile(entry.resourceId).then(() => finish(), (error: unknown) => finish(true, error))
   }
 
   const clearAll = (): void => {
@@ -162,5 +176,11 @@ export function createRevisionedMutationController<Resource, Patch>(
     publish()
   }
 
-  return { enqueue, retry, discard, clearAll }
+  const isPending = (resourceId: string, predicate?: (patch: Readonly<Patch>) => boolean): boolean => {
+    const matches = (entry: QueueEntry<Patch>): boolean =>
+      entry.resourceId === resourceId && (predicate === undefined || predicate(entry.patch))
+    return queue.some(matches)
+  }
+
+  return { enqueue, retry, discard, clearAll, isPending }
 }

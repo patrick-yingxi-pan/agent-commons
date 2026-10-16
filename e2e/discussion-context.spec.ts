@@ -276,7 +276,7 @@ test('a refused first-send capture stays removable and Retry reuses its material
   const createdResponse = await created
   expect(createdResponse.ok(), 'the draft creates its one recovery session').toBe(true)
   const sessionId = (await createdResponse.json() as { id: string }).id
-  const failed = page.getByRole('alert').filter({ hasText: 'Couldn’t confirm the queued context before sending.' })
+  const failed = page.getByRole('alert').filter({ hasText: 'Couldn’t confirm context or Agent choice.' })
   await expect(failed).toBeVisible({ timeout: ms(20_000) })
   await expect(queuedRemove).toBeVisible()
   expect(contextWrites, 'first send asks the server to capture before sending').toBe(1)
@@ -354,7 +354,7 @@ test('a lost first-send capture acknowledgement flushes removal before Retry sen
   const createdResponse = await created
   expect(createdResponse.ok(), 'the draft creates its one recovery session').toBe(true)
   sessionId = (await createdResponse.json() as { id: string }).id
-  const failed = page.getByRole('alert').filter({ hasText: 'Couldn’t confirm the queued context before sending.' })
+  const failed = page.getByRole('alert').filter({ hasText: 'Couldn’t confirm context or Agent choice.' })
   await expect(failed).toBeVisible({ timeout: ms(20_000) })
   await expect(queuedRemove).toBeVisible()
   const afterLostAck = await session(page, sessionId)

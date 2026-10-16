@@ -76,9 +76,9 @@ export function catalogOf(router: Router): ApiOperation[] {
 export const API_BODY_EXAMPLES: ReadonlyMap<string, unknown> = new Map<string, unknown>([
   ['POST /auth/login', { email: 'ada@acme.example', password: '…', transport: 'bearer' }],
   ['POST /auth/token', { label: 'my MCP client' }],
-  ['POST /sessions', { firstMessage: 'Draft a launch plan for the insights dashboard' }],
+  ['POST /sessions', { firstMessage: 'Draft a launch plan for the insights dashboard', agentId: 'agent-default' }],
   ['POST /sessions/:id/messages', { text: 'Summarize what changed in this workspace since yesterday.' }],
-  ['PATCH /sessions/:id', { title: 'Launch planning', status: 'archived', expectedRevision: 0 }],
+  ['PATCH /sessions/:id', { title: 'Launch planning', status: 'archived', agentId: 'agent-default', expectedRevision: 0 }],
   [
     'PATCH /sessions/:id/context-state',
     {

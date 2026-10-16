@@ -4493,6 +4493,8 @@ export function buildRouter(): Router {
     providerId && !store.listProviders(tenantId).some((p) => p.id === providerId)
       ? `No provider '${providerId}'`
       : null
+  const badSessionAgent = (agentId: string, ...tenantIds: string[]): boolean =>
+    tenantIds.some((tenantId) => !store.listAgents(tenantId).some((agent) => agent.id === agentId))
   // Draft creation owns durable identity itself. Bypassing the generic response
   // cache means Retry sees current row truth and can never replay a deleted or
   // since-renamed HTTP envelope.
@@ -4509,7 +4511,7 @@ export function buildRouter(): Router {
     if (typeof represented === 'object') return sendJson(res, represented)
     if (represented === 'invalid') return sendError(res, 'bad_request', 'This conversation creation identity is not valid for this account')
     if (represented === 'retired') return sendError(res, 'not_found', 'This draft was already removed')
-    const { firstMessage, persistFirstMessage, providerId, modelId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
+    const { firstMessage, persistFirstMessage, providerId, modelId, agentId } = await body<import('../../contract/index.ts').CreateSessionRequest>()
     if (!accountTransitionSourceMatches(req, res)) return
     if (persistFirstMessage !== undefined && persistFirstMessage !== true) {
       return sendError(res, 'bad_request', 'persistFirstMessage, when present, must be true')
@@ -4520,13 +4522,19 @@ export function buildRouter(): Router {
     // Stamp the creating tenant so the scoped list/read above see it (F2/PD9).
     const bad = badSessionProvider(providerId, tenantId)
     if (bad) return sendError(res, 'not_found', bad)
+    if (agentId !== undefined && (typeof agentId !== 'string' || !agentId.trim())) {
+      return sendError(res, 'bad_request', 'agentId must be a non-empty Agent id when present')
+    }
+    if (agentId !== undefined && badSessionAgent(agentId, tenantId)) {
+      return sendError(res, 'not_found', `No Agent '${agentId}'`)
+    }
     try {
       sendJson(res, store.createSession(
         firstMessage,
         tenantId,
         providerId,
         modelId,
-        { logicalId: logicalSessionId, persistFirstMessage },
+        { logicalId: logicalSessionId, persistFirstMessage, agentId },
       ))
     } catch (err) {
       // A model pick outside the effective provider's catalog — refused, never normalized.
@@ -4548,6 +4556,24 @@ export function buildRouter(): Router {
     }
     // Empty string clears back to the Agent's provider — always a valid reference.
     const callerTenant = store.identity(req.headers).tenant.id
+    const changesAgent = Object.prototype.hasOwnProperty.call(patch, 'agentId')
+    const currentSession = changesAgent ? store.getSession(params.id) : undefined
+    if (changesAgent) {
+      if (!currentSession) return sendError(res, 'not_found', `No session '${params.id}'`)
+      if (!store.sessionOwnedBy(currentSession, callerTenant)) {
+        return sendError(res, 'forbidden', 'Only the conversation owner may change its Agent.')
+      }
+      if (typeof patch.agentId !== 'string' || !patch.agentId.trim()) {
+        return sendError(res, 'bad_request', 'agentId must be a non-empty Agent id when present')
+      }
+      const ownerTenant = currentSession.tenantId ?? store.defaultTenantId()
+      if (badSessionAgent(patch.agentId, callerTenant, ownerTenant)) {
+        return sendError(res, 'not_found', `No Agent '${patch.agentId}'`)
+      }
+      if (turns.bySession(params.id) || activeCompactions.has(params.id)) {
+        return sendError(res, 'conflict', 'Wait for the current reply or summary to finish before changing this conversation’s Agent.')
+      }
+    }
     const bad = badSessionProvider(patch?.providerId || undefined, callerTenant)
     if (bad) return sendError(res, 'not_found', bad)
     // A model pick is a ROUTING control, not display chrome — so unlike rename/pin
@@ -4557,7 +4583,7 @@ export function buildRouter(): Router {
     // silently egressing the other face's turns to a drain loop it never chose.
     // Decision: visibility stays the demo affordance; routing follows ownership.
     if (patch?.providerId) {
-      const owner = store.getSession(params.id)?.tenantId ?? store.identity().tenant.id
+      const owner = currentSession?.tenantId ?? store.getSession(params.id)?.tenantId ?? store.identity().tenant.id
       if (owner !== callerTenant && badSessionProvider(patch.providerId, owner)) {
         return sendError(res, 'not_found', `No provider '${patch.providerId}'`)
       }
@@ -4789,9 +4815,16 @@ export function buildRouter(): Router {
     const session: ReplySession = known
       ? { id: known.id, title: known.title, attachments: workspaceInputAttachments(known.workspace), images: store.sessionImageInput(known.id) }
       : { id: params.id, title: 'New session' }
-    // The worker Agent driving this Conversation (docs/agent-commons.md, D6) —
-    // resolves to the seeded default until users create their own.
-    const agent = store.getAgent(known?.agentId)
+    // The worker Agent driving this Conversation (docs/agent-commons.md, D6).
+    // Do not let a deleted or no-longer-visible explicit binding silently turn
+    // into the default Agent: refuse before the user row, spend, or generation.
+    const boundAgent = known
+      ? store.listAgents(tenantId).find((candidate) => candidate.id === (known.agentId ?? 'agent-default'))
+      : undefined
+    if (known && !boundAgent) {
+      return sendError(res, 'conflict', 'The Agent bound to this conversation is unavailable. Choose an available Agent before continuing.')
+    }
+    const agent = boundAgent ?? store.getAgent()
     // The endpoint + model this turn runs on: the session's own model pick (the
     // composer's selector — `session.providerId`) when set, else the Agent's Model
     // provider (D9). Resolved to server-only *data* (base URL, credential reference,
@@ -5192,6 +5225,12 @@ export function buildRouter(): Router {
     if (turns.bySession(params.id)) {
       return sendError(res, 'conflict', 'Wait for the current reply to finish before compacting this conversation.')
     }
+    const boundAgent = session
+      ? store.listAgents(who.tenant.id).find((candidate) => candidate.id === (session.agentId ?? 'agent-default'))
+      : undefined
+    if (session && !boundAgent) {
+      return sendError(res, 'conflict', 'The Agent bound to this conversation is unavailable. Choose an available Agent before compacting.')
+    }
     let prepared: ReturnType<typeof store.prepareSessionCompaction>
     try {
       prepared = store.prepareSessionCompaction(params.id)
@@ -5213,7 +5252,7 @@ export function buildRouter(): Router {
 
     const tenantId = who.tenant.id
     const readySession = session!
-    const agent = store.getAgent(readySession.agentId)
+    const agent = boundAgent ?? store.getAgent()
     const providerId = readySession.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
     const provider = store.providerConfig(providerId)
     const providerFace = store.listProviders(tenantId).find((candidate) => candidate.id === providerId)

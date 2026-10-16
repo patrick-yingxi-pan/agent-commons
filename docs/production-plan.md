@@ -6,7 +6,26 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: rendered provider → Agent → Routine acceptance now covers
+Current checkpoint: ordinary conversations can select a visible custom Agent
+from the existing Model and effort menu. Draft selection is shared across panes;
+creation persists it, and owner-only revisioned changes apply to future replies.
+Selecting an Agent deliberately clears model overrides; an explicit subsequent
+model choice remains independent. Deleted bindings block sending and compaction
+until explicitly repaired. Draft recovery confirms the represented binding before
+first send and never substitutes the default Agent after a custom-Agent create
+failure. Send and Retry await only their own execution-binding changes, including
+held Dismiss reconciliation; a failed read retains binding recovery until fresh
+truth or authoritative absence is confirmed. Unrelated conversation and title
+edits stay usable.
+Optional menu controls share the lazy catalog boundary, preserving the
+unchanged startup budget. Local route/controller and regression-mutation checks
+pass; the complete local verifier, rendered three-provider workflow, five-viewport
+review, separate UI sweep and unsigned desktop gate are required before landing.
+No paid provider calls are authorized by this checkpoint.
+
+Previous checkpoint `49f310d7` passed all five local verifier lanes (760 browser
+tests), the separate 135-cell UI sweep and complete unsigned arm64 desktop
+verification. Rendered provider → Agent → Routine acceptance covers
 Claude Messages, DeepSeek Anthropic-compatible Messages, and native OpenAI
 Responses. Each test creates the connection, family-matched prompt, tool-free
 Agent and paused Routine through the UI, edits its instruction, explicitly

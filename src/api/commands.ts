@@ -245,6 +245,7 @@ export async function cancelTurn(sessionId: string, turnId: string, signal?: Abo
  *  the row from the first message; we prime the caches so the controller can
  *  resolve the new session immediately and the sidebar shows it. */
 export interface CreateSessionOptions {
+  agentId?: string
   providerId?: string
   modelId?: string
   idempotencyKey?: string
@@ -266,6 +267,7 @@ export async function createSession(
     paths.sessions,
     {
       firstMessage,
+      agentId: options.agentId,
       providerId: options.providerId,
       modelId: options.modelId,
       persistFirstMessage: options.persistFirstMessage,

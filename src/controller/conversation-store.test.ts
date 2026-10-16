@@ -63,6 +63,21 @@ function fakeTransport() {
 
 const tick = () => new Promise<void>((r) => setTimeout(r, 0))
 
+test('draft Agent/model intent shares the conversation entry and clears only on reset or account disposal', () => {
+  const store = createConversationStore(fakeTransport().transport, empty)
+  assert.equal(store.get('draft').draftBinding, null)
+  const binding = { agentId: 'custom', providerId: 'provider', modelId: 'model' }
+  store.patch('draft', { draftBinding: binding })
+  assert.deepEqual(store.get('draft').draftBinding, binding, 'another pane reads the same entry')
+  store.setFocus('draft', null)
+  assert.deepEqual(store.get('draft').draftBinding, binding)
+  store.reset('draft', EMPTY)
+  assert.equal(store.get('draft').draftBinding, null)
+  store.patch('draft', { draftBinding: binding })
+  store.clearAll()
+  assert.equal(store.get('draft').draftBinding, null)
+})
+
 test('keyed isolation: two sessions stream concurrently into their own entries', async () => {
   const { transport, sends } = fakeTransport()
   const store = createConversationStore(transport, empty)

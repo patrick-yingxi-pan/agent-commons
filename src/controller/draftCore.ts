@@ -24,7 +24,7 @@
  *  post-materialize values without owning the state. */
 import type { Session, SessionContextState, UpdateSessionContextStateRequest } from '../../contract/index'
 import type { AddedContext, PanelFocus } from '../types'
-import type { ModelPick } from '../lib/models'
+import type { ConversationBinding } from '../lib/conversationBinding'
 import { workspaceFolders } from '../../contract/workspaceFolders.ts'
 // Extension-qualified: this module is node-tested (src/controller/draft-core.test.ts),
 // and Node's native TS resolves runtime imports only with the explicit .ts.
@@ -50,6 +50,7 @@ export interface DraftDeps {
   createSession: (
     firstMessage: string,
     options: {
+      agentId?: string
       providerId: string | undefined
       modelId: string | undefined
       idempotencyKey: string
@@ -62,11 +63,12 @@ export interface DraftDeps {
   captureSessionWriteSourceUserId?: () => string | null | undefined
   /** Account switches retire every continuation, including abandoned drafts. */
   accountGeneration?: () => number
-  patchSession: (sessionId: string, patch: { providerId: string; modelId: string }) => Promise<unknown>
+  patchSession: (sessionId: string, patch: { agentId?: string; providerId: string; modelId: string }) => Promise<unknown>
   /** FWD-2: remember the draft's panel choice on the real session. */
   setPanelPref: (sessionId: string, focus: PanelFocus | null, ready?: Promise<unknown>) => void
   /** The live provider registry (peek(keys.providers)) — undefined = not loaded. */
   knownProviders: () => Array<{ id: string; models?: Array<{ id: string }> }> | undefined
+  knownAgents?: () => Array<{ id: string; providerId?: string }> | undefined
   /** The inherit-default provider id the sanitize resolves an unset pick against. */
   defaultProviderId: string
   /** The keyed conversation store — the slice the funnel drives. */
@@ -110,13 +112,28 @@ export function createDraftController(deps: DraftDeps) {
   /** A stale pick — a deleted provider, a model its catalog dropped — degrades
    *  to the inherit default instead of failing the materialization (the server
    *  404s an unknown providerId, 400s an off-catalog modelId). */
-  const sanitizePick = (pick: ModelPick): ModelPick => {
+  const sanitizePick = (pick: ConversationBinding): ConversationBinding => {
     const known = deps.knownProviders()
     if (!known) return pick // registry not loaded — let the server arbitrate
-    const provider = known.find((p) => p.id === (pick.providerId ?? deps.defaultProviderId))
-    if (pick.providerId && !provider) return {}
+    const agent = deps.knownAgents?.()?.find((candidate) => candidate.id === (pick.agentId ?? 'agent-default'))
+    const provider = known.find((p) => p.id === (pick.providerId ?? agent?.providerId ?? deps.defaultProviderId))
+    if (pick.providerId && !provider) return pick.agentId ? { agentId: pick.agentId } : {}
     const modelId = pick.modelId && provider?.models?.some((m) => m.id === pick.modelId) ? pick.modelId : undefined
-    return { providerId: pick.providerId, modelId }
+    return { ...(pick.agentId ? { agentId: pick.agentId } : {}), providerId: pick.providerId, modelId }
+  }
+
+  /** Exact-key recovery may represent an earlier binding. Every dispatch path,
+   * including an orphaned send, confirms its own intent before generation. */
+  const confirmBinding = async (created: Session, pick: ConversationBinding): Promise<void> => {
+    const agentId = pick.agentId ?? 'agent-default'
+    const agentChanged = agentId !== (created.agentId ?? 'agent-default')
+    if (agentChanged || pick.providerId !== created.providerId || pick.modelId !== created.modelId) {
+      const outcome = await deps.patchSession(created.id, {
+        ...(agentChanged ? { agentId } : {}),
+        providerId: pick.providerId ?? '', modelId: pick.modelId ?? '',
+      })
+      if (outcome === 'discarded') throw new Error('Selection wasn’t saved.')
+    }
   }
 
   /** Buffer a context attached to the draft (no server id to bind against yet);
@@ -239,7 +256,7 @@ export function createDraftController(deps: DraftDeps) {
    *  unreachable (graceful degradation — the reply renders, just unpersisted). */
   const sendDraftTurn = async (
     text: string,
-    getPick: () => ModelPick,
+    getPick: () => ConversationBinding,
     onSession?: (s: Session) => void,
     onAdopted?: (realId: string) => void,
   ): Promise<void> => {
@@ -261,6 +278,7 @@ export function createDraftController(deps: DraftDeps) {
       const create = () => deps.createSession(
         text,
         {
+          agentId: draftModel.agentId,
           providerId: draftModel.providerId,
           modelId: draftModel.modelId,
           idempotencyKey: creationKey,
@@ -283,7 +301,8 @@ export function createDraftController(deps: DraftDeps) {
       // materialized session server-side, but do NOT touch the current draft's
       // live state (seeds, focus, entry, pane) which now belongs to a NEW draft.
       if (resetGen !== genAtDispatch) {
-        await deps.store.sendTurn(sid, text)
+        await confirmBinding(created, draftModel)
+        if (!retired()) await deps.store.sendTurn(sid, text)
         return
       }
       onSession?.(created)
@@ -334,7 +353,8 @@ export function createDraftController(deps: DraftDeps) {
         }, expectedSessionUserId)
         if (retired()) return
         if (resetGen !== genAtDispatch) {
-          await deps.store.sendTurn(sid, text)
+          await confirmBinding(created, draftModel)
+          if (!retired()) await deps.store.sendTurn(sid, text)
           return
         }
         // Adopt the acknowledged saved copy for each unchanged submitted
@@ -359,13 +379,11 @@ export function createDraftController(deps: DraftDeps) {
       // draft couldn't persist a pref (no server id), so an explicitly-closed
       // panel would otherwise be re-opened by strongestFocus on reopen.
       deps.setPanelPref(sid, draftFocus)
-      // A model pick changed WHILE materializing went to the draft slot after
-      // the capture above — flush it, sanitized the same way (a stale pref the
-      // dispatch dropped must not re-PATCH and 404 every fresh-draft send).
-      const latePick = sanitizePick(getPick())
-      if (latePick.providerId !== draftModel.providerId || latePick.modelId !== draftModel.modelId) {
-        void deps.patchSession(sid, { providerId: latePick.providerId ?? '', modelId: latePick.modelId ?? '' })
-      }
+      // A late choice or an exact-key retry can differ from the represented
+      // row. Confirm the entire binding before first send; a held correction
+      // must not race generation under the previous Agent/provider.
+      await confirmBinding(created, sanitizePick(getPick()))
+      if (retired() || resetGen !== genAtDispatch) return
       // The draft entry's optimistic state (user turn(s), flags, focus) moves
       // under the real id — once; a coalesced second send finds the slot blank
       // and adopt() skips it.
@@ -380,7 +398,7 @@ export function createDraftController(deps: DraftDeps) {
       // A superseded draft owns neither this failure nor its fallback send.
       // Let the abandoned attempt end without poisoning the newly reset draft.
       if (resetGen !== genAtDispatch || retired()) return
-      if (createdSession) {
+      if (createdSession || draftModel.agentId) {
         // The real row exists, but the atomic context transaction was not confirmed.
         // Keep this exact user turn retryable on the draft; the person can
         // remove a refused queued source before retrying, and no POST targets
@@ -390,7 +408,7 @@ export function createDraftController(deps: DraftDeps) {
           DRAFT_ID,
           conversationEpochAtDispatch,
           text,
-          `Couldn’t confirm the queued context before sending.${detail}`,
+          `Couldn’t confirm context or Agent choice.${detail}`,
         )
         return
       }

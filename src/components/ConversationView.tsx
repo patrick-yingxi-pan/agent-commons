@@ -22,8 +22,8 @@ import { Spinner } from './Spinner'
 import { TurnControls } from './TurnControls'
 import { ContextMutationNotice } from './ContextMutationNotice'
 import { DeferredEscalationPrompt } from './DeferredEscalationPrompt'
-import { DEFAULT_PROVIDER_ID, estimateTokens } from '../../contract/index.ts'
-import { useAgents, useMe, useProviders, useSessions } from '../api'
+import { estimateTokens } from '../../contract/index.ts'
+import { useAgents, useMe, useProviders } from '../api'
 import { MESSAGE_PAGE_SIZE } from '../api/sessionPaging'
 import { usePendingFocus } from '../lib/focusContext'
 import { messageWindow } from '../lib/messageWindow'
@@ -39,6 +39,7 @@ import {
   useSessionCompactionStatus,
 } from '../controller/sessionCompactionMutations'
 import { composerExecutionState, type ComposerExecutionState } from '../lib/modelExecution'
+import { isSessionBindingHeld, useSessionMetadataMutationStatus } from '../controller/sessionMetadataMutations'
 
 const RELAY_WAIT = 'Waiting on your session…'
 const CompactionAffordance = lazy(() => import('./CompactionAffordance').then((module) => ({ default: module.CompactionAffordance })))
@@ -73,6 +74,8 @@ export function ConversationView({
   onDismissContext,
   canCompact = false,
   modelPick,
+  agentId,
+  onSelectAgent,
   onSelectModel,
   usageModel,
   focus = null,
@@ -124,7 +127,9 @@ export function ConversationView({
   onDismissContext: () => void
   /** Owner-backed persisted conversation; shared readers and drafts cannot compact. */
   canCompact?: boolean
-  modelPick?: ModelPick
+  modelPick: ModelPick
+  agentId: string
+  onSelectAgent?: (agentId: string) => void
   onSelectModel?: (pick: ModelPick) => void
   /** The DRAFT's client-resolved cognition for the usage gauge (no server row). */
   usageModel?: UsageModelRef & { windowTokens?: number }
@@ -244,21 +249,27 @@ export function ConversationView({
   // session pick → Agent's provider → default; a `kind:'session'` provider means
   // the reply comes from the user's own delegated session (§7.8 — say who we're
   // waiting on instead of faking a token stream).
-  const row = (useSessions().data ?? []).find((s) => s.id === sessionId)
-  const agents = useAgents().data ?? []
+  const agentsQ = useAgents()
+  const agents = agentsQ.data ?? []
   const providersQ = useProviders()
   const providers = providersQ.data ?? []
-  const agent = agents.find((a) => a.id === (row?.agentId ?? 'agent-default'))
-  const providerId = modelPick?.providerId ?? row?.providerId ?? agent?.providerId ?? DEFAULT_PROVIDER_ID
-  const provider = providers.find((p) => p.id === providerId)
+  const agent = agents.find((a) => a.id === agentId)
+  const provider = providers.find((p) => p.id === modelPick.providerId)
   const onRelay = provider?.kind === 'session'
-  const execution: ComposerExecutionState = composerExecutionState(
+  const execution: ComposerExecutionState = !agent ? {
+    blocked: true,
+    placeholder: 'Message…',
+    note: agentsQ.data ? 'This conversation’s Agent is unavailable. Choose another in Model and effort.' : 'Checking Agent…',
+  } : composerExecutionState(
     provider?.execution,
     onRelay ? provider?.online === true : undefined,
     providersQ.data !== undefined && provider === undefined,
   )
   useSessionCompactionStatus()
   const compactionHeld = isSessionCompactionHeld(sessionId)
+  useSessionMetadataMutationStatus()
+  const bindingHeld = isSessionBindingHeld(sessionId)
+  const selectionLocked = busy || compactionHeld || bindingHeld
 
   // Live token count of the thread, so the usage gauge fills as it grows.
   const messageTokens = useMemo(
@@ -270,7 +281,8 @@ export function ConversationView({
   // generating — offer the one-logical-turn retry (multi-account §6.5).
   const interrupted =
     canControlTurn &&
-    !busy &&
+    !selectionLocked &&
+    !execution.blocked &&
     !typing &&
     (canRetry || (!draft && live.messages.length > 0 && live.messages[live.messages.length - 1].role === 'user'))
 
@@ -394,7 +406,9 @@ export function ConversationView({
         onValueChange={onComposerTextChange}
         sessionId={sessionId}
         modelPick={modelPick}
-        onSelectModel={onSelectModel}
+        agentId={agentId}
+        onSelectAgent={selectionLocked ? undefined : onSelectAgent}
+        onSelectModel={selectionLocked ? undefined : onSelectModel}
         usageModel={usageModel}
         messageTokens={messageTokens}
         workspaces={live.workspaces}
@@ -402,10 +416,11 @@ export function ConversationView({
         connectors={live.connectors}
         attachments={live.attachments}
         focus={focus}
-        disabled={!canControlTurn || busy || compactionHeld || execution.blocked || isContextMutationHeld(contextMutation)}
+        disabled={!canControlTurn || selectionLocked || execution.blocked || isContextMutationHeld(contextMutation)}
         disabledLabel={
           !canControlTurn
             ? turnControlPending ? 'Loading conversation…' : 'Only the conversation owner can send messages.'
+            : bindingHeld ? 'Confirm the change before sending.'
             : contextMutation.busy
             ? 'Updating context…'
             : contextMutation.error

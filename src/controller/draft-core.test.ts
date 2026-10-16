@@ -12,6 +12,7 @@ import { DRAFT_ID, EMPTY_LIVE, repoIdForLabel, type Live } from '../data/liveSes
 import type { Session } from '../../contract/index.ts'
 import type { PanelFocus } from '../types.ts'
 import type { WorkspaceFolder } from '../../contract/entities.ts'
+import type { ConversationBinding } from '../lib/conversationBinding.ts'
 
 const session = (id: string): Session => ({ id, title: 'T', updatedAt: '', preview: '' }) as unknown as Session
 
@@ -113,6 +114,74 @@ test('first send materializes, adopts, then streams under the real id — in tha
   assert.deepEqual(log, ['create:hello', 'adopt:draft->real-1', 'send:real-1:hello'])
 })
 
+test('custom Agent creation preserves its inherited provider namespace and never sends an ephemeral fallback', async () => {
+  const { deps, log, sendFailures } = fakeDeps({ failCreate: true })
+  deps.knownAgents = () => [{ id: 'custom', providerId: 'custom-provider' }]
+  deps.knownProviders = () => [{ id: 'custom-provider', models: [{ id: 'custom-model' }] }]
+  const draft = createDraftController(deps)
+  assert.deepEqual(draft.sanitizePick({ agentId: 'custom', modelId: 'custom-model' }),
+    { agentId: 'custom', providerId: undefined, modelId: 'custom-model' })
+  assert.equal(draft.sanitizePick({ agentId: 'deleted', providerId: 'deleted' }).agentId, 'deleted',
+    'sanitizing a stale provider never erases the explicit Agent')
+  await draft.sendDraftTurn('selected Agent only', () => ({ agentId: 'custom' }))
+  assert.equal(log.some((entry) => entry.startsWith('send:')), false)
+  assert.match(sendFailures[0]?.failure ?? '', /Couldn’t confirm context or Agent choice/)
+})
+
+test('an exact creation retry reconciles the represented Agent and awaits its binding before first send', async () => {
+  const { deps, log, sendFailures } = fakeDeps()
+  const submitted: unknown[] = []
+  deps.knownAgents = () => [{ id: 'chosen', providerId: 'anthropic' }]
+  deps.createSession = async (_text, options) => {
+    submitted.push(options.agentId)
+    // The response represents an earlier ambiguous create under the same key.
+    return { ...session('represented'), agentId: 'old-agent' }
+  }
+  let finish!: (outcome: string) => void
+  deps.patchSession = async (_id, patch) => {
+    assert.deepEqual(patch, { agentId: 'chosen', providerId: '', modelId: '' })
+    return new Promise<string>((resolve) => { finish = resolve })
+  }
+  const draft = createDraftController(deps)
+  const pending = draft.sendDraftTurn('go', () => ({ agentId: 'chosen' }))
+  await new Promise((resolve) => setImmediate(resolve))
+  assert.deepEqual(submitted, ['chosen'])
+  assert.equal(log.some((entry) => entry.startsWith('send:')), false, 'held selection cannot dispatch')
+  finish('applied')
+  await pending
+  assert.equal(sendFailures.length, 0)
+  assert.ok(log.includes('send:represented:go'))
+})
+
+test('dismissed binding or account/reset crossing cannot dispatch a draft under the wrong Agent', async () => {
+  for (const interruption of ['discard', 'account', 'reset'] as const) {
+    const state = fakeDeps()
+    state.deps.createSession = async () => ({ ...session('represented'), agentId: 'old-agent' })
+    let finish!: (outcome: string) => void
+    state.deps.patchSession = () => new Promise<string>((resolve) => { finish = resolve })
+    const draft = createDraftController(state.deps)
+    const pending = draft.sendDraftTurn('go', () => ({ agentId: 'chosen' }))
+    await new Promise((resolve) => setImmediate(resolve))
+    if (interruption === 'account') state.disposeDraftStore()
+    if (interruption === 'reset') draft.reset()
+    finish(interruption === 'discard' ? 'discarded' : 'applied')
+    await pending
+    assert.equal(state.log.some((entry) => entry.startsWith('send:')), false, interruption)
+    assert.equal(state.sendFailures.length, interruption === 'discard' ? 1 : 0)
+  }
+})
+
+test('late Agent changes are confirmed before adoption, including explicit repair to the default', async () => {
+  const { deps, patches, log } = fakeDeps()
+  let pick: ConversationBinding = { agentId: 'custom' }
+  deps.createSession = async (_text, options) => ({ ...session('real-1'), agentId: options.agentId })
+  const pending = createDraftController(deps).sendDraftTurn('go', () => pick)
+  pick = { agentId: 'agent-default' }
+  await pending
+  assert.deepEqual(patches, [{ id: 'real-1', agentId: 'agent-default', providerId: '', modelId: '' }])
+  assert.ok(log.includes('send:real-1:go'))
+})
+
 test('a reset() DURING materialization orphans the send: the turn still lands, but the NEW draft is not adopted away', async () => {
   // Control createSession so the reset lands mid-flight.
   const { deps, log } = fakeDeps()
@@ -136,6 +205,49 @@ test('a reset() DURING materialization orphans the send: the turn still lands, b
   // (that would blank the user's new draft / retarget their pane to the old session).
   assert.ok(!log.some((l) => l.startsWith('adopt:')), 'the fresh draft entry is not adopted away')
   assert.deepEqual(adopted, [], 'onAdopted does not fire for the orphaned send')
+})
+
+test('reset during exact-key recovery confirms the captured binding before an orphaned send', async () => {
+  for (const stage of ['create', 'context'] as const) {
+    for (const outcome of ['applied', 'discarded', 'account'] as const) {
+      const h = fakeDeps()
+      let releaseStage!: () => void
+      const stageGate = new Promise<void>(resolve => { releaseStage = resolve })
+      h.deps.createSession = async () => {
+        if (stage === 'create') await stageGate
+        return { ...session('represented'), agentId: 'old-agent' }
+      }
+      h.deps.updateContextState = async (_id, request) => {
+        await stageGate
+        return { contexts: [], workspace: request.workspace }
+      }
+      let finishBinding!: (value: string) => void
+      h.deps.patchSession = async (_id, patch) => {
+        assert.deepEqual(patch, { agentId: 'chosen', providerId: '', modelId: '' })
+        return new Promise<string>(resolve => { finishBinding = resolve })
+      }
+      const draft = createDraftController(h.deps)
+      if (stage === 'context') draft.attach({ kind: 'discussion', attachment: {
+        id: 'discussion::recovery', label: 'Recovery', kind: 'discussion',
+        discussionCaptureId: '11111111-1111-4111-8111-111111111111',
+      } } as never)
+      let pick: ConversationBinding = { agentId: 'chosen' }
+      const sending = draft.sendDraftTurn('captured intent', () => pick)
+      await new Promise(resolve => setImmediate(resolve))
+      draft.reset()
+      pick = { agentId: 'replacement-draft-agent' }
+      releaseStage()
+      await new Promise(resolve => setImmediate(resolve))
+      assert.equal(h.log.some(entry => entry.startsWith('send:')), false, `${stage}: binding acknowledgement precedes dispatch`)
+      assert.equal(typeof finishBinding, 'function', 'the represented binding is corrected using original intent')
+      if (outcome === 'account') h.disposeDraftStore()
+      finishBinding(outcome === 'discarded' ? 'discarded' : 'applied')
+      await sending
+      assert.equal(h.log.includes('send:represented:captured intent'), outcome === 'applied', `${stage}/${outcome}`)
+      assert.equal(h.log.some(entry => entry.startsWith('adopt:')), false, 'the replacement draft stays untouched')
+      assert.equal(h.sendFailures.length, 0, 'old failures never enter the replacement draft')
+    }
+  }
 })
 
 test('a rapid second send COALESCES into the first materialization (one session, two turns)', async () => {
@@ -325,7 +437,7 @@ test('a failed context transaction retries against the already-created session i
   await draft.sendDraftTurn('go', () => ({}))
   assert.equal(log.includes(`send:${DRAFT_ID}:go`), false, 'a created session with a refused context never posts to the synthetic draft id')
   assert.equal(sendFailures.length, 1, 'the original optimistic turn remains explicitly retryable')
-  assert.match(sendFailures[0]?.failure ?? '', /Couldn’t confirm the queued context before sending\. context unavailable/)
+  assert.match(sendFailures[0]?.failure ?? '', /Couldn’t confirm context or Agent choice\. context unavailable/)
   await draft.sendDraftTurn('retry', () => ({}))
   assert.equal(createdCount(), 1, 'retry reuses the materialized server row')
   assert.equal(log.filter((line) => line.startsWith('context:real-1')).length, 2, 'the idempotent transaction retries')

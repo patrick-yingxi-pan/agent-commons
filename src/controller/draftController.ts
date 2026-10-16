@@ -5,7 +5,7 @@
  *  a ConversationPane hosting the draft after the primary dissolves — drives
  *  materialization ONLY through here (one funnel, no fork). */
 import { captureSessionWriteSourceUserId, createSession, keys, peek, updateSessionContextState } from '../api'
-import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../../contract/index'
+import { DEFAULT_PROVIDER_ID, type ModelProvider, type Agent } from '../../contract/index'
 import { rememberPanelPreference } from './panelPreferences'
 import { conversations } from './conversationStore'
 import { createDraftController } from './draftCore'
@@ -20,6 +20,7 @@ export const draft = createDraftController({
   patchSession: enqueueSessionMetadataMutation,
   setPanelPref: rememberPanelPreference,
   knownProviders: () => peek<ModelProvider[]>(keys.providers),
+  knownAgents: () => peek<Agent[]>(keys.workerAgents),
   defaultProviderId: DEFAULT_PROVIDER_ID,
   store: conversations,
 })

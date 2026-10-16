@@ -90,8 +90,10 @@ test('the composer gates BOTH pick levels on the session write path (no silent p
   // read-only — a click must not silently rewrite the shared default-model
   // preference while visibly doing nothing (the review-found escape).
   const src = stripComments(read(join(ROOT, 'src', 'components', 'ModelEffortControl.tsx')))
-  assert.match(src, /onPickModel=\{onSelectModel &&/, 'the model rows are gated on the write path')
-  assert.match(src, /onPickProvider=\{onSelectModel &&/, 'the provider rows are gated on the write path')
+  assert.match(src, /modes=\{\{ config, update: updateModelPreferences, onSelectModel \}\}/, 'the lazy menu receives the exact session write path')
+  const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenuBody.tsx')))
+  assert.match(menu, /const onPickModel = modes \? modes.onSelectModel &&/, 'the model rows are gated on the write path')
+  assert.match(menu, /const onPickProvider = modes \? modes.onSelectModel &&/, 'the provider rows are gated on the write path')
 })
 
 test('the API-endpoint provider form collects and sends the connection it claims to create', () => {
