@@ -14,7 +14,8 @@ import assert from 'node:assert/strict'
 import { call, callRaw } from '../testkit/http.ts'
 import { store } from '../store/index.ts'
 import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../../contract/index.ts'
-import { parseModelChoice, pickedProvider, pickedModel } from '../../src/lib/models.ts'
+import { pickedProvider, pickedModel } from '../../src/lib/models.ts'
+import { parseModelChoice } from '../../src/lib/legacyModelChoice.ts'
 import { parseModelPrefs, migrateLegacyPrefs } from '../../src/lib/modelPrefs.ts'
 
 const auth = (secret: string) => ({ authorization: `Bearer ${secret}` })

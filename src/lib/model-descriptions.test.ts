@@ -6,8 +6,8 @@ import { EFFORT_BLURBS, modelBlurb } from './modelDescriptions.ts'
 
 test('model descriptions stay outside the eager selection projection', () => {
   const source = stripComments(read(join(ROOT, 'src/lib/models.ts')))
-  assert.doesNotMatch(source, /EFFORT_BLURBS|modelBlurb|modelDescriptions/,
-    'cold selection needs identities and effort choices, not deferred catalog descriptions')
+  assert.doesNotMatch(source, /EFFORT_BLURBS|modelBlurb|modelDescriptions|legacyModelChoice|parseModelChoice|composeModelLabel/,
+    'cold selection needs identities and effort choices, not deferred descriptions or legacy Routine parsing')
 })
 
 test('captions preserve unknown metadata and describe only fields supplied by the provider', () => {

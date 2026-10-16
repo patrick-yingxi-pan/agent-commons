@@ -76,8 +76,11 @@ test('the shared menu reads the LIVE provider registry, not a snapshot constant'
 
 test('an endpoint with no catalog-declared effort vocabulary exposes no effort choices', () => {
   const modelProjection = stripComments(read(join(ROOT, 'src', 'lib', 'models.ts')))
+  const effortProjection = stripComments(read(join(ROOT, 'contract', 'modelEffort.ts')))
   const menu = stripComments(read(join(ROOT, 'src', 'components', 'ModelPickerMenuBody.tsx')))
-  assert.match(modelProjection, /model\?\.effortLevels \?\? provider\?\.effortLevels \?\? \[\]/,
+  assert.match(modelProjection, /export \{ effortLevelsFor, resolveEffort \} from '\.\.\/\.\.\/contract\/modelEffort\.ts'/,
+    'the UI uses the same effort vocabulary as server execution')
+  assert.match(effortProjection, /model\?\.effortLevels \?\? provider\?\.effortLevels \?\? \[\]/,
     'unknown provider effort metadata remains an empty vocabulary')
   assert.match(menu, /\{levels\.length > 0 && \(/,
     'effort buttons are rendered only when the selected catalog declares levels')

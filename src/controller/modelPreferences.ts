@@ -48,6 +48,9 @@ const controller = createRevisionedMutationController<ViewerModelPreferences, Mo
   mintIdempotencyKey: () => crypto.randomUUID(),
   setStatus: status.publish,
   describeFailure,
+  // Dismiss is a read, not permission to generate with possibly stale intent.
+  // Personal settings have no legitimate deleted-record state to release on.
+  retainOnDismissReadFailure: () => true,
 })
 
 onAccountSwitch(() => {
@@ -86,6 +89,17 @@ export function updateModelPreferences(patch: Partial<ModelPreferences>): Promis
     status.refresh()
   })
   return result
+}
+
+/** Sending cannot overtake an accepted setting, including the same-tick gap
+ * before React disables the composer and explicit retries after a failure. */
+export function modelPreferenceSendBlocked(): boolean {
+  return held !== null || !cachedModelPreferences()
+}
+
+export async function sendAfterModelPreference<T>(send: () => Promise<T>): Promise<T> {
+  if (modelPreferenceSendBlocked()) throw new Error('Finish the model preference change before sending.')
+  return send()
 }
 
 export function useModelPreferences() {

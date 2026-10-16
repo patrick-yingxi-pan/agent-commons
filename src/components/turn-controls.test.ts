@@ -27,7 +27,7 @@ test('a shared conversation retains live reading but never offers owner turn con
   assert.ok(pane.includes('canControlTurn={canControlTurn}'))
   assert.ok(pane.includes('onSelectModel={canControlTurn ? selectModel : undefined}'))
   assert.match(view, /const interrupted =\s*canControlTurn &&/, 'viewers cannot regenerate an orphaned owner turn')
-  assert.ok(view.includes('disabled={!canControlTurn || selectionLocked'), 'viewers cannot send another user turn')
+  assert.ok(view.includes('disabled={!canControlTurn || generationLocked'), 'viewers cannot send another user turn')
   assert.ok(view.includes('canStop={canControlTurn}'))
   assert.ok(controls.includes('!canStop && streaming'), 'live viewing never silently grants Stop')
 })

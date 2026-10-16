@@ -16,6 +16,7 @@ import { OnlineDot } from './ModelPickerMenu'
 import { ConversationAgentPicker } from './ConversationAgentPicker'
 import { ModelModeToggles } from './ModelModeToggles'
 import type { ModelPrefs } from '../lib/modelPrefs'
+import { DISABLED_CONTROL_CLASS } from '../lib/button'
 
 /** ── The one provider→model→effort menu body (form follows function) ─────────
  *  Three surfaces pick a model — the composer's Model control, a routine's model
@@ -50,9 +51,10 @@ function PickRow({
 }) {
   return (
     <button
+      data-model-choice
       onClick={onSelect}
       disabled={!onSelect}
-      className={`flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
+      className={`${DISABLED_CONTROL_CLASS} flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
         active ? 'bg-panel-2' : onSelect ? 'hover:bg-panel-2/60' : ''
       }`}
     >
@@ -218,9 +220,10 @@ export function ModelPickerMenuBody({
               return (
                 <button
                   key={level}
+                  data-model-choice
                   onClick={() => onPickEffort?.(level)}
                   disabled={disabled || !onPickEffort}
-                  className={`flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
+                  className={`${DISABLED_CONTROL_CLASS} flex-1 rounded-md px-1 py-1 text-[12px] font-medium transition ${
                     active
                       ? 'bg-surface text-ink ring-1 ring-line-strong'
                       : 'text-ink-soft hover:text-ink'

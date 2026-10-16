@@ -6,7 +6,51 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: usable Agent detail pages offer New conversation, preparing
+Current checkpoint: ordinary interactive conversations apply the authenticated
+person's saved effort choice to the actual Session/Agent provider and model.
+The shared display/execution resolver preserves supported choices, otherwise
+selects High when offered or the first declared level; an empty model vocabulary
+omits effort. One admission snapshot remains unchanged through tool continuations.
+Messages sends `output_config.effort`; OpenAI Responses sends `reasoning.effort`.
+Session relays and background initiators acquire no personal endpoint setting.
+Pending or failed model-preference edits hold both Send and interrupted Retry;
+the transport guard also covers same-tick sends. Failed Dismiss reads retain
+the hold until authoritative saved preferences can be read, without resending
+the setting. Local authored peers and
+five-viewport recovery tests cover the workflow without paid calls. Complete
+local verification and the separate UI sweep remain mandatory before landing.
+The provider audit also identified two follow-ups, not completed by this change:
+capability-driven Claude adaptive-thinking configuration, and preserving OpenAI
+assistant phase metadata across later conversation turns. Existing same-turn
+Responses tool continuation already replays provider output opaquely.
+The preliminary complete verifier was cancelled cleanly after review exposed
+the failed-Dismiss gap; it is not passing evidence. The controller regression
+failed before the repair. Existing startup hydration already withholds the
+workspace on unread preferences and offers explicit read recovery.
+That run also exposed a source lock still looking in the former UI-only helper;
+it now checks the shared contract implementation and the UI's explicit re-export.
+The unchanged 800,000-byte startup budget refused a 295-byte overrun. Legacy
+Routine model-label parsing now lives with deferred Routine consumers instead
+of the eager composer projection; its behavior and cold-import boundary remain
+locked, without raising the limit.
+The next full verifier passed checks and three browser shards but caught the
+preference hold hiding provider rows in an open model picker. Generation now
+has a separate hold from selector callback availability, retaining the existing
+visible-disabled menu contract. The unchanged browser regression and the full
+local gate must pass on the repaired tree before landing.
+Visual review then found that held provider/model/effort choices retained their
+enabled appearance. The shared disabled-control cue now distinguishes them,
+with source enumeration and five-viewport computed-style locks; the source lock
+failed before the repair. A sandboxed verifier attempt could not bind loopback
+servers and was stopped cleanly; it supplies no acceptance evidence.
+The focused OpenAI walk also exposed a test-readiness race: clicking the split
+menu while its rail was expanding caused scroll-to-view to dismiss that menu.
+The test now waits for the actual clipped rail width and scroll position to
+settle, preserving normal close-on-scroll behavior without sleeps or retries.
+
+Previous checkpoint `5391a570` passed all five local verifier lanes (768 browser
+tests), the separate 135/135-cell UI sweep and the full unsigned arm64 desktop
+suite. Usable Agent detail pages offer New conversation, preparing
 a blank shared draft with that Agent and inherited model, without creating a
 Session or calling a provider until Send. Replacing existing unsent content,
 context or explicit binding requires a Cancel-first confirmation pinned to the

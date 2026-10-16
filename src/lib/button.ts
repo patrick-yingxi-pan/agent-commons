@@ -62,3 +62,7 @@ export const SECONDARY_BUTTON_CLASS =
 /** Related form decisions remain separate controls when they share or wrap a
  * row. The caller owns placement, not the space between alternatives. */
 export const FORM_ACTION_GROUP_CLASS = 'flex flex-wrap items-center gap-2'
+
+/** Retained unavailable choices keep their labels and selection but visibly
+ * distinguish the hold from an available action. Native disabled owns behavior. */
+export const DISABLED_CONTROL_CLASS = 'disabled:cursor-not-allowed disabled:opacity-50'

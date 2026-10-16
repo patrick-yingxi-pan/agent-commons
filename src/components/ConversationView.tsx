@@ -40,6 +40,7 @@ import {
 } from '../controller/sessionCompactionMutations'
 import { composerExecutionState, type ComposerExecutionState } from '../lib/modelExecution'
 import { isSessionBindingHeld, useSessionMetadataMutationStatus } from '../controller/sessionMetadataMutations'
+import { useModelPreferences } from '../controller/modelPreferences'
 
 const RELAY_WAIT = 'Waiting on your session…'
 const CompactionAffordance = lazy(() => import('./CompactionAffordance').then((module) => ({ default: module.CompactionAffordance })))
@@ -269,7 +270,11 @@ export function ConversationView({
   const compactionHeld = isSessionCompactionHeld(sessionId)
   useSessionMetadataMutationStatus()
   const bindingHeld = isSessionBindingHeld(sessionId)
+  const { held: modelPreferenceHeld } = useModelPreferences()
   const selectionLocked = busy || compactionHeld || bindingHeld
+  // The picker owns its preference hold, retaining visible disabled choices.
+  // Withdrawing its callbacks would instead hide the provider list entirely.
+  const generationLocked = selectionLocked || modelPreferenceHeld
 
   // Live token count of the thread, so the usage gauge fills as it grows.
   const messageTokens = useMemo(
@@ -281,7 +286,7 @@ export function ConversationView({
   // generating — offer the one-logical-turn retry (multi-account §6.5).
   const interrupted =
     canControlTurn &&
-    !selectionLocked &&
+    !generationLocked &&
     !execution.blocked &&
     !typing &&
     (canRetry || (!draft && live.messages.length > 0 && live.messages[live.messages.length - 1].role === 'user'))
@@ -416,11 +421,12 @@ export function ConversationView({
         connectors={live.connectors}
         attachments={live.attachments}
         focus={focus}
-        disabled={!canControlTurn || selectionLocked || execution.blocked || isContextMutationHeld(contextMutation)}
+        disabled={!canControlTurn || generationLocked || execution.blocked || isContextMutationHeld(contextMutation)}
         disabledLabel={
           !canControlTurn
             ? turnControlPending ? 'Loading conversation…' : 'Only the conversation owner can send messages.'
             : bindingHeld ? 'Confirm the change before sending.'
+            : modelPreferenceHeld ? 'Finish the model preference change before sending.'
             : contextMutation.busy
             ? 'Updating context…'
             : contextMutation.error

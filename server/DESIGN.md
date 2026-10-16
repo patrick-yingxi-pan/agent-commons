@@ -148,6 +148,18 @@ tool continuations and disables server-side response storage. All adapters,
 including tool-free generation used by configured Agents, retain the shared
 usage, cancellation, and execution policy.
 
+Ordinary interactive sends freeze the authenticated person's saved effort after
+resolving the actual Session/Agent provider and model. The portable picker rule
+is also the execution rule: preserve a supported choice, else High when offered,
+else the first declared level; empty model vocabulary omits effort. Messages uses
+`output_config.effort`, while Responses maps it to `reasoning.effort` under the
+[native request contract](https://developers.openai.com/api/reference/resources/responses/methods/create).
+One snapshot survives tool continuations and terminal replay does not regenerate.
+Session relays and background drafts/Dispatch acquire no personal setting;
+Routines retain their own frozen effort. This does not turn on Claude adaptive
+thinking, which requires separate [thinking configuration](https://platform.claude.com/docs/en/build-with-claude/thinking),
+or implement the stored Fast/Ultracode modes.
+
 Private connection `replyOutputTokens` bounds each shared reply-loop call,
 including reasoning: integer 128–65,536, with explicit 8,192 for new first-party
 setup. Legacy absence retains 1,024 for Messages or 8,192 for Responses; PATCH

@@ -7,10 +7,13 @@ import { useCallback, useSyncExternalStore } from 'react'
 import { sendMessage, reattachTurn, cancelTurn, invalidate, keys, loadSession, LiveTurnUnavailableError } from '../api'
 import { EMPTY_LIVE, liveFromSession } from '../data/liveSession'
 import { createConversationStore, type ConversationState } from './conversationCore'
+import { sendAfterModelPreference } from './modelPreferences'
 
 export const conversations = createConversationStore(
   {
-    sendMessage: (sessionId, text, handlers, options) => sendMessage(sessionId, text, handlers, options),
+    sendMessage: (sessionId, text, handlers, options) => sendAfterModelPreference(
+      () => sendMessage(sessionId, text, handlers, options),
+    ),
     reattachTurn: (sessionId, turnId, fromSeq, handlers) => reattachTurn(sessionId, turnId, fromSeq, handlers),
     isStaleReattachError: (error) => error instanceof LiveTurnUnavailableError,
     reconcileSession: async (sessionId, signal) => {

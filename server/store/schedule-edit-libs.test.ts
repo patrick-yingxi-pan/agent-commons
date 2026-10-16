@@ -13,7 +13,8 @@ import {
   nextRunLabel,
   type CadenceSpec,
 } from '../../src/lib/cadence.ts'
-import { composeModelLabel, parseModelChoice, effortLevelsFor, pickedProvider, pickedModel } from '../../src/lib/models.ts'
+import { effortLevelsFor, pickedProvider, pickedModel } from '../../src/lib/models.ts'
+import { composeModelLabel, parseModelChoice } from '../../src/lib/legacyModelChoice.ts'
 import { store } from './index.ts'
 
 test('formatTime / parseTime round-trip the 12h ↔ 24h forms', () => {

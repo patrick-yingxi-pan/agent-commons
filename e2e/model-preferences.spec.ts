@@ -238,6 +238,13 @@ test('pre-commit failure holds every model control and Retry preserves one exact
       await expectPopoverContained(page, dialog, `${viewport.width}x${viewport.height} held composer picker`)
       await expect(dialog.getByRole('button').filter({ hasText: label })).toBeDisabled()
       await expect(dialog.getByRole('button', { name: 'Low', exact: true })).toBeDisabled()
+      const choices = dialog.locator('[data-model-choice]')
+      expect(await choices.count()).toBeGreaterThan(3)
+      for (const choice of await choices.all()) {
+        await expect(choice).toBeDisabled()
+        await expect(choice).toHaveCSS('opacity', '0.5')
+        await expect(choice).toHaveCSS('cursor', 'not-allowed')
+      }
       await expect(dialog.getByRole('button').filter({ hasText: /^Ultracode/ })).toBeDisabled()
       await expect(dialog.getByRole('button').filter({ hasText: /^Fast output/ })).toBeDisabled()
       await capturePreferenceSurface(page, 'composer-held')
@@ -256,6 +263,10 @@ test('pre-commit failure holds every model control and Retry preserves one exact
     await expectPopoverContained(page, dialog, `${viewport.width}x${viewport.height} failed composer picker`)
     await expect(dialog.getByRole('button').filter({ hasText: label })).toBeDisabled()
     await expect(dialog.getByRole('button', { name: 'Low', exact: true })).toBeDisabled()
+    for (const choice of await dialog.locator('[data-model-choice]').all()) {
+      await expect(choice).toBeDisabled()
+      await expect(choice).toHaveCSS('opacity', '0.5')
+    }
     await expect(dialog.getByRole('button').filter({ hasText: /^Ultracode/ })).toBeDisabled()
     await expect(dialog.getByRole('button').filter({ hasText: /^Fast output/ })).toBeDisabled()
     await expect(failed.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
@@ -274,6 +285,10 @@ test('pre-commit failure holds every model control and Retry preserves one exact
     await expectPopoverContained(page, dialog, `${viewport.width}x${viewport.height} recovered composer picker`)
     await expect(dialog.getByRole('button').filter({ hasText: label })).toBeEnabled()
     await expect(dialog.getByRole('button', { name: 'Low', exact: true })).toBeEnabled()
+    for (const choice of await dialog.locator('[data-model-choice]').all()) {
+      await expect(choice).toBeEnabled()
+      await expect(choice).toHaveCSS('opacity', '1')
+    }
     await expect(dialog.getByRole('button').filter({ hasText: /^Ultracode/ })).toBeEnabled()
     await capturePreferenceSurface(page, 'composer-recovered')
   }

@@ -91,12 +91,12 @@ import {
   displayModelLabel,
   effortLevelsFor,
   isOpusModel,
-  parseModelChoice,
   pickedModel,
   pickedProvider,
   resolveEffort,
   type ModelPick,
 } from '../lib/models'
+import { parseModelChoice } from '../lib/legacyModelChoice.ts'
 import { modelBlurb } from '../lib/modelDescriptions.ts'
 import { modelProviderAvailable, modelSetupRequired } from '../lib/modelExecution'
 import { updateModelPreferences, useModelPreferences } from '../controller/modelPreferences'

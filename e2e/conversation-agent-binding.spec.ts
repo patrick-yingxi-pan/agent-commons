@@ -123,6 +123,13 @@ async function workflow(browser: Browser, testInfo: TestInfo, preset: ProviderRo
 
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.getByRole('button', { name: 'Expand sidebar', exact: true }).click()
+    // Visibility alone accepts the clipped toolbar during the width transition.
+    // Clicking then scrolls its ancestor, correctly dismissing the row menu.
+    await expect.poll(() => page.locator('aside').evaluate(aside => {
+      const rail = aside.closest('.overflow-hidden')
+      return !!rail && !rail.hasAttribute('inert') && rail.scrollLeft === 0 &&
+        rail.getBoundingClientRect().width >= aside.getBoundingClientRect().width - 0.5
+    }), { message: 'the expanded rail is fully revealed before opening its menu' }).toBe(true)
     await expect(page.locator('[data-rail-toolbar-group="view"]')).toBeVisible()
     await page.getByRole('textbox', { name: 'Message', exact: true }).click()
     await splitPane(page, 'right')

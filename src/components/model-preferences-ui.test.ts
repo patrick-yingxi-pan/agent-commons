@@ -25,6 +25,14 @@ test('every personal model setting uses one durable controller, never mount-time
   assert.match(menu, /onSelect=\{disabled \? undefined/, 'held providers remain visible disabled')
   assert.match(menu, /!disabled && onPickModel \?/, 'held model rows remain visible disabled')
   assert.match(menu, /disabled=\{disabled \|\| !onPickEffort\}/, 'held effort rows remain visible disabled')
+  const choices = menu.match(/<button\b[\s\S]*?<\/button>/g) ?? []
+  assert.equal(choices.length, 2, 'both provider/model rows and effort choices are enumerated')
+  for (const choice of choices) {
+    assert.ok(choice.includes('data-model-choice'), 'every choice has a rendered audit stamp')
+    assert.ok(choice.includes('DISABLED_CONTROL_CLASS'), 'disabled choices visibly differ from writable ones')
+  }
+  const button = read(join(ROOT, 'src/lib/button.ts'))
+  assert.match(button, /export const DISABLED_CONTROL_CLASS =\s*'disabled:cursor-not-allowed disabled:opacity-50'/)
 })
 
 test('workspace hydration and untouched drafts cannot guess an unread preference', () => {

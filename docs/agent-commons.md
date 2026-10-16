@@ -1782,7 +1782,7 @@ session↔context binding, mediation handle, and single-resource escrow).
   *that* endpoint carrying *its* model id and *its* referenced credential while a
   default-config turn lands zero hits there — N=2 exercised, zero provider-specific backend
   code: going multi-provider multiplies the real boundary exactly as D9 claimed. Deferred,
-  by design: the effort→params map on the config (no turn selects effort yet), patching a
+  at that slice: the effort→params map (interactive effort now executes under MODEL-52), patching a
   provider's endpoint after mint (re-probe on change), surfacing the capability record in
   the hub UI, and the Providers-hub create dialog growing endpoint fields (the wire accepts
   them today).
