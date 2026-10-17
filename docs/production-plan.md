@@ -6,7 +6,40 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: cancellable Claude/DeepSeek retry waits. Messages now uses
+Current checkpoint: ordinary packaged Claude/DeepSeek recovery acceptance.
+The freshly rebuilt unsigned macOS arm64 executable passes both Claude-root
+and DeepSeek-mounted authored-provider workflows: rendered native-key setup,
+page-two model discovery, explicit unsupported-effort omission, streamed read
+tool with one exact failed-continuation retry, cache-inclusive usage, terminal
+quota refusal, prompt Stop during a positive retry wait, full signed-in relaunch
+without replay, and a fresh conversation using the restored device key. Each
+family uses its own disposable profile; keys are synthetic but OS encryption,
+the executable, UI/routes and SQLite are real. No app archive patch, mock
+keychain, injected store or public provider call is used for passing acceptance.
+Shared read-only observation removes duplicated SQL from the OpenAI acceptance
+helper; all acceptance helpers remain excluded from the shipped package.
+
+The initial run caught an assertion incorrectly requiring `stream: false` where
+the SDK validly omits the field on a non-streaming probe. The assertion now accepts
+only absent/false and rejects true; no runtime behavior was changed. Both complete
+targeted native runs passed after correction. Fixture cache-token and acceptance
+total mutations failed their locks before restoration. A separate disposable
+archive mutation removed retry-wait cancellation: the native Stop check failed
+at its two-second composer-release bound. The source archive stayed unchanged,
+and the mutated copy was removed; this is negative-test evidence only.
+Source/exclusion checks match the built archive, SHA-256
+`9fdf926d88364ae95f0c71a3cddb31369a5117dde7db52764886b736e9d54bcf`.
+The complete ordinary desktop smoke passed on a fingerprint-verified frozen
+tree, including the existing OpenAI workflow and both Messages families, core
+artifact/context workflows, MCP custody and managed restore. The 52 focused
+acceptance/documentation locks also pass. The complete frozen-tree local
+verifier remains the delivery gate. This is bounded unsigned arm64 evidence, not signed/notarized, native
+Intel or paid-provider acceptance. Those release gates remain open, and paid
+tests remain deferred. No new product decision is required for this checkpoint.
+
+Shipped checkpoint `537ea66b`: cancellable Claude/DeepSeek retry waits. All five
+local verifier lanes passed (785 browser tests) in 845.6 seconds before commit
+and push. Messages now uses
 the same host-owned pre-response retry policy as native OpenAI Responses, with
 SDK retries disabled. Stop and the original call deadline interrupt backoff;
 successful response bodies, completed tools and settled usage are not replayed.

@@ -2,13 +2,14 @@
  * The executable, rendered setup/Dispatch, OS custody, SQLite and relaunch are
  * real. This does not contact OpenAI or establish paid-provider acceptance. */
 import assert from 'node:assert/strict'
-import { DatabaseSync } from 'node:sqlite'
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
+import { readProviderState as readOpenAIState } from './providerSmokeState.mjs'
+export { readProviderState as readOpenAIState } from './providerSmokeState.mjs'
 import {
   OPENAI_SMOKE_MODEL, OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY,
   OPENAI_SMOKE_REASONING, OPENAI_SMOKE_PRIVATE_ERROR, startOpenAIResponsesSmokeFixture,
@@ -28,27 +29,6 @@ async function api(page, path, body) {
   }, { path, body })
   assert.ok(result.status >= 200 && result.status < 300, `Packaged Responses ${path} returned HTTP ${result.status}.`)
   return result.body
-}
-
-/** Read actual committed product data; never inject into the running store. */
-export function readOpenAIState(profile, providerId, sessionId, tenantId) {
-  const database = new DatabaseSync(join(profile, 'store.db'), { readOnly: true })
-  try {
-    const entity = database.prepare('SELECT json FROM entities WHERE slice = ? AND entity_id = ?')
-    const entry = database.prepare('SELECT json FROM map_entries WHERE slice = ? AND key = ?')
-    const parse = row => row ? JSON.parse(row.json) : undefined
-    return {
-      provider: parse(entry.get('providers', providerId)),
-      config: parse(entry.get('providerConfigs', providerId)),
-      session: parse(entity.get('sessions', sessionId)),
-      usage: parse(entry.get('usageMeters', tenantId)),
-      productJson: database.prepare(`
-        SELECT json FROM entities UNION ALL SELECT json FROM map_entries
-        UNION ALL SELECT json FROM kv UNION ALL SELECT image_json AS json FROM image_assets
-        UNION ALL SELECT original_json AS json FROM image_assets WHERE original_json IS NOT NULL
-      `).all().map(row => row.json).join('\n'),
-    }
-  } finally { database.close() }
 }
 
 function assertNoSecrets(value) {
