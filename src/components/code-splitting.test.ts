@@ -5,6 +5,23 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
 
+test('provider gauge keeps its registry count eager and defers read-only details behind local recovery', () => {
+  const control = stripComments(read(join(ROOT, 'src/components/ProvidersControl.tsx')))
+  assert.match(control, /const ProvidersControlBody = lazy\(\(\) => import\('\.\/ProvidersControlBody'\)/)
+  assert.match(control, /const providers = useProviders\(\)\.data \?\? \[\]/)
+  assert.match(control, /<GaugePopover[\s\S]*count=\{providers\.length\}[\s\S]*<DeferredLoadBoundary[\s\S]*<Suspense[\s\S]*<ProvidersControlBody providers=\{providers\}/)
+  assert.doesNotMatch(control, /agentCommonsLabels|function ProviderRow|providers\.map/)
+  assert.match(control, /data-provider-details-loading[\s\S]*role="status"/)
+  assert.match(control, /data-provider-details-error[\s\S]*role="alert"[\s\S]*Copy unsent workspace text before reloading[\s\S]*window\.location\.reload\(\)[\s\S]*Reload provider details/)
+  const body = stripComments(read(join(ROOT, 'src/components/ProvidersControlBody.tsx')))
+  assert.match(body, /data-provider-details[\s\S]*Model providers[\s\S]*providers\.length[\s\S]*No providers registered[\s\S]*providers\.map/)
+  assert.match(body, /providerPlanLabel\(provider\)[\s\S]*data-provider-details-row=\{provider\.id\}[\s\S]*provider\.effortLevels\.map[\s\S]*authorityLabel\(provider\.authority\)/)
+  assert.doesNotMatch(body, /useProviders|GaugePopover|DeferredLoadBoundary|window\.location|from '\.\.\/api'/)
+  const gauge = stripComments(read(join(ROOT, 'src/components/GaugePopover.tsx')))
+  assert.match(gauge, /open &&[\s\S]*ref=\{popRef\}[\s\S]*\{children\}/,
+    'the shared eager shell mounts the lazy read-only body only while open')
+})
+
 test('proposal review loads only for proposal messages and failure grants no decision authority', () => {
   const message = stripComments(read(join(ROOT, 'src/components/Message.tsx')))
   const deferred = stripComments(read(join(ROOT, 'src/components/DeferredRelationActionCard.tsx')))

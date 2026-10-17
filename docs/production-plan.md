@@ -6,11 +6,42 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: provider observations and in-panel context breakdown are
-implemented. Focused browser acceptance (seven tests) and the responsive sweep
-(135/135 cells, no violations or skips) passed locally. The complete local
-verifier remains the mandatory landing gate; its final result is recorded in the
-checkpoint handoff.
+Current checkpoint: exact model identity after catalog replacement. The local
+audit reproduced a configured default A disappearing from catalog [A, B]: the
+picker silently showed B while Send still called A. Shared selection now retains
+the explicit or inherited ID without a first-row fallback. An ID absent from a
+nonempty authoritative catalog is shown as unavailable; Send and nontrivial
+conversation compaction refuse before new messages, usage or model work. A valid
+explicit B selection restores the workflow without changing the connection's
+default. Agent inheritance, catalog-less configured endpoints, Session providers
+and exact historical replay retain their existing meanings. Draft Usage retains
+the exact selected ID even when its metadata is unavailable.
+Responsive review also found clipped long identifiers and hidden recovery copy
+in short windows. The shared composer note now wraps complete identifiers and
+keeps blocking guidance visible; the browser lock measures that local text box
+and scrolls the explicit recovery choice into view at every canonical viewport.
+The first complete verifier passed 6,873 Node tests but rejected the initial
+JavaScript graph at 800,369 bytes against the unchanged 800,000-byte limit.
+Provider inspection now defers its read-only details until opened, retaining the
+eager registry count and shared bounded popover. Model-menu failures reuse the
+existing deferred-load boundary. Loading/error/reload browser checks accompany
+the extraction; the complete final-tree gates must run again before landing.
+
+Contract/UI and both protocol route regressions were watched fail before repair.
+Rendered recovery, responsive review and the complete frozen-tree local verifier
+remain mandatory before landing; final outcomes belong in the handoff. Paid
+provider tests remain deferred. This checkpoint adds no new protocol, credential,
+automatic substitution or release authority.
+
+The audit also reproduced a separate retry-policy difference: native Responses
+does not consume the configured Messages retry budget for pre-stream temporary
+HTTP failure. It remains an explicit follow-up, not a reason to add automatic
+replay during this identity fix. Any future retry work must retain single-shot
+task policies, cancellation/deadlines and no replay after streamed output.
+
+Previous checkpoint `f3e537fb`: provider observations and in-panel context
+breakdown passed all five local verifier lanes (777 browser tests), seven focused
+browser tests and the responsive sweep (135/135 cells, no violations or skips).
 The indicator remains a partial context estimate against catalog metadata.
 Context breakdown replaces provider/local-limit content and offers Back to usage.
 The separate provider section reads private, exact-model transient observations:

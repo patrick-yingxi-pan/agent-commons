@@ -39,6 +39,7 @@ import {
   useSessionCompactionStatus,
 } from '../controller/sessionCompactionMutations'
 import { composerExecutionState, type ComposerExecutionState } from '../lib/modelExecution'
+import { providerModelSelection } from '../../contract/providers.ts'
 import { isSessionBindingHeld, useSessionMetadataMutationStatus } from '../controller/sessionMetadataMutations'
 import { useModelPreferences } from '../controller/modelPreferences'
 
@@ -256,6 +257,7 @@ export function ConversationView({
   const providers = providersQ.data ?? []
   const agent = agents.find((a) => a.id === agentId)
   const provider = providers.find((p) => p.id === modelPick.providerId)
+  const modelSelection = providerModelSelection(provider, modelPick.modelId)
   const onRelay = provider?.kind === 'session'
   const execution: ComposerExecutionState = !agent ? {
     blocked: true,
@@ -265,6 +267,7 @@ export function ConversationView({
     provider?.execution,
     onRelay ? provider?.online === true : undefined,
     providersQ.data !== undefined && provider === undefined,
+    modelSelection.unavailable ? modelSelection.modelId : undefined,
   )
   useSessionCompactionStatus()
   const compactionHeld = isSessionCompactionHeld(sessionId)

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { DEFAULT_PROVIDER_ID } from '../../contract/index.ts'
+import { providerModelSelection } from '../../contract/providers.ts'
 import { ChevronDown } from 'lucide-react'
 import {
   displayModelLabel,
   effortLevelsFor,
-  pickedModel,
   pickedProvider,
   resolveEffort,
   type ModelPick,
@@ -46,8 +46,8 @@ export function ModelEffortControl({
   const providers = useProviders().data ?? []
   const provider = pickedProvider(providers, pick)
   const agent = (useAgents().data ?? []).find((candidate) => candidate.id === agentId)
-  const model = pickedModel(provider, pick)
-  const levels = effortLevelsFor(provider, model)
+  const selection = providerModelSelection(provider, pick?.modelId)
+  const levels = selection.unavailable ? [] : effortLevelsFor(provider, selection.model)
 
   const effort = resolveEffort(levels, config.effort)
   const onDefaultProvider = (pick?.providerId ?? DEFAULT_PROVIDER_ID) === DEFAULT_PROVIDER_ID

@@ -40,7 +40,9 @@ test('the shared catalog loads on demand with local loading and explicit failure
     'the catalog body must not join the closed composer startup graph')
   assert.match(source, /lazy\(\(\)\s*=>\s*import\('\.\/ModelPickerMenuBody'\)/)
   assert.match(source, /<Suspense fallback=\{<div role="status" data-model-picker-loading/)
-  assert.match(source, /getDerivedStateFromError[\s\S]*role="alert" data-model-picker-load-error/)
+  assert.match(source, /<DeferredLoadBoundary fallback=\{[\s\S]*role="alert" data-model-picker-load-error/)
+  assert.doesNotMatch(source, /extends Component|getDerivedStateFromError/,
+    'deferred surfaces share the existing load boundary rather than duplicate its startup code')
   assert.match(source, /Copy any unsent text before reloading\./)
   assert.match(source, /window\.location\.reload\(\)/,
     'a stale deployment can recover with fresh asset URLs')
@@ -74,6 +76,32 @@ test('the shared menu reads the LIVE provider registry, not a snapshot constant'
   assert.match(src, /pickedModel\(/, 'model resolution goes through the shared projection')
 })
 
+test('missing model identity is unavailable while valid catalog recovery remains selectable', () => {
+  const menu = stripComments(read(join(ROOT, 'src/components/ModelPickerMenuBody.tsx')))
+  const control = stripComments(read(join(ROOT, 'src/components/ModelEffortControl.tsx')))
+  const conversation = stripComments(read(join(ROOT, 'src/components/ConversationView.tsx')))
+  for (const source of [menu, control, conversation]) assert.match(source, /providerModelSelection\(/)
+  assert.match(menu, /selection\.unavailable \? \[\] : effortLevelsFor/,
+    'an unavailable identity cannot claim another model’s effort support')
+  assert.match(control, /selection\.unavailable \? \[\] : effortLevelsFor/)
+  assert.match(menu, /data-model-unavailable[\s\S]*selection\.modelId[\s\S]*unavailable/,
+    'the missing exact id remains visible beside available recovery choices')
+  assert.match(menu, /catalog\.map[\s\S]*onPickModel\(/,
+    'missing defaults do not disable selecting an available catalog model')
+  assert.match(conversation, /modelSelection\.unavailable \? modelSelection\.modelId : undefined/,
+    'Send projects the shared unavailable-model state')
+})
+
+test('draft Usage preserves an unavailable exact model independently of catalog metadata', () => {
+  const pane = stripComments(read(join(ROOT, 'src/components/ConversationPane.tsx')))
+  const draftReference = pane.slice(pane.indexOf('const draftModelRef ='), pane.indexOf('const sendDraft ='))
+  assert.match(draftReference, /providerModelSelection\(provider, modelPick\.modelId\)/)
+  assert.match(draftReference, /modelId: selection\.modelId/,
+    'provider observations retain the missing id instead of querying a different configured default')
+  assert.match(draftReference, /model \? \{ modelLabel: model\.label, windowTokens: model\.contextWindow \}/,
+    'unknown metadata remains absent without erasing execution identity')
+})
+
 test('an endpoint with no catalog-declared effort vocabulary exposes no effort choices', () => {
   const modelProjection = stripComments(read(join(ROOT, 'src', 'lib', 'models.ts')))
   const effortProjection = stripComments(read(join(ROOT, 'contract', 'modelEffort.ts')))
@@ -84,7 +112,7 @@ test('an endpoint with no catalog-declared effort vocabulary exposes no effort c
     'unknown provider effort metadata remains an empty vocabulary')
   assert.match(menu, /\{levels\.length > 0 && \(/,
     'effort buttons are rendered only when the selected catalog declares levels')
-  assert.match(menu, /\{levels\.length === 0 && \(/,
+  assert.match(menu, /\{!selection\.unavailable && levels\.length === 0 && \(/,
     'an empty vocabulary receives the existing no-effort explanation')
 })
 

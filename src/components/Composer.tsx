@@ -24,7 +24,7 @@ import type { UsageModelRef } from '../../contract/index.ts'
 import { planAttachmentInput, workspaceInputAttachments } from '../../contract/attachmentInput.ts'
 import { workspaceFolders as foldersOf } from '../../contract/workspaceFolders.ts'
 import type { ModelPick } from '../lib/models'
-import { COMPOSER_MODEL_LAYOUT } from '../lib/composerLayout'
+import { COMPOSER_MODEL_LAYOUT, composerExecutionNoteClass } from '../lib/composerLayout'
 import { CheckSquare } from './Checkbox'
 import { ModelEffortControl } from './ModelEffortControl'
 import { AddContextButton } from './AddContextButton'
@@ -470,8 +470,8 @@ export function Composer({
           </div>
         </div>
 
-        {/* The disclaimer is chrome a landscape phone can't afford. */}
-        <p className="mt-2 text-center text-[11px] text-ink-faint short:hidden">{execution.note}</p>
+        {/* Ordinary disclaimers yield in short windows; blocked recovery does not. */}
+        <p data-composer-execution-note className={composerExecutionNoteClass(execution.blocked)}>{execution.note}</p>
       </div>
     </div>
   )

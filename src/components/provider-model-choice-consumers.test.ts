@@ -23,5 +23,13 @@ test('explicit model selectors share provider-derived model choices', () => {
     if (filename !== 'ModelPickerMenuBody.tsx') assert.match(source, /Choose a model/)
   }
   const projection = stripComments(read(join(ROOT, 'src', 'lib', 'models.ts')))
-  assert.match(projection, /const catalog = providerModelChoices\(provider\)/)
+  assert.match(projection, /return providerModelSelection\(provider, pick\?\.modelId\)\.model/,
+    'displayed model metadata delegates to the shared exact-selection resolver')
+  const contract = stripComments(read(join(ROOT, 'contract/providers.ts')))
+  const selection = contract.slice(contract.indexOf('export function providerModelSelection('))
+  assert.match(selection, /const catalog = providerModelChoices\(provider\)/,
+    'exact selection resolves against the same derived choices as explicit selectors')
+  assert.match(selection, /catalog\.find\(candidate => candidate\.id === id\)/)
+  assert.doesNotMatch(selection, /catalog\[0\]/,
+    'the shared resolver cannot substitute the first catalog row for a missing identity')
 })

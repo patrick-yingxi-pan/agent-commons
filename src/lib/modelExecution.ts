@@ -29,6 +29,7 @@ export function composerExecutionState(
   execution?: ModelExecution,
   sessionProviderOnline?: boolean,
   providerUnavailable = false,
+  missingModelId?: string,
 ): ComposerExecutionState {
   if (sessionProviderOnline === false) {
     return {
@@ -48,6 +49,13 @@ export function composerExecutionState(
       blocked: true,
       placeholder: 'This model connection is unavailable to this account.',
       note: 'This model connection is unavailable to this account.',
+    }
+  }
+  if (missingModelId) {
+    return {
+      blocked: true,
+      placeholder: 'Choose an available model…',
+      note: `Model '${missingModelId}' is unavailable. Choose an available model in Model and effort, or update this connection in Models.`,
     }
   }
   if (execution === undefined) {

@@ -226,6 +226,15 @@ replaceable boundaries now (the frontend is a cache of the backend; the backend
 is a client of the model; the model manipulates resources through tools), not
 prototype shortcuts a production system would have to unwind.
 
+Conversation admission shares the portable `providerModelSelection` identity
+rule with the picker. A concrete selection is explicit ID or server-resolved
+connection default, never a first-catalog-row substitute. If a nonempty catalog
+no longer includes it, new Send and nontrivial compaction return an unavailable
+capability before message/usage/turn changes or provider I/O. Existing exact
+receipts still replay before mutable readiness checks. Choosing a valid explicit
+model repairs the conversation without changing the connection default; absent
+catalogs and Session relay retain their separate readiness rules.
+
 ## Authentication and deployment profiles
 
 Development and direct server boots default the auth gate ON

@@ -18,6 +18,11 @@ test('a clean draft connects a verified model and returns ready for its first co
       'x-user-id': `user-first-run-model-${identityStamp}`,
       'x-tenant-id': `tenant-first-run-model-${identityStamp}`,
     })
+    const catalogResponse = await page.request.get(`http://127.0.0.1:${MODEL_PORT}/v1/models`)
+    expect(catalogResponse.ok(), 'the test-owned endpoint advertises the model used for setup').toBe(true)
+    const catalog = await catalogResponse.json() as { data: Array<{ id: string }> }
+    expect(catalog.data.length).toBeGreaterThan(0)
+    const modelId = catalog.data[0]!.id
 
     // Development intentionally serves runnable mock providers. Change only the
     // read projection of pre-existing entries to the release posture; a provider
@@ -76,7 +81,7 @@ test('a clean draft connects a verified model and returns ready for its first co
 
     await page.getByPlaceholder('e.g. Anthropic (prod)', { exact: true }).fill(FIRST_PROVIDER)
     await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(`http://127.0.0.1:${MODEL_PORT}`)
-    await dialog.getByLabel('Model ID', { exact: true }).fill('mock-model')
+    await dialog.getByLabel('Model ID', { exact: true }).fill(modelId)
     const preferenceGate = new Promise<void>((resolve) => { releasePreference = resolve })
     await page.route('**/api/v1/viewer-preferences/model', async (route) => {
       if (route.request().method() !== 'PATCH') return route.continue()
@@ -107,9 +112,10 @@ test('a clean draft connects a verified model and returns ready for its first co
     expect(durablePreference.ok()).toBeTruthy()
     const providersResponse = await page.request.get('/api/v1/providers')
     expect(providersResponse.ok()).toBeTruthy()
-    const createdProvider = ((await providersResponse.json()) as Array<{ id: string; label: string }>)
+    const createdProvider = ((await providersResponse.json()) as Array<{ id: string; label: string; defaultModelId?: string; models?: Array<{ id: string }> }>)
       .find((provider) => provider.label === FIRST_PROVIDER)
-    expect(createdProvider).toBeTruthy()
+    expect(createdProvider).toMatchObject({ defaultModelId: modelId })
+    expect(createdProvider!.models).toContainEqual(expect.objectContaining({ id: modelId }))
     expect((await durablePreference.json()).preferences).toMatchObject({
       providerId: createdProvider!.id,
       ultracode: false,

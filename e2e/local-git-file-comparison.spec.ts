@@ -235,10 +235,12 @@ test('conversation Attach saves the exact captured single-file JSON; Project and
     const providerResponse = await page.request.post(`${API}/providers`, { data: {
       label: `Selected Git comparison ${Date.now().toString(36)}`,
       modelFamily: 'claude', effortLevels: ['Default'],
-      config: { baseURL: endpoint.url, model: 'e2e-selected-file' },
+      config: { baseURL: endpoint.url, model: endpoint.modelId },
     } })
     expect(providerResponse.ok(), await providerResponse.text()).toBeTruthy()
-    const sessionResponse = await page.request.post(`${API}/sessions`, { data: { providerId: (await providerResponse.json()).id } })
+    const provider = await providerResponse.json()
+    expect(provider).toMatchObject({ defaultModelId: endpoint.modelId, models: [{ id: endpoint.modelId }] })
+    const sessionResponse = await page.request.post(`${API}/sessions`, { data: { providerId: provider.id } })
     expect(sessionResponse.ok(), await sessionResponse.text()).toBeTruthy()
     const session = await sessionResponse.json() as { id: string }
     const messages: string[] = []
@@ -303,6 +305,7 @@ test('conversation Attach saves the exact captured single-file JSON; Project and
       'mutation after capture cannot change the exact body saved to the conversation')
 
     await dialog.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
     await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Use the attached single-file comparison.')
     await page.getByRole('textbox', { name: 'Message', exact: true }).press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: 'Read supplied attachment:' })).toBeVisible({ timeout: ms(20_000) })

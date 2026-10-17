@@ -191,6 +191,7 @@ test('pickedProvider/pickedModel project the registry: default provider = its ow
       label: 'Anthropic',
       modelFamily: 'claude',
       effortLevels: ['Low', 'Medium', 'High'],
+      defaultModelId: 'claude-opus-4-8',
       models: [
         { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', contextWindow: 1_000_000 },
         { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', contextWindow: 200_000 },
@@ -198,11 +199,11 @@ test('pickedProvider/pickedModel project the registry: default provider = its ow
     },
     { id: 'provider-relay', label: 'My laptop’s Claude', modelFamily: 'claude', effortLevels: ['Default'], kind: 'session', online: true },
   ]
-  // No pick at all = the default provider's first catalog entry (the pre-selection
-  // shortcut; the server-side inherit resolves to its configured model).
+  // No pick inherits the server-stamped configured model, never catalog order.
   const def = pickedProvider(providers, {})
   assert.equal(def?.id, DEFAULT_PROVIDER_ID)
   assert.equal(pickedModel(def, {})?.id, 'claude-opus-4-8')
+  assert.equal(pickedModel({ ...def!, defaultModelId: undefined }, {}), undefined)
   assert.equal(pickedModel(def, { modelId: 'claude-haiku-4-5' })?.id, 'claude-haiku-4-5')
   // A Session provider can't enumerate models — no fabricated rows.
   const relay = pickedProvider(providers, { providerId: 'provider-relay' })

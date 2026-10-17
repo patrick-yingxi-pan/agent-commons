@@ -1,8 +1,10 @@
+import { lazy, Suspense } from 'react'
 import { Cpu } from 'lucide-react'
 import { useProviders } from '../api'
 import { GaugePopover } from './GaugePopover'
-import { authorityLabel, providerPlanLabel } from '../lib/agentCommonsLabels'
-import type { ModelProvider } from '../../contract/index.ts'
+import { DeferredLoadBoundary } from './DeferredLoadBoundary'
+
+const ProvidersControlBody = lazy(() => import('./ProvidersControlBody').then((module) => ({ default: module.ProvidersControlBody })))
 
 /** Providers button: an ambient indicator of the Model providers registered to this
  *  account (docs/agent-commons.md, D9) — the cognition sources an Agent binds. Like
@@ -20,49 +22,20 @@ export function ProvidersControl() {
       count={providers.length}
       title={`Model providers — ${providers.length} registered`}
     >
-      <div className="flex items-center justify-between">
-        <span className="text-[12px] text-ink-faint">Model providers</span>
-        <span className="text-[12px] text-ink">{providers.length} registered</span>
-      </div>
-
-      <div className="mt-2.5 space-y-2.5">
-        {providers.length === 0 && (
-          <p className="text-[12px] leading-snug text-ink-faint">
-            No providers registered. A cognition source an Agent can run on appears here with
-            the effort levels and plan it offers.
-          </p>
-        )}
-        {providers.map((p) => (
-          <ProviderRow key={p.id} provider={p} />
-        ))}
-      </div>
-
-      <p className="mt-3 border-t border-line pt-2.5 text-[11px] leading-tight text-ink-faint">
-        An Agent's cognition source — referenced by id, never attached as context.
-      </p>
+      <DeferredLoadBoundary fallback={<ProviderDetailsError />}>
+        <Suspense fallback={<p data-provider-details-loading role="status" className="text-[12px] text-ink-faint">Loading provider details…</p>}>
+          <ProvidersControlBody providers={providers} />
+        </Suspense>
+      </DeferredLoadBoundary>
     </GaugePopover>
   )
 }
 
-function ProviderRow({ provider }: { provider: ModelProvider }) {
-  // The plan is the cascade root (D8): an Agent's budget must attenuate it. The
-  // seeded default declares none, inheriting the account plan.
-  const planLabel = providerPlanLabel(provider)
+function ProviderDetailsError() {
   return (
-    <div>
-      <div className="flex items-center justify-between text-[12px]">
-        <span className="text-ink">{provider.label}</span>
-        <span className="text-ink-faint">{provider.modelFamily}</span>
-      </div>
-      <div className="mt-1 flex flex-wrap gap-1">
-        {provider.effortLevels.map((e) => (
-          <span key={e} className="rounded bg-panel-2 px-1.5 py-0.5 text-[10px] text-ink-faint">
-            {e}
-          </span>
-        ))}
-      </div>
-      <p className="mt-1 text-[10px] leading-tight text-ink-faint">Grants {authorityLabel(provider.authority)}</p>
-      <p className="mt-0.5 text-[10px] leading-tight text-ink-faint">{planLabel}</p>
+    <div data-provider-details-error role="alert" className="text-[12px] leading-snug text-ink-faint">
+      <p>Couldn’t display provider details. Copy unsent workspace text before reloading.</p>
+      <button type="button" className="mt-2 text-ink underline" onClick={() => window.location.reload()}>Reload provider details</button>
     </div>
   )
 }

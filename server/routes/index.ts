@@ -12,6 +12,7 @@ import { validJudgmentRequest } from '../delegatedJudgmentState.ts'
 import { registerServedFileSnapshotRoutes } from './servedFileSnapshots.ts'
 import { messageHistoryTurn } from '../toolActivityHistory.ts'
 import { effortLevelsFor, resolveEffort } from '../../contract/modelEffort.ts'
+import { providerModelSelection } from '../../contract/providers.ts'
 import { exportArtifact } from './artifactExport.ts'
 import { serveSessionTurn } from './sessionTurnStream.ts'
 import { updateArtifactContent } from './artifactContent.ts'
@@ -4846,7 +4847,11 @@ export function buildRouter(): Router {
     // model is whatever session drains its mailbox, so its turns carry none.
     const turnConfig = known?.modelId ? { ...provider, model: known.modelId } : provider
     const turnModelId = provider.kind === 'session' ? undefined : resolvedModelId(turnConfig)
-    const turnModelInfo = providerFace?.models?.find((model) => model.id === turnModelId)
+    const turnSelection = providerModelSelection(providerFace, turnModelId)
+    if (provider.kind !== 'session' && turnSelection.unavailable) {
+      return sendError(res, 'capability_unavailable', 'The selected model is unavailable in this provider’s current catalog. Choose an available model before continuing.')
+    }
+    const turnModelInfo = turnSelection.model
     // Personal effort is intent, not a routing override. Resolve it only after
     // the Session/Agent's actual provider and model, and snapshot it once for
     // all continuations. Background jobs never read this interactive setting.
@@ -5270,6 +5275,10 @@ export function buildRouter(): Router {
     const providerFace = store.listProviders(tenantId).find((candidate) => candidate.id === providerId)
     const providerConfig = readySession.modelId ? { ...provider, model: readySession.modelId } : provider
     const modelId = provider.kind === 'session' ? undefined : resolvedModelId(providerConfig)
+
+    if (provider.kind !== 'session' && providerModelSelection(providerFace, modelId).unavailable) {
+      return sendError(res, 'capability_unavailable', 'The selected model is unavailable in this provider’s current catalog. Choose an available model before compacting.')
+    }
 
     if (provider.kind !== 'session' && providerFace?.execution === 'unconfigured') {
       return sendError(

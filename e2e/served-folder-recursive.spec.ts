@@ -89,10 +89,12 @@ test('recursive cloud folder selection saves distinct nested paths for reload an
   try {
     const providerResponse = await page.request.post('/api/v1/providers', { data: {
       label: 'Recursive folder fixture', modelFamily: 'claude', effortLevels: ['Default'],
-      config: { baseURL: endpoint.url, model: 'e2e-recursive-folder-model' },
+      config: { baseURL: endpoint.url, model: endpoint.modelId },
     } })
     expect(providerResponse.ok(), 'the loopback model provider is registered through the real API').toBe(true)
-    const sessionId = await createSession(page, tenant, (await providerResponse.json() as { id: string }).id)
+    const provider = await providerResponse.json()
+    expect(provider).toMatchObject({ defaultModelId: endpoint.modelId, models: [{ id: endpoint.modelId }] })
+    const sessionId = await createSession(page, tenant, provider.id)
     let sourceReads = 0
     const requestedScopes: string[] = []
     page.on('request', (request) => {
@@ -160,6 +162,7 @@ test('recursive cloud folder selection saves distinct nested paths for reload an
     }
 
     const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await expect(composer).toBeEnabled()
     await composer.fill('Compare the two saved readme files.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: 'Read supplied attachment:' })).toBeVisible()

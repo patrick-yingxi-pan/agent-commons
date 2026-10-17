@@ -191,6 +191,22 @@ export function providerModelChoices(provider?: ModelProvider): ModelInfo[] {
   return provider.execution === 'configured' && id?.trim() ? [{ id, label: id }] : []
 }
 
+/** The exact model a selection means, independently of connection readiness.
+ * Absence inherits the server-stamped default, never a mutable catalog position.
+ * A nonempty catalog can rule that identity unavailable; an absent catalog
+ * cannot. Callers still enforce connection/account readiness separately. */
+export function providerModelSelection(provider?: ModelProvider, modelId?: string): {
+  modelId?: string
+  model?: ModelInfo
+  unavailable: boolean
+} {
+  if (!provider || provider.kind === 'session') return { unavailable: false }
+  const id = modelId ?? provider.defaultModelId
+  const catalog = providerModelChoices(provider)
+  const model = catalog.find(candidate => candidate.id === id)
+  return { modelId: id, model, unavailable: !!id && !!provider.models?.length && !model }
+}
+
 /** Body of `DELETE /v1/providers/:id`. A first-party removal pins both public
  * revision domains because either a definition edit or a write-only
  * connection/catalog change can make the reviewed provider materially stale.

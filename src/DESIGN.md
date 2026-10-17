@@ -449,8 +449,22 @@ are each provider's **own catalog** (`ModelProvider.models` — fetched from its
 endpoint's `GET /v1/models` or declared at registration, spec MODEL-16/-17), or
 the exact server-stamped configured model when a configured endpoint has no
 catalog. The portable `providerModelChoices` projection supplies both UI choices
-and server admission without inventing model metadata or persisting a fake list, so
-even the default Claude models are registry rows, and the composer strip's
+and server admission without inventing model metadata or persisting a fake list.
+The shared `providerModelSelection` resolves only an explicit ID or the
+server-stamped default, never the catalog's first row. A missing ID in a nonempty
+catalog stays visibly unavailable; the composer blocks Send, keeps valid recovery
+choices and suppresses misleading effort controls. Draft Usage retains that exact
+ID without borrowing another model's metadata. Conversation Send and nontrivial
+compaction enforce the same identity wall before new work.
+
+Provider inspection keeps its registry count and bounded gauge shell eager but
+loads read-only rows and their plan/authority formatting only when opened.
+Loading and failure stay local, preserve draft/selection and remain dismissible;
+explicit Reload warns about unsent text. Provider details and the model menu
+reuse `DeferredLoadBoundary`, preserving the fixed startup budget without
+duplicating failure lifecycle code.
+
+Thus even the default Claude models are registry rows, and the composer strip's
 usage gauge measures against the resolved model's provider-sourced context
 window (honest unknown-capacity when it doesn't expose one). Its contents are
 explicitly a partial text estimate: conversation, enabled base-tool schemas and

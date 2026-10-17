@@ -14,7 +14,7 @@
  *  here degrade per-field. Pure + framework-free (no React) so they're
  *  unit-tested. */
 import { DEFAULT_PROVIDER_ID, type ModelInfo, type ModelProvider } from '../../contract/index.ts'
-import { providerModelChoices } from '../../contract/providers.ts'
+import { providerModelSelection } from '../../contract/providers.ts'
 export { effortLevelsFor, resolveEffort } from '../../contract/modelEffort.ts'
 
 /** A picker's two-level selection. Absences inherit: providerId → the default
@@ -30,19 +30,10 @@ export function pickedProvider(providers: ModelProvider[], pick?: ModelPick): Mo
   return providers.find((p) => p.id === (pick?.providerId ?? DEFAULT_PROVIDER_ID))
 }
 
-/** The catalog model a pick shows/acts on: the picked entry, else what an unset
- *  pick actually resolves to — the provider's configured model (the server-stamped
- *  `defaultModelId`, so the display can't drift from what a turn runs), else the
- *  catalog's first as the last-resort pre-selection. Undefined when the provider
- *  has neither a catalog nor an available configured endpoint model. */
+/** The exact endpoint model, explicitly picked or inherited from its configured
+ * default. An unavailable identity never selects another catalog entry. */
 export function pickedModel(provider: ModelProvider | undefined, pick?: ModelPick): ModelInfo | undefined {
-  if (!provider || provider.kind === 'session') return undefined
-  const catalog = providerModelChoices(provider)
-  return (
-    catalog.find((m) => m.id === pick?.modelId) ??
-    catalog.find((m) => m.id === provider.defaultModelId) ??
-    catalog[0]
-  )
+  return providerModelSelection(provider, pick?.modelId).model
 }
 
 /** Trigger-sized model name ('Claude Opus 4.8' → 'Opus 4.8'). */
@@ -57,7 +48,11 @@ export function shortModelLabel(label: string): string {
 export function displayModelLabel(providers: ModelProvider[], pick?: ModelPick, effort?: string): string {
   const provider = pickedProvider(providers, pick)
   if (!provider) return 'Model'
-  const model = pickedModel(provider, pick)
+  const selection = providerModelSelection(provider, pick?.modelId)
+  if (selection.unavailable) {
+    return `${provider.id === DEFAULT_PROVIDER_ID ? '' : `${provider.label} · `}${selection.modelId} · unavailable`
+  }
+  const model = selection.model
   if (provider.id === DEFAULT_PROVIDER_ID) {
     if (!model) return provider.label
     return effort ? `${shortModelLabel(model.label)} · ${effort}` : shortModelLabel(model.label)

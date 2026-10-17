@@ -34,6 +34,16 @@ test('configured and development-mock providers remain usable but never share th
   assert.notEqual(composerExecutionState('configured').note, composerExecutionState('mock').note)
 })
 
+test('an unavailable exact model blocks an otherwise configured connection with selection recovery', () => {
+  assert.deepEqual(composerExecutionState('configured', undefined, false, 'retired-model'), {
+    blocked: true,
+    placeholder: 'Choose an available model…',
+    note: "Model 'retired-model' is unavailable. Choose an available model in Model and effort, or update this connection in Models.",
+  })
+  assert.equal(composerExecutionState('configured', undefined, false, undefined).blocked, false,
+    'an explicit current model remains runnable on the same connection')
+})
+
 test('Session-provider liveness has its own honest blocked and connected states', () => {
   assert.deepEqual(composerExecutionState(undefined, false), {
     blocked: true,

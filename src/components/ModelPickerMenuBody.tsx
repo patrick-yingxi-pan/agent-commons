@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../../contract/index.ts'
-import { providerModelChoices } from '../../contract/providers.ts'
+import { providerModelChoices, providerModelSelection } from '../../contract/providers.ts'
 import {
   effortLevelsFor,
   pickedModel,
@@ -139,9 +139,10 @@ export function ModelPickerMenuBody({
   // Endpoint is the legacy/default kind, so absence means endpoint too.
   const providers = endpointOnly ? allProviders.filter((candidate) => candidate.kind !== 'session') : allProviders
   const provider = pickedProvider(providers, pick)
+  const selection = providerModelSelection(provider, pick.modelId)
   const activeModel = pickedModel(provider, pick)
   const catalog = providerModelChoices(provider)
-  const levels = effortLevelsFor(provider, activeModel)
+  const levels = selection.unavailable ? [] : effortLevelsFor(provider, activeModel)
   const activeEffort = resolveEffort(levels, effort)
 
   return (
@@ -171,6 +172,9 @@ export function ModelPickerMenuBody({
       {/* Model — the SELECTED provider's own catalog. */}
       <div className="px-2 pt-2">
         <SectionLabel>Model</SectionLabel>
+        {selection.unavailable && <p data-model-unavailable className="break-words px-1.5 pb-2 text-[11px] leading-snug text-ink-soft">
+          Model '{selection.modelId}' is unavailable. Choose an available model below, or update this connection in Models.
+        </p>}
         {catalog.map((m) => (
           <PickRow
             key={m.id}
@@ -232,7 +236,7 @@ export function ModelPickerMenuBody({
           )}
         </div>
       )}
-      {levels.length === 0 && (
+      {!selection.unavailable && levels.length === 0 && (
         <p className="px-3 pb-2 text-[11px] leading-snug text-ink-soft">
           {provider?.kind === 'session'
             ? 'This provider declares no effort levels — your own session answers its turns.'

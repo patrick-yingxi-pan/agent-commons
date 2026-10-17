@@ -6,3 +6,9 @@ export const COMPOSER_MODEL_LAYOUT = {
   picker: 'relative min-w-0',
   trigger: 'min-w-0 max-w-full',
 } as const
+
+/** Recovery is task content, not optional chrome. Keep exact identifiers
+ * readable even when the model name is an unbroken provider-issued string. */
+export function composerExecutionNoteClass(blocked: boolean): string {
+  return `mt-2 min-w-0 text-center text-[11px] text-ink-faint [overflow-wrap:anywhere]${blocked ? '' : ' short:hidden'}`
+}

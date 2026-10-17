@@ -18,7 +18,8 @@ import type { MainPaneNav, PaneBackOut } from './MainSplit'
 import { navLocationOfLoc } from '../lib/paneHistory'
 import { useSessions, useSchedules, useProviders, useAgents, keys, peek } from '../api'
 import { runSessionId } from '../../contract/ids.ts'
-import { pickedModel, pickedProvider, type ModelPick } from '../lib/models'
+import { pickedProvider, type ModelPick } from '../lib/models'
+import { providerModelSelection } from '../../contract/providers.ts'
 import { conversationModelPick, type ConversationBinding } from '../lib/conversationBinding'
 import { DEFAULT_PROVIDER_ID } from '../../contract/index.ts'
 import { useModelPreferences } from '../controller/modelPreferences'
@@ -93,11 +94,13 @@ export function ConversationPane({
     if (!isDraft) return undefined
     const provider = pickedProvider(providers, modelPick)
     if (!provider) return undefined
-    const model = pickedModel(provider, modelPick)
+    const selection = providerModelSelection(provider, modelPick.modelId)
+    const model = selection.model
     return {
       providerId: provider.id,
       providerLabel: provider.label,
-      ...(model ? { modelId: model.id, modelLabel: model.label, windowTokens: model.contextWindow } : {}),
+      modelId: selection.modelId,
+      ...(model ? { modelLabel: model.label, windowTokens: model.contextWindow } : {}),
     }
   }, [isDraft, providers, modelPick])
 
