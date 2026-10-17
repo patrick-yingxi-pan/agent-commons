@@ -17,6 +17,23 @@ import { store, reconcileSeedTenancy } from '../store/index.ts'
 import { accounts } from '../accounts.ts'
 import { SCHEDULE_TEMPLATES, SCHEDULED_TASKS } from './cowork.ts'
 import { call } from '../testkit/http.ts'
+import { effortLevelsFor } from '../../contract/modelEffort.ts'
+
+test('seeded Routine effort matches the declared model vocabulary in every demo world', () => {
+  let noEffortModels = 0
+  for (const task of SCHEDULED_TASKS) {
+    const provider = store.listProviders(task.tenantId).find(row => row.id === task.providerId)
+    const model = provider?.models?.find(row => row.id === task.modelId)
+    assert.ok(provider && model, `${task.id} has an exact seeded provider/model`)
+    const levels = effortLevelsFor(provider, model)
+    if (task.effort !== undefined) assert.ok(levels.includes(task.effort), `${task.id} declares unsupported effort ${task.effort}`)
+    if (levels.length === 0) {
+      noEffortModels++
+      assert.equal(task.model, model.label, `${task.id} must not advertise unsupported effort in its display label`)
+    }
+  }
+  assert.ok(noEffortModels > 0, 'the fixture matrix includes an explicitly no-effort model')
+})
 
 /** The six demo tenants — the flagship seat reads as BOTH the mock default
  *  (tenant-personal) and its web face (tenant-acme); we test through acme so

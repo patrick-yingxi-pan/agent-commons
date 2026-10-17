@@ -217,12 +217,11 @@ const ROUTINE_MODEL = {
     effort: 'Medium',
     model: 'Claude Sonnet 4.6 · Medium',
   },
-  haikuLow: {
+  haiku: {
     agentId: 'agent-default',
     providerId: 'provider-anthropic',
     modelId: 'claude-haiku-4-5',
-    effort: 'Low',
-    model: 'Claude Haiku 4.5 · Low',
+    model: 'Claude Haiku 4.5',
   },
 } satisfies Record<string, Pick<ScheduledTask, 'agentId' | 'providerId' | 'modelId' | 'effort' | 'model'>>
 
@@ -391,7 +390,7 @@ export const SCHEDULED_TASKS: ScheduledTask[] = [
       { id: 'st3', action: 'Email the on-call engineer — only when spiking', tool: TOOL.gmail },
     ],
     delivery: { tool: TOOL.gmail, target: 'oncall@beta-platform.example', note: 'Only emails when there’s a spike' },
-    ...ROUTINE_MODEL.haikuLow,
+    ...ROUTINE_MODEL.haiku,
     timezone: 'America/Los_Angeles',
     startedLabel: 'Started May 2026',
     projectId: 'p-beta',

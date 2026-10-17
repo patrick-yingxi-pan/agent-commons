@@ -53,7 +53,9 @@ function normalizeWireModel(value: unknown): ModelInfo | undefined {
     ...(typeof m.max_input_tokens === 'number' && m.max_input_tokens > 0 ? { contextWindow: m.max_input_tokens } : {}),
     ...(typeof m.max_tokens === 'number' && m.max_tokens > 0 ? { maxOutputTokens: m.max_tokens } : {}),
     ...(Object.keys(flags).length ? { capabilities: flags } : {}),
-    ...(efforts.length ? { effortLevels: efforts } : {}),
+    // A known capability with no recognized levels is an empty vocabulary,
+    // not permission to inherit the provider's potentially unsupported ladder.
+    ...(typeof caps?.effort?.supported === 'boolean' ? { effortLevels: efforts } : {}),
   }
 }
 

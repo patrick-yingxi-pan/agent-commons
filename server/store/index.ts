@@ -15,6 +15,7 @@
  *  carries sessions + the event bus, the spine everything else hangs off. */
 import { ImageAssetRegistry, rehydrateImageAssets } from '../imageAssets.ts'
 import { providerModelChoices } from '../../contract/providers.ts'
+import { effortLevelsFor } from '../../contract/modelEffort.ts'
 import { isReplyOutputTokens, resolveReplyOutputTokens } from '../../contract/providerReplyLimits.ts'
 import { contributionRuntimeMode, contributionReviewVersion } from '../contributionRuntime.ts'
 import { automationRuntimeMode, requireAutomationFixture } from '../automationRuntime.ts'
@@ -2283,6 +2284,20 @@ function scheduleModelLabel(provider: ModelProvider, modelId?: string, effort?: 
   return effort ? `${base} · ${effort}` : base
 }
 
+/** Routine effort is authored intent, not a personal/default effort choice.
+ * Resolve inherited models from private execution configuration, then preserve
+ * known settings, omit unsupported ones and refuse stale subset selections. */
+function scheduleEffort(provider: ModelProvider, modelId: string | undefined, effort: string | undefined): string | undefined {
+  const config = PROVIDER_CONFIGS.get(provider.id)
+  const effectiveModelId = modelId ?? (config ? resolvedModelId(config) : undefined)
+  const model = provider.models?.find((candidate) => candidate.id === effectiveModelId)
+  const levels = effortLevelsFor(provider, model)
+  if (effort !== undefined && levels.length > 0 && !levels.includes(effort)) {
+    throw new ValidationError(`Provider '${provider.label}' does not offer effort '${effort}' for this model.`)
+  }
+  return levels.length === 0 ? undefined : effort
+}
+
 /** Resolve and validate the durable Agent/provider/model tuple for a routine.
  *  Labels are accepted only as a legacy edge and immediately canonicalized to
  *  ids; execution never routes by mutable display text. */
@@ -2319,7 +2334,7 @@ function scheduleBindingChoice(
     }
     providerId = provider.id
     modelId = model?.id
-    const levels = model?.effortLevels ?? provider.effortLevels
+    const levels = effortLevelsFor(provider, model)
     effort = levels.find((level) => legacyLabel.split('·').some((part) => part.trim() === level))
   }
 
@@ -2329,12 +2344,7 @@ function scheduleBindingChoice(
     throw new ValidationError('Session providers cannot answer unattended routine runs; choose an endpoint provider.')
   }
   if (modelId) assertModelInCatalog(modelId, provider.id, agent.id)
-  const model = provider.models?.find((candidate) => candidate.id === modelId)
-  const levels = model?.effortLevels ?? provider.effortLevels
-  if (effort !== undefined && levels.length > 0 && !levels.includes(effort)) {
-    throw new ValidationError(`Provider '${provider.label}' does not offer effort '${effort}' for this model.`)
-  }
-  if (levels.length === 0) effort = undefined
+  effort = scheduleEffort(provider, modelId, effort)
   return { agent, provider, modelId, effort, label: scheduleModelLabel(provider, modelId, effort) }
 }
 
@@ -13911,7 +13921,7 @@ export const store = {
     const task = schedules.find((candidate) => candidate.id === taskId)
     const run = task?.runs.find((candidate) => candidate.id === runId)
     if (!task || !run || run.status !== 'running') return undefined
-    const executionTask = taskForRun(task, run)
+    let executionTask = taskForRun(task, run)
     const tenantId = task.tenantId ?? defaultTenantId()
     const visibleAgents = this.listAgents(tenantId)
     const agent = visibleAgents.find((candidate) => candidate.id === executionTask.agentId) ??
@@ -13941,7 +13951,7 @@ export const store = {
     }
     const providerConfig = this.providerExecutionConfig(provider.id)
     const legacyModel = provider.models?.find((candidate) => executionTask.model.includes(candidate.label))?.id
-    const modelId = executionTask.modelId ?? legacyModel ?? provider.defaultModelId ?? providerConfig.model
+    const modelId = executionTask.modelId ?? legacyModel ?? resolvedModelId(providerConfig)
     // Inherited catalog-less routing keeps its existing meaning. An explicitly
     // frozen choice, however, must still be selectable after connection changes.
     if (modelId && (provider.models?.length || executionTask.modelId) &&
@@ -13957,6 +13967,18 @@ export const store = {
         task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
         agent, provider, providerConfig, modelId, contexts: [], approvedContextIds: new Set(),
         blocked: { code: 'model_unavailable', detail: `Provider '${provider.label}' is not configured for execution.` },
+      }
+    }
+
+    try {
+      const effort = scheduleEffort(provider, modelId, executionTask.effort)
+      if (effort !== executionTask.effort) executionTask = { ...executionTask, effort }
+    } catch (error) {
+      if (!(error instanceof ValidationError)) throw error
+      return {
+        task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
+        agent, provider, providerConfig, modelId, contexts: [], approvedContextIds: new Set(),
+        blocked: { code: 'model_unavailable', detail: error.message },
       }
     }
 
@@ -14337,6 +14359,9 @@ export const store = {
       ...(binding.modelId ? { modelId: binding.modelId } : {}),
       ...(binding.effort ? { effort: binding.effort } : {}),
     }
+    // The authored seed was spread first; an omitted normalized value must
+    // actually erase an unsupported effort rather than retain the seed field.
+    if (binding.effort === undefined) delete task.effort
     task.trigger = timing.trigger
     if (task.enabled) {
       task.nextFireAt = timing.nextFireAt

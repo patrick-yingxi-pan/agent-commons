@@ -170,7 +170,9 @@ test('parseModelChoice bridges both label kinds; the prefs migrate the legacy bl
   assert.deepEqual(parseModelChoice('My laptop’s Claude', providers).pick, { providerId: 'provider-relay' },
     'a provider’s label names that provider')
   const haiku = parseModelChoice('Claude Haiku 4.5 · Low', providers)
-  assert.deepEqual(haiku, { pick: { modelId: 'claude-haiku-4-5' }, effort: 'Low' })
+  assert.deepEqual(haiku, { pick: { modelId: 'claude-haiku-4-5' } }, 'legacy effort cannot override an explicit no-support declaration')
+  assert.deepEqual(parseModelChoice('Claude Sonnet 4.6 · Low', providers),
+    { pick: { modelId: 'claude-sonnet-4-6' }, effort: 'Low' }, 'supported legacy effort remains intact')
   assert.deepEqual(parseModelChoice('My laptop’s Claude', []).pick, {},
     'a deleted/renamed provider degrades to the default, never throws')
   // The Customize default: a registered provider persists in ModelPrefs, and the

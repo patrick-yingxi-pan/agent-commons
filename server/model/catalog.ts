@@ -24,8 +24,7 @@ interface CatalogEntry {
   contextWindow: number
   maxOutputTokens: number
   /** Which effort levels the model supports (subset of EFFORT_KEYS); empty = the
-   *  model declares no effort support (pickers fall back to the provider's own
-   *  vocabulary — the tri-state the contract documents). */
+   *  model declares no effort support, suppressing provider-level overrides. */
   efforts: readonly (typeof EFFORT_KEYS)[number][]
   thinking: boolean
   vision: boolean
@@ -34,7 +33,7 @@ interface CatalogEntry {
 /** The trio, richest-first (the real API lists newest first). Deliberately varied
  *  so every degradation path is exercised: Opus carries the full 5-level ladder +
  *  the 1M window; Sonnet a 3-level ladder + 200k; Haiku declares no effort levels
- *  at all (the provider-vocabulary fallback). */
+ *  at all (an explicitly empty vocabulary). */
 const CATALOG: CatalogEntry[] = [
   { id: 'claude-opus-4-8', label: 'Claude Opus 4.8', createdAt: '2025-12-02T00:00:00Z', contextWindow: 1_000_000, maxOutputTokens: 64_000, efforts: EFFORT_KEYS, thinking: true, vision: true },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', createdAt: '2025-09-29T00:00:00Z', contextWindow: 200_000, maxOutputTokens: 64_000, efforts: ['low', 'medium', 'high'], thinking: true, vision: true },
@@ -69,6 +68,6 @@ export function seedModels(): ModelInfo[] {
     contextWindow: m.contextWindow,
     maxOutputTokens: m.maxOutputTokens,
     capabilities: { thinking: m.thinking, vision: m.vision },
-    ...(m.efforts.length ? { effortLevels: m.efforts.map((k) => EFFORT_LABELS[EFFORT_KEYS.indexOf(k)]) } : {}),
+    effortLevels: m.efforts.map((k) => EFFORT_LABELS[EFFORT_KEYS.indexOf(k)]),
   }))
 }

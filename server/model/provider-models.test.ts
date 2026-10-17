@@ -56,12 +56,12 @@ test('the mock endpoint answers GET /v1/models in the Anthropic wire shape', asy
 test('fetchProviderModels normalizes the wire face back to exactly the seed catalog (one source, two faces)', async () => {
   const listed = await fetchProviderModels({ baseURL: mockUrl })
   assert.deepEqual(listed, seedModels(), 'the live fetch round-trips to the seeded default catalog')
-  // The per-field degradation: Haiku declares no effort levels (falls back to the
-  // provider vocabulary), Sonnet a 3-level ladder, Opus the full 5.
+  // Explicit no-support stays empty; only unknown metadata may inherit the
+  // provider vocabulary. Sonnet has a 3-level ladder, Opus the full 5.
   const byId = Object.fromEntries((listed ?? []).map((m) => [m.id, m]))
   assert.deepEqual(byId['claude-opus-4-8'].effortLevels, ['Low', 'Medium', 'High', 'xHigh', 'Max'])
   assert.deepEqual(byId['claude-sonnet-4-6'].effortLevels, ['Low', 'Medium', 'High'])
-  assert.equal(byId['claude-haiku-4-5'].effortLevels, undefined)
+  assert.deepEqual(byId['claude-haiku-4-5'].effortLevels, [])
 })
 
 test('fetchProviderModels yields undefined for an endpoint with no list API (absence, not an error)', async () => {

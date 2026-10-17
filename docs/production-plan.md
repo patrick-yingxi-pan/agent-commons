@@ -6,7 +6,38 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: complete provider model catalogs. The local regression
+Current checkpoint: declared model effort capabilities. Registration and refresh
+now preserve the contract's three states: explicit no-support (empty vocabulary),
+a known supported ladder, and absent/invalid metadata (unknown, inheriting the
+configured provider vocabulary). A declared capability without recognized levels
+does not invent a ladder. The development catalog follows the same rule, keeping
+its wire and seeded faces identical. OpenAI's ordinary list remains unknown;
+no model-name heuristic or capability assumption is introduced.
+
+The new catalog, Claude-root and DeepSeek-mounted route regressions failed before
+repair. Authored peers reject unsupported effort, proving actual Send and tool
+continuation omit the field while unknown and Low-only siblings retain their
+respective behavior. The browser regression also failed on the incorrectly
+visible effort control before repair. Five-size picker review and the complete
+local verifier gate delivery. Paid-provider tests remain deferred; this is local
+protocol evidence, not signed or live-provider acceptance.
+
+The same audit found inherited Routine defaults bypassing model-specific effort,
+and authored seed fields surviving normalization. Routine admission now resolves
+the exact private configured model, preserves explicitly supported or unknown
+settings without inventing a default, and erases explicitly unsupported effort.
+Queued execution rechecks current capabilities: no-support omits the override;
+a removed explicit subset choice fails before provider I/O without choosing a
+replacement. Frozen run intent is never rewritten. Eight regression cases failed
+before repair; Messages and Responses authored peers now prove actual successful
+execution without unsupported effort and no-call rejection of stale subsets.
+The legacy label parser now has explicit supported/no-support expectations,
+and an all-demo Routine binding lock removes the contradictory Haiku/Low seed
+and label. The first verifier was stopped cleanly after that stale expectation
+was found; it is not passing evidence. Final frozen-tree verification is required.
+
+Shipped checkpoint `0e9f8bf9`: complete provider model catalogs. All five local
+verifier lanes passed (782 browser tests) before commit and push. The regression
 reproduced a valid configured or explicit model on Messages page two becoming
 unavailable because refresh published only page one. Discovery now collects
 the complete candidate under one original deadline, with 20-page / 2,000-raw-row
@@ -18,7 +49,7 @@ Each page makes one transport attempt: discovery does not inherit generation
 retries, because the Messages SDK's retry sleep can outlive cancellation.
 Three local refusal regressions failed before that repair. An initial full
 verifier was stopped cleanly during review; it is not passing evidence. The
-complete local verifier must run again on the final tree.
+subsequent complete frozen-tree verifier passed in 906.7 seconds.
 
 The [Claude model-list contract](https://platform.claude.com/docs/en/api/models/list)
 uses `has_more`, `last_id` and `after_id`; the
@@ -33,14 +64,6 @@ gate includes model/route tests, rendered selection-refresh-send recovery and
 the complete frozen-tree verifier. No new UI layout or native-shell behavior is
 introduced. Paid-provider testing remains deferred, and this is not signed or
 live-provider acceptance.
-
-Next provider checkpoint: preserve an explicit `effort.supported: false` as an
-empty model effort vocabulary instead of treating it as unknown and inheriting
-the provider's effort setting. The read-only audit found that conflation in
-catalog normalization and the Haiku fixture. An authored peer should refuse
-unexpected effort fields, proving refresh, selection and Send omit the field
-without changing absent-metadata inheritance. This remains separate from the
-current pagination acceptance and deferred paid-provider testing.
 
 Shipped checkpoint `8bda3b73`: owner Stop before provider output. The packaged recovery
 walk exposed a real workflow gap: during an authored OpenAI retry wait the UI
