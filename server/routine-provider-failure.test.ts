@@ -161,7 +161,7 @@ for (const protocol of ['anthropic-messages', 'openai-responses'] as const) {
   })
 }
 
-for (const scenario of [
+for (const protocol of ['anthropic-messages', 'openai-responses'] as const) for (const scenario of [
   { label: 'known quota refusal', status: 429, retryAfter: '0',
     error: { code: 'insufficient_quota', type: 'insufficient_quota', message: privateBody }, guidance: /billing or quota change.*HTTP 429/ },
   { label: 'server wait exceeding the supported bound', status: 503, retryAfter: '61',
@@ -173,7 +173,7 @@ for (const scenario of [
   { label: 'server wait interrupted by the internal model deadline', status: 503, retryAfter: '30', deadlineMs: 20,
     error: { type: 'server_error', message: privateBody }, guidance: /wait|retry.*requested/ },
 ] as const) {
-  test(`Routine treats native Responses ${scenario.label} as terminal rather than deferring another attempt`, async t => {
+  test(`Routine treats ${protocol} ${scenario.label} as terminal rather than deferring another attempt`, async t => {
     let wireRequests = 0
     let seenCredential: string | null = null
     const previous = process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY
@@ -182,8 +182,8 @@ for (const scenario of [
     process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY = privateKey
     t.mock.method(globalThis, 'fetch', async (url, options) => {
       wireRequests++
-      assert.equal(String(url), 'http://127.0.0.1:1/v1/responses', 'the authored fetch intercepts the actual Responses request')
-      seenCredential = new Headers(options?.headers).get('authorization')
+      assert.equal(String(url), `http://127.0.0.1:1/v1/${protocol === 'openai-responses' ? 'responses' : 'messages'}`, 'the authored fetch intercepts the actual provider request')
+      seenCredential = new Headers(options?.headers).get(protocol === 'openai-responses' ? 'authorization' : 'x-api-key')
       const retryAfter = 'expectedRequests' in scenario && wireRequests < scenario.expectedRequests ? '0' : scenario.retryAfter
       return Response.json({ error: scenario.error }, { status: scenario.status, headers: {
         'retry-after': retryAfter, ...('noRetry' in scenario ? { 'x-should-retry': 'false' } : {}),
@@ -192,7 +192,7 @@ for (const scenario of [
     let stopRunner = () => {}
     let timeout: ReturnType<typeof setTimeout> | undefined
     try {
-      const { context, run } = fakeContext(makeProvider('openai-responses', 'http://127.0.0.1:1/v1'))
+      const { context, run } = fakeContext(makeProvider(protocol, `http://127.0.0.1:1${protocol === 'openai-responses' ? '/v1' : ''}`))
       const result = { deferrals: [] as number[], completions: 0, failures: [] as Array<{ code: string; detail: string }> }
       let settled!: () => void
       const terminal = new Promise<void>(resolve => { settled = resolve })
@@ -205,7 +205,7 @@ for (const scenario of [
       ])
       stopRunner()
       assert.equal(wireRequests, 'expectedRequests' in scenario ? scenario.expectedRequests : 1, 'only admitted transport attempts may occur')
-      assert.equal(seenCredential, `Bearer ${privateKey}`)
+      assert.equal(seenCredential, protocol === 'openai-responses' ? `Bearer ${privateKey}` : privateKey)
       assert.equal(run.attempts, 1)
       assert.equal(run.status, 'failed')
       assert.deepEqual(result.deferrals, [], 'terminal provider refusal must not schedule an outer retry')
@@ -222,6 +222,51 @@ for (const scenario of [
       else process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY = previous
       if (previousTimeout === undefined) delete process.env.MODEL_TIMEOUT_MS
       else process.env.MODEL_TIMEOUT_MS = previousTimeout
+    }
+  })
+}
+
+for (const protocol of ['anthropic-messages', 'openai-responses'] as const) {
+  test(`Routine caller cancellation during ${protocol} server backoff settles promptly without publishing terminal provider guidance`, async t => {
+    let calls = 0
+    let discarded = 0
+    let stopRunner = () => {}
+    let abortTimer: ReturnType<typeof setTimeout> | undefined
+    let deadline: ReturnType<typeof setTimeout> | undefined
+    let exited!: () => void
+    const finished = new Promise<void>(resolve => { exited = resolve })
+    t.mock.method(globalThis, 'fetch', async () => {
+      calls++
+      return new Response(new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode(privateBody)) },
+        cancel() {
+          discarded++
+          // Abort after the failed response has been discarded and the retry
+          // wait can begin; cancellation is distinct from an internal deadline.
+          abortTimer = setTimeout(() => stopRunner(), 10)
+        },
+      }), { status: 503, headers: { 'retry-after': '5' } })
+    })
+    try {
+      const { context, run } = fakeContext({ protocol, model: 'caller-cancel-backoff',
+        baseURL: `http://127.0.0.1:1${protocol === 'openai-responses' ? '/v1' : ''}`, capabilities: { toolUse: false } })
+      const result = { deferrals: [] as number[], completions: 0, failures: [] as Array<{ code: string; detail: string }> }
+      const runner = createRoutineRunner(runStore(context, () => {}, result),
+        (...args) => generateReply(...args).finally(exited), { now: () => 1_000 })
+      stopRunner = () => runner.stop()
+      runner.start()
+      await Promise.race([
+        finished,
+        new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error('Caller cancellation did not interrupt provider backoff')), 1_000) }),
+      ])
+      assert.equal(calls, 1)
+      assert.equal(discarded, 1)
+      assert.equal(run.status, 'running', 'caller shutdown leaves the durable row for restart recovery, not a provider refusal')
+      assert.deepEqual(result, { deferrals: [], completions: 0, failures: [] })
+    } finally {
+      stopRunner()
+      if (abortTimer) clearTimeout(abortTimer)
+      if (deadline) clearTimeout(deadline)
     }
   })
 }

@@ -4,6 +4,7 @@
  * Provider choice never acquires separate execution policy. The local Messages
  * server on :8788 remains an explicitly deterministic development fixture. */
 import Anthropic from '@anthropic-ai/sdk'
+import { anthropicMessagesClient } from './model/anthropicMessages.ts'
 import { providerUsage, providerUsageCacheKey } from './providerUsage.ts'
 import { replyThinking } from './model/replyThinking.ts'
 import { collectProviderModels } from './model/providerCatalog.ts'
@@ -100,7 +101,7 @@ function withDeadline(signal?: AbortSignal): AbortSignal {
 /** Lazy protocol-aware clients, bounded to 64 connection/key/retry variants.
  * Only legacy Messages connections may inherit the ambient development endpoint.
  * An explicit endpoint never inherits its ambient credential. */
-type NativeEndpointClient = Anthropic | ReturnType<typeof openaiResponsesClient>
+type NativeEndpointClient = ReturnType<typeof anthropicMessagesClient> | ReturnType<typeof openaiResponsesClient>
 type EndpointRequest = Anthropic.MessageCreateParamsNonStreaming
 type EndpointOptions = { signal?: AbortSignal | null }
 type EndpointClient = {
@@ -155,12 +156,9 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
       }
       return response
     }
-    const native: NativeEndpointClient = config.protocol === 'openai-responses' ? openaiResponsesClient(base, key, observedFetch, maxRetries) : new Anthropic({
-      baseURL: base,
-      apiKey: key,
-      fetch: observedFetch,
-      maxRetries, // review calls explicitly use zero retries; ordinary generation keeps its configured policy
-    })
+    const native: NativeEndpointClient = config.protocol === 'openai-responses'
+      ? openaiResponsesClient(base, key, observedFetch, maxRetries)
+      : anthropicMessagesClient(base, key, observedFetch, maxRetries)
     const observe = (response: EndpointMessage): EndpointMessage => {
       // Execution validates and durably records usage independently. Optional
       // display telemetry never authorizes another call or masks that validation.
@@ -171,12 +169,7 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
       return response
     }
     client = {
-      // Read the raw SDK response, not Page's coerced has_more/last_id defaults:
-      // malformed pagination must never look like a successful terminal page.
-      // URL, credentials, retries and redirects still use the same SDK client.
-      models: { list: async (params, options) => native instanceof Anthropic
-        ? native.get<unknown>('/v1/models', { query: params, ...options })
-        : native.models.list(params, options) },
+      models: { list: (params, options) => native.models.list(params, options) },
       messages: {
         create: async (body, options) => observe(await native.messages.create(body, options)),
         stream: (body, options) => {

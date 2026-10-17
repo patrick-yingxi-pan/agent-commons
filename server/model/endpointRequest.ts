@@ -1,4 +1,4 @@
-/** Bounded pre-response retries for the native Responses transport. The caller
+/** Bounded pre-response retries shared by Messages and Responses. The caller
  * supplies the retry budget and one signal for the whole operation; successful
  * response bodies are handed off exactly once and are never replayed here. */
 const MAX_ERROR_BYTES = 16 * 1024
@@ -113,7 +113,7 @@ async function quotaKind(response: Response, signal: AbortSignal): Promise<'quot
   }
 }
 
-export async function fetchOpenAIWithRetry(
+export async function fetchEndpointWithRetry(
   url: string,
   init: RequestInit & { signal: AbortSignal },
   fetcher: typeof fetch,

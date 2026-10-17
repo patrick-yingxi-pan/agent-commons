@@ -3,8 +3,8 @@
  * opaque Responses output stays in a WeakMap for lossless same-turn replay. */
 import type Anthropic from '@anthropic-ai/sdk'
 import { positiveNumberEnv } from '../env.ts'
-import { fetchOpenAIWithRetry } from './openaiRequest.ts'
-export { EndpointHttpError, EndpointRetryWaitError } from './openaiRequest.ts'
+import { fetchEndpointWithRetry } from './endpointRequest.ts'
+export { EndpointHttpError, EndpointRetryWaitError } from './endpointRequest.ts'
 import { isAssistantTextItems, MAX_ASSISTANT_TEXT_ITEMS, type AssistantTextItem } from '../../contract/assistantTextItems.ts'
 
 type Request = Anthropic.MessageCreateParamsNonStreaming
@@ -213,7 +213,7 @@ export function openaiResponsesClient(baseURL: string, key: string, fetcher: typ
     // Callers own tighter operation deadlines. Otherwise use the same bounded
     // default as generation; a tool-free call must not wait indefinitely either.
     const signal = options.signal ?? AbortSignal.timeout(positiveNumberEnv(process.env.MODEL_TIMEOUT_MS, 60_000))
-    return fetchOpenAIWithRetry(`${baseURL.replace(/\/+$/, '')}/${path}`, {
+    return fetchEndpointWithRetry(`${baseURL.replace(/\/+$/, '')}/${path}`, {
       method: body ? 'POST' : 'GET', redirect: 'error', signal,
       headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
       ...(body ? { body: JSON.stringify(body) } : {}),

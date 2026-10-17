@@ -6,7 +6,25 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: declared model effort capabilities. Registration and refresh
+Current checkpoint: cancellable Claude/DeepSeek retry waits. Messages now uses
+the same host-owned pre-response retry policy as native OpenAI Responses, with
+SDK retries disabled. Stop and the original call deadline interrupt backoff;
+successful response bodies, completed tools and settled usage are not replayed.
+Per-operation private error capture preserves quota and unfulfilled server-wait
+classification through SDK wrapping without leaking diagnostics or crossing
+concurrent calls. Discovery, probes and dedicated drafts/reviews remain
+single-shot. The intentional 400/422 probe capability fallback is unchanged.
+
+Failure-first tests reproduced both Claude-root and DeepSeek-mounted Stop delays,
+deadline delay, repeated quota requests and an incorrectly deferred Routine.
+The local gate includes both-protocol transport/Routine tests, a rendered Stop
+and follow-up conversation against an authored peer, and the complete frozen-tree
+verifier. This checkpoint changes no UI layout or native-shell behavior.
+Paid-provider tests remain deferred; signed/Intel acceptance remains separate.
+
+Shipped checkpoint `3bfa0af1`: declared model effort capabilities. All five local
+verifier lanes passed (783 browser tests), alongside the 135-cell UI sweep,
+before commit and push. Registration and refresh
 now preserve the contract's three states: explicit no-support (empty vocabulary),
 a known supported ladder, and absent/invalid metadata (unknown, inheriting the
 configured provider vocabulary). A declared capability without recognized levels
@@ -34,7 +52,8 @@ execution without unsupported effort and no-call rejection of stale subsets.
 The legacy label parser now has explicit supported/no-support expectations,
 and an all-demo Routine binding lock removes the contradictory Haiku/Low seed
 and label. The first verifier was stopped cleanly after that stale expectation
-was found; it is not passing evidence. Final frozen-tree verification is required.
+was found; it is not passing evidence. The final frozen-tree verifier passed in
+910.0 seconds.
 
 Shipped checkpoint `0e9f8bf9`: complete provider model catalogs. All five local
 verifier lanes passed (782 browser tests) before commit and push. The regression

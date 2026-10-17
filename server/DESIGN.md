@@ -209,16 +209,16 @@ upstream bodies, headers, URLs and credential references never enter that advice
 Both wire protocols retain earlier prose, usage and tool effects on a refused
 continuation. Routines persist `model_unavailable` without deferring that attempt;
 network, timeout, conflict, rate and 5xx failures otherwise retain bounded retry.
-Status alone cannot distinguish a 429 quota failure from rate limiting. Native
-Responses additionally recognizes documented quota error codes in bounded 429
-JSON and terminalizes those failures without exposing provider diagnostics.
+Status alone cannot distinguish a 429 quota failure from rate limiting. Both
+endpoint transports recognize known quota error codes in bounded 429
+JSON and terminalize those failures without exposing provider diagnostics.
 This conservative app policy is informed by the official
 [OpenAI errors](https://developers.openai.com/api/docs/guides/error-codes) and
 [Claude errors](https://platform.claude.com/docs/en/api/errors), not by reflecting
 untrusted provider error text. Dedicated tool-free workflows retain their own
 single-shot failure handling.
 
-Native Responses now consumes the same caller-supplied retry budget as Messages
+Messages and native Responses share one host-owned pre-response retry policy
 (legacy `ANTHROPIC_MAX_RETRIES`, default one). Only network exceptions and eligible
 408/409/429/5xx responses before a successful HTTP response may retry; once a
 successful JSON or SSE body is handed off, parsing, stream or terminal failures
@@ -237,7 +237,14 @@ probes explicitly supply zero retries for either protocol; the probe's existing
 400/422 tool-free capability fallback remains intentional. Successful model
 usage records once and a continuation retry never re-executes an earlier tool
 batch. This follows the [OpenAI rate-limit guidance](https://developers.openai.com/api/docs/guides/rate-limits)
-without changing Messages SDK behavior or claiming live-provider acceptance.
+without claiming live-provider acceptance. Messages keeps the SDK's wire format
+and parser, but disables its internal retries: its backoff sleep did not observe
+the caller's cancellation. Each SDK operation gets its own fetch wrapper and
+trusted typed-error capture, retaining the original signal and terminal wait
+classification even when the SDK replaces an abort error. Concurrent operations
+cannot exchange failures. Discovery and dedicated single-shot calls still pass
+zero retries; header observations remain per physical request and usage remains
+per completed response.
 
 `server/model/` remains the dev mock:
 it decides tools through deterministic intent matching and canned replies while
