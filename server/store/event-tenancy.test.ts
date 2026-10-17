@@ -431,6 +431,16 @@ test('saved-context add/remove are server-owned mutations that broadcast (the Co
  *
  *  Source-scanned on purpose — the union is types-only, so there is no runtime
  *  array to iterate, and a hand-kept second list is the drift this prevents. */
+test('turn admission and pre-output cancellation never enter ambient tenant streams', () => {
+  for (const type of ['turn.start', 'turn.cancelled'] as const) {
+    const event: ServerEvent = { type, sessionId: 'private-session', turnId: 'private-turn' }
+    for (const tenant of [OWNER, OTHER, 'tenant-personal']) {
+      assert.equal(store.eventVisibleToTenant(event, tenant, 'user-ada'), false,
+        `${type} belongs only to the authorized reply stream, never an ambient subscriber`)
+    }
+  }
+})
+
 test('every ServerEvent type is gated or explicitly declared global', () => {
   const events = readFileSync(join(ROOT, 'contract', 'events.ts'), 'utf8')
   const store = readFileSync(join(ROOT, 'server', 'store', 'index.ts'), 'utf8')

@@ -147,6 +147,8 @@ export function canSeedConversationFromCache(entry: ConversationState): boolean 
 /** The streaming callbacks a turn dispatches — structurally the api layer's
  *  SendHandlers, redeclared here so the core stays free of api imports. */
 export interface TurnHandlers {
+  onTurnStart?: (turnId: string) => void
+  onTurnCancelled?: (turnId: string) => void
   onStart?: (messageId: string, message: Message, turnId?: string) => void
   onDelta?: (messageId: string, text: string) => void
   onRelations?: (messageId: string, relationActions: NonNullable<Message['relationActions']>) => void
@@ -496,22 +498,38 @@ export function createConversationStore(
 
   /** The shared streaming handlers — every write lands in the keyed entry,
    *  guarded only by the session's own epoch. */
-  const streamHandlers = (id: string, since: number): TurnHandlers => {
+  const streamHandlers = (id: string, since: number, onTurnCancelled?: (turnId: string) => void): TurnHandlers => {
     const stale = () => epoch(id) !== since
     const mapMessage = (mid: string, fn: (m: Message) => Message) =>
       setLive(id, (l) => ({ ...l, messages: l.messages.map((m) => (m.id === mid ? fn(m) : m)) }))
+    // Admission and the first message share one exact-turn/Stop projection.
+    const admittedTurn = (turnId: string) => {
+      observedTurns.set(id, turnId)
+      const stopRequest = get(id).stopRequest
+      const matchesStop = stopRequest?.turnId === turnId
+      if (!matchesStop) retireStop(id)
+      return { liveTurn: { sessionId: id, turnId }, stopRequest: matchesStop ? stopRequest : null }
+    }
     return {
+      onTurnStart: (turnId) => {
+        if (stale()) return
+        // Admission is enough to expose the exact cancellation handle. The
+        // provider has not necessarily produced an assistant message yet.
+        patch(id, admittedTurn(turnId))
+      },
+      onTurnCancelled: (turnId) => {
+        if (stale()) return
+        if (get(id).liveTurn?.turnId !== turnId) return
+        onTurnCancelled?.(turnId)
+        transport.onTurnSettled?.(id)
+      },
       onStart: (_mid, message, turnId) => {
         if (stale()) return
-        if (turnId) observedTurns.set(id, turnId)
-        if (turnId && get(id).stopRequest?.turnId !== turnId) {
-          retireStop(id)
-          patch(id, { stopRequest: null })
-        }
+        const turn = turnId ? admittedTurn(turnId) : {}
         update(id, (s) => ({
           ...s,
           typing: false,
-          ...(turnId ? { liveTurn: { sessionId: id, turnId } } : {}),
+          ...turn,
           // Id-guarded append: a reattach replays from seq 0, so the shell may
           // already be present (never duplicate it).
           live: s.live.messages.some((m) => m.id === message.id)
@@ -570,6 +588,12 @@ export function createConversationStore(
         : s,
     )
   }
+
+  /** Both original and reattached streams retain explicit recovery only for a
+   * pre-message cancellation. The logical operation must not carry that ended
+   * turn's handle: Retry starts a fresh attempt against the saved user row. */
+  const settleStream = (id: string, since: number, cancelled: boolean, logical?: RetryableSend): void =>
+    settle(id, since, cancelled ? 'This reply was stopped before it started.' : undefined, cancelled ? logical : undefined)
 
   /** Retain a draft turn as explicitly retryable when pre-send materialization
    *  succeeded but an attached-context transaction refused. The user row was
@@ -661,11 +685,12 @@ export function createConversationStore(
         settle(id, since, 'Finish the context update, then retry this message.', logical)
         return
       }
-      await transport.sendMessage(id, logical.text, streamHandlers(id, since), {
+      let cancelledBeforeMessage = false
+      await transport.sendMessage(id, logical.text, streamHandlers(id, since, () => { cancelledBeforeMessage = true }), {
         idempotencyKey: logical.idempotencyKey,
         retryLastUser,
       }).then(
-        () => settle(id, since),
+        () => settleStream(id, since, cancelledBeforeMessage, logical),
         (err: unknown) => settle(id, since, err instanceof Error && err.message ? err.message : null, logical),
       )
     }
@@ -792,8 +817,9 @@ export function createConversationStore(
         logicalOnFailure(),
       )
     }
-    return transport.reattachTurn(id, turnId, 0, streamHandlers(id, since)).then(
-      () => settle(id, since),
+    let cancelledBeforeMessage = false
+    return transport.reattachTurn(id, turnId, 0, streamHandlers(id, since, () => { cancelledBeforeMessage = true })).then(
+      () => settleStream(id, since, cancelledBeforeMessage, capturedLogical ?? undefined),
       (error: unknown) => {
         const reconcileSession = transport.reconcileSession
         if (staleLiveTurn(error) && reconcileSession) return settleReattachFailure(error, reconcileSession)

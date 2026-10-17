@@ -5034,7 +5034,8 @@ export function buildRouter(): Router {
 
   // Reattach to a live turn (design §5.2, invariants I1/I3/I4): replay the buffered
   // frames after `?after=<seq>`, then continue with the live tail, ending with the
-  // same `message.end` the original stream carries. 404 once the turn is gone —
+  // same message.end or pre-output turn.cancelled the original stream carries.
+  // 404 once the turn is gone —
   // the persisted message is the authority and the client refetches the session.
   r.uiFormGet('/sessions/:id/turns/:turnId/stream', 'live turn SSE replay — synchronization transport, not a workspace capability', ({ req, res, params, url }) => {
     const after = Math.max(0, Number(url.searchParams.get('after')) || 0)

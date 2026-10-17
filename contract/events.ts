@@ -23,6 +23,20 @@ import type { ContextTypeId } from './contexts.ts'
 import type { Runner, CapabilityEffect } from './agents.ts'
 
 /** ── Reply-stream events (one assistant turn) ── */
+/** An admitted operation is cancellable before the provider produces a message.
+ * This event carries no assistant shell or model-output claim. */
+export interface TurnStartEvent {
+  type: 'turn.start'
+  sessionId: string
+  turnId: string
+}
+/** Explicit cancellation before an assistant message starts. Terminal without
+ * a fabricated empty answer; the already-persisted user row remains retryable. */
+export interface TurnCancelledEvent {
+  type: 'turn.cancelled'
+  sessionId: string
+  turnId: string
+}
 export interface MessageStartEvent {
   type: 'message.start'
   sessionId: string
@@ -501,6 +515,8 @@ export interface HelloEvent {
 export type ServerEvent =
   | AgentRequestChangedEvent
   | HelloEvent
+  | TurnStartEvent
+  | TurnCancelledEvent
   | MessageStartEvent
   | MessageDeltaEvent
   | MessageRelationsEvent
@@ -554,6 +570,8 @@ export type ServerEventType = ServerEvent['type']
 /** Reply-stream events appear only in a `POST …/messages` SSE body; the rest are
  *  ambient. Handy for the client router and for server-side typing. */
 export type ReplyStreamEvent =
+  | TurnStartEvent
+  | TurnCancelledEvent
   | MessageStartEvent
   | MessageDeltaEvent
   | MessageRelationsEvent

@@ -11,7 +11,7 @@ import { expect } from '@playwright/test'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import {
   OPENAI_SMOKE_MODEL, OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY,
-  OPENAI_SMOKE_REASONING, startOpenAIResponsesSmokeFixture,
+  OPENAI_SMOKE_REASONING, OPENAI_SMOKE_PRIVATE_ERROR, startOpenAIResponsesSmokeFixture,
 } from './openaiResponsesSmokeFixture.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -53,8 +53,8 @@ export function readOpenAIState(profile, providerId, sessionId, tenantId) {
 
 function assertNoSecrets(value) {
   const text = typeof value === 'string' ? value : JSON.stringify(value)
-  for (const secret of [OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY, OPENAI_SMOKE_REASONING.encrypted_content]) {
-    assert.ok(!text.includes(secret), 'credentials and opaque provider reasoning stay out of product data and renderer HTTP')
+  for (const secret of [OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY, OPENAI_SMOKE_REASONING.encrypted_content, OPENAI_SMOKE_PRIVATE_ERROR]) {
+    assert.ok(!text.includes(secret), 'credentials, opaque reasoning and private provider diagnostics stay out of product data and renderer HTTP')
   }
 }
 
@@ -82,7 +82,7 @@ export function assertProviderTransport(requests) {
     for (const key of [OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY]) {
       assert.ok(!body.includes(key), 'provider credentials belong in headers, never request bodies')
     }
-    if (index === 2) {
+    if (index === 2 || index === 3) {
       assert.deepEqual(request.input.filter(item => item.type === 'reasoning'), [OPENAI_SMOKE_REASONING])
       const withoutContinuation = { ...request, input: request.input.filter(item => item.type !== 'reasoning') }
       assertNoSecrets(withoutContinuation)
@@ -148,6 +148,7 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     assert.equal(Object.keys(originalVault.entries).length, 1, 'one encrypted key is bound before model work')
 
     stage = 'agent-dispatch-tool-round'
+    fixture.setMode('retry-tools')
     const instructions = 'PACKAGED_RESPONSES_AGENT: inspect usage and answer briefly.'
     const prompt = await api(page, '/system-prompts', { label: 'Responses instructions', body: instructions, targetFamily: 'gpt' })
     const agent = await api(page, '/agents', { label: 'Responses Agent', providerId: provider.id, systemPromptId: prompt.id, tools: [], instructions })
@@ -170,14 +171,19 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     await page.goto(`${origin}/s/${sessionId}`)
     await expect(page.locator('[data-turn]').filter({ hasText: 'The packaged OpenAI tool round completed.' })).toBeVisible()
     await expect(page.getByText('GET /api/v1/usage → 200', { exact: true })).toBeVisible()
-    assert.equal(fixture.requests.length, 3, 'one probe and exactly two streamed tool-loop requests')
-    const [first, continuation] = fixture.requests.slice(1)
+    assert.equal(fixture.requests.length, 4, 'one probe, the tool call, and two identical continuation attempts')
+    const [first, failedContinuation, continuation] = fixture.requests.slice(1)
     assert.equal(first.stream, true)
+    assert.equal(failedContinuation.stream, true)
     assert.equal(continuation.stream, true)
+    assert.deepEqual(failedContinuation, continuation, 'the retry replays the exact admitted continuation body')
     assert.ok(first.instructions.includes(instructions), 'the selected Agent instructions reach Responses')
     assert.ok(first.tools.some(tool => tool.type === 'function' && tool.name === 'api__get_usage'))
     assert.deepEqual(continuation.input.find(item => item.id === OPENAI_SMOKE_REASONING.id), OPENAI_SMOKE_REASONING,
       'opaque reasoning returns only to the same provider during tool continuation')
+    const failedOutput = failedContinuation.input.find(item => item.type === 'function_call_output' && item.call_id === 'openai-smoke-usage')
+    assert.ok(failedOutput, 'the failed continuation contains the exact tool receipt')
+    assert.equal(JSON.parse(failedOutput.output).status, 200)
     const output = continuation.input.find(item => item.type === 'function_call_output' && item.call_id === 'openai-smoke-usage')
     assert.ok(output, 'the actual API-read result returns under the exact call identity')
     assert.equal(JSON.parse(output.output).status, 200, 'the continued tool result is the successful workspace read')
@@ -207,7 +213,7 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     await replacement.getByRole('button', { name: 'Verify & update', exact: true }).click()
     assert.equal((await refused).status(), 400, 'a successful HTTP failed model reply cannot replace the connection')
     await expect(replacement).toContainText('Your connection details are still here.')
-    assert.equal(fixture.requests.length, 4, 'failed output does not cause another capability attempt')
+    assert.equal(fixture.requests.length, 5, 'failed output does not cause another capability attempt')
     assertProviderTransport(fixture.requests)
     await expect.poll(async () => JSON.parse(await readFile(vaultPath, 'utf8')).entries).toEqual(originalVault.entries)
     const rejected = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
@@ -234,15 +240,15 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     assert.deepEqual(after.config, before.config)
     assert.deepEqual(after.session, before.session, 'the exact saved conversation and tool provenance survive relaunch')
     assert.deepEqual(after.usage, before.usage, 'usage counters and reset anchors survive relaunch exactly')
-    assert.equal(fixture.requests.length, 4, 'startup never redispatches the saved model turn')
+    assert.equal(fixture.requests.length, 5, 'startup never redispatches the saved model turn')
     await page.goto(`${origin}/s/${sessionId}`)
     const composer = page.getByRole('textbox', { name: 'Message', exact: true })
     await composer.fill('Continue after the full native relaunch.')
     await composer.press('Enter')
     await expect(page.locator('[data-turn]').filter({ hasText: 'The restored OpenAI connection completed another turn.' })).toBeVisible({ timeout: TIMEOUT_MS })
     await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
-    assert.equal(fixture.requests.length, 5, 'the restored original device key permits exactly one fresh turn')
-    assertPhaseHistory(after.session.messages.at(-1), fixture.requests[4])
+    assert.equal(fixture.requests.length, 6, 'the restored original device key permits exactly one fresh turn')
+    assertPhaseHistory(after.session.messages.at(-1), fixture.requests[5])
     assertProviderTransport(fixture.requests)
     const retained = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
     assert.equal(retained.usage.fiveHour.consumed, 90)
@@ -307,12 +313,94 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     assert.deepEqual(durableOriginal.session, retained.session)
     assert.deepEqual(durableNew.session, newConversation.session, 'the Agent-page conversation survives the second real relaunch')
     assert.deepEqual(durableNew.usage, newConversation.usage)
-    assert.equal(fixture.requests.length, 6, 'startup does not replay either saved conversation')
+    assert.equal(fixture.requests.length, 7, 'startup does not replay either saved conversation')
     assertNoSecrets(durableNew.productJson)
     assertNoSecrets(productRequests)
     assertNoSecrets(await readFile(vaultPath, 'utf8'))
     await page.screenshot({ path: join(evidence, 'agent-page-conversation.png'), fullPage: true, animations: 'disabled' })
-    console.log(`[desktop-openai-smoke] rendered OpenAI setup · OS-encrypted synthetic key · explicit Agent Dispatch · Responses stream + read tool + opaque continuation · exact SQLite usage · refused key replacement · signed-in relaunch and fresh authenticated turn · Agent-page unsent draft, bound conversation, exact usage, and second durable relaunch · evidence ${evidence}`)
+
+    stage = 'rendered-quota-refusal'
+    fixture.setMode('quota')
+    await page.goto(`${origin}/s/${newSessionId}`)
+    const quotaBefore = readOpenAIState(profile, provider.id, newSessionId, identity.tenant.id)
+    const quotaComposer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await quotaComposer.fill('Check that a provider quota refusal is shown safely.')
+    await quotaComposer.press('Enter')
+    const quotaAdvice = 'The model provider requires a billing or quota change (HTTP 429). Check credits, spending limits and account usage limits with the provider.'
+    await expect(page.locator('[data-turn]').filter({ hasText: quotaAdvice })).toBeVisible({ timeout: TIMEOUT_MS })
+    await expect(page.getByText(OPENAI_SMOKE_PRIVATE_ERROR, { exact: false })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+    assert.equal(fixture.requests.length, 8, 'quota refusal makes exactly one provider call')
+    const quotaAfter = readOpenAIState(profile, provider.id, newSessionId, identity.tenant.id)
+    assert.deepEqual(quotaAfter.usage, quotaBefore.usage, 'quota refusal records no model usage')
+    assert.deepEqual(quotaAfter.session.messages.slice(0, quotaBefore.session.messages.length), quotaBefore.session.messages,
+      'the refused send preserves the complete prior Agent-page conversation')
+    assert.equal(quotaAfter.session.messages.length, quotaBefore.session.messages.length + 2,
+      'the refused send persists its user row and static assistant refusal')
+    assert.equal(quotaAfter.session.messages.at(-2)?.role, 'user')
+    assert.equal(quotaAfter.session.messages.at(-2)?.content, 'Check that a provider quota refusal is shown safely.')
+    assert.equal(quotaAfter.session.messages.at(-1)?.role, 'assistant')
+    assert.equal(quotaAfter.session.messages.at(-1)?.content,
+      `*(${quotaAdvice} This turn will not be retried automatically.)*`, 'the persisted quota advice is exact and excludes provider diagnostics')
+    assertNoSecrets(quotaAfter.productJson)
+    assertNoSecrets(productRequests)
+    await page.screenshot({ path: join(evidence, 'quota-refusal.png'), fullPage: true, animations: 'disabled' })
+
+    stage = 'rendered-stop-during-retry-wait'
+    fixture.setMode('retry-wait')
+    const waitComposer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await waitComposer.fill('Stop while the provider retry delay is active.')
+    await waitComposer.press('Enter')
+    const stop = page.getByRole('button', { name: 'Stop', exact: true })
+    await expect(stop).toBeVisible({ timeout: TIMEOUT_MS })
+    await expect.poll(() => fixture.retryWaitResponses, { timeout: TIMEOUT_MS }).toBe(1)
+    // Let the loopback 503 reach the native client; an immediate replay despite
+    // Retry-After: 30 becomes a second fixture request before the user cancels.
+    await page.waitForTimeout(250)
+    await expect(stop).toBeVisible()
+    assert.equal(fixture.requests.length, 9, 'positive Retry-After produces only the first provider request')
+    await stop.click()
+    await expect(stop).toHaveCount(0, { timeout: TIMEOUT_MS })
+    await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible({ timeout: TIMEOUT_MS })
+    const stopped = readOpenAIState(profile, provider.id, newSessionId, identity.tenant.id)
+    assert.equal(fixture.requests.length, 9, 'Stop aborts the active retry wait without replay')
+    assert.deepEqual(stopped.usage, quotaAfter.usage, 'aborted retry wait records no model usage')
+    assert.deepEqual(stopped.session.messages.slice(0, quotaAfter.session.messages.length), quotaAfter.session.messages,
+      'Stop retains the exact quota-refusal history')
+    assert.equal(stopped.session.messages.length, quotaAfter.session.messages.length + 1,
+      'transport cancellation before message.start persists only the sent user row')
+    assert.equal(stopped.session.messages.at(-1)?.role, 'user')
+    assert.equal(stopped.session.messages.at(-1)?.content, 'Stop while the provider retry delay is active.')
+    assert.equal(stopped.session.messages.filter(message => message.role === 'assistant').length,
+      quotaAfter.session.messages.filter(message => message.role === 'assistant').length,
+      'the pre-stream Stop has no partial assistant text or separate cancel receipt')
+    await expect(page.getByText(OPENAI_SMOKE_PRIVATE_ERROR, { exact: false })).toHaveCount(0)
+    assertNoSecrets(stopped.productJson)
+    assertNoSecrets(productRequests)
+    await page.screenshot({ path: join(evidence, 'stopped-retry-wait.png'), fullPage: true, animations: 'disabled' })
+
+    stage = 'final-relaunch-no-replay'
+    const preFinalRelaunchOrigin = origin
+    await close(run)
+    run = undefined
+    await assert.rejects(fetch(`${preFinalRelaunchOrigin}/api/v1/me`, { signal: AbortSignal.timeout(1_000) }), 'the third backend actually exits')
+    run = await launch(executable, profile)
+    ;({ page, origin } = run)
+    observe(page)
+    assert.equal((await api(page, '/me')).user.id, identity.user.id)
+    const finalOriginal = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
+    const finalNew = readOpenAIState(profile, provider.id, newSessionId, identity.tenant.id)
+    assert.deepEqual(finalOriginal.session, retained.session, 'the original tool conversation remains exact after the final relaunch')
+    assert.deepEqual(finalOriginal.usage, stopped.usage, 'account-wide usage still includes the Agent-page conversation and no refused/aborted spend')
+    assert.deepEqual(finalNew.session, stopped.session, 'quota refusal and stopped retry history survive without mutation')
+    assert.deepEqual(finalNew.usage, stopped.usage)
+    assert.equal(fixture.requests.length, 9, 'final startup does not dispatch saved work')
+    assertProviderTransport(fixture.requests)
+    assertNoSecrets(finalNew.productJson)
+    assertNoSecrets(productRequests)
+    assertNoSecrets(await readFile(vaultPath, 'utf8'))
+    await page.screenshot({ path: join(evidence, 'final-relaunch.png'), fullPage: true, animations: 'disabled' })
+    console.log(`[desktop-openai-smoke] rendered OpenAI setup · OS-encrypted synthetic key · explicit Agent Dispatch · Responses stream + read tool + retried opaque continuation · exact SQLite usage · refused key replacement · signed-in relaunch and fresh authenticated turn · Agent-page draft/relaunch · rendered quota refusal and stopped positive retry wait · final exact-history relaunch without replay · evidence ${evidence}`)
   } catch (error) {
     await run?.page.screenshot({ path: join(evidence, `failure-${stage}.png`), fullPage: true }).catch(() => {})
     throw new Error(`Packaged OpenAI Responses acceptance failed at ${stage}: ${error instanceof Error ? error.message : String(error)}`)

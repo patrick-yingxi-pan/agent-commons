@@ -103,6 +103,7 @@ export function startConversationTurn(input: ConversationTurnInput) {
 
   const finished = (async () => {
     try {
+      emit({ type: 'turn.start', sessionId: session.id, turnId: active.id })
       const { commons, contexts, externalMcpConnections } = input.projectWorkDraft
         ? { commons: undefined, contexts: [], externalMcpConnections: [] }
         : conversationContext(session.id, tenantId, actorUserId)
@@ -126,6 +127,9 @@ export function startConversationTurn(input: ConversationTurnInput) {
         const partial = stamp({ id: messageId, role: 'assistant', content: streamedText })
         commit(partial)
         emit({ type: 'message.end', sessionId: session.id, message: partial })
+      } else if (ac.signal.aborted && !messageId && !committed) {
+        commit()
+        emit({ type: 'turn.cancelled', sessionId: session.id, turnId: active.id })
       }
     } finally {
       try {

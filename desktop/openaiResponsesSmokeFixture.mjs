@@ -5,6 +5,7 @@ const MAX_CAPTURED_REQUESTS = 32
 const OPENAI_SMOKE_MODEL = 'desktop-openai-smoke-model'
 const OPENAI_SMOKE_KEY = 'agent-commons-openai-smoke-not-a-real-key'
 const OPENAI_SMOKE_REPLACEMENT_KEY = 'agent-commons-openai-rejected-not-a-real-key'
+const OPENAI_SMOKE_PRIVATE_ERROR = 'private-desktop-openai-smoke-provider-error-details'
 const OPENAI_SMOKE_REASONING = Object.freeze({
   id: 'rs_desktop_openai_smoke',
   type: 'reasoning',
@@ -14,17 +15,19 @@ const OPENAI_SMOKE_REASONING = Object.freeze({
 const TEXT_REPLY = 'The restored OpenAI connection completed another turn.'
 const TOOL_REPLY = 'The packaged OpenAI tool round completed.'
 
-export { OPENAI_SMOKE_MODEL, OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY, OPENAI_SMOKE_REASONING }
+export { OPENAI_SMOKE_MODEL, OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY, OPENAI_SMOKE_REASONING, OPENAI_SMOKE_PRIVATE_ERROR }
 
-function json(res, status, body) {
-  if (res.destroyed || res.writableEnded) return
+function json(res, status, body, headers = {}) {
+  if (res.destroyed || res.writableEnded) return false
   const payload = JSON.stringify(body)
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(payload),
     'cache-control': 'no-store',
+    ...headers,
   })
   res.end(payload)
+  return true
 }
 
 function responseObject(id, status, output, usage) {
@@ -136,6 +139,8 @@ export async function startOpenAIResponsesSmokeFixture() {
   let catalogCount = 0
   let sequence = 0
   let mode = 'tools'
+  let continuationFailures = 0
+  let retryWaitResponses = 0
   let closing
 
   const server = createServer(async (req, res) => {
@@ -203,12 +208,25 @@ export async function startOpenAIResponsesSmokeFixture() {
       json(res, 400, { error: { message: 'Ordinary Responses requests must stream.' } })
       return
     }
+    if (mode === 'quota') {
+      json(res, 429, { error: { type: 'insufficient_quota', code: 'insufficient_quota', message: OPENAI_SMOKE_PRIVATE_ERROR } })
+      return
+    }
+    if (mode === 'retry-wait') {
+      if (json(res, 503, { error: { type: 'service_unavailable_error', code: 'server_is_overloaded', message: OPENAI_SMOKE_PRIVATE_ERROR } }, { 'retry-after': '30' })) retryWaitResponses++
+      return
+    }
     const hasToolOutput = Array.isArray(body.input) && body.input.some((item) => item?.type === 'function_call_output')
-    if (mode === 'tools' && !hasToolOutput) {
+    const toolsMode = mode === 'tools' || mode === 'retry-tools'
+    if (toolsMode && !hasToolOutput) {
       streamToolCall(res, id)
       return
     }
-    streamText(res, id, mode === 'tools' ? TOOL_REPLY : TEXT_REPLY)
+    if (mode === 'retry-tools' && hasToolOutput && continuationFailures++ === 0) {
+      json(res, 503, { error: { type: 'service_unavailable_error', code: 'server_is_overloaded', message: OPENAI_SMOKE_PRIVATE_ERROR } }, { 'retry-after': '0' })
+      return
+    }
+    streamText(res, id, toolsMode ? TOOL_REPLY : TEXT_REPLY)
   })
 
   server.on('connection', (socket) => {
@@ -231,9 +249,12 @@ export async function startOpenAIResponsesSmokeFixture() {
     origin: `http://127.0.0.1:${port}/v1`,
     requests,
     get catalogCount() { return catalogCount },
+    get retryWaitResponses() { return retryWaitResponses },
     setMode(nextMode) {
-      if (!['tools', 'text', 'failed-probe'].includes(nextMode)) throw new TypeError('Unsupported OpenAI fixture mode.')
+      if (!['tools', 'text', 'failed-probe', 'retry-tools', 'quota', 'retry-wait'].includes(nextMode)) throw new TypeError('Unsupported OpenAI fixture mode.')
       mode = nextMode
+      continuationFailures = 0
+      retryWaitResponses = 0
     },
     close() {
       if (closing) return closing

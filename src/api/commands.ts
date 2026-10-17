@@ -114,6 +114,11 @@ export function captureSessionWriteSourceUserId(): string | null | undefined {
 
 /** Callbacks for a streamed assistant turn. Each fires as its event arrives. */
 export interface SendHandlers {
+  /** The server admitted this turn and it can now be deliberately stopped,
+   * even before the provider has produced an assistant message. */
+  onTurnStart?: (turnId: string) => void
+  /** The turn was stopped before any assistant message shell was created. */
+  onTurnCancelled?: (turnId: string) => void
   /** The (empty) assistant message shell — append it, then fill via deltas.
    *  `turnId` is the server-owned turn handle (cancel / reattach); absent only
    *  from pre-turn-registry servers. */
@@ -204,8 +209,8 @@ export async function sendMessage(
 
 /** Reattach to a turn already running server-side (multi-account §6.4/§6.5):
  *  the stream replays buffered frames after `after` (0 = from the top), then
- *  follows the live tail through the same `message.end` the original stream
- *  carries. A 404 means the live handle is unavailable — the controller makes
+ *  follows the live tail through the original stream's message.end or
+ *  pre-output turn.cancelled terminal. A 404 means the live handle is unavailable — the controller makes
  *  one authoritative session read before exposing recovery. Fetch-streamed (fetch CAN set headers; only
  *  EventSource can't), so it joins the standard identity policy. */
 export async function reattachTurn(
@@ -1283,6 +1288,12 @@ export async function setResourceCapacity(key: string, capacity: number): Promis
 
 function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {
   switch (event.type) {
+    case 'turn.start':
+      h.onTurnStart?.(event.turnId)
+      break
+    case 'turn.cancelled':
+      h.onTurnCancelled?.(event.turnId)
+      break
     case 'message.start':
       h.onStart?.(event.message.id, event.message, event.turnId)
       break

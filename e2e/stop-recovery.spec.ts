@@ -5,7 +5,8 @@
  * inspected before the same real turn is cancelled through its route. */
 import { test, expect, type Page, type TestInfo } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
-import { assertWcag22Aa } from './accessibility-helpers.ts'
+import { createServer, type Server, type ServerResponse } from 'node:http'
+import { assertWcag22Aa, settledNarrowRail, settledOpaquePaint } from './accessibility-helpers.ts'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers.ts'
 import { splitPane } from './pane-actions.ts'
@@ -186,6 +187,203 @@ test('Stop pending, failure, and acknowledgement recovery at 844×390', async ({
 
 test('Stop pending, failure, and acknowledgement recovery at 1280×800', async ({ page }, testInfo) =>
   exerciseStopRecovery(page, testInfo, VIEWPORTS[4]))
+
+test('Stop is available and Retry remains after cancellation before first assistant output', async ({ page }, testInfo) => {
+  test.setTimeout(ms(60_000))
+  const fixtureTurnId = `pre-output-${randomUUID()}`
+  const fixtureUserMessageId = `persisted-user-${randomUUID()}`
+  const message = `Stop before the first output ${randomUUID()}`
+  const messagePaths: string[] = []
+  const cancelPaths: string[] = []
+  let streamResponse: ServerResponse | undefined
+  let terminalReleased = false
+  let fixturePort = 0
+  let fixture!: Server
+
+  fixture = createServer(async (request, response) => {
+    const origin = request.headers.origin
+    const cors = {
+      'Access-Control-Allow-Origin': origin ?? '*',
+      'Access-Control-Allow-Credentials': 'true',
+      'Access-Control-Allow-Headers': request.headers['access-control-request-headers'] ?? 'content-type,idempotency-key',
+      'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+      Vary: 'Origin',
+    }
+    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+    if (request.method === 'OPTIONS') {
+      response.writeHead(204, cors)
+      response.end()
+      return
+    }
+    if (request.method === 'POST' && pathname.match(/^\/api\/v1\/sessions\/[^/]+\/messages$/)) {
+      for await (const _chunk of request) { /* Consume the authored POST body. */ }
+      messagePaths.push(pathname)
+      response.writeHead(200, {
+        ...cors,
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+      })
+      response.flushHeaders()
+      response.write(`data: ${JSON.stringify({ type: 'turn.start', sessionId: pathname.split('/')[4], turnId: fixtureTurnId })}\n\n`)
+      streamResponse = response
+      response.on('close', () => {
+        if (streamResponse === response && !response.writableEnded) streamResponse = undefined
+      })
+      return
+    }
+    if (request.method === 'POST' && pathname.match(/^\/api\/v1\/sessions\/[^/]+\/turns\/[^/]+\/cancel$/)) {
+      for await (const _chunk of request) { /* No cancellation body is expected. */ }
+      cancelPaths.push(pathname)
+      response.writeHead(204, cors)
+      response.end()
+      return
+    }
+    if (request.method === 'POST' && pathname === '/__complete') {
+      const stream = streamResponse
+      if (!stream || stream.writableEnded) {
+        response.writeHead(409, cors)
+        response.end('No held reply stream')
+        return
+      }
+      terminalReleased = true
+      stream.write(`data: ${JSON.stringify({ type: 'turn.cancelled', sessionId: messagePaths[0]!.split('/')[4], turnId: fixtureTurnId })}\n\n`)
+      stream.end()
+      streamResponse = undefined
+      response.writeHead(204, cors)
+      response.end()
+      return
+    }
+    response.writeHead(404, cors)
+    response.end('No test fixture route')
+  })
+
+  await new Promise<void>((resolve, reject) => {
+    fixture.once('error', reject)
+    fixture.listen(0, '127.0.0.1', () => {
+      const address = fixture.address()
+      if (!address || typeof address === 'string') {
+        reject(new Error('The test stream fixture did not bind a TCP port.'))
+        return
+      }
+      fixturePort = address.port
+      resolve()
+    })
+  })
+  const fixtureOrigin = `http://127.0.0.1:${fixturePort}`
+  let sessionId: string | undefined
+  try {
+    const created = await page.request.post('/api/v1/sessions', { data: {} })
+    expect(created.ok(), 'the normal API creates a real conversation shell for the UI').toBe(true)
+    sessionId = ((await created.json()) as { id: string }).id
+    let authoritativeReads = 0
+    await page.route('**/api/v1/sessions/*', async (route) => {
+      const request = route.request()
+      const pathname = new URL(request.url()).pathname
+      if (request.method() === 'GET' && pathname === `/api/v1/sessions/${sessionId}` && terminalReleased) {
+        authoritativeReads += 1
+        const response = await route.fetch()
+        const session = await response.json() as { messages?: unknown[]; [key: string]: unknown }
+        await route.fulfill({
+          response,
+          json: {
+            ...session,
+            activeTurnId: null,
+            messages: [{ id: fixtureUserMessageId, role: 'user', content: message }],
+          },
+        })
+        return
+      }
+      await route.continue()
+    })
+    await page.route('**/api/v1/sessions/*/messages', (route) => {
+      const pathname = new URL(route.request().url()).pathname
+      return route.continue({ url: `${fixtureOrigin}${pathname}` })
+    })
+    await page.route('**/api/v1/sessions/*/turns/*/cancel', (route) => {
+      const pathname = new URL(route.request().url()).pathname
+      return route.continue({ url: `${fixtureOrigin}${pathname}` })
+    })
+    await page.goto(`/s/${sessionId}`)
+    const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+    await expect(composer).toBeEnabled()
+    await composer.fill(message)
+    await composer.press('Enter')
+
+    await expect.poll(() => messagePaths.length, { message: 'the authored SSE stream received exactly one send' }).toBe(1)
+    await expect(page.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+    await expect(page.getByText('Generating a reply…', { exact: true })).toBeVisible()
+    const rowsBeforeStop = page.locator('[data-turn]')
+    await expect(rowsBeforeStop).toHaveCount(1)
+    await expect(rowsBeforeStop.first().locator('[data-turn-author]')).toHaveText('You')
+
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      const size = `${viewport.width}x${viewport.height}`
+      const stop = page.getByRole('button', { name: 'Stop', exact: true })
+      await settledNarrowRail(page)
+      await settledOpaquePaint(rowsBeforeStop.first())
+      await settledOpaquePaint(stop)
+      await expect(stop, `${size}: the admitted pre-output turn can be stopped`).toBeVisible()
+      await expect.poll(
+        () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+        { message: `${size}: pre-output Stop has no horizontal overflow` },
+      ).toBe(true)
+      const box = await stop.boundingBox()
+      expect(box, `${size}: Stop has rendered geometry`).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+      expect(box!.y).toBeGreaterThanOrEqual(0)
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
+      await assertWcag22Aa(page, `pre-output Stop ${size}`)
+      await page.screenshot({ path: testInfo.outputPath(`pre-output-stop-${size}.png`), fullPage: true })
+    }
+
+    await page.getByRole('button', { name: 'Stop', exact: true }).click()
+    await expect(page.getByRole('status').filter({ hasText: 'Stop requested. Waiting for the reply to finish…' })).toBeVisible()
+    expect(cancelPaths, 'Stop targets the exact session and admitted turn').toEqual([
+      `/api/v1/sessions/${sessionId}/turns/${fixtureTurnId}/cancel`,
+    ])
+
+    const completed = await page.request.post(`${fixtureOrigin}/__complete`)
+    expect(completed.status(), 'the fixture releases the terminal only after Stop acknowledgement').toBe(204)
+    await expect(page.getByText('Generating a reply…', { exact: true })).toHaveCount(0)
+    const retry = page.getByRole('button', { name: 'Retry', exact: true })
+    await expect(retry).toBeVisible()
+    await expect.poll(() => authoritativeReads, { message: 'the settled view reconciles its test-owned user-only row' }).toBeGreaterThan(0)
+    await expect(rowsBeforeStop).toHaveCount(1)
+    await expect(rowsBeforeStop.first()).toHaveAttribute('data-turn', fixtureUserMessageId)
+    await expect(rowsBeforeStop.first().locator('[data-turn-author]')).toHaveText('You')
+    const typingIndicator = page.locator('.thinking-dot')
+    await expect(typingIndicator, 'the settled pre-output cancellation removes the in-flight typing indicator').toHaveCount(0)
+
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      const size = `${viewport.width}x${viewport.height}`
+      await settledNarrowRail(page)
+      await settledOpaquePaint(rowsBeforeStop.first())
+      await settledOpaquePaint(retry)
+      await expect(typingIndicator, `${size}: Retry is captured after the typing indicator exits`).toHaveCount(0)
+      await expect(retry, `${size}: the submitted user row remains retryable`).toBeVisible()
+      await expect.poll(
+        () => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+        { message: `${size}: cancellation guidance and Retry fit without horizontal overflow` },
+      ).toBe(true)
+      const box = await retry.boundingBox()
+      expect(box, `${size}: Retry has rendered geometry`).not.toBeNull()
+      expect(box!.x).toBeGreaterThanOrEqual(0)
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width)
+      expect(box!.y).toBeGreaterThanOrEqual(0)
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height)
+      await assertWcag22Aa(page, `pre-output Retry ${size}`)
+      await page.screenshot({ path: testInfo.outputPath(`pre-output-cancel-retry-${size}.png`), fullPage: true })
+    }
+    expect(messagePaths).toEqual([`/api/v1/sessions/${sessionId}/messages`])
+  } finally {
+    if (streamResponse && !streamResponse.writableEnded) streamResponse.end()
+    await new Promise<void>((resolve) => fixture.close(() => resolve()))
+  }
+})
 
 test('a conversation viewer can follow its live reply but only the owner can send or stop', async ({ browser }, testInfo) => {
   test.setTimeout(ms(120_000))

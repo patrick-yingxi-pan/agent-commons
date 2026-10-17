@@ -6,7 +6,83 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: bounded native Responses transport retries. The audit
+Current checkpoint: owner Stop before provider output. The packaged recovery
+walk exposed a real workflow gap: during an authored OpenAI retry wait the UI
+showed typing but no Stop, because the cancellation handle arrived only with
+the provider's first assistant message. Waiting longer did not make the owner
+control available during that pre-output interval. This failed native run is
+diagnostic evidence, not completed acceptance.
+
+The app wire now separates admission from output. Replayable
+`turn.start {sessionId, turnId}` follows user persistence and precedes provider
+work, exposing owner Stop without fabricating an assistant shell or opening a
+second stream. Explicit abort before `message.start` commits the initiating
+outcome before terminal `turn.cancelled`; a failed commit cannot acknowledge
+cancellation. The saved final user row remains for explicit Retry, never
+automatic resend. Existing partial-output cancellation still uses `message.end`.
+Client session/account epochs fence late callbacks and retain exact-turn,
+acknowledgement-aware controls.
+Focused local checks pass for admission/cancellation, commit failure, ownership,
+idempotent retry, stale-callback fencing and cancelled reattach recovery. The
+five-size browser matrix passes Stop/Retry containment and WCAG 2.2 AA checks;
+captures await the closed narrow rail, opaque content and removed typing state.
+The cancelled-handle regression was also watched fail under mutation before
+restoration. The full responsive sweep passed 135/135 cells with no violations
+or skips. The signed-in preview recovered through its ordinary Try again action
+and remains on Ada's account.
+
+The complete unsigned arm64 `npm run desktop:verify` passed, including temporary
+OpenAI continuation recovery, one tool activity, exact settled usage, safe quota
+refusal, Stop during a positive retry wait, and exact newly persisted history
+across signed-in relaunch without replay. Synthetic credentials remain in
+OS-backed custody, not product persistence or renderer HTTP. The accepted ASAR
+SHA-256 is `ab6beb61cd9f561c5e6c724708f4f23a84aa445ad245d2ebbcf8026a82bb43f7`;
+the OpenAI screenshots are in `.data/desktop-openai-smoke/run-PfVgY5/`.
+Complete frozen-tree `npm run verify` and post-test diff review remain the
+mandatory landing gate. Paid-provider tests, signed/notarized native-architecture release
+acceptance and real two-version update installation remain separate gates.
+Failure-first native evidence: the strengthened walk against the previous
+Oct 16 package (without bounded Responses retries) failed at Dispatch with a
+failed job instead of a reply after the authored continuation overload. Current
+package acceptance is now complete; full local acceptance is required before
+landing. The first current desktop sweep stopped at a disabled composer after first-provider
+navigation. Waiting within the existing assertion deadline confirmed the cause:
+the old fixture selected `mock-model`, absent from its own advertised catalog.
+Setup now selects the canonical fixture catalog's first model without weakening
+production availability checks, and observes enabled readiness as the relaunch
+check already does. Both source locks were watched fail before repair.
+Quota/Stop snapshots also require their exact newly persisted rows before
+relaunch equality can count as evidence. The subsequent current native run
+reached the pre-output Stop gap described above; neither fixture setup failure
+nor missing-control failure is acceptance evidence.
+
+The first build of the Stop repair exceeded the unchanged initial JavaScript
+graph budget by 88 bytes. Shared turn admission/Stop projection and stream
+settlement now remove duplicated controller logic; the build and all 54 focused
+client tests passed before the complete desktop run. No budget, timeout or retry
+allowance was relaxed.
+
+The first complete verifier found one missing ambient-event gate declaration
+among 6,977 Node tests. The new admission/cancellation frames were already sent
+only over authorized reply streams; the ambient gate now explicitly denies both
+for every subscriber as defense against accidental fan-out. A direct privacy
+regression was watched fail before repair. All 58 focused privacy/turn/contract
+checks and 20 documentation/spec checks then passed. The failed verifier was
+interrupted cleanly; its incomplete browser lanes are not passing evidence.
+The complete desktop verifier subsequently passed again on the rebuilt package
+identified above. A fresh complete local verifier remains mandatory before
+landing this final tree.
+
+Next provider checkpoint: bounded Messages catalog pagination. The read-only
+audit found `fetchProviderModels` publishes only the first 100-row page. A valid
+configured model on a later page can therefore be shown as unavailable. Add
+authored multi-page discovery and refresh recovery tests under one total
+deadline; incomplete reads must not replace a working catalog. This is a local
+compatibility gap, distinct from deferred paid acceptance and signing gates.
+
+Previous checkpoint `f2edae41` passed all five local verifier lanes (780 browser
+tests) in 897.9 seconds, then landed on main with a clean worktree. It implemented
+bounded native Responses transport retries. The audit
 reproduced OpenAI ignoring the caller's configured retry budget, while Messages
 already consumed it. Native requests now honor that budget only before a
 successful HTTP response, with one original operation deadline and abort signal.

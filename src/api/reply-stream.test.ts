@@ -24,6 +24,18 @@ test('a chunk-split finite reply resolves only after dispatching message.end', a
   assert.deepEqual(seen, ['message.start', 'message.end'])
 })
 
+test('turn.cancelled is a typed terminal when Stop wins before an assistant message exists', async () => {
+  const seen: string[] = []
+  await readReplyEvents(
+    streamOf(
+      'data: {"type":"turn.start","sessionId":"s","turnId":"t"}\n\n',
+      'data: {"type":"turn.cancelled","sessionId":"s","turnId":"t"}\n\n',
+    ),
+    (event) => seen.push(event.type),
+  )
+  assert.deepEqual(seen, ['turn.start', 'turn.cancelled'])
+})
+
 test('EOF without message.end is a retryable interruption, not successful emptiness', async () => {
   await assert.rejects(
     readReplyEvents(

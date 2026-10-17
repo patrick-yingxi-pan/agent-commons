@@ -125,10 +125,13 @@ test('epoch staleness: a reset stales in-flight streams; navigation elsewhere do
   assert.equal(store.get('s').live.messages.at(-1)?.content, 'landed still landing')
   // A RESET of this same session (select-time reload) stales the stream.
   store.reset('s', EMPTY)
+  sends[0]!.handlers.onTurnStart?.('turn-after-reset')
+  sends[0]!.handlers.onTurnCancelled?.('turn-after-reset')
   sends[0]!.handlers.onDelta?.('m', ' NOT this')
   sends[0]!.handlers.onEnd?.(shell('m'))
   assert.equal(store.get('s').live.messages.length, 0, 'post-reset deltas are refused')
   assert.equal(store.get('s').busy, false)
+  assert.equal(store.get('s').liveTurn, null, 'post-reset admission/cancellation events cannot restore the old turn handle')
 })
 
 test('a pre-send draft context refusal preserves one retryable user row and reset/disposal epochs fence late failure', () => {
@@ -517,6 +520,48 @@ test('retry retransmits one logical send in place with the same idempotency key'
   assert.equal(store.get('s').sendFailure, null)
 })
 
+test('an admitted turn can be stopped before message.start without inventing an assistant shell', async () => {
+  const { transport, sends, cancelled, settledFor } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  const initial = store.dispatchTurn('s', 'please stop before output')
+  await tick()
+  sends[0]!.handlers.onTurnStart?.('turn-before-output')
+
+  assert.deepEqual(store.get('s').liveTurn, { sessionId: 's', turnId: 'turn-before-output' })
+  assert.deepEqual(
+    store.get('s').live.messages.map(({ role, content }) => [role, content]),
+    [['user', 'please stop before output']],
+    'turn.start exposes the Stop handle but does not create a fake assistant message',
+  )
+  const stopped = store.stop('s')
+  await stopped
+  assert.deepEqual(cancelled, [{ sessionId: 's', turnId: 'turn-before-output' }])
+
+  sends[0]!.handlers.onTurnCancelled?.('turn-before-output')
+  sends[0]!.finish()
+  await initial
+  assert.equal(store.get('s').busy, false)
+  assert.equal(store.get('s').liveTurn, null)
+  assert.equal(store.get('s').sendFailure, 'This reply was stopped before it started.')
+  assert.deepEqual(settledFor, ['s'], 'the persisted user-only turn settles usage and session reconciliation')
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.role), ['user'])
+  assert.equal(store.get('s').retryableSend?.text, 'please stop before output')
+  assert.equal(store.get('s').retryableSend?.turnId, undefined, 'Retry starts a fresh attempt, not a reattach to the cancelled turn')
+
+  const retry = store.retryTurn('s')
+  await tick()
+  assert.equal(sends.length, 2)
+  assert.equal(sends[1]!.options.retryLastUser, true)
+  assert.equal(sends[1]!.options.idempotencyKey, sends[0]!.options.idempotencyKey)
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.role), ['user'])
+  sends[1]!.handlers.onEnd?.({ id: 'reply-after-stop', role: 'assistant', content: 'recovered' })
+  sends[1]!.finish()
+  await retry
+  assert.deepEqual(store.get('s').live.messages.map((message) => message.role), ['user', 'assistant'])
+  assert.equal(store.get('s').retryableSend, null)
+  assert.deepEqual(settledFor, ['s', 's'], 'the recovered reply settles independently')
+})
+
 test('an orphaned server user row retries after reload without a second optimistic prompt', async () => {
   const { transport, sends } = fakeTransport()
   const store = createConversationStore(transport, empty)
@@ -532,6 +577,34 @@ test('an orphaned server user row retries after reload without a second optimist
   sends[0]!.finish()
   await retry
   assert.deepEqual(store.get('s').live.messages.map((message) => message.role), ['user', 'assistant'])
+})
+
+test('a reattached pre-output cancellation retires its old handle before explicit Retry', async () => {
+  const { transport, reattaches, sends, settledFor } = fakeTransport()
+  const store = createConversationStore(transport, empty)
+  store.reset('s', { ...EMPTY, messages: [user('saved-user', 'retained request')] })
+  const watching = store.reattach('s', 'old-turn')
+  reattaches[0]!.handlers.onTurnStart?.('old-turn')
+  reattaches[0]!.handlers.onTurnCancelled?.('wrong-turn')
+  assert.deepEqual(settledFor, [], 'an unrelated cancellation cannot settle this view')
+  reattaches[0]!.handlers.onTurnCancelled?.('old-turn')
+  reattaches[0]!.finish()
+  await watching
+  assert.equal(store.get('s').busy, false)
+  assert.equal(store.get('s').retryableSend?.turnId, undefined)
+  assert.equal(store.get('s').retryableSend?.userMessageId, 'saved-user')
+  assert.equal(store.get('s').sendFailure, 'This reply was stopped before it started.')
+  assert.deepEqual(settledFor, ['s'])
+  const retry = store.retryTurn('s')
+  await tick()
+  assert.equal(reattaches.length, 1, 'the cancelled handle is never reattached')
+  assert.equal(sends.length, 1)
+  assert.equal(sends[0]!.options.retryLastUser, true)
+  assert.equal(sends[0]!.text, 'retained request')
+  assert.deepEqual(store.get('s').live.messages, [user('saved-user', 'retained request')])
+  sends[0]!.handlers.onEnd?.({ id: 'reply', role: 'assistant', content: 'done' })
+  sends[0]!.finish()
+  await retry
 })
 
 test('authoritative reconcile completes a lost response but preserves a send that never persisted', async () => {

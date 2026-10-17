@@ -5400,6 +5400,11 @@ export const store = {
    *  ephemeral/just-removed id) falls back to the default tenant, matching the read side. */
   eventVisibleToTenant(e: ServerEvent, tenantId: string, actorUserId?: string): boolean {
     switch (e.type) {
+      // These handles belong only to the separately authorized send/reattach
+      // stream. Even accidental ambient emission must reveal them to nobody.
+      case 'turn.start':
+      case 'turn.cancelled':
+        return false
       case 'agent-request.changed':
         return actorUserId !== undefined && !!proxyRequestHost.read(e.requestId, { tenantId, userId: actorUserId })
       case 'session.updated':

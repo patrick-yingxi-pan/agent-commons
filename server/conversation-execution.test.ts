@@ -102,6 +102,8 @@ test('persists the user row before model completion, needs no HTTP view, and adm
   assert.equal((store.getSession(session.id)?.messages ?? []).length, 1, 'refused admission adds no user row')
 
   const stream = capture(active.turn.id)
+  assert.deepEqual(stream.events, [{ type: 'turn.start', sessionId: session.id, turnId: active.turn.id }],
+    'admission exposes a replayable cancel handle before any provider output')
   await active.finished
   stream.unsubscribe()
 
@@ -153,11 +155,52 @@ test('explicit cancellation settles as aborted, persists its partial, and frees 
   const ended = stream.events.find((event) => event.type === 'message.end')
   assert.ok(ended && ended.type === 'message.end', 'the cancelled turn has a terminal event')
   assert.deepEqual(ended.message, assistant)
+  assert.equal(stream.events.some((event) => event.type === 'turn.cancelled'), false,
+    'a started assistant retains its ordinary message.end terminal')
 
   const next = startConversationTurn(input(session, 'the released slot admits a fresh turn', { persist: false }))
   assert.ok(next, 'a new turn can start after explicit cancellation settles')
   await next.finished
 })
+
+for (const failedCommit of [false, true]) {
+  test(`pre-output cancellation announces no assistant and terminalizes only after commit: failed commit ${failedCommit}`, async () => {
+    const session = store.createSession('Cancel before the provider starts')
+    const events: ReplyStreamEvent[] = []
+    let commits = 0
+    let closed = false
+    const active = startConversationTurn(input(session, 'Cancel this admitted request before provider output.', {
+      openView: () => ({
+        send: (event: ReplyStreamEvent) => {
+          events.push(event)
+          if (event.type === 'turn.start') {
+            assert.equal(store.getSession(session.id)?.messages.at(-1)?.content,
+              'Cancel this admitted request before provider output.', 'the user row precedes the admission event')
+            assert.equal(turns.cancel(event.turnId), true)
+          }
+        },
+        close: () => { closed = true },
+      }),
+      commit: (result: { outcome: string; message?: unknown }) => {
+        commits++
+        assert.deepEqual(result, { outcome: 'aborted' }, 'pre-output Stop never fabricates an assistant message')
+        if (failedCommit) throw new Error('authored commit failure')
+      },
+    }))
+    assert.ok(active)
+    if (failedCommit) await assert.rejects(active.finished, /authored commit failure/)
+    else await active.finished
+    assert.equal(commits, 1)
+    assert.equal(closed, true)
+    assert.deepEqual(events, [
+      { type: 'turn.start', sessionId: session.id, turnId: active.turn.id },
+      ...(!failedCommit ? [{ type: 'turn.cancelled', sessionId: session.id, turnId: active.turn.id }] : []),
+    ])
+    assert.deepEqual(store.getSession(session.id)?.messages.map(({ role, content }) => ({ role, content })),
+      [{ role: 'user', content: 'Cancel this admitted request before provider output.' }])
+    assert.equal(turns.bySession(session.id), undefined)
+  })
+}
 
 test('a failed custom commit emits no message.end, is not retried, and still releases the live slot', async () => {
   const session = store.createSession('Conversation executor commit failure')

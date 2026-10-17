@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { startModelServer } from '../server/model/index.ts'
+import { seedModels } from '../server/model/catalog.ts'
 import { docBlockId } from '../server/documentIdentity.ts'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { AUTH_ROOT_FILE } from './authRoot.mjs'
@@ -366,15 +367,15 @@ export async function smokePackagedDesktop({ executable = packagedExecutable() }
       const replacementSecret = 'agent-commons-smoke-rotated-key-not-a-real-credential'
       await page.getByPlaceholder('e.g. Anthropic (prod)', { exact: true }).fill('Packaged credential smoke')
       await page.getByPlaceholder('https://models.example.com/v1', { exact: true }).fill(modelOrigin)
-      await firstProviderDialog.getByLabel('Model ID', { exact: true }).fill('mock-model')
+      await firstProviderDialog.getByLabel('Model ID', { exact: true }).fill(seedModels()[0].id)
       await page.getByPlaceholder('Paste API key', { exact: true }).fill(smokeSecret)
       await page.getByRole('button', { name: 'Create', exact: true }).click()
       await firstProviderDialog.waitFor({ state: 'hidden' })
       await page.waitForURL(`${origin}/`)
       await page.getByRole('heading', { name: 'What should we work on?' }).waitFor()
-      if (await page.getByRole('textbox', { name: 'Message', exact: true }).isDisabled()) {
-        throw new Error('A verified packaged provider did not reopen an executable first draft.')
-      }
+      // Navigation can render the heading before the new draft finishes loading
+      // its model dependencies. Observe readiness, not that intermediate frame.
+      await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()
 
       const providers = await page.evaluate(async () => {
         const response = await fetch('/api/v1/providers')

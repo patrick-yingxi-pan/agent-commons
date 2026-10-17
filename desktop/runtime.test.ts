@@ -492,6 +492,13 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
   assert.match(smoke, /getByPlaceholder\('Paste API key'/)
   assert.match(smoke, /Connect a model to begin/)
   assert.match(smoke, /first-run model handoff/)
+  const firstDraftHandoff = smoke.slice(smoke.indexOf("await firstProviderDialog.waitFor({ state: 'hidden' })"), smoke.indexOf('const providers = await page.evaluate'))
+  assert.ok(firstDraftHandoff.includes("await expect(page.getByRole('textbox', { name: 'Message', exact: true })).toBeEnabled()"),
+    'first-run handoff waits for executable composer readiness, not merely its navigation heading')
+  assert.doesNotMatch(firstDraftHandoff, /\.isDisabled\(/, 'an immediate snapshot races asynchronous first-draft hydration')
+  assert.ok(smoke.includes("import { seedModels } from '../server/model/catalog.ts'"))
+  assert.ok(smoke.includes("await firstProviderDialog.getByLabel('Model ID', { exact: true }).fill(seedModels()[0].id)"),
+    'the Messages fixture selects a model advertised by its own canonical catalog')
   assert.match(smoke, /viewer-preferences\/model/,
     'packaged first-run setup must verify its personal model preference through the shipped API')
   assert.match(smoke, /origin === firstOrigin/,

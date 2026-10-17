@@ -1,6 +1,6 @@
 /** Decode the finite SSE document used by send + reattach. A reply stream is
- * successful only when its typed `message.end` frame arrives; socket EOF by
- * itself is transport failure, never an empty assistant answer. */
+ * successful only when its typed `message.end` or `turn.cancelled` frame
+ * arrives; socket EOF by itself is transport failure, never an empty answer. */
 import type { ReplyStreamEvent } from '../../contract/index.ts'
 
 export async function readReplyEvents(
@@ -26,10 +26,10 @@ export async function readReplyEvents(
         continue
       }
       onEvent(event)
-      if (event.type === 'message.end') {
+      if (event.type === 'message.end' || event.type === 'turn.cancelled') {
         // The typed terminal frame is the logical boundary. Do not wait for a
-        // second transport signal: a socket fault after this persisted answer
-        // cannot turn the completed operation back into an interruption.
+        // second transport signal: a later socket fault cannot undo a complete
+        // answer or an explicit pre-message cancellation.
         await reader.cancel().catch(() => {})
         return
       }

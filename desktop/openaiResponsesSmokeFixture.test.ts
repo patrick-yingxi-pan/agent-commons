@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import * as smokeFixture from './openaiResponsesSmokeFixture.mjs'
 import {
   OPENAI_SMOKE_KEY,
   OPENAI_SMOKE_MODEL,
@@ -189,4 +190,97 @@ test('refuses malformed and oversized POST bodies and closes its loopback socket
   assert.equal((await fetch(`${fixture.origin}/not-responses`)).status, 404)
   await Promise.all([fixture.close(), fixture.close()])
   await assert.rejects(fetch(`${fixture.origin}/models`))
+})
+
+test('retry-tools fails only the first continuation and resets its counter without discarding exact captures', async () => {
+  const fixture = await startOpenAIResponsesSmokeFixture()
+  const expected: unknown[] = []
+  try {
+    for (let cycle = 0; cycle < 2; cycle++) {
+      fixture.setMode('retry-tools')
+      const probe = await post(fixture.origin, probeBody())
+      assert.equal(probe.status, 200, 'probes do not consume the authored continuation failure')
+      assert.equal((await probe.json()).status, 'completed')
+      expected.push(probeBody())
+      const initialBody = streamBody()
+      const initial = await post(fixture.origin, initialBody)
+      assert.equal(initial.status, 200)
+      const output = sseEvents(await initial.text()).at(-1)!.body.response.output
+      assert.deepEqual(output[0], OPENAI_SMOKE_REASONING)
+      assert.equal(output[1].name, 'api__get_usage')
+      expected.push(initialBody)
+      const continuation = streamBody([...output, { type: 'function_call_output', call_id: 'openai-smoke-usage', output: '{"remaining":42}' }])
+      const failed = await post(fixture.origin, continuation)
+      assert.equal(failed.status, 503)
+      assert.equal(failed.headers.get('retry-after'), '0')
+      assert.match(failed.headers.get('content-type') ?? '', /application\/json/)
+      assert.deepEqual(await failed.json(), { error: { type: 'service_unavailable_error', code: 'server_is_overloaded', message: smokeFixture.OPENAI_SMOKE_PRIVATE_ERROR } })
+      assert.equal(typeof smokeFixture.OPENAI_SMOKE_PRIVATE_ERROR, 'string')
+      const success = await post(fixture.origin, continuation)
+      assert.equal(success.status, 200)
+      assert.equal(sseEvents(await success.text()).at(-1)!.body.response.output[0].content[0].text, 'The packaged OpenAI tool round completed.')
+      expected.push(continuation, continuation)
+    }
+    assert.deepEqual(fixture.requests, expected)
+    assert.equal(fixture.requests.length, 8)
+    const captured = JSON.stringify(fixture.requests)
+    assert.ok(!captured.includes(smokeFixture.OPENAI_SMOKE_PRIVATE_ERROR))
+    assert.ok(!captured.includes(OPENAI_SMOKE_KEY))
+    assert.ok(!captured.includes(OPENAI_SMOKE_REPLACEMENT_KEY))
+    assert.doesNotMatch(captured, /authorization|service_unavailable_error|server_is_overloaded/i)
+  } finally { await fixture.close() }
+})
+
+for (const mode of ['quota', 'retry-wait'] as const) {
+  test(`${mode} refuses ordinary streams while probes and exact authentication remain unchanged`, async () => {
+    const fixture = await startOpenAIResponsesSmokeFixture()
+    try {
+      fixture.setMode(mode)
+      assert.equal(fixture.retryWaitResponses, 0)
+      assert.throws(() => { fixture.retryWaitResponses = 9 }, TypeError, 'response counter is read-only')
+      assert.equal((await post(fixture.origin, streamBody(), OPENAI_SMOKE_REPLACEMENT_KEY)).status, 401)
+      assert.equal((await post(fixture.origin, probeBody(), 'wrong-key')).status, 401)
+      assert.deepEqual(fixture.requests, [])
+      const probe = await post(fixture.origin, probeBody())
+      assert.equal(probe.status, 200)
+      assert.equal((await probe.json()).status, 'completed')
+      assert.equal(fixture.retryWaitResponses, 0, 'probes and rejected credentials never count as retry-wait responses')
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const response = await post(fixture.origin, streamBody())
+        assert.equal(response.status, mode === 'quota' ? 429 : 503)
+        assert.equal(response.headers.get('retry-after'), mode === 'quota' ? null : '30')
+        const body = await response.json()
+        assert.equal(body.error.message, smokeFixture.OPENAI_SMOKE_PRIVATE_ERROR)
+        assert.equal(body.error.code, mode === 'quota' ? 'insufficient_quota' : 'server_is_overloaded')
+        assert.equal(body.error.type, mode === 'quota' ? 'insufficient_quota' : 'service_unavailable_error')
+        assert.equal(fixture.retryWaitResponses, mode === 'retry-wait' ? attempt + 1 : 0)
+      }
+      assert.deepEqual(fixture.requests, [probeBody(), streamBody(), streamBody()])
+      const captured = JSON.stringify(fixture.requests)
+      for (const privateValue of [smokeFixture.OPENAI_SMOKE_PRIVATE_ERROR, OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY]) assert.ok(!captured.includes(privateValue))
+      assert.doesNotMatch(captured, /authorization|insufficient_quota|service_unavailable_error|server_is_overloaded/i)
+      fixture.setMode('text')
+      assert.equal(fixture.retryWaitResponses, 0, 'mode changes reset the response-served counter')
+      const recovered = await post(fixture.origin, streamBody())
+      assert.equal(recovered.status, 200, 'leaving an error mode restores normal streaming')
+      await recovered.text()
+    } finally { await fixture.close() }
+  })
+}
+
+test('retry fixture modes retain the shared bounded request capture admission', async () => {
+  const fixture = await startOpenAIResponsesSmokeFixture()
+  try {
+    fixture.setMode('quota')
+    for (let index = 0; index < 32; index++) {
+      const response = await post(fixture.origin, streamBody())
+      assert.equal(response.status, 429)
+      await response.json()
+    }
+    fixture.setMode('retry-wait')
+    const refused = await post(fixture.origin, streamBody())
+    assert.equal(refused.status, 429)
+    assert.equal((await refused.json()).error.message, 'Fixture request history is full.')
+    assert.equal(fixture.requests.length, 32, 'setMode cannot bypass the shared capture bound')
+  } finally { await fixture.close() }
 })
