@@ -107,10 +107,17 @@ export function invalidate(key: string): void {
 
 /** Refetch every key under a prefix — for parameterized families where any variant
  *  may be live (e.g. the D17 directory's per-search keys: `directory-projects` +
- *  `directory-projects:<q>`). Same no-op semantics as `invalidate` per key. */
-export function invalidatePrefix(prefix: string): void {
+ *  `directory-projects:<q>`). Same no-op semantics as `invalidate` per key.
+ *  Frequent account-wide changes opt into observedOnly: dormant variants are
+ *  discarded and late reads fenced, then read fresh on their next mount rather
+ *  than issuing a request per previously visited conversation. */
+export function invalidatePrefix(prefix: string, observedOnly = false): void {
   for (const [key, e] of entries) {
-    if ((key === prefix || key.startsWith(`${prefix}:`)) && e.fetcher) run(key, e.fetcher)
+    if (!(key === prefix || key.startsWith(`${prefix}:`))) continue
+    if (observedOnly && e.subs.size === 0) {
+      e.gen += 1
+      entries.delete(key)
+    } else if (e.fetcher) run(key, e.fetcher)
   }
 }
 

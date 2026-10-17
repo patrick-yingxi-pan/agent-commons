@@ -15,7 +15,7 @@ test('provider usage keys preserve connection/model identity and paths encode ea
   assert.equal(paths.providerUsage('one'), '/providers/one/usage')
 })
 
-test('every model-work settlement refreshes observations and connection changes evict them', () => {
+test('every model-work settlement refreshes account-wide limits and observations', () => {
   const events = stripComments(read(join(ROOT, 'src/api/events.ts')))
   const block = (name: string) => {
     const start = events.indexOf(`case '${name}':`)
@@ -24,10 +24,27 @@ test('every model-work settlement refreshes observations and connection changes 
     assert.ok(end > start, `${name} has a complete event branch`)
     return events.slice(start, end)
   }
-  for (const name of ['session.updated', 'run.started', 'run.progress', 'run.finished', 'agent-request.changed', 'contribution.changed', 'commission.changed']) {
-    assert.match(block(name), /invalidatePrefix\('provider-usage'\)/, name)
+  const helperStart = events.indexOf('function invalidateModelUsage(')
+  const helperEnd = events.indexOf('\n}', helperStart)
+  assert.ok(helperStart >= 0 && helperEnd > helperStart, 'one model-work refresh funnel exists')
+  const helper = events.slice(helperStart, helperEnd)
+  assert.ok(helper.includes('invalidatePrefix(keys.usage(), true)'), 'refreshes mounted draft and session snapshots, not only the event session')
+  assert.ok(helper.includes("invalidatePrefix('provider-usage', true)"), 'refreshes mounted provider observations through ordinary reads')
+  assert.doesNotMatch(helper, /refreshProviderBalance|setData|apiPost|sendMessage|setInterval/)
+  for (const name of ['session.updated', 'run.started', 'run.progress', 'run.finished', 'dispatch.changed', 'agent-request.changed', 'contribution.changed', 'commission.changed']) {
+    assert.ok(block(name).includes('invalidateModelUsage()'), name)
   }
+  assert.doesNotMatch(block('session.updated'), /invalidate\(keys\.usage\(e\.session\.id\)\)/, 'a session-local read cannot represent account-wide usage freshness')
   assert.match(block('provider.changed'), /evictPrefix\('provider-usage'\)/)
+})
+
+test('account usage prefix covers drafts and all session snapshots without crossing provider identity keys', () => {
+  const prefix = keys.usage()
+  const matches = (key: string) => key === prefix || key.startsWith(`${prefix}:`)
+  for (const session of [undefined, 'conversation-a', 'conversation-b']) {
+    assert.ok(matches(keys.usage(session)))
+  }
+  assert.equal(matches(keys.providerUsage('provider-one', 'model-one')), false)
 })
 
 test('balance inspection invalidates authoritative reads without publishing a late response', () => {

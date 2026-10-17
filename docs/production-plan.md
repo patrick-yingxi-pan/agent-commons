@@ -6,7 +6,45 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: explicit recovery after deleting a preferred provider.
+Current checkpoint: account-wide usage freshness. Provider reply-completion,
+attachment/history and private observation audits found no additional gap in
+those paths. The Usage audit found a real inconsistency: local limits are
+account-wide, but an open panel only refreshed after its own conversation
+changed. Other conversations and background work could leave the figures stale.
+The existing model-work event branches now share one read-only refresh funnel
+for every mounted usage snapshot and provider observation. Review caught the
+first implementation refetching closed conversations too: the cache now refreshes
+active readers and discards/fences dormant variants for a fresh next mount.
+Context/model identity and account isolation remain authoritative; no polling, model generation or
+automatic balance check is added. Failure-first source and authored-provider
+browser regressions, the responsive review and complete local verifier gate
+delivery. Paid tests remain deferred; native packaging and signing are not
+repeated for this cache-only checkpoint.
+
+The failure-first browser run received the real settlement event but retained
+the old panel count while the backend reported 19 tokens. After repair, all
+eight scoped Usage walks pass. Claude-root, DeepSeek-mounted and native
+Responses authored peers cover held conversation/draft panels, actual other-turn
+and Routine settlement, unchanged context/model, preserved unsent text, foreign
+account isolation, dormant-query silence and fresh same-document reopen.
+All 30 provider/surface/viewport screenshots were reviewed; narrow/wide
+accessibility checks pass. The separate full UI sweep passed 135/135 cells,
+zero violations and zero skips. Type checking and focused API/cache/boundary
+locks pass. The complete frozen-tree local verifier remains the landing gate.
+The first full run was stopped cleanly after the scoped-context documentation
+budget failed (7,067 of 7,068 Node tests passed); its cancelled browser lanes
+are not acceptance evidence. Folding the new rule into the existing Usage rule
+preserves the 160-line budget without relaxing a guard or changing runtime code.
+The second full run passed all 7,068 Node tests but failed the production
+startup budget by 24 bytes; its browser lanes were likewise stopped cleanly.
+Active-reader refresh now opts into the existing prefix iterator instead of
+duplicating it. Ordinary callers keep their original behavior. The production
+build passes with unchanged budgets; scoped/browser and full gates are repeated
+on this final implementation, never accepting the interrupted runs.
+
+Shipped checkpoint `c4fbb26f`: explicit recovery after deleting a preferred provider.
+All five local verifier lanes passed (787 browser tests) in 846.5 seconds;
+the full UI sweep passed 135/135 cells with zero violations or skips.
 The shared model picker previously hid its provider section whenever only one
 provider remained, stranding a missing saved choice in Customize and fresh
 conversations. A sole remaining provider is now selectable when the current

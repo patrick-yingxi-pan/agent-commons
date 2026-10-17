@@ -479,6 +479,14 @@ base prompt, at roughly four characters per token. Attachments, runtime tools
 and provider-managed context are excluded, not invented as fixed inventory.
 The popover keeps that limitation visible even when its rows collapse and
 distinguishes local rolling counters from provider quota or billing.
+Those local counters are account-wide even though context/model estimates are
+conversation-specific. Model-work settlement refreshes the whole active usage
+key family, including unsent drafts and other conversations, alongside provider
+observations. Each snapshot re-reads its own authoritative identity; events never
+copy another conversation's context or automatically contact a provider.
+Dormant variants are discarded with late reads fenced, so visiting many closed
+conversations does not multiply background refresh traffic. Their next mount
+reads current truth.
 Provider creation and connection editing share one bounded Reply output limit
 field. It is per model call including reasoning, not context capacity or a total
 spend cap. New connections start at 8,192; editing begins from server-computed

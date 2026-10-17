@@ -24,6 +24,14 @@ export { onSessionPush } from './sessionRefresh.ts'
 let source: EventSource | null = null
 let knownEpoch: string | null = null
 
+/** Context/model identity is per conversation, but local limits are account-wide.
+ * Re-read every mounted snapshot after model work; never copy another session's
+ * context or trigger generation/balance inspection to refresh a reading. */
+function invalidateModelUsage(): void {
+  invalidatePrefix(keys.usage(), true)
+  invalidatePrefix('provider-usage', true)
+}
+
 /** Routine consent includes Agent/provider configuration and destination grants. */
 function invalidateRoutineMcpReviews(): void {
   invalidatePrefix(keys.scheduleMcpPermission())
@@ -92,12 +100,9 @@ function route(e: ServerEvent): void {
       invalidatePrefix(keys.mcpInputPrefix(e.session.id))
       invalidatePrefix(keys.sessionCompactedMessages(e.session.id))
       invalidatePrefix(keys.conversationSearch(e.session.id))
-      // The usage snapshot is session-resolved (its context capacity + model ref
-      // come from the session's provider/model pick, which this event may have
-      // changed — a cross-client pick, a cascade clearing it) — keep the gauge's
-      // datum in sync (UI-12). No-op unless the session's composer is open.
-      invalidate(keys.usage(e.session.id))
-      invalidatePrefix('provider-usage')
+      // Keep this session's context/model and every open account-limit reading
+      // current, including drafts and other conversations (UI-12, UI-251).
+      invalidateModelUsage()
       notifySessionPush(e.session.id)
       break
     // A session's attached contexts changed (here or on another client) — re-read
@@ -131,7 +136,7 @@ function route(e: ServerEvent): void {
     case 'run.progress':
     case 'run.finished':
       invalidate(keys.schedules)
-      invalidatePrefix('provider-usage')
+      invalidateModelUsage()
       invalidate(keys.scheduleMcpPermission(e.taskId))
       break
     // A routine was created / edited / paused / removed (another client or device;
@@ -191,7 +196,7 @@ function route(e: ServerEvent): void {
       invalidateRoutineMcpReviews()
       break
     case 'agent-request.changed':
-      invalidatePrefix('provider-usage')
+      invalidateModelUsage()
       invalidate(keys.agentRequests)
       invalidate(keys.agentRequest(e.requestId))
       invalidate(keys.agentRequestReview(e.requestId))
@@ -265,7 +270,7 @@ function route(e: ServerEvent): void {
     // A Project's Contributor roster changed — possibly a cross-tenant arrival (P8).
     // The roster count also rides the directory card ("N contributors", D17).
     case 'commission.changed':
-      invalidatePrefix('provider-usage')
+      invalidateModelUsage()
       invalidateRoutineMcpReviews()
       invalidate(keys.commissions(e.projectId))
       invalidate(keys.commissions())
@@ -308,6 +313,7 @@ function route(e: ServerEvent): void {
     // the small feed so it appears and flips running → done live.
     case 'dispatch.changed':
       invalidate(keys.dispatch)
+      invalidateModelUsage()
       break
     // A cross-user effect landed in the detective audit trail (D15/OQ7) — refresh the
     // Audit surface so the watch updates live.
@@ -320,7 +326,7 @@ function route(e: ServerEvent): void {
     // A Project's contribution ledger changed (workflow Phase A) — one was opened,
     // noted, or landed. The ledger is the only reader keyed on it.
     case 'contribution.changed':
-      invalidatePrefix('provider-usage')
+      invalidateModelUsage()
       invalidate(keys.contributions(e.projectId))
       // The attention ledger is derived from the timelines — same signal.
       invalidate(keys.attention(e.projectId))

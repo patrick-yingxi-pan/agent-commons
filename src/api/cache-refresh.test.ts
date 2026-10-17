@@ -42,6 +42,18 @@ test('cache-wide revalidation keeps data while refetching every live key', () =>
   assert.doesNotMatch(block, /IDLE|setState\(/, 'revalidation never drops truthful cached data')
 })
 
+test('observed-family refresh bounds immediate work to subscribers and fences dormant reads', () => {
+  const cache = stripComments(read(join(ROOT, 'src', 'api', 'cache.ts')))
+  const start = cache.indexOf('export function invalidatePrefix(')
+  const end = cache.indexOf('\n}', start)
+  assert.ok(start >= 0 && end > start, 'the cache owns an active-reader family refresh')
+  const block = cache.slice(start, end)
+  assert.ok(block.includes('key === prefix || key.startsWith(`${prefix}:`)'), 'the complete family includes its unsuffixed draft key')
+  assert.ok(block.includes('observedOnly = false'), 'existing callers retain ordinary all-cached invalidation')
+  assert.match(block, /if \(observedOnly && e\.subs\.size === 0\) \{\s*e\.gen \+= 1\s*entries\.delete\(key\)/, 'fence late dormant reads before discarding their cache entry')
+  assert.match(block, /else if \(e\.fetcher\) run\(key, e\.fetcher\)/, 'only subscribed entries refetch immediately')
+})
+
 test('accepting an org seat widens the live world without resetting identity', () => {
   const commands = stripComments(read(join(ROOT, 'src', 'api', 'orgInviteVerdictCommands.ts')))
   const start = commands.indexOf('export async function applyOrgInviteVerdict')
