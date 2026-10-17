@@ -76,6 +76,19 @@ test('the shared menu reads the LIVE provider registry, not a snapshot constant'
   assert.match(src, /pickedModel\(/, 'model resolution goes through the shared projection')
 })
 
+test('every picker exposes the sole remaining provider for explicit recovery without claiming it is selected', () => {
+  const menu = stripComments(read(join(ROOT, 'src/components/ModelPickerMenuBody.tsx')))
+  assert.ok(menu.includes('onPickProvider && (providers.length > 1 || (!provider && providers.length > 0))'),
+    'a missing provider cannot strand a writable picker behind the multiple-provider shortcut')
+  assert.ok(menu.includes('active={p.id === provider?.id}'),
+    'a missing selection cannot borrow the default provider’s checkmark')
+  assert.ok(menu.includes('data-provider-choice={providerId}'), 'provider rows expose one shared browser enumeration stamp')
+  assert.ok(menu.includes('providerId={p.id}'), 'each live provider is stamped with its exact identity')
+  assert.ok(menu.includes('aria-pressed={active}'), 'the checkmark has an equivalent accessible selected state')
+  assert.ok(menu.includes('onSelect={disabled ? undefined : () => onPickProvider('),
+    'recovery keeps the existing pending/read-only write boundary')
+})
+
 test('missing model identity is unavailable while valid catalog recovery remains selectable', () => {
   const menu = stripComments(read(join(ROOT, 'src/components/ModelPickerMenuBody.tsx')))
   const control = stripComments(read(join(ROOT, 'src/components/ModelEffortControl.tsx')))
@@ -112,8 +125,8 @@ test('an endpoint with no catalog-declared effort vocabulary exposes no effort c
     'unknown provider effort metadata remains an empty vocabulary')
   assert.match(menu, /\{levels\.length > 0 && \(/,
     'effort buttons are rendered only when the selected catalog declares levels')
-  assert.match(menu, /\{!selection\.unavailable && levels\.length === 0 && \(/,
-    'an empty vocabulary receives the existing no-effort explanation')
+  assert.match(menu, /\{provider && !selection\.unavailable && levels\.length === 0 && \(/,
+    'only a resolved provider can receive the existing no-effort explanation')
 })
 
 test('the composer gates BOTH pick levels on the session write path without compatibility mode clears', () => {

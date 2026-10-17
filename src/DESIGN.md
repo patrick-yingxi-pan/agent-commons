@@ -457,6 +457,13 @@ choices and suppresses misleading effort controls. Draft Usage retains that exac
 ID without borrowing another model's metadata. Conversation Send and nontrivial
 compaction enforce the same identity wall before new work.
 
+A removed provider is likewise unresolved, not permission to inherit a different
+connection. The shared picker retains the sole remaining provider as an explicit
+recovery choice when necessary, with no borrowed selected checkmark. Once that
+singleton is explicitly selected, the redundant provider section disappears.
+Read-only callers and unacknowledged preference changes retain their existing
+write boundaries.
+
 Provider inspection keeps its registry count and bounded gauge shell eager but
 loads read-only rows and their plan/authority formatting only when opened.
 Loading and failure stay local, preserve draft/selection and remain dismissible;

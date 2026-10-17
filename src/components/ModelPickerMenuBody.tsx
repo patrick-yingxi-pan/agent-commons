@@ -40,16 +40,20 @@ function PickRow({
   blurb,
   trailing,
   onSelect,
+  providerId,
 }: {
   active: boolean
   name: string
   blurb: ReactNode
   trailing?: ReactNode
   onSelect?: () => void
+  providerId?: string
 }) {
   return (
     <button
       data-model-choice
+      data-provider-choice={providerId}
+      aria-pressed={active}
       onClick={onSelect}
       disabled={!onSelect}
       className={`${DISABLED_CONTROL_CLASS} flex w-full items-start gap-2.5 rounded-lg px-1.5 py-1.5 text-left transition ${
@@ -148,14 +152,16 @@ export function ModelPickerMenuBody({
   return (
     <>
       {agentControl && <ConversationAgentPicker {...agentControl} disabled={disabled} />}
-      {/* Provider — the registry (D9). One row per cognition source. */}
-      {onPickProvider && providers.length > 1 && (
+      {/* A sole provider needs no switcher unless the current pick is missing.
+          Recovery is always an explicit choice, never an automatic fallback. */}
+      {onPickProvider && (providers.length > 1 || (!provider && providers.length > 0)) && (
         <div className="px-2 pt-2">
           <SectionLabel>Provider</SectionLabel>
           {providers.map((p) => (
             <PickRow
               key={p.id}
-              active={p.id === (provider?.id ?? DEFAULT_PROVIDER_ID)}
+              providerId={p.id}
+              active={p.id === provider?.id}
               name={p.label}
               blurb={
                 p.kind === 'session' && !p.online
@@ -203,7 +209,7 @@ export function ModelPickerMenuBody({
         )}
       </div>
 
-      <div className="my-1.5 border-t border-line" />
+      {provider && <div className="my-1.5 border-t border-line" />}
 
       {/* Effort — the vocabulary the picked model (or its provider) declares. */}
       {levels.length > 0 && (
@@ -236,7 +242,7 @@ export function ModelPickerMenuBody({
           )}
         </div>
       )}
-      {!selection.unavailable && levels.length === 0 && (
+      {provider && !selection.unavailable && levels.length === 0 && (
         <p className="px-3 pb-2 text-[11px] leading-snug text-ink-soft">
           {provider?.kind === 'session'
             ? 'This provider declares no effort levels — your own session answers its turns.'

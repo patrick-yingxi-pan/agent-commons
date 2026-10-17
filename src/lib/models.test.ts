@@ -1,13 +1,23 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { ModelProvider } from '../../contract/index.ts'
-import { displayModelLabel, pickedModel } from './models.ts'
+import { DEFAULT_PROVIDER_ID, type ModelProvider } from '../../contract/index.ts'
+import { displayModelLabel, pickedModel, pickedProvider } from './models.ts'
 
 const provider: ModelProvider = {
   id: 'endpoint', label: 'My endpoint', modelFamily: 'claude', effortLevels: ['High'],
   execution: 'configured', defaultModelId: 'retired-model',
   models: [{ id: 'available-model', label: 'Available Model' }],
 }
+
+test('missing provider identity remains unresolved even when only the default provider survives', () => {
+  const remaining = { ...provider, id: DEFAULT_PROVIDER_ID }
+  for (const providers of [[], [remaining], [remaining, provider]]) {
+    const pick = { providerId: 'deleted-provider', modelId: 'old-model' }
+    assert.equal(pickedProvider(providers, pick), undefined)
+    assert.equal(displayModelLabel(providers, pick), 'Model')
+  }
+  assert.equal(pickedProvider([remaining], {}), remaining, 'only an absent provider preference inherits the default')
+})
 
 test('a missing configured default never masquerades as the first catalog model', () => {
   assert.equal(pickedModel(provider), undefined)

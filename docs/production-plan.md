@@ -6,7 +6,42 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: ordinary packaged Claude/DeepSeek recovery acceptance.
+Current checkpoint: explicit recovery after deleting a preferred provider.
+The shared model picker previously hid its provider section whenever only one
+provider remained, stranding a missing saved choice in Customize and fresh
+conversations. A sole remaining provider is now selectable when the current
+identity is unresolved, without an automatic switch or borrowed checkmark.
+The same rule serves endpoint-only Routine bindings; pending and read-only
+authority is unchanged. Provider and model rows expose their selected state
+accessibly, and a resolved singleton retains the compact ordinary layout.
+
+Visibility and checkmark source regressions failed before repair; an intentional
+arbitrary-fallback mutation failed the pure exact-provider identity lock.
+Restoring the old count guard also failed the rendered sole-provider action.
+Screenshot review found an unsupported no-effort claim for a missing provider;
+its source regression failed before the footer was restricted to resolved
+providers. The first broad sweep was stopped before this correction and is not
+passing evidence. New browser fixtures were also corrected to use two known
+distinct users in an isolated workspace and a registered test model; their
+initial setup failures are not product failures or accepted coverage.
+The browser matrix is Customize, fresh draft and Routine recovery across
+320×700, 375×812, 768×1024, 844×390 and 1280×800, plus shared-reader and personal
+account isolation. A narrow successful-read fixture hides unrelated seeded
+providers instead of deleting shared fixtures: actual test-owned provider
+deletion, personal preference writes and Routine Apply use ordinary routes.
+All 13 scoped browser walks pass, including loaded read-only controls and
+exclusion-free accessibility checks for every recovery viewport. The full UI
+sweep passed 135/135 cells with zero violations or skips on an unchanged tree;
+the subsequent test-only correction waits for deferred content before asserting
+absence, rather than accepting an empty loading face. All 15 recovery screenshots
+were reviewed without further findings. The complete frozen-tree local verifier
+remains the final delivery gate.
+This UI-only checkpoint does not repeat native packaging or paid/live-provider
+acceptance, and introduces no new API, credential access or product decision.
+
+Shipped checkpoint `e5240cd5`: ordinary packaged Claude/DeepSeek recovery
+acceptance. All five local verifier lanes passed (785 browser tests) in
+843.3 seconds before commit and push.
 The freshly rebuilt unsigned macOS arm64 executable passes both Claude-root
 and DeepSeek-mounted authored-provider workflows: rendered native-key setup,
 page-two model discovery, explicit unsupported-effort omission, streamed read
