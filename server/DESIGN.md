@@ -208,13 +208,36 @@ Static status-specific advice replaces the misleading generic outage/retry note;
 upstream bodies, headers, URLs and credential references never enter that advice.
 Both wire protocols retain earlier prose, usage and tool effects on a refused
 continuation. Routines persist `model_unavailable` without deferring that attempt;
-network, timeout, conflict, rate/quota and 5xx failures keep the existing bounded
-retry policy. Status alone cannot distinguish a 429 quota failure from rate
-limiting. This conservative app policy is informed by the official
+network, timeout, conflict, rate and 5xx failures otherwise retain bounded retry.
+Status alone cannot distinguish a 429 quota failure from rate limiting. Native
+Responses additionally recognizes documented quota error codes in bounded 429
+JSON and terminalizes those failures without exposing provider diagnostics.
+This conservative app policy is informed by the official
 [OpenAI errors](https://developers.openai.com/api/docs/guides/error-codes) and
 [Claude errors](https://platform.claude.com/docs/en/api/errors), not by reflecting
 untrusted provider error text. Dedicated tool-free workflows retain their own
 single-shot failure handling.
+
+Native Responses now consumes the same caller-supplied retry budget as Messages
+(legacy `ANTHROPIC_MAX_RETRIES`, default one). Only network exceptions and eligible
+408/409/429/5xx responses before a successful HTTP response may retry; once a
+successful JSON or SSE body is handed off, parsing, stream or terminal failures
+never replay. One operation signal bounds attempts, error inspection and backoff.
+Retry-After seconds/date and retry-after-ms are minimum waits, with positive
+jitter; absent/invalid hints use bounded exponential backoff. A delay above
+60 seconds stops rather than retrying earlier. Any positive server wait left
+unfulfilled by budget exhaustion, transport opt-out or deadline expiry is also
+terminal, so a Routine cannot bypass it with a shorter outer retry. Caller
+cancellation retains its original abort semantics and does not publish recovery
+prose. Recognized quota
+codes, opaque/oversized 429 bodies and explicit transport-retry opt-out stop the
+transport loop. Error inspection admits at most 16 KiB and never surfaces raw
+bytes. Single-shot reviews, judgments, argument/reply drafts and connection
+probes explicitly supply zero retries for either protocol; the probe's existing
+400/422 tool-free capability fallback remains intentional. Successful model
+usage records once and a continuation retry never re-executes an earlier tool
+batch. This follows the [OpenAI rate-limit guidance](https://developers.openai.com/api/docs/guides/rate-limits)
+without changing Messages SDK behavior or claiming live-provider acceptance.
 
 `server/model/` remains the dev mock:
 it decides tools through deterministic intent matching and canned replies while

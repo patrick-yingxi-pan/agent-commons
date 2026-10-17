@@ -6,7 +6,43 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: exact model identity after catalog replacement. The local
+Current checkpoint: bounded native Responses transport retries. The audit
+reproduced OpenAI ignoring the caller's configured retry budget, while Messages
+already consumed it. Native requests now honor that budget only before a
+successful HTTP response, with one original operation deadline and abort signal.
+Server delay hints are minimum waits, not values to clamp downward; waits above
+60 seconds and recognized quota refusals are terminal. Positive waits left
+unfulfilled by attempt exhaustion, transport opt-out or deadline expiry also
+stop Routine outer retries; explicit caller cancellation keeps abort semantics.
+Bounded private error inspection, canceled discarded bodies and
+static recovery advice keep upstream diagnostics out of saved history.
+Successful JSON/SSE bodies never replay, and continuation retries do not repeat
+settled usage or earlier tools. Dedicated reviews, judgments, argument/reply
+drafts and connection probes explicitly disable transport retries for both
+protocols; the existing tools-to-tool-free probe fallback remains intact.
+
+Adapter and real generation/Routine regressions cover budget exhaustion, server
+hints, quota failures, cancellation/deadlines, malformed or partial streams,
+single-shot workflows and exact usage/tool counts. The retry regression was
+watched fail before repair. Complete frozen-tree local verification and final
+diff review remain mandatory before landing. Paid-provider tests stay deferred;
+this adds no protocol, credential, tool authority or release acceptance claim.
+The legacy `ANTHROPIC_MAX_RETRIES` setting remains compatible and now applies to
+both endpoint protocols (default one); no configuration migration is required.
+
+The first full verifier exposed one existing phase fixture that assumed every
+503 was single-attempt. That immediate-failure fixture now explicitly opts out
+of transport retries; all fallback-prose and phase assertions are unchanged.
+The failed sweep was stopped cleanly and is not acceptance evidence. The final
+tree must pass a fresh complete run, without additional retries or timeouts.
+The next sweep was stopped during independent review when a shorter Routine
+retry could bypass an unfulfilled server wait. Six generation/Routine cases
+were watched fail before repairing that propagation, then pass. Neither
+interrupted sweep is passing evidence; only a complete final-tree run can land.
+
+Previous checkpoint `a36584ce` passed all five local verifier lanes (780 browser
+tests) and the responsive sweep (135/135 cells, no violations or skips), then
+landed on main. It addressed exact model identity after catalog replacement. The local
 audit reproduced a configured default A disappearing from catalog [A, B]: the
 picker silently showed B while Send still called A. Shared selection now retains
 the explicit or inherited ID without a first-row fallback. An ID absent from a
@@ -25,19 +61,13 @@ JavaScript graph at 800,369 bytes against the unchanged 800,000-byte limit.
 Provider inspection now defers its read-only details until opened, retaining the
 eager registry count and shared bounded popover. Model-menu failures reuse the
 existing deferred-load boundary. Loading/error/reload browser checks accompany
-the extraction; the complete final-tree gates must run again before landing.
+the extraction; the final revision passed the complete gates before landing.
 
 Contract/UI and both protocol route regressions were watched fail before repair.
 Rendered recovery, responsive review and the complete frozen-tree local verifier
-remain mandatory before landing; final outcomes belong in the handoff. Paid
+passed before landing. Paid
 provider tests remain deferred. This checkpoint adds no new protocol, credential,
 automatic substitution or release authority.
-
-The audit also reproduced a separate retry-policy difference: native Responses
-does not consume the configured Messages retry budget for pre-stream temporary
-HTTP failure. It remains an explicit follow-up, not a reason to add automatic
-replay during this identity fix. Any future retry work must retain single-shot
-task policies, cancellation/deadlines and no replay after streamed output.
 
 Previous checkpoint `f3e537fb`: provider observations and in-panel context
 breakdown passed all five local verifier lanes (777 browser tests), seven focused

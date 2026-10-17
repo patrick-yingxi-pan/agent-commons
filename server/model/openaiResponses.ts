@@ -3,6 +3,8 @@
  * opaque Responses output stays in a WeakMap for lossless same-turn replay. */
 import type Anthropic from '@anthropic-ai/sdk'
 import { positiveNumberEnv } from '../env.ts'
+import { fetchOpenAIWithRetry } from './openaiRequest.ts'
+export { EndpointHttpError, EndpointRetryWaitError } from './openaiRequest.ts'
 import { isAssistantTextItems, MAX_ASSISTANT_TEXT_ITEMS, type AssistantTextItem } from '../../contract/assistantTextItems.ts'
 
 type Request = Anthropic.MessageCreateParamsNonStreaming
@@ -33,14 +35,6 @@ export function responsesHistoryContent(text: string, items: unknown): string | 
  * their messages local and do not attach a provider body as an error cause. */
 export class EndpointResponseError extends Error {}
 
-export class EndpointHttpError extends Error {
-  readonly status: number
-  constructor(status: number) {
-    // Never echo upstream bodies: they may repeat credentials, prompts or URLs.
-    super(`The model endpoint returned HTTP ${status}.`)
-    this.status = status
-  }
-}
 function object(value: unknown): Json {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new EndpointResponseError('Invalid Responses payload.')
   return value as Json
@@ -214,29 +208,16 @@ class ResponsesStream {
   }
 }
 
-export function openaiResponsesClient(baseURL: string, key: string, fetcher: typeof fetch = fetch) {
+export function openaiResponsesClient(baseURL: string, key: string, fetcher: typeof fetch = fetch, maxRetries = 0) {
   const request = async (path: string, body: Json | undefined, options: Options): Promise<Response> => {
     // Callers own tighter operation deadlines. Otherwise use the same bounded
     // default as generation; a tool-free call must not wait indefinitely either.
     const signal = options.signal ?? AbortSignal.timeout(positiveNumberEnv(process.env.MODEL_TIMEOUT_MS, 60_000))
-    let response: Response
-    try {
-      response = await fetcher(`${baseURL.replace(/\/+$/, '')}/${path}`, {
-        method: body ? 'POST' : 'GET', redirect: 'error', signal,
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        ...(body ? { body: JSON.stringify(body) } : {}),
-      })
-    } catch {
-      // Fetch validation errors can quote a rejected Authorization value or
-      // credential-bearing URL. Never propagate their message or cause. The
-      // shared caller still recognizes cancellation through its own signal.
-      throw new Error('The model endpoint request failed.')
-    }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => {})
-      throw new EndpointHttpError(response.status)
-    }
-    return response
+    return fetchOpenAIWithRetry(`${baseURL.replace(/\/+$/, '')}/${path}`, {
+      method: body ? 'POST' : 'GET', redirect: 'error', signal,
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    }, fetcher, maxRetries)
   }
   return {
     messages: {

@@ -3,11 +3,17 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { DEFAULT_PROVIDER_ID, type ModelProvider, type ScheduledRun, type ScheduledTask } from '../contract/index.ts'
-import { generateReply } from './generate.ts'
 import { DEFAULT_AGENT } from './data/workers.ts'
 import type { ProviderConfig } from './data/providers.ts'
-import { createRoutineRunner, type RoutineRunStore } from './routineRunner.ts'
+import type { RoutineRunStore } from './routineRunner.ts'
 import type { RoutineExecutionContext } from './store/index.ts'
+
+const previousRetryBudget = process.env.ANTHROPIC_MAX_RETRIES
+process.env.ANTHROPIC_MAX_RETRIES = '2'
+const { generateReply } = await import('./generate.ts')
+const { createRoutineRunner } = await import('./routineRunner.ts')
+if (previousRetryBudget === undefined) delete process.env.ANTHROPIC_MAX_RETRIES
+else process.env.ANTHROPIC_MAX_RETRIES = previousRetryBudget
 
 const privateKey = 'provider-private-test-key'
 const privateBody = 'provider-private-error-body'
@@ -151,6 +157,71 @@ for (const protocol of ['anthropic-messages', 'openai-responses'] as const) {
       else process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY = previous
       server.closeAllConnections?.()
       await new Promise<void>(resolve => server.close(() => resolve()))
+    }
+  })
+}
+
+for (const scenario of [
+  { label: 'known quota refusal', status: 429, retryAfter: '0',
+    error: { code: 'insufficient_quota', type: 'insufficient_quota', message: privateBody }, guidance: /billing or quota change.*HTTP 429/ },
+  { label: 'server wait exceeding the supported bound', status: 503, retryAfter: '61',
+    error: { type: 'server_error', message: privateBody }, guidance: /longer wait.*supports/ },
+  { label: 'positive server wait on the final configured attempt', status: 503, retryAfter: '30', expectedRequests: 3,
+    error: { type: 'server_error', message: privateBody }, guidance: /wait|retry.*requested/ },
+  { label: 'long server wait combined with explicit retry refusal', status: 503, retryAfter: '61', noRetry: true,
+    error: { type: 'server_error', message: privateBody }, guidance: /wait|retry.*requested/ },
+  { label: 'server wait interrupted by the internal model deadline', status: 503, retryAfter: '30', deadlineMs: 20,
+    error: { type: 'server_error', message: privateBody }, guidance: /wait|retry.*requested/ },
+] as const) {
+  test(`Routine treats native Responses ${scenario.label} as terminal rather than deferring another attempt`, async t => {
+    let wireRequests = 0
+    let seenCredential: string | null = null
+    const previous = process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY
+    const previousTimeout = process.env.MODEL_TIMEOUT_MS
+    if ('deadlineMs' in scenario) process.env.MODEL_TIMEOUT_MS = String(scenario.deadlineMs)
+    process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY = privateKey
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+      wireRequests++
+      assert.equal(String(url), 'http://127.0.0.1:1/v1/responses', 'the authored fetch intercepts the actual Responses request')
+      seenCredential = new Headers(options?.headers).get('authorization')
+      const retryAfter = 'expectedRequests' in scenario && wireRequests < scenario.expectedRequests ? '0' : scenario.retryAfter
+      return Response.json({ error: scenario.error }, { status: scenario.status, headers: {
+        'retry-after': retryAfter, ...('noRetry' in scenario ? { 'x-should-retry': 'false' } : {}),
+      } })
+    })
+    let stopRunner = () => {}
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      const { context, run } = fakeContext(makeProvider('openai-responses', 'http://127.0.0.1:1/v1'))
+      const result = { deferrals: [] as number[], completions: 0, failures: [] as Array<{ code: string; detail: string }> }
+      let settled!: () => void
+      const terminal = new Promise<void>(resolve => { settled = resolve })
+      const runner = createRoutineRunner(runStore(context, settled, result), generateReply, { now: () => 1_000, retryBaseMs: 1 })
+      stopRunner = () => runner.stop()
+      runner.start()
+      await Promise.race([
+        terminal,
+        new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Routine did not settle')), 1_000) }),
+      ])
+      stopRunner()
+      assert.equal(wireRequests, 'expectedRequests' in scenario ? scenario.expectedRequests : 1, 'only admitted transport attempts may occur')
+      assert.equal(seenCredential, `Bearer ${privateKey}`)
+      assert.equal(run.attempts, 1)
+      assert.equal(run.status, 'failed')
+      assert.deepEqual(result.deferrals, [], 'terminal provider refusal must not schedule an outer retry')
+      assert.equal(result.completions, 0)
+      assert.equal(result.failures.length, 1)
+      assert.equal(result.failures[0].code, 'model_unavailable')
+      assert.match(result.failures[0].detail, scenario.guidance)
+      assert.match(result.failures[0].detail, /will not be retried automatically/)
+      assert.doesNotMatch(JSON.stringify(result), /provider-private-error-body|provider-private-test-key|insufficient_quota|server_error/)
+    } finally {
+      stopRunner()
+      if (timeout) clearTimeout(timeout)
+      if (previous === undefined) delete process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY
+      else process.env.PROVIDER_ROUTINE_REJECTION_TEST_KEY = previous
+      if (previousTimeout === undefined) delete process.env.MODEL_TIMEOUT_MS
+      else process.env.MODEL_TIMEOUT_MS = previousTimeout
     }
   })
 }

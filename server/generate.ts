@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { providerUsage, providerUsageCacheKey } from './providerUsage.ts'
 import { replyThinking } from './model/replyThinking.ts'
 import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
-import { EndpointHttpError, EndpointResponseError, openaiResponsesClient, responsesHistoryContent, type EndpointMessage } from './model/openaiResponses.ts'
+import { EndpointHttpError, EndpointRetryWaitError, EndpointResponseError, openaiResponsesClient, responsesHistoryContent, type EndpointMessage } from './model/openaiResponses.ts'
 import { isAssistantTextItems, MAX_ASSISTANT_TEXT_ITEMS, type AssistantTextItem } from '../contract/assistantTextItems.ts'
 import type { Agent, Attachment, EscalationProposal, Message, ModelInfo, RelationOp, SessionContext, ToolActivity } from '../contract/index.ts'
 import type { ChangesetVersion } from '../contract/contributions.ts'
@@ -76,8 +76,8 @@ export function resolvedModelId(config: ProviderConfig = {}): string {
   return config.model ?? MODEL
 }
 
-/** SDK transient-error retries (network blips / 429 / 5xx) — fail fast by default to
- *  reach the graceful fallback. Override with `ANTHROPIC_MAX_RETRIES` (non-negative int). */
+/** Both endpoint protocols share this retry budget; dedicated single-shot tasks
+ * override it with zero. Retain the legacy `ANTHROPIC_MAX_RETRIES` setting. */
 const MODEL_MAX_RETRIES = nonNegativeIntEnv(process.env.ANTHROPIC_MAX_RETRIES, 1)
 
 /** Combine the caller's abort (an explicit turn cancel — the route's cancel route;
@@ -154,7 +154,7 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
       }
       return response
     }
-    const native: NativeEndpointClient = config.protocol === 'openai-responses' ? openaiResponsesClient(base, key, observedFetch) : new Anthropic({
+    const native: NativeEndpointClient = config.protocol === 'openai-responses' ? openaiResponsesClient(base, key, observedFetch, maxRetries) : new Anthropic({
       baseURL: base,
       apiKey: key,
       fetch: observedFetch,
@@ -204,11 +204,17 @@ function providerProbeFailureDetail(error: unknown): string {
 }
 
 /** Static recovery advice only: SDK messages can reflect credentials, private
- * URLs or request bodies. Keep transient 408/409/429 and 5xx on the existing
- * bounded retry path; other 4xx need a changed request or connection. */
+ * URLs or request bodies. Transient failures retain bounded retry unless a
+ * known quota refusal or an unfulfilled server wait makes replay unsafe. */
 function providerRejectionDetail(error: unknown): string | undefined {
   if (error instanceof ProviderProbeError) {
     return 'The model connection is not ready. Check its connection settings and API key availability in Models.'
+  }
+  if (error instanceof EndpointHttpError && error.quotaExceeded) {
+    return 'The model provider requires a billing or quota change (HTTP 429). Check credits, spending limits and account usage limits with the provider.'
+  }
+  if (error instanceof EndpointRetryWaitError || (error instanceof EndpointHttpError && error.retryWaitUnfulfilled)) {
+    return 'The model provider requested a longer wait than this operation supports. Try again later; this operation will not retry sooner than requested.'
   }
   if (!(error instanceof Anthropic.APIError || error instanceof EndpointHttpError)) return
   const status = error.status
@@ -264,7 +270,7 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
     throw new ProviderProbeError(`The provider credential '${config.apiKeyEnv}' is not available to this server.`)
   }
   const probe = async (withTools: boolean) => {
-    const response = await clientFor(config).messages.create(
+    const response = await clientFor(config, 0).messages.create(
       {
         model: config.model ?? MODEL,
         max_tokens: config.protocol === 'openai-responses' ? 32 : 8,

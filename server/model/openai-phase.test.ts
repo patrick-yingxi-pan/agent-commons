@@ -420,7 +420,9 @@ test('output-limit fallback prose is retained without trusted native phase', asy
 test('immediate native endpoint failure stores exact host fallback prose as one unphased assistant item', async () => {
   requests.length = 0
   script = (_request, response) => {
-    response.writeHead(503, { 'content-type': 'application/json' })
+    // This lock owns fallback phase, not transient recovery. Make the immediate
+    // refusal explicit now that Responses honors the shared transport budget.
+    response.writeHead(503, { 'content-type': 'application/json', 'x-should-retry': 'false' })
     response.end('{"error":"private endpoint diagnostic"}')
   }
   const result = await generateReply(session, DEFAULT_AGENT, 'Try the unavailable model.', collect().handlers, undefined, provider())
