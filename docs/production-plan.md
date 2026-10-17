@@ -6,7 +6,43 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: owner Stop before provider output. The packaged recovery
+Current checkpoint: complete provider model catalogs. The local regression
+reproduced a valid configured or explicit model on Messages page two becoming
+unavailable because refresh published only page one. Discovery now collects
+the complete candidate under one original deadline, with 20-page / 2,000-raw-row
+bounds. Malformed continuation, duplicate identity, cycling, overflow, failure
+or cancellation discards the candidate; the previous catalog, revision and
+selection stay intact. No refresh generates model output. Normalization lives
+in one small module, separate from the shared reply loop.
+Each page makes one transport attempt: discovery does not inherit generation
+retries, because the Messages SDK's retry sleep can outlive cancellation.
+Three local refusal regressions failed before that repair. An initial full
+verifier was stopped cleanly during review; it is not passing evidence. The
+complete local verifier must run again on the final tree.
+
+The [Claude model-list contract](https://platform.claude.com/docs/en/api/models/list)
+uses `has_more`, `last_id` and `after_id`; the
+[OpenAI list](https://developers.openai.com/api/reference/resources/models/methods/list)
+is unpaginated. SDK raw JSON retains malformed pagination for validation instead
+of coercing it into terminal success. Compatible endpoints that omit pagination
+on their only page retain their existing behavior, as do providers without a
+list API. Metadata remains provider-declared, never inferred from model names.
+Four route regressions and the wire pagination cases failed before repair;
+the cancellation regression also failed under deliberate mutation. The local
+gate includes model/route tests, rendered selection-refresh-send recovery and
+the complete frozen-tree verifier. No new UI layout or native-shell behavior is
+introduced. Paid-provider testing remains deferred, and this is not signed or
+live-provider acceptance.
+
+Next provider checkpoint: preserve an explicit `effort.supported: false` as an
+empty model effort vocabulary instead of treating it as unknown and inheriting
+the provider's effort setting. The read-only audit found that conflation in
+catalog normalization and the Haiku fixture. An authored peer should refuse
+unexpected effort fields, proving refresh, selection and Send omit the field
+without changing absent-metadata inheritance. This remains separate from the
+current pagination acceptance and deferred paid-provider testing.
+
+Shipped checkpoint `8bda3b73`: owner Stop before provider output. The packaged recovery
 walk exposed a real workflow gap: during an authored OpenAI retry wait the UI
 showed typing but no Stop, because the cancellation handle arrived only with
 the provider's first assistant message. Waiting longer did not make the owner
@@ -38,8 +74,9 @@ across signed-in relaunch without replay. Synthetic credentials remain in
 OS-backed custody, not product persistence or renderer HTTP. The accepted ASAR
 SHA-256 is `ab6beb61cd9f561c5e6c724708f4f23a84aa445ad245d2ebbcf8026a82bb43f7`;
 the OpenAI screenshots are in `.data/desktop-openai-smoke/run-PfVgY5/`.
-Complete frozen-tree `npm run verify` and post-test diff review remain the
-mandatory landing gate. Paid-provider tests, signed/notarized native-architecture release
+Complete frozen-tree `npm run verify` passed all five lanes in 910.0 seconds
+(781 browser tests), followed by diff review and commit/push to main.
+Paid-provider tests, signed/notarized native-architecture release
 acceptance and real two-version update installation remain separate gates.
 Failure-first native evidence: the strengthened walk against the previous
 Oct 16 package (without bounded Responses retries) failed at Dispatch with a
@@ -70,15 +107,8 @@ regression was watched fail before repair. All 58 focused privacy/turn/contract
 checks and 20 documentation/spec checks then passed. The failed verifier was
 interrupted cleanly; its incomplete browser lanes are not passing evidence.
 The complete desktop verifier subsequently passed again on the rebuilt package
-identified above. A fresh complete local verifier remains mandatory before
-landing this final tree.
-
-Next provider checkpoint: bounded Messages catalog pagination. The read-only
-audit found `fetchProviderModels` publishes only the first 100-row page. A valid
-configured model on a later page can therefore be shown as unavailable. Add
-authored multi-page discovery and refresh recovery tests under one total
-deadline; incomplete reads must not replace a working catalog. This is a local
-compatibility gap, distinct from deferred paid acceptance and signing gates.
+identified above. The fresh complete local verifier subsequently passed, as
+recorded above; the incomplete run is not acceptance evidence.
 
 Previous checkpoint `f2edae41` passed all five local verifier lanes (780 browser
 tests) in 897.9 seconds, then landed on main with a clean worktree. It implemented

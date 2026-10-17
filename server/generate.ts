@@ -6,6 +6,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { providerUsage, providerUsageCacheKey } from './providerUsage.ts'
 import { replyThinking } from './model/replyThinking.ts'
+import { collectProviderModels } from './model/providerCatalog.ts'
 import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
 import { EndpointHttpError, EndpointRetryWaitError, EndpointResponseError, openaiResponsesClient, responsesHistoryContent, type EndpointMessage } from './model/openaiResponses.ts'
 import { isAssistantTextItems, MAX_ASSISTANT_TEXT_ITEMS, type AssistantTextItem } from '../contract/assistantTextItems.ts'
@@ -103,7 +104,7 @@ type NativeEndpointClient = Anthropic | ReturnType<typeof openaiResponsesClient>
 type EndpointRequest = Anthropic.MessageCreateParamsNonStreaming
 type EndpointOptions = { signal?: AbortSignal | null }
 type EndpointClient = {
-  models: { list(params: { limit: number }, options?: EndpointOptions): Promise<{ data: unknown[] }> }
+  models: { list(params: { limit: number; after_id?: string }, options?: EndpointOptions): Promise<unknown> }
   messages: {
     create(body: EndpointRequest, options?: EndpointOptions): Promise<EndpointMessage>
     stream(body: EndpointRequest, options?: EndpointOptions): {
@@ -170,7 +171,12 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
       return response
     }
     client = {
-      models: { list: async (params, options) => native.models.list(params, options) },
+      // Read the raw SDK response, not Page's coerced has_more/last_id defaults:
+      // malformed pagination must never look like a successful terminal page.
+      // URL, credentials, retries and redirects still use the same SDK client.
+      models: { list: async (params, options) => native instanceof Anthropic
+        ? native.get<unknown>('/v1/models', { query: params, ...options })
+        : native.models.list(params, options) },
       messages: {
         create: async (body, options) => observe(await native.messages.create(body, options)),
         stream: (body, options) => {
@@ -307,64 +313,6 @@ export async function probeProviderEndpoint(config: ProviderConfig): Promise<Pro
   }
 }
 
-/** The loose wire shape of one `GET /v1/models` entry. Providers disagree about
- *  everything past `id` (Anthropic ships capabilities + token limits; OpenAI ships
- *  nothing; the SDK's own type lags the live API), so the normalizer reads each
- *  field defensively and simply omits what an endpoint doesn't expose — absence
- *  *is* the contract's unknown state (`ModelInfo`). */
-interface WireModel {
-  id?: string
-  display_name?: string
-  max_input_tokens?: number
-  max_tokens?: number
-  capabilities?: {
-    effort?: { supported?: boolean } & Record<string, { supported?: boolean } | boolean | undefined>
-    thinking?: { supported?: boolean; types?: { adaptive?: { supported?: boolean } } }
-    image_input?: { supported?: boolean }
-  }
-}
-
-/** The canonical effort ladder (the Anthropic capability keys, low→max) and its
- *  display labels — the order the normalized `effortLevels` list preserves. */
-const WIRE_EFFORTS: Array<[key: string, label: string]> = [
-  ['low', 'Low'],
-  ['medium', 'Medium'],
-  ['high', 'High'],
-  ['xhigh', 'xHigh'],
-  ['max', 'Max'],
-]
-
-/** Normalize one wire model into the contract's flexible `ModelInfo` — every
- *  metadata field optional, filled only when the endpoint exposed it. */
-function normalizeWireModel(value: unknown): ModelInfo | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
-  const m = value as WireModel
-  if (typeof m.id !== 'string' || !m.id) return undefined
-  const caps = m.capabilities
-  const efforts =
-    caps?.effort?.supported === true
-      ? WIRE_EFFORTS.filter(([k]) => {
-          const level = caps.effort?.[k]
-          return typeof level === 'object' && level?.supported === true
-        }).map(([, label]) => label)
-      : []
-  const flags = {
-    ...(typeof caps?.thinking?.supported === 'boolean' ? { thinking: caps.thinking.supported } : {}),
-    ...(typeof caps?.thinking?.types?.adaptive?.supported === 'boolean' &&
-      !(caps.thinking.supported === false && caps.thinking.types.adaptive.supported)
-      ? { adaptiveThinking: caps.thinking.types.adaptive.supported } : {}),
-    ...(typeof caps?.image_input?.supported === 'boolean' ? { vision: caps.image_input.supported } : {}),
-  }
-  return {
-    id: m.id,
-    label: typeof m.display_name === 'string' && m.display_name ? m.display_name : m.id,
-    ...(typeof m.max_input_tokens === 'number' && m.max_input_tokens > 0 ? { contextWindow: m.max_input_tokens } : {}),
-    ...(typeof m.max_tokens === 'number' && m.max_tokens > 0 ? { maxOutputTokens: m.max_tokens } : {}),
-    ...(Object.keys(flags).length ? { capabilities: flags } : {}),
-    ...(efforts.length ? { effortLevels: efforts } : {}),
-  }
-}
-
 /** Fetch a provider endpoint's model catalog (`GET /v1/models`) through the same
  *  SDK/base-URL seam turns generate through, normalized into the contract's
  *  `ModelInfo[]`. Absence-tolerant by design: an endpoint with no list API (404),
@@ -374,17 +322,12 @@ function normalizeWireModel(value: unknown): ModelInfo | undefined {
  *  `api.anthropic.com` it returns the live catalog — no code change (MODEL-5). */
 export async function fetchProviderModels(config: ProviderConfig = {}): Promise<ModelInfo[] | undefined> {
   try {
-    const page = await clientFor(config).models.list(
-      { limit: 100 },
-      { signal: AbortSignal.timeout(positiveNumberEnv(process.env.PROVIDER_PROBE_TIMEOUT_MS, 10_000)) },
+    return await collectProviderModels(
+      // Catalog refresh already offers explicit recovery. SDK retry sleeps can
+      // outlive cancellation; discovery must not inherit generation backoff.
+      clientFor(config, 0).models.list, config.protocol ?? 'anthropic-messages',
+      AbortSignal.timeout(positiveNumberEnv(process.env.PROVIDER_PROBE_TIMEOUT_MS, 10_000)),
     )
-    // The SDK's `ModelInfo` and our `WireModel` are independently declared shapes
-    // for the same payload, so they don't structurally overlap enough for a direct
-    // assertion — this is a BOUNDARY adapter, and `normalizeWireModel` below is
-    // what actually validates each row (it returns undefined for anything that
-    // isn't a model, hence the filter).
-    const models = (page.data as unknown as WireModel[]).map(normalizeWireModel).filter((m): m is ModelInfo => !!m)
-    return models.length ? models : undefined
   } catch {
     return undefined
   }
