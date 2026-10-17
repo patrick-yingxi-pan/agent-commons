@@ -146,6 +146,13 @@ test('deferred usage details remain contained, closable, and recover after a fai
     await expect(recovered.getByText('Local usage limits', { exact: true })).toBeVisible()
     await expect(recovered.getByText(/About 4 characters per token/)).toBeVisible()
     await expect(recovered.getByText(/Excludes attachments, runtime tools/)).toBeVisible()
+    await recovered.getByRole('button', { name: /^Context breakdown/ }).click()
+    await expect(recovered).toHaveAttribute('data-usage-view', 'context')
+    await expect(recovered.getByRole('heading', { name: 'Context breakdown', exact: true })).toBeVisible()
+    await expect(recovered.getByText('Local usage limits', { exact: true })).toHaveCount(0)
+    await recovered.getByRole('button', { name: 'Back to usage', exact: true }).click()
+    await expect(recovered).toHaveAttribute('data-usage-view', 'summary')
+    await expect(recovered.getByText('Local usage limits', { exact: true })).toBeVisible()
     expect(requests, 'a fresh page load requested the usage details module again').toBe(2)
   } finally {
     release()
@@ -239,7 +246,7 @@ test('usage API loading and failure are explicit, retryable, and preserve the un
     await expect(page.getByRole('button', { name: /^Usage — estimated context/ })).toHaveAttribute('aria-expanded', 'true')
     const recoveredDialog = page.getByRole('dialog', { name: 'Usage details', exact: true })
     await expect(recoveredDialog.getByText('Local usage limits', { exact: true })).toBeVisible()
-    await expect(recoveredDialog.getByText('Provider quota', { exact: true })).toBeVisible()
+    await expect(recoveredDialog.getByRole('region', { name: 'Provider usage & quota' })).toBeVisible()
   } finally {
     release()
     await page.unroute(USAGE_API)

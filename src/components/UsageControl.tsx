@@ -64,7 +64,7 @@ export function UsageControl({
 }) {
   const [open, setOpen] = useState(false)
   const [expanded, setExpanded] = useState(false)
-  const wrapRef = useDismissable<HTMLDivElement>(open, () => setOpen(false))
+  const wrapRef = useDismissable<HTMLDivElement>(open, () => { setOpen(false); setExpanded(false) })
   const query = useUsage(sessionId)
   const view = usagePresentation(query, messageTokens, model)
   const { usage, title } = view
@@ -76,6 +76,7 @@ export function UsageControl({
           // Refresh elapsed local windows on explicit inspection, never by
           // polling a provider or replaying model work. Pending reads are reused.
           if (!open && query.status === 'success') invalidate(keys.usage(sessionId))
+          setExpanded(false)
           setOpen((o) => !o)
         }}
         title={title}

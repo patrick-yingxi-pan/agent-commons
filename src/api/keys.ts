@@ -122,6 +122,7 @@ export const keys = {
   connectorDetail: (id: string | Connector) => `connector-detail:${typeof id === 'string' ? id : id.id}`,
   /** Keyed per session so the context-window figure tracks the open thread. */
   usage: (sessionId?: string) => (sessionId ? `usage:${sessionId}` : 'usage'),
+  providerUsage: (providerId: string, modelId?: string) => `provider-usage:${JSON.stringify([providerId, modelId ?? null])}`,
   artifactContent: 'artifact-content',
   artifactTrash: 'artifact-trash',
   artifactLifecycle: (id?: string) => (id ? `artifact-lifecycle:${id}` : 'artifact-lifecycle'),
@@ -375,6 +376,8 @@ export const paths = {
     return `/connectors/detail?${q.toString()}`
   },
   usage: (sessionId?: string) => (sessionId ? `/usage?session=${encodePathSegment(sessionId)}` : '/usage'),
+  providerUsage: (providerId: string, modelId?: string) => `/providers/${encodePathSegment(providerId)}/usage${modelId === undefined ? '' : `?model=${encodePathSegment(modelId)}`}`,
+  providerUsageBalance: (providerId: string, modelId?: string) => `/providers/${encodePathSegment(providerId)}/usage/balance${modelId === undefined ? '' : `?model=${encodePathSegment(modelId)}`}`,
   /** S8 — the square's compose door: say something with no resource attached. */
   posts: '/posts',
   artifactContent: '/artifact-content',

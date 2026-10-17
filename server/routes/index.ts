@@ -16,6 +16,7 @@ import { exportArtifact } from './artifactExport.ts'
 import { serveSessionTurn } from './sessionTurnStream.ts'
 import { updateArtifactContent } from './artifactContent.ts'
 import { registerArtifactHistoryRoutes } from './artifactHistory.ts'
+import { registerProviderUsageRoutes } from './providerUsage.ts'
 import { parseArtifactDeletionRequest } from '../../contract/artifactDeletion.ts'
 import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS, MAX_SEARCH_QUERY_CHARS, SEARCH_HIT_TYPES, parseSearchPage } from '../../contract/search.ts'
 import { MAX_CONVERSATION_SEARCH_QUERY_CHARS } from '../../contract/conversationSearch.ts'
@@ -1535,6 +1536,7 @@ export function buildRouter(): Router {
     if (!accountTransitionSourceMatches(req, res)) return
     sendJson(res, store.listProviders(store.identity(req.headers).tenant.id))
   })
+  registerProviderUsageRoutes(r, accountTransitionSourceMatches)
   r.aliasGet('/providers/:id', 'GET /providers', 'the by-id provider read is a focused projection of the provider collection visible in the UI', ({ req, res, params }) => {
     if (!accountTransitionSourceMatches(req, res)) return
     // `listProviders(tenant).find`, not `store.getProvider` — the latter falls back to the
@@ -4834,7 +4836,7 @@ export function buildRouter(): Router {
     // Resolved explicitly to the seeded default when both are unset, so the per-turn
     // provenance stamp below always names a real provider (never "implicit").
     const turnProviderId = known?.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
-    const provider = store.providerConfig(turnProviderId)
+    const provider = store.providerExecutionConfig(turnProviderId)
     const providerFace = store.listProviders(tenantId).find((candidate) => candidate.id === turnProviderId)
     // The session's concrete model pick (`session.modelId`, catalog-validated at
     // write time) overrides the provider's configured model for THIS session's
@@ -5264,7 +5266,7 @@ export function buildRouter(): Router {
     const readySession = session!
     const agent = boundAgent ?? store.getAgent()
     const providerId = readySession.providerId ?? agent.providerId ?? DEFAULT_PROVIDER_ID
-    const provider = store.providerConfig(providerId)
+    const provider = store.providerExecutionConfig(providerId)
     const providerFace = store.listProviders(tenantId).find((candidate) => candidate.id === providerId)
     const providerConfig = readySession.modelId ? { ...provider, model: readySession.modelId } : provider
     const modelId = provider.kind === 'session' ? undefined : resolvedModelId(providerConfig)
@@ -5370,7 +5372,7 @@ export function buildRouter(): Router {
       const work = startConversationTurn({
         session: { id: known.id, title: known.title }, known,
         agent: store.getAgent(execution.agentId),
-        provider: { ...store.providerConfig(execution.providerId), model: execution.modelId },
+        provider: { ...store.providerExecutionConfig(execution.providerId), model: execution.modelId },
         providerId: execution.providerId, modelId: execution.modelId, tenantId,
         modelInfo: store.getProvider(execution.providerId).models?.find(model => model.id === execution.modelId),
         text: dispatchPrompt(run.title, run.detail), history: [], persist: true,

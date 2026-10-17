@@ -1,8 +1,9 @@
-import { ChevronRight } from 'lucide-react'
+import { ArrowLeft, ChevronRight } from 'lucide-react'
 import { POPOVER_SURFACE } from '../lib/popover'
 import { usePopoverShift } from '../lib/usePopoverShift'
 import { formatTokens, formatUsagePercent, type ContextSegment, type ContextTone, type UsageSnapshot } from '../../contract/usage.ts'
 import { contextPercentLabel } from '../lib/usagePresentation.ts'
+import { ProviderUsageDetails } from './ProviderUsageDetails.tsx'
 
 const TONE: Record<ContextTone, string> = {
   messages: '#2f6fed',
@@ -38,22 +39,33 @@ export function UsageDetails({
   const popRef = usePopoverShift<HTMLDivElement>(true)
 
   return (
-    <div ref={popRef} role="dialog" aria-label="Usage details" className={`absolute bottom-full right-0 z-20 mb-2 w-[340px] p-3 ${POPOVER_SURFACE}`}>
+    <div ref={popRef} role="dialog" aria-label="Usage details" data-usage-view={expanded ? 'context' : 'summary'} className={`absolute bottom-full right-0 z-20 mb-2 w-[340px] p-3 ${POPOVER_SURFACE}`}>
       {updating && <p role="status" className="mb-2 text-[11px] text-ink-soft">Updating usage…</p>}
-      {/* Partial estimate; the disclosure stays visible when rows collapse. */}
+      {/* One mounted button keeps keyboard focus through the in-panel navigation. */}
       <button
+        type="button"
         onClick={onToggleExpanded}
         aria-expanded={expanded}
-        className="flex w-full flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-left"
+        className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md text-left ${expanded ? 'mb-2 px-1 py-1 text-[12px] text-ink-soft hover:bg-panel-2' : 'w-full justify-between'}`}
       >
-        <span className="text-[13px] font-medium text-ink">Context estimate</span>
-        <span className="flex items-center gap-1 text-[12px] text-ink-soft">
+        {expanded ? <><ArrowLeft size={13} aria-hidden="true" />Back to usage</> : <>
+          <span className="text-[13px] font-medium text-ink">Context breakdown</span>
+          <span className="flex items-center gap-1 text-[12px] text-ink-soft">
+            {windowKnown
+              ? <>{usage.context.used} / {usage.context.total} ({contextPercentLabel(usage.context)})</>
+              : <>{usage.context.used} used · window unknown</>}
+            <ChevronRight size={13} aria-hidden="true" className="text-ink-faint" />
+          </span>
+        </>}
+      </button>
+      {expanded && <>
+        <h2 className="text-[13px] font-medium text-ink">Context breakdown</h2>
+        <p className="mt-0.5 text-[12px] tabular-nums text-ink-soft">
           {windowKnown
             ? <>{usage.context.used} / {usage.context.total} ({contextPercentLabel(usage.context)})</>
             : <>{usage.context.used} used · window unknown</>}
-          <ChevronRight size={13} className={`text-ink-faint transition-transform ${expanded ? 'rotate-90' : ''}`} />
-        </span>
-      </button>
+        </p>
+      </>}
       {/* This is the session's resolved provider + model, never a client constant. */}
       {modelRef && (
         <div className="mt-0.5 break-words text-[11px] text-ink-faint">
@@ -78,9 +90,11 @@ export function UsageDetails({
         </div>
       )}
 
+      {!expanded && (<>
       <div className="my-2.5 border-t border-line" />
-      <div className="text-[12px] font-medium text-ink">Provider quota</div>
-      <p className="mt-0.5 text-[11px] leading-snug text-ink-soft">Not connected in Agent Commons. Remaining API balance, rate limits and subscription allowance are not retrieved here.</p>
+      {modelRef
+        ? <ProviderUsageDetails key={JSON.stringify([modelRef.providerId, modelRef.modelId])} model={modelRef} />
+        : <p className="text-[11px] text-ink-soft">Provider usage is unavailable until a provider is selected.</p>}
 
       <div className="my-2.5 border-t border-line" />
       <div className="text-[12px] font-medium text-ink">Local usage limits</div>
@@ -104,6 +118,7 @@ export function UsageDetails({
           </div>
         ))}
       </div>
+      </>)}
     </div>
   )
 }

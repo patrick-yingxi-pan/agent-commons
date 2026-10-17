@@ -6,23 +6,40 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: correct usage source/scope after the owner's browser review.
-The indicator is now context-only: a partial app estimate against model catalog
-metadata, not a provider reading. Provider quota is explicitly unavailable;
-balances, API rate-limit headers and consumer subscription allowances are not
-integrated. The app's unchanged account-wide five-hour/weekly limits expose raw
-counts and stable keys; the synthetic Sonnet-only row is removed. Loading/failure
-never become zero, small positive estimates retain precision, opening refreshes
-local windows, and read-only Retry preserves drafts. Native Messages accounting
-includes cache creation/read input once; Responses aggregates are not added twice.
-Regression assertions were watched fail before implementation. Full local and
-responsive verification remain the landing gates; no paid-provider calls occur.
+Current checkpoint: provider observations and in-panel context breakdown are
+implemented. Focused browser acceptance (seven tests) and the responsive sweep
+(135/135 cells, no violations or skips) passed locally. The complete local
+verifier remains the mandatory landing gate; its final result is recorded in the
+checkpoint handoff.
+The indicator remains a partial context estimate against catalog metadata.
+Context breakdown replaces provider/local-limit content and offers Back to usage.
+The separate provider section reads private, exact-model transient observations:
+latest valid completed request input/output and last observed response rate limits.
+Observations carry timestamps, expire without implying refill, and are isolated
+across credentials, connection revisions and runtime epochs. Ordinary observation
+reads make no provider call. Explicit DeepSeek balance inspection alone uses its
+fixed official endpoint, a 60-second coalesced cache, five-second deadline and
+16 KiB response limit, rejecting redirects and preserving currency decimals.
+Eight concurrent balance reads are allowed; cache eviction or a store reset
+cannot release a live request's slot. Background conversation, routine, Agent
+request, contribution and Commission work refresh open observations; connection
+changes evict them before rereading.
+Billing history, account billing totals and consumer subscription allowances stay
+unavailable; no admin credentials are collected. Local account-wide five-hour/
+weekly policy remains separate. Messages counts include cache creation/read once;
+Responses aggregate input is not doubled. Loading/errors never display zero or
+stale success. New server/adapter and browser fixtures accompany the change;
+their final gate results must be recorded before landing. No paid checks occur.
+Acceptance targets: `server/provider-usage.test.ts`,
+`server/routes/provider-usage.test.ts`,
+`server/model/provider-usage-observation.test.ts` and
+`e2e/provider-usage.spec.ts`, alongside the existing usage suites.
 
 Source review: [Anthropic caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
 defines the input-token split; [OpenAI rate limits](https://developers.openai.com/api/docs/guides/rate-limits)
-describe API limits distinct from app policy. Any future provider-quota adapter
-must preserve source, account/model scope, timestamp and unknown/expired state
-instead of mapping heterogeneous API data into invented five-hour/weekly rings.
+describe API limits distinct from app policy. The observation adapter preserves
+source, connection/model scope, timestamp and unknown/expired state; heterogeneous
+provider data never becomes invented five-hour/weekly provider rings.
 
 Previous checkpoint `b36b78de` passed all five local verifier lanes (772 browser
 checks) and the complete unsigned arm64 desktop suite, then landed on main. It

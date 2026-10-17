@@ -1,7 +1,6 @@
 <!-- context-schema: v1 -->
 # src/api/ — backend-door module index
 ## Scope
-
 The layer's rules are [`src/CLAUDE.md`](../CLAUDE.md); the always-on map is
 [`AGENTS.md`](../../AGENTS.md).
 
@@ -120,6 +119,7 @@ Read [`contract/CLAUDE.md`](../../contract/CLAUDE.md) for wire types,
 | API-D101 | data-access | Explicit untracked native calls require closed scoped requests/results and operation IDs. Abort/account disposal cancels only the captured operation and fences late results; already-aborted work cannot dispatch. Exact path and generation checks precede detached publication. | [`localGit.ts`](localGit.ts) · [`../../contract/localGitUntrackedBrowse.mjs`](../../contract/localGitUntrackedBrowse.mjs) | [`local-git.test.ts`](local-git.test.ts) · [`../../tests/contract-boundaries.test.ts`](../../tests/contract-boundaries.test.ts) | requires DESKTOP-S33; requires CONTRACT-D135; refines API-A1 |
 | API-D102 | data-access | Single-file comparisons reuse the scoped abort/account lifecycle, require exact captured path/direction and validate detached results. Fixed native cancellation fences late publication without any HTTP or model authority. | [`localGit.ts`](localGit.ts) | [`local-git-file-comparison.test.ts`](local-git-file-comparison.test.ts) | requires CONTRACT-D136; refines API-D101 |
 | API-D103 | data-access | Private Agent request reads carry the exact current account source; acknowledgements are identity/revision checked. Conflict and uncertainty refresh current GETs without replaying decisions. Private invalidations carry only request IDs and refresh canonical detail/review/list. | [`agentRequests.ts`](agentRequests.ts) · [`events.ts`](events.ts) | [`agent-request-identity.test.ts`](agent-request-identity.test.ts) · [`agent-request-recovery.test.ts`](agent-request-recovery.test.ts) · [`../../e2e/agent-requests.spec.ts`](../../e2e/agent-requests.spec.ts) | requires CONTRACT-D137; refines API-D1 |
+| API-D104 | data-access | Provider observation cache keys include connection/model and follow account disposal. Opening summary revalidates local observations only; explicit DeepSeek balance inspection performs its distinct read then invalidates observations. Model-work settlement events refresh open readings; connection changes evict them. Read Retry never sends a model turn or rechecks balance. | [`providerUsage.ts`](providerUsage.ts) · [`keys.ts`](keys.ts) · [`events.ts`](events.ts) | [`provider-usage.test.ts`](provider-usage.test.ts) · [`../../e2e/provider-usage.spec.ts`](../../e2e/provider-usage.spec.ts) · [`../../server/provider-usage.test.ts`](../../server/provider-usage.test.ts) | refines API-D1; requires CONTRACT-D94 |
 <!-- context-rules:end -->
 ## What lives here
 The only code in the UI that knows the backend exists: `cache.ts` (the read

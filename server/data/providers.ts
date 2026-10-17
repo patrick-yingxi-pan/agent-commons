@@ -45,6 +45,9 @@ export function validApiKeyEnv(name: string | undefined): boolean {
  *  defaults (`ANTHROPIC_BASE_URL` / `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL`), the
  *  single source for the default provider's endpoint and model. */
 export interface ProviderConfig extends ProviderEndpointConfig {
+  /** Runtime-only observation scope. Stamped on detached execution configs by
+   * the store, never accepted from clients or written into providerConfigs. */
+  usageIdentity?: { providerId: string; tenantId: string; connectionRevision: number; epoch?: number }
   /** Stamped by the registration probe (`probeProviderEndpoint`); required by the
    *  mint funnel whenever `baseURL` is set, so a config can't smuggle in an
    *  unverified endpoint. */

@@ -214,14 +214,14 @@ class ResponsesStream {
   }
 }
 
-export function openaiResponsesClient(baseURL: string, key: string) {
+export function openaiResponsesClient(baseURL: string, key: string, fetcher: typeof fetch = fetch) {
   const request = async (path: string, body: Json | undefined, options: Options): Promise<Response> => {
     // Callers own tighter operation deadlines. Otherwise use the same bounded
     // default as generation; a tool-free call must not wait indefinitely either.
     const signal = options.signal ?? AbortSignal.timeout(positiveNumberEnv(process.env.MODEL_TIMEOUT_MS, 60_000))
     let response: Response
     try {
-      response = await fetch(`${baseURL.replace(/\/+$/, '')}/${path}`, {
+      response = await fetcher(`${baseURL.replace(/\/+$/, '')}/${path}`, {
         method: body ? 'POST' : 'GET', redirect: 'error', signal,
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         ...(body ? { body: JSON.stringify(body) } : {}),

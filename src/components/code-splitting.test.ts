@@ -55,8 +55,21 @@ test('usage gauge remains eager while the details body loads only on first open'
     'a failed detail chunk is announced and has a local Close fallback')
   assert.match(control, /Copy unsent text before reloading[\s\S]*window\.location\.reload\(\)[\s\S]*Reload usage details/,
     'cached module failure has explicit warned full-reload recovery')
-  assert.match(details, /Context estimate[\s\S]*About 4 characters per token[\s\S]*Local usage limits/,
+  assert.match(details, /Context breakdown[\s\S]*About 4 characters per token[\s\S]*Local usage limits/,
     'the lazy content retains the existing estimate and limits explanation')
+})
+
+test('context breakdown replaces the usage summary with a keyboard-returnable detail view', () => {
+  const details = stripComments(read(join(ROOT, 'src/components/UsageDetails.tsx')))
+  assert.match(details, /data-usage-view=\{expanded \? 'context' : 'summary'\}/,
+    'one dialog identifies its current surface for browser acceptance')
+  assert.match(details, /<button[\s\S]*onClick=\{onToggleExpanded\}[\s\S]*Back to usage[\s\S]*Context breakdown[\s\S]*<\/button>/,
+    'the same keyboard focus target changes between breakdown and back')
+  assert.match(details, /\{expanded &&[\s\S]*<h2[^>]*>Context breakdown<\/h2>/)
+  assert.match(details, /\{!expanded && \([\s\S]*ProviderUsageDetails[\s\S]*Local usage limits/,
+    'provider quota and account limits belong only to the summary')
+  assert.doesNotMatch(details, />Context estimate</,
+    'the detail navigation has one consistent name')
 })
 
 test('routine cadence editor and its option catalog load only after opening Schedule edit', () => {

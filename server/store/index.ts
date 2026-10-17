@@ -225,6 +225,10 @@ import { connectorDetail } from '../data/connectorDetails.ts'
 import { ARTIFACT_CONTENT } from '../data/artifactContent.ts'
 import { estimateTokens, mintBudget } from '../usage.ts'
 import { UsageRegistry } from '../usageRegistry.ts'
+import { providerUsage } from '../providerUsage.ts'
+// Transient observations from a replaced world cannot become current again,
+// even when the restored snapshot contains the same ids and revisions.
+let providerUsageEpoch = 0
 import { mintAuthority } from '../authority.ts'
 import { CapabilityUnavailableError, ConflictError, NotFoundError, ValidationError } from '../conflict.ts'
 import { LimitError } from '../limit.ts'
@@ -1917,7 +1921,7 @@ function proxyReplySource(row: StoredProxyRequest, binding: AgentRequestReplyDra
   const provider = store.listProviders(row.intent.owner.tenantId).find(item => item.id === binding.providerId)!
   try {
     return { prepared: prepareAgentRequestReply({ task: row.intent.task, agent, notes }),
-      config: structuredClone({ ...PROVIDER_CONFIGS.get(provider.id), model: binding.model }), budgets: [agent.budget, provider.plan] }
+      config: structuredClone({ ...store.providerExecutionConfig(provider.id), model: binding.model }), budgets: [agent.budget, provider.plan] }
   } catch { return undefined }
 }
 function proxyArgumentSource(row: StoredProxyRequest, binding: AgentRequestArgumentDraftBinding): ProxyArgumentSource | undefined {
@@ -1930,7 +1934,7 @@ function proxyArgumentSource(row: StoredProxyRequest, binding: AgentRequestArgum
   const provider = store.listProviders(row.intent.owner.tenantId).find(item => item.id === binding.providerId)!
   try {
     return { prepared: prepareAgentRequestArguments({ task: row.intent.task, agent, tool: selected.tool }),
-      config: structuredClone({ ...PROVIDER_CONFIGS.get(provider.id), model: binding.model }),
+      config: structuredClone({ ...store.providerExecutionConfig(provider.id), model: binding.model }),
       budgets: [agent.budget, provider.plan], tool: structuredClone(selected.tool) }
   } catch { return undefined }
 }
@@ -2617,7 +2621,7 @@ const commissionMcpExecution = new CommissionMcpExecution({
   capacity: scope => backgroundModelCapacity(scope.tenantId, scope.agentId),
   budgetAvailable: (source, id) => usageRegistry.reservationWithinLimits(id, source.scope.tenantId,
     [source.commission.grant, source.agent.budget, source.parentProvider?.plan, source.provider?.plan]),
-  providerConfig: id => store.providerConfig(id), generate: generateCommissionMcpArguments,
+  providerConfig: id => store.providerExecutionConfig(id), generate: generateCommissionMcpArguments,
   execute: (tenant, call, allowed, person, signal) => executeBoundMcpCall(store, tenant, call, allowed, person, signal),
   lease: (source, work) => {
     if (!source.project.guardianId) return { valid: () => true, release: () => {} }
@@ -3973,6 +3977,8 @@ function rehydrate(s: PersistedState): boolean {
   // than wiping it (defensive — a v4 snapshot always writes all five).
   replaceMap(MODEL_PROVIDERS, s.providers)
   replaceMap(PROVIDER_CONFIGS, s.providerConfigs)
+  providerUsageEpoch += 1
+  providerUsage.clear()
   // Reconcile the SEEDED providers against an older snapshot (the P9 re-stamp
   // rule — seed rows and their catalogs are CODE-owned): a pre-seed snapshot
   // gains a missing seed row (+ its server-only config), and a pre-catalog
@@ -6715,6 +6721,16 @@ export const store = {
   providerConfig(id?: string): ProviderConfig {
     return PROVIDER_CONFIGS.get(id ?? '') ?? DEFAULT_PROVIDER_CONFIG
   },
+  /** Detached execution config adds private, non-durable observation scope. */
+  providerExecutionConfig(id?: string): ProviderConfig {
+    const { usageIdentity: _runtimeIdentity, ...config } = PROVIDER_CONFIGS.get(id ?? '') ?? DEFAULT_PROVIDER_CONFIG
+    const provider = MODEL_PROVIDERS.get(id ?? '')
+    // Shared infrastructure must never expose one tenant's credential usage to
+    // another. Runtime observation identity is absent from durable configuration.
+    return { ...config, ...(provider?.tenantId && provider.kind !== 'session' ? {
+      usageIdentity: { providerId: provider.id, tenantId: provider.tenantId, connectionRevision: provider.connectionRevision ?? 0, epoch: providerUsageEpoch },
+    } : {}) }
+  },
   /** Credential references currently reachable from durable provider configs.
    * The desktop launcher uses this server-only projection after rehydration to
    * reconcile its OS-encrypted vault. Values never appear on HTTP reads, and the
@@ -6817,7 +6833,8 @@ export const store = {
     else provider.catalogSource ??= 'static'
     return commitMutationBatch(() => {
       MODEL_PROVIDERS.set(provider.id, provider)
-      PROVIDER_CONFIGS.set(provider.id, config)
+      const { usageIdentity: _runtimeIdentity, ...durableConfig } = config
+      PROVIDER_CONFIGS.set(provider.id, durableConfig)
       emitProviderChanged(provider)
       persist()
       if (options.isDefault === true) this.setDefaultProvider(provider.id, ownerTenant)
@@ -6895,7 +6912,8 @@ export const store = {
     }
     if (Array.isArray(catalog)) assertCatalogModels(catalog)
 
-    PROVIDER_CONFIGS.set(id, config)
+    const { usageIdentity: _runtimeIdentity, ...durableConfig } = config
+    PROVIDER_CONFIGS.set(id, durableConfig)
     let next: ModelProvider = { ...current, connectionRevision: currentRevision + 1 }
     if (catalog === null) {
       const { models: _models, catalogSource: _source, ...withoutCatalog } = next
@@ -12235,7 +12253,7 @@ export const store = {
         (currentProvider.connectionRevision ?? 0) === binding.connectionRevision
     }
     if (!bindingCurrent()) return 'conflict'
-    const config = structuredClone(PROVIDER_CONFIGS.get(provider.id) ?? {})
+    const config = structuredClone(this.providerExecutionConfig(provider.id))
     if (provider.kind === 'session' || endpointExecution(config) !== 'configured') return 'unconfigured'
     if (this.overSpendLimit(provider.plan, tenantId) || this.overSpendLimit(agent.budget, tenantId)) return 'limit'
     const captureInput = (): DelegatedJudgmentInput => structuredClone({
@@ -12301,7 +12319,7 @@ export const store = {
           const current = this.contributionReviewOwner(projectId, tenantId) && currentGrant === d &&
             d.delegatorTenant === tenantId && d.createdAt === run.delegationCreatedAt &&
             (d.revision ?? 0) === run.delegationRevision && applicable() && bindingCurrent() &&
-            JSON.stringify(PROVIDER_CONFIGS.get(provider.id) ?? {}) === JSON.stringify(config) &&
+            JSON.stringify(this.providerExecutionConfig(provider.id)) === JSON.stringify(config) &&
             contextHash(captureInput()) === run.contextHash && c.events.length < MAX_CONTRIBUTION_EVENTS - 1
           if (!current) run.status = 'stale'
           else {
@@ -12367,7 +12385,7 @@ export const store = {
     if (!agent || !provider) return undefined
     if (agent.providerId !== provider.id || (agent.revision ?? 0) !== binding.agentRevision ||
       (provider.definitionRevision ?? 0) !== binding.providerRevision || (provider.connectionRevision ?? 0) !== binding.connectionRevision) return 'conflict'
-    const config = structuredClone(PROVIDER_CONFIGS.get(provider.id) ?? {})
+    const config = structuredClone(this.providerExecutionConfig(provider.id))
     if (provider.kind === 'session' || endpointExecution(config) !== 'configured') return 'unconfigured'
     if (this.overSpendLimit(provider.plan, tenantId) || this.overSpendLimit(agent.budget, tenantId)) return 'limit'
     const frozenVersion = structuredClone(version)
@@ -13906,7 +13924,7 @@ export const store = {
     if (!provider || provider.kind === 'session') {
       return {
         task: executionTask, run, sessionId: runSessionId(task.id, run.id), tenantId,
-        agent, provider: provider ?? DEFAULT_PROVIDER, providerConfig: this.providerConfig(providerId),
+        agent, provider: provider ?? DEFAULT_PROVIDER, providerConfig: this.providerExecutionConfig(providerId),
         contexts: [], approvedContextIds: new Set(),
         blocked: {
           code: 'model_unavailable',
@@ -13916,7 +13934,7 @@ export const store = {
         },
       }
     }
-    const providerConfig = this.providerConfig(provider.id)
+    const providerConfig = this.providerExecutionConfig(provider.id)
     const legacyModel = provider.models?.find((candidate) => executionTask.model.includes(candidate.label))?.id
     const modelId = executionTask.modelId ?? legacyModel ?? provider.defaultModelId ?? providerConfig.model
     // Inherited catalog-less routing keeps its existing meaning. An explicitly

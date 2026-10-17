@@ -53,10 +53,15 @@ test('a selected model changes context metadata without reassigning account coun
 test('every usage control uses the shared presentation and keeps the gauge context-only', () => {
   const control = stripComments(read(join(ROOT, 'src/components/UsageControl.tsx')))
   const details = stripComments(read(join(ROOT, 'src/components/UsageDetails.tsx')))
+  const providerDetails = stripComments(read(join(ROOT, 'src/components/ProviderUsageDetails.tsx')))
   assert.match(control, /usagePresentation\(query, messageTokens, model\)/)
   assert.match(control, /data-usage-read=\{view\.phase\}/)
   assert.doesNotMatch(control, /EMPTY_USAGE|limits\[/)
-  assert.match(details, /Provider quota[\s\S]*Not connected in Agent Commons/)
+  assert.match(details, /\{!expanded &&[\s\S]*<ProviderUsageDetails[^>]*model=\{modelRef\}/,
+    'provider observations are a separate summary projection for the exact selected model')
+  assert.match(providerDetails, /query\.status === 'success' \? query\.data : undefined/,
+    'failed provider reads never fall back to a stale success')
+  assert.match(providerDetails, /Billing history and subscription allowance are unavailable here/)
   assert.match(details, /Across all models in this account/)
   assert.match(details, /formatUsagePercent\(limit\.usedTokens, limit\.limitTokens\)/)
   assert.doesNotMatch(details, /inner = context|Sonnet only/)

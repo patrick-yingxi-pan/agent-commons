@@ -4,6 +4,7 @@
  * Provider choice never acquires separate execution policy. The local Messages
  * server on :8788 remains an explicitly deterministic development fixture. */
 import Anthropic from '@anthropic-ai/sdk'
+import { providerUsage, providerUsageCacheKey } from './providerUsage.ts'
 import { replyThinking } from './model/replyThinking.ts'
 import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
 import { EndpointHttpError, EndpointResponseError, openaiResponsesClient, responsesHistoryContent, type EndpointMessage } from './model/openaiResponses.ts'
@@ -98,7 +99,20 @@ function withDeadline(signal?: AbortSignal): AbortSignal {
 /** Lazy protocol-aware clients, bounded to 64 connection/key/retry variants.
  * Only legacy Messages connections may inherit the ambient development endpoint.
  * An explicit endpoint never inherits its ambient credential. */
-type EndpointClient = Anthropic | ReturnType<typeof openaiResponsesClient>
+type NativeEndpointClient = Anthropic | ReturnType<typeof openaiResponsesClient>
+type EndpointRequest = Anthropic.MessageCreateParamsNonStreaming
+type EndpointOptions = { signal?: AbortSignal | null }
+type EndpointClient = {
+  models: { list(params: { limit: number }, options?: EndpointOptions): Promise<{ data: unknown[] }> }
+  messages: {
+    create(body: EndpointRequest, options?: EndpointOptions): Promise<EndpointMessage>
+    stream(body: EndpointRequest, options?: EndpointOptions): {
+      on(event: 'text', listener: (delta: string) => void): unknown
+      on(event: 'streamEvent', listener: (event: { type: string; message?: { id: string } }) => void): unknown
+      finalMessage(): Promise<EndpointMessage>
+    }
+  }
+}
 const clients = new Map<string, EndpointClient>()
 function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES): EndpointClient {
   if (!validApiKeyEnv(config.apiKeyEnv)) throw new ProviderProbeError('A provider credential must reference a PROVIDER_* environment variable.')
@@ -121,18 +135,53 @@ function clientFor(config: ProviderConfig = {}, maxRetries = MODEL_MAX_RETRIES):
   const ambientKey = config.baseURL ? undefined : process.env.ANTHROPIC_API_KEY
   const key = declared ?? ambientKey ?? 'mock-no-key-needed'
   if (config.apiKeyEnv && !declared?.trim()) throw new ProviderProbeError('The provider credential is not available to this server.')
-  const cacheKey = `${config.protocol ?? 'anthropic-messages'}\u0000${base}\u0000${key}\u0000${maxRetries}`
+  const observedConfig = { ...config, model: resolvedModelId(config) }
+  const observationKey = providerUsageCacheKey(observedConfig)
+  const cacheKey = `${config.protocol ?? 'anthropic-messages'}\u0000${base}\u0000${key}\u0000${maxRetries}\u0000${observationKey}`
   let client = clients.get(cacheKey)
   if (!client) {
     // Crude growth cap: probes of many distinct (possibly dead) endpoints would
     // otherwise accumulate clients forever. Registered configs are few, so a rare
     // full reset only costs re-construction, never correctness.
     if (clients.size >= 64) clients.clear()
-    client = config.protocol === 'openai-responses' ? openaiResponsesClient(base, key) : new Anthropic({
+    // Observe only headers from actual generation requests. No extra calls, body
+    // duplication or prompt retention. A rotated credential fences late reports.
+    const observedFetch: typeof fetch = async (input, init) => {
+      const response = await fetch(input, { ...init, redirect: 'error' })
+      const requestURL = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      if (init?.method?.toUpperCase() === 'POST' && /\/(messages|responses)$/.test(new URL(requestURL).pathname)) {
+        providerUsage.observeHeaders(observedConfig, response.headers, observationKey)
+      }
+      return response
+    }
+    const native: NativeEndpointClient = config.protocol === 'openai-responses' ? openaiResponsesClient(base, key, observedFetch) : new Anthropic({
       baseURL: base,
       apiKey: key,
+      fetch: observedFetch,
       maxRetries, // review calls explicitly use zero retries; ordinary generation keeps its configured policy
     })
+    const observe = (response: EndpointMessage): EndpointMessage => {
+      // Execution validates and durably records usage independently. Optional
+      // display telemetry never authorizes another call or masks that validation.
+      try {
+        providerUsage.observeUsage(observedConfig, normalizeModelUsage(response.usage,
+          { inputIncludesCached: config.protocol === 'openai-responses' }), observationKey)
+      } catch { /* Invalid counts remain unavailable; the executor refuses them. */ }
+      return response
+    }
+    client = {
+      models: { list: async (params, options) => native.models.list(params, options) },
+      messages: {
+        create: async (body, options) => observe(await native.messages.create(body, options)),
+        stream: (body, options) => {
+          const stream = native.messages.stream(body, options)
+          return {
+            on: stream.on.bind(stream),
+            finalMessage: async () => observe(await stream.finalMessage()),
+          }
+        },
+      },
+    }
     clients.set(cacheKey, client)
   }
   return client
