@@ -262,6 +262,108 @@ test('streamed function calls use the shared tool loop, meter before effect, and
   assert.deepEqual(continuation.find(item => item.id === reasoning.id), reasoning, 'encrypted reasoning is forwarded byte-for-byte as provider-owned opaque data')
 })
 
+test('completed Responses without first-round visible prose fall back without running tools', async t => {
+  const opaqueMarker = 'OPAQUE_REASONING_MUST_NOT_REACH_THE_TRANSCRIPT'
+  const scenarios = [
+    { name: 'empty output', output: [] },
+    { name: 'reasoning-only output', output: [{ id: 'rs-empty', type: 'reasoning', summary: [], encrypted_content: opaqueMarker }] },
+    { name: 'whitespace-only text', output: [
+      { id: 'rs-whitespace', type: 'reasoning', summary: [], encrypted_content: opaqueMarker },
+      textOutput(' \n\t'),
+    ] },
+  ] as const
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      requests.length = 0
+      let dispatches = 0
+      const api: ApiToolRuntime = {
+        catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+        dispatch: async () => {
+          dispatches += 1
+          return { status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('{}') }
+        },
+      }
+      script = (request, response) => {
+        streamResponse(response, responseObject([...scenario.output], request.body.model, { input_tokens: 29, output_tokens: 13 }))
+      }
+      const c = collect()
+      const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+      const result = await generateReply(session, { ...DEFAULT_AGENT, tools: [] }, 'Please answer.', {
+        ...c.handlers,
+        onUsage: row => usage.push(row),
+      }, undefined, provider('gpt-empty-output'), undefined, [], api)
+
+      assert.equal(result.outcome, 'fallback', 'an interactive first response without visible prose is not a successful blank answer')
+      assert.equal(result.failure, 'invalid_model_response')
+      assert.match(result.message.content, /invalid|incomplete|did not complete/i)
+      assert.equal(c.text, result.message.content, 'streamed text equals the persisted fallback transcript')
+      assert.doesNotMatch(`${c.text}\n${result.message.content}`, new RegExp(opaqueMarker))
+      assert.deepEqual(usage, [{ inputTokens: 29, outputTokens: 13 }], 'settled usage is kept before empty-output validation')
+      assert.equal(requests.length, 1, 'the invalid completed response is terminal and never automatically retried')
+      assert.equal(dispatches, 0, 'an empty response does not execute any tools')
+    })
+  }
+})
+
+test('a tool-only consent proposal may complete with empty reasoning-only continuation prose', async () => {
+  requests.length = 0
+  let dispatches = 0
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'POST', pattern: '/artifacts', name: 'post_artifacts', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => {
+      dispatches += 1
+      return { status: 200, headers: {}, body: Buffer.from('{}') }
+    },
+  }
+  script = async (request, response) => {
+    const model = request.body.model
+    if (request.body.input?.some((item: any) => item.type === 'function_call_output')) {
+      streamResponse(response, responseObject([
+        { id: 'rs-empty-continuation', type: 'reasoning', summary: [], encrypted_content: 'OPAQUE_CONTINUATION_REASONING' },
+      ], model, { input_tokens: 17, output_tokens: 6 }))
+      return
+    }
+    const tool = request.body.tools.find((item: any) => item.type === 'function' && item.name === 'api__post_artifacts')
+    assert.ok(tool, 'the local consent-proposal API tool is available to Responses')
+    streamResponse(response, responseObject([
+      {
+        id: 'fc_artifact_proposal', type: 'function_call', call_id: 'call_artifact_proposal', name: tool.name,
+        arguments: '{"body":{"name":"Draft.md","kind":"doc","body":"Draft content."}}', status: 'completed',
+      },
+    ], model, { input_tokens: 23, output_tokens: 8 }))
+  }
+  const c = collect()
+  const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+  const result = await generateReply(session, { ...DEFAULT_AGENT, tools: [] }, 'Propose a draft artifact.', {
+    ...c.handlers,
+    onUsage: row => usage.push(row),
+  }, undefined, provider('gpt-tool-only-completion'), undefined, [], api)
+
+  assert.equal(result.outcome, 'ok')
+  assert.equal(result.message.content, '')
+  assert.equal(c.text, result.message.content)
+  assert.deepEqual(usage, [{ inputTokens: 23, outputTokens: 8 }, { inputTokens: 17, outputTokens: 6 }])
+  assert.equal(requests.length, 2, 'the proposal was followed by one continuation request')
+  assert.equal(dispatches, 0, 'the mutation remains a proposal and is never dispatched during generation')
+  assert.deepEqual(result.message.toolActivities?.map(activity => ({
+    id: activity.id,
+    tool: activity.tool,
+    kind: activity.kind,
+    status: activity.status,
+    family: activity.family,
+    op: activity.op,
+  })), [{
+    id: 'call_artifact_proposal',
+    tool: 'api__post_artifacts',
+    kind: 'action',
+    status: 'proposed',
+    family: 'action',
+    op: { method: 'POST', path: '/artifacts', body: { name: 'Draft.md', kind: 'doc', body: 'Draft content.' } },
+  }], 'the successful tool-only turn retains the exact consent proposal')
+  assert.doesNotMatch(JSON.stringify(result.message), /OPAQUE_CONTINUATION_REASONING/)
+})
+
 test('OpenAI image input is translated into a Responses input_image data URL', async () => {
   requests.length = 0
   script = defaultScript

@@ -2,6 +2,7 @@
 import { test, expect, type Browser, type Page, type TestInfo } from '@playwright/test'
 import { runSessionId, type ArtifactItem, type ScheduledRun, type ScheduledTask, type Session, type ArtifactContent } from '../contract/index.ts'
 import { createServer, type Server } from 'node:http'
+import { randomUUID } from 'node:crypto'
 import { docBlockId } from '../server/documentIdentity.ts'
 import { API, newUser, openSection } from './social-helpers.ts'
 import { settleArtifactPageRail } from './artifact-page-helpers.ts'
@@ -94,7 +95,10 @@ async function artifactContent(page: Page): Promise<Record<string, ArtifactConte
 
 async function verifyScheduledArtifact(browser: Browser, testInfo: TestInfo, kind: 'doc' | 'sheet' | 'slide') {
   test.setTimeout(ms(120_000))
-  const owner = await newUser(browser)
+  // The dev header seam keeps the known person but isolates turn usage from
+  // earlier specs; seeded Ada's shared five-hour budget is not a precondition.
+  const tenantId = `tenant-schedule-artifact-${randomUUID()}`
+  const owner = await newUser(browser, { 'x-user-id': 'user-ada', 'x-tenant-id': tenantId })
   const reader = await newUser(browser, { 'x-user-id': 'user-grace', 'x-tenant-id': 'tenant-beta' })
   const foreign = await newUser(browser, { 'x-user-id': 'user-maya', 'x-tenant-id': 'tenant-growthworks' })
   for (const user of [owner, reader, foreign]) user.page.setDefaultTimeout(ms(15_000))
@@ -128,6 +132,9 @@ async function verifyScheduledArtifact(browser: Browser, testInfo: TestInfo, kin
   }
 
   try {
+    const identity = await owner.page.request.get(`${API}/me`)
+    expect(identity.ok()).toBeTruthy()
+    expect(await identity.json()).toMatchObject({ user: { id: 'user-ada' }, tenant: { id: tenantId } })
     const providerResponse = await owner.page.request.post(`${API}/providers`, { data: {
       label: `Schedule fixture ${stamp}`, modelFamily: 'claude', effortLevels: ['Default'],
       models: [{ id: 'e2e-schedule-model', label: 'Schedule artifact fixture' }],
@@ -138,10 +145,13 @@ async function verifyScheduledArtifact(browser: Browser, testInfo: TestInfo, kin
     fixture.replies.splice(0) // Registration probes are not routine output.
     fixture.outputs.splice(0)
     fixture.outputTexts.splice(0)
-    const prompts = await (await owner.page.request.get(`${API}/system-prompts`)).json() as Array<{ id: string }>
-    expect(prompts.length).toBeGreaterThan(0)
+    const promptResponse = await owner.page.request.post(`${API}/system-prompts`, { data: {
+      label: `Schedule prompt ${stamp}`, body: 'Produce the requested Routine output.', targetFamily: 'claude',
+    } })
+    expect(promptResponse.ok()).toBeTruthy()
+    const prompt = await promptResponse.json() as { id: string }
     const agentResponse = await owner.page.request.post(`${API}/agents`, {
-      data: { label: `Schedule agent ${stamp}`, providerId: provider.id, systemPromptId: prompts[0]!.id, tools: [], instructions: '' },
+      data: { label: `Schedule agent ${stamp}`, providerId: provider.id, systemPromptId: prompt.id, tools: [], instructions: '' },
     })
     expect(agentResponse.ok()).toBeTruthy()
     const agent = await agentResponse.json() as { id: string }

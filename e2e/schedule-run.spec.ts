@@ -1,9 +1,25 @@
 /** Rendered acknowledgement, safe Retry, and lost-response reconciliation for
  * manual routine execution. */
 import { test, expect } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import type { ScheduledTask } from '../contract/index.ts'
 import { manualScheduleRunId } from '../server/scheduleRunIdentity.ts'
 import { ms } from './budget.ts'
+
+test.beforeEach(async ({ page }) => {
+  const tenantId = `tenant-schedule-run-${randomUUID()}`
+  // The dev-header seam preserves the known Ada principal and synthesizes an
+  // unknown tenant as an org; the unique tenant gives each test its own usage.
+  await page.context().setExtraHTTPHeaders({
+    'x-user-id': 'user-ada',
+    'x-tenant-id': tenantId,
+  })
+  const response = await page.request.get('/api/v1/me')
+  expect(response.ok(), 'the test identity echo is available before fixture setup').toBe(true)
+  const identity = await response.json() as { user: { id: string }; tenant: { id: string } }
+  expect(identity.user.id).toBe('user-ada')
+  expect(identity.tenant.id).toBe(tenantId)
+})
 
 async function createRoutine(page: import('@playwright/test').Page, name: string): Promise<ScheduledTask> {
   const templates = await (await page.request.get('/api/v1/schedule-templates')).json() as Array<{

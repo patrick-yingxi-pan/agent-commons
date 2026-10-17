@@ -6,7 +6,34 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: simplify the shared model picker to supported Agent,
+Current checkpoint: close the locally reproduced empty-first-reply failure in
+the shared Messages/Responses loop. A completed initial response with no visible
+answer or tools previously returned blank success, including reasoning-only
+Responses output. It now uses the existing terminal invalid-response notice
+after recording usage, without automatic retry. Later empty prose remains valid
+after a tool round, preserving consent proposals and Routine artifact behavior.
+Loopback regressions were watched fail before repair on both protocol paths;
+the tool-only consent control remained green. Full local verification is the
+landing gate. No UI, provider API, paid calls or release authority is added.
+
+The first full verifier passed checks and three browser shards, but two Routine
+walks exhausted Ada's shared synthetic five-hour budget before reaching their
+intended states. Their retained traces confirmed `budget_exceeded`, not a model
+reply failure. Those fixtures now use dedicated test tenants, with explicit
+identity preconditions and an owned artifact-Agent prompt. Production budgets,
+Run/Stop/retry assertions and timeouts remain unchanged; the repaired tree must
+pass a fresh complete verifier before landing.
+
+The release/core-workflow audit confirmed authored-peer coverage for first-run
+setup, conversations, Dispatch and Routines; it found no additional complete
+workflow gap. Forty-eight release/update guard checks passed. Signed candidates
+remain absent: Apple enrollment/signing configuration, native Intel acceptance,
+the approved HTTPS distribution destination and real two-version update
+acceptance remain outstanding. Paid-provider acceptance stays explicitly deferred.
+
+Previous checkpoint `dcfbffc5` passed all five local verifier lanes (772 browser
+checks), the 135/135 responsive sweep and complete unsigned arm64 desktop suite,
+then landed on main. It simplified the shared model picker to supported Agent,
 provider, model and effort choices. Fast/Ultracode have no execution adapter,
 so their controls and active icons are removed rather than presented as working
 modes. Dormant persisted booleans remain compatible and are not silently cleared
@@ -14,8 +41,7 @@ by model or effort edits. The lazy menu still preserves exact conversation
 write authority and acknowledgement holds. Source enumeration was watched fail
 before repair; the new browser lock also failed when the old silent reset was
 temporarily restored. Five-viewport browser walks cover both personal pickers, reload
-and account isolation. Full local, responsive and unsigned desktop gates remain
-required before landing. Paid-provider tests remain deferred.
+and account isolation. Paid-provider tests remain deferred.
 
 Previous checkpoint `e6d1e3b9` passed all five local verifier lanes (771 browser
 checks) and the complete unsigned arm64 desktop suite, then landed on main.

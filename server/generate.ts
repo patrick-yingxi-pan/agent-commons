@@ -867,6 +867,12 @@ export async function generateReply(
       }
 
       if (toolUses.length === 0) {
+        // A terminal first response must give the user something. Later empty
+        // prose can validly finish a tool-only turn (for example a consent card
+        // or a captured Routine artifact), so do not apply this after tools.
+        if (executedBatches === 0 && !fullText.trim()) {
+          throw new InvalidModelResponseError('The model returned no answer or tool request.')
+        }
         return { message: completedMessage(fullText), usage: usage.snapshot(), outcome: 'ok' }
       }
       if (execution.toolPolicy === 'none') {

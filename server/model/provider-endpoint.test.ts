@@ -291,6 +291,43 @@ test('valid refusal and stop-sequence prose are successful terminal Messages res
   fakeStreamStopReason = null
 })
 
+test('empty first Messages replies fail visibly without replay on Claude and DeepSeek paths', async t => {
+  for (const mount of ['', '/anthropic']) {
+    for (const stopReason of ['end_turn', 'refusal', 'stop_sequence']) {
+      for (const text of ['', ' \n\t']) {
+        await t.test(`${mount || 'Claude'} ${stopReason} ${text ? 'whitespace' : 'empty'}`, async () => {
+          fakeStreamModel = `empty-messages-${seen.length}`
+          fakeStreamContent = text ? [{ type: 'text', text }] : []
+          fakeStreamStopReason = stopReason
+          const start = seen.length
+          const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+          const c = collect()
+          try {
+            const result = await generateReply(session, { ...DEFAULT_AGENT, tools: [] }, 'Give me an answer.', {
+              ...c.handlers, onUsage: row => usage.push(row),
+            }, undefined, { baseURL: `${recorderUrl}${mount}`, model: fakeStreamModel })
+            assert.equal(result.outcome, 'fallback')
+            assert.equal(result.failure, 'invalid_model_response')
+            assert.match(c.text, /incomplete or invalid response/)
+            assert.match(c.text, /will not be retried automatically/)
+            assert.equal(result.message.content, c.text, 'the streamed notice is also the saved reply')
+            assert.equal(result.message.toolActivities, undefined)
+            assert.equal(result.message.relationActions, undefined)
+            assert.deepEqual(usage, [{ inputTokens: 17, outputTokens: 4 }])
+            assert.deepEqual(result.usage, { inputTokens: 17, outputTokens: 4 })
+            assert.equal(seen.length - start, 1, 'an empty answer is not automatically regenerated')
+            assert.equal(seen[start].path, `${mount}/v1/messages`)
+          } finally {
+            fakeStreamModel = undefined
+            fakeStreamContent = []
+            fakeStreamStopReason = null
+          }
+        })
+      }
+    }
+  }
+})
+
 test('a refusal carrying a tool block is invalid and cannot dispatch the tool', async () => {
   fakeStreamModel = 'claude-refusal-with-tool'
   fakeStreamContent = [
