@@ -8496,10 +8496,10 @@ export const store = {
     return commitArtifactBodyEdit(artifact, updated)
   },
 
-  // ── Usage (the composer gauge: context window + plan limit windows) ──
-  /** Record one turn's real token usage (from the model's Messages response)
-   *  against the rolling plan windows. Called by the message route after every
-   *  turn — including ephemeral ones, since they consume real tokens. */
+  // ── Usage (partial context estimate + local account-wide limits) ──
+  /** Record a completed call's normalized input/output counts (provider reports,
+   *  development fixtures or relay estimates) in local rolling account windows.
+   *  Callers record before tools/acknowledgement, including ephemeral turns. */
   recordUsage(inputTokens: number, outputTokens: number, tenantId?: string): void {
     usageRegistry.record(inputTokens, outputTokens, tenantId)
     persist()
@@ -8636,7 +8636,8 @@ export const store = {
     // The context figures are measured against the session's RESOLVED cognition —
     // the same chain a turn routes (provider: session pick ?? agent's ?? default;
     // model: session pick ?? the provider's configured model) — so the gauge's
-    // capacity comes from the provider's own catalog, never a client constant. A
+    // capacity comes from model catalog metadata, not a live usage reading. The
+    // catalog may be provider-reported, curated, configured, or fixture data. A
     // Session provider's model is whatever session drains its mailbox (opaque), and
     // a model the catalog doesn't describe has no known window: both degrade to
     // unknown-capacity (`windowTokens` absent), the honest reading.

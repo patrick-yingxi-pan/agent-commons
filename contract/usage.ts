@@ -41,17 +41,17 @@ export interface ContextSegment {
 
 /** The active conversation's context-window fill, with its per-category breakdown. */
 export interface ContextUsage {
-  /** Tokens consumed, pre-formatted for display (e.g. '404.7k'). */
+  /** Estimated tokens represented by loaded categories, formatted for display. */
   used: string
   /** Window size, pre-formatted for display (e.g. '1.0M') — '—' when unknown. */
   total: string
   /** Percent of the context window consumed (0–100); 0 when the window is unknown
    *  (check `windowTokens` — the gauge renders unknown-capacity, not "empty"). */
   pct: number
-  /** The raw context-window capacity, in tokens — sourced from the session's
-   *  resolved provider+model (`ModelInfo.contextWindow`). ABSENT = the provider
-   *  doesn't expose it (OpenAI-class lists, Session providers): percentages are
-   *  uncomputable, so segments carry token counts only and there is no Free row. */
+  /** The raw context-window capacity, in tokens — from the resolved model's
+   *  catalog metadata (`ModelInfo.contextWindow`), which may be provider-reported,
+   *  curated, configured, or fixture data. ABSENT = unknown capacity, so segments
+   *  carry token counts only and there is no Free row. */
   windowTokens?: number
   /** The breakdown rows, in display order: the loaded categories, then Free
    *  space (when the window is known), then the deferred categories. */
@@ -60,17 +60,23 @@ export interface ContextUsage {
 
 /** One rolling plan-limit window (a 5-hour bucket, the weekly cap, …). */
 export interface UsageWindow {
+  /** Stable identity for the app-local rolling window. */
+  key: 'fiveHour' | 'weekly'
   /** Row label, e.g. '5-hour limit' or 'Weekly · all models'. */
   label: string
   /** When the window resets, e.g. 'Resets 6:39 PM' (empty when not applicable). */
   reset: string
+  /** Raw app-recorded token consumption, summed across models for this tenant. */
+  usedTokens: number
+  /** Code-owned local app ceiling, in tokens. */
+  limitTokens: number
   /** Percent of this window's ceiling consumed (0–100). */
   pct: number
 }
 
 /** The session's resolved cognition source, stamped on the usage snapshot so the
- *  composer strip reads the *provider's* facts, not a client constant: the server
- *  resolves the same chain a turn routes through (`session.providerId ??
+ *  composer strip identifies the model catalog entry used for its estimate: the
+ *  server resolves the same chain a turn routes through (`session.providerId ??
  *  agent.providerId ?? default`, then `session.modelId ?? the provider's configured
  *  model`). `modelLabel` is absent when the resolved id isn't in the provider's
  *  catalog (or the provider has none — a Session provider's model is unknowable). */
@@ -82,9 +88,9 @@ export interface UsageModelRef {
   modelLabel?: string
 }
 
-/** The whole usage picture the gauge renders: the context disc + the limit rings.
- *  `limits` is in display order — the gauge reads [0] as the inner limit ring
- *  (5-hour) and [1] as the outer ring (weekly); the popup lists them all. */
+/** Partial selected-model context plus caller-tenant app limits. The indicator
+ * renders context only; details list local windows by stable key. This snapshot
+ * contains no provider account quota, balance, rate-limit or billing data. */
 export interface UsageSnapshot {
   context: ContextUsage
   limits: UsageWindow[]
@@ -97,9 +103,10 @@ export interface UsageSnapshot {
 // gauge agree on the math — the same reason `ids.ts` holds shared id invariants.
 
 /** The default provider's Opus-class (extended) context window, in tokens — the
- *  seed catalog's figure, NOT a global assumption: the live figure a gauge renders
- *  comes from the session's resolved provider+model (`ModelInfo.contextWindow`),
- *  threaded into `contextBreakdown` below, and may be absent entirely. */
+ *  seed catalog's figure, NOT a global assumption: the figure a gauge renders
+ *  comes from the resolved model's catalog metadata (`ModelInfo.contextWindow`),
+ *  which may be provider-reported, curated, configured, or fixture data, and may
+ *  be absent entirely. */
 export const CONTEXT_WINDOW = 1_000_000
 
 /** Rough text estimate, not a tokenizer or complete model-request measurement. */
@@ -117,6 +124,17 @@ export function formatTokens(n: number): string {
   return String(Math.round(n))
 }
 
+/** Format a usage ratio without rounding positive, very small usage down to zero.
+ *  A missing/invalid capacity is unknown; over-limit values are capped at 100%. */
+export function formatUsagePercent(used: number, total: number): string {
+  if (!Number.isFinite(used) || !Number.isFinite(total) || total <= 0) return '—'
+  if (used <= 0) return '0%'
+  const pct = Math.min(100, (used / total) * 100)
+  if (pct < 0.1) return '<0.1%'
+  const rounded = Math.round(pct * 10) / 10
+  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}%`
+}
+
 /** Only supplied categories contribute; empty workspaces never inherit inventory. */
 type SegmentSpec = Omit<ContextSegment, 'tokens' | 'pct'>
 
@@ -128,7 +146,7 @@ const seg = (s: SegmentSpec, pct?: number): ContextSegment => ({
 
 /** Close out a breakdown from its loaded categories against the resolved model's
  *  window: append Free space + the deferred rows, and compute the used/total/pct
- *  header. `windowTokens` undefined = the provider doesn't expose the window —
+ *  header. `windowTokens` undefined = no capacity in the model catalog —
  *  percentages and Free space are uncomputable, so the rows carry token counts
  *  only (the honest degradation, not a fabricated capacity). */
 function finalize(loaded: SegmentSpec[], windowTokens?: number, deferred: SegmentSpec[] = []): ContextUsage {
@@ -169,7 +187,7 @@ export interface ContextParts {
 }
 
 /** A partial context estimate against the resolved model's
- *  window (`ModelInfo.contextWindow`; undefined = the provider doesn't expose it —
+ *  window (`ModelInfo.contextWindow`; undefined = no catalog capacity —
  *  unknown-capacity mode). Only the supplied categories make up `used`; the
  *  remainder is estimated Free space. No category or collection count is seeded. */
 export function contextBreakdown(parts: ContextParts, windowTokens?: number): ContextUsage {

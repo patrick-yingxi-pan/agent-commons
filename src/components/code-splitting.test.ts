@@ -40,13 +40,13 @@ test('resource Improvements loads behind its page section without offering conse
 test('usage gauge remains eager while the details body loads only on first open', () => {
   const control = stripComments(read(join(ROOT, 'src/components/UsageControl.tsx')))
   const details = stripComments(read(join(ROOT, 'src/components/UsageDetails.tsx')))
-  assert.match(control, /import \{ withLiveMessages, type UsageModelRef, type UsageSnapshot \} from '\.\.\/\.\.\/contract\/usage\.ts'/,
-    'the server snapshot and live message overlay remain owned by the gauge controller')
+  assert.match(control, /usagePresentation\(query, messageTokens, model\)/,
+    'the shared presentation owns loading, estimates, and live model overlays')
   assert.match(control, /const UsageDetails = lazy\(\(\) => import\('\.\/UsageDetails'\)/,
     'the explanatory rows do not enter the composer cold graph')
   assert.match(control, /<UsageGauge usage=\{usage\} \/>/,
     'the always-visible gauge stays in the eager module')
-  assert.match(control, /open && \([\s\S]*<DeferredLoadBoundary fallback=\{<UsageDetailsFallback failed[\s\S]*<Suspense[\s\S]*<UsageDetails/,
+  assert.match(control, /open && usage && \([\s\S]*<DeferredLoadBoundary fallback=\{<UsageDetailsFallback failed[\s\S]*<Suspense[\s\S]*<UsageDetails/,
     'detail loading begins only when the popup opens')
   assert.match(control, /data-usage-details-load=\{failed \? 'error' : 'loading'\}/)
   assert.match(control, /function UsageDetailsFallback[\s\S]*const popRef = usePopoverShift\(true\)[\s\S]*<div ref=\{popRef\} role="dialog"/,

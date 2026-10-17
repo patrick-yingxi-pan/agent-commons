@@ -30,6 +30,19 @@ test('the meter accumulates real token usage into the rolling windows', () => {
   assert.ok(after >= before, 'the 5-hour ring rose with consumption')
 })
 
+test('plan usage exposes stable window keys and raw local counters only', () => {
+  let t = 1_000_000
+  const meter = createUsageMeter(() => t, false)
+  meter.record(120, 30)
+  const limits = meter.planLimits()
+  assert.deepEqual(limits.map((window) => window.key), ['fiveHour', 'weekly'])
+  assert.deepEqual(limits.map(({ usedTokens, limitTokens }) => [usedTokens, limitTokens]), [
+    [150, 2_400_000],
+    [150, 24_000_000],
+  ])
+  assert.ok(limits.every((window) => window.label !== 'Sonnet only'))
+})
+
 test('a window resets once its span elapses (the consumption clears)', () => {
   let t = 0
   const meter = createUsageMeter(() => t)

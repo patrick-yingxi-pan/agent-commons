@@ -3,6 +3,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { ms } from './budget.ts'
 
 const USAGE_MODULE = /\/src\/components\/UsageDetails\.tsx(?:\?.*)?$/u
+const USAGE_API = /\/api\/v1\/usage(?:\?.*)?$/u
 const VIEWPORTS = [
   { width: 320, height: 700 },
   { width: 375, height: 812 },
@@ -149,5 +150,98 @@ test('deferred usage details remain contained, closable, and recover after a fai
   } finally {
     release()
     await page.unroute(USAGE_MODULE)
+  }
+})
+
+test('usage API loading and failure are explicit, retryable, and preserve the unsent draft', async ({ page }) => {
+  test.setTimeout(ms(90_000))
+  const stamp = Date.now().toString(36)
+  const created = await page.request.post('/api/v1/sessions', {
+    data: { firstMessage: `Usage API recovery ${stamp}`, persistFirstMessage: true, providerId: 'provider-anthropic' },
+  })
+  expect(created.ok(), await created.text()).toBe(true)
+  const session = await created.json() as { id: string }
+  expect(session.id).toBeTruthy()
+
+  let requests = 0
+  let release!: () => void
+  let signalFirstRequest!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  const firstRequestSeen = new Promise<void>((resolve) => { signalFirstRequest = resolve })
+  await page.route(USAGE_API, async (route) => {
+    requests += 1
+    if (requests === 1) {
+      signalFirstRequest()
+      await gate
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: { code: 'unavailable', message: 'Usage is temporarily unavailable.' } }),
+      })
+      return
+    }
+    await route.continue()
+  })
+
+  try {
+    await page.goto(`/s/${encodeURIComponent(session.id)}`)
+    await firstRequestSeen
+    const trigger = page.getByRole('button', { name: /^Usage — loading/ })
+    await expect(trigger).toBeVisible({ timeout: ms(20_000) })
+    const draft = page.getByRole('textbox', { name: 'Message', exact: true })
+    await expect(draft).toBeVisible()
+    const draftText = `Keep this unsent usage-recovery draft ${stamp}`
+    await draft.fill(draftText)
+
+    await trigger.click()
+    const usageRead = page.locator('[data-usage-read]')
+    await expect(usageRead).toHaveAttribute('data-usage-read', 'loading')
+    const loading = usageRead.getByRole('dialog', { name: 'Usage details', exact: true })
+    await expect(loading).toBeVisible()
+    await expect(loading).toContainText('Loading usage…')
+    await expect(loading).not.toContainText(/\d[\d.]*%/)
+    await expect.poll(() => requests).toBe(1)
+
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      await expect(loading).toBeVisible()
+      await expectUsagePopoverContained(page, loading, `${viewport.width}x${viewport.height} API loading`)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    }
+
+    release()
+    await expect(usageRead).toHaveAttribute('data-usage-read', 'error', { timeout: ms(20_000) })
+    const failed = usageRead.getByRole('dialog', { name: 'Usage details', exact: true })
+    await expect(failed).toBeVisible()
+    await expect(failed).toContainText('Couldn’t load usage. Your unsent message is safe.')
+    await expect(failed.getByRole('button', { name: 'Retry usage', exact: true })).toBeVisible()
+    await expect(failed).not.toContainText(/\d[\d.]*%/)
+    await expect(page.getByRole('button', { name: 'Usage — unavailable', exact: true })).toBeVisible()
+    await expect(draft).toHaveValue(draftText)
+
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize(viewport)
+      await expect(failed).toBeVisible()
+      await expectUsagePopoverContained(page, failed, `${viewport.width}x${viewport.height} API error`)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+    }
+
+    const recoveredResponse = page.waitForResponse((response) => {
+      const url = new URL(response.url())
+      return url.pathname === '/api/v1/usage' && url.searchParams.has('session') && response.status() === 200
+    })
+    await failed.getByRole('button', { name: 'Retry usage', exact: true }).click()
+    expect((await recoveredResponse).ok()).toBe(true)
+    await expect.poll(() => requests).toBe(2)
+    await expect(usageRead).not.toHaveAttribute('data-usage-read', 'error')
+    await expect(page.getByRole('button', { name: /^Usage — estimated context/ })).toBeVisible()
+    await expect(draft).toHaveValue(draftText)
+    await expect(page.getByRole('button', { name: /^Usage — estimated context/ })).toHaveAttribute('aria-expanded', 'true')
+    const recoveredDialog = page.getByRole('dialog', { name: 'Usage details', exact: true })
+    await expect(recoveredDialog.getByText('Local usage limits', { exact: true })).toBeVisible()
+    await expect(recoveredDialog.getByText('Provider quota', { exact: true })).toBeVisible()
+  } finally {
+    release()
+    await page.unroute(USAGE_API)
   }
 })

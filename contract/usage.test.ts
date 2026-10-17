@@ -1,9 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { contextBreakdown, formatTokens, withLiveMessages, type ContextSegment, type ContextUsage } from './usage.ts'
+import { contextBreakdown, formatTokens, formatUsagePercent, withLiveMessages, type ContextSegment, type ContextUsage } from './usage.ts'
 
 const parts = { messageTokens: 40, systemToolsTokens: 120, systemPromptTokens: 80 }
 const realLoadedIds = ['messages', 'systemTools', 'systemPrompt']
+
+test('formatUsagePercent keeps small positive usage distinct from zero and trims whole decimals', () => {
+  assert.equal(formatUsagePercent(0, 1_000), '0%')
+  assert.equal(formatUsagePercent(1, 2_000), '<0.1%')
+  assert.equal(formatUsagePercent(2, 2_000), '0.1%')
+  assert.equal(formatUsagePercent(123, 10_000), '1.2%')
+  assert.equal(formatUsagePercent(1_000, 1_000), '100%')
+  assert.equal(formatUsagePercent(2_000, 1_000), '100%')
+  assert.equal(formatUsagePercent(1, 0), '—')
+})
 
 test('contextBreakdown counts only the supplied Messages, System tools, and System prompt', () => {
   const context = contextBreakdown(parts, 1_000)

@@ -16,6 +16,10 @@ test('a fresh (non-default) tenant starts at zero consumption; the default tenan
   // A brand-new tenant has consumed nothing — its gauge starts empty.
   const fresh = store.usage(undefined, 'tenant-usage-fresh').limits.find((w) => w.label === '5-hour limit')
   assert.ok(fresh && fresh.pct === 0, 'a fresh tenant starts at zero, not the demo baseline')
+  assert.equal(fresh.key, 'fiveHour')
+  assert.equal(fresh.usedTokens, 0)
+  assert.equal(fresh.limitTokens, 2_400_000)
+  assert.equal(seeded.usedTokens, 1_704_000)
 })
 
 test('one tenant exhausting its window doesn’t 429 another, nor move its gauge', () => {
@@ -36,6 +40,8 @@ test('one tenant exhausting its window doesn’t 429 another, nor move its gauge
   // …but B is untouched (isolation of both the gate and the gauge)…
   assert.equal(store.overSpendLimit(undefined, B), null, 'B is NOT gated by A’s spend')
   assert.equal(store.usage(undefined, B).limits.find((w) => w.label === '5-hour limit')?.pct, 0, 'A’s spend did not move B’s gauge')
+  assert.equal(store.usage(undefined, A).limits.find((w) => w.key === 'fiveHour')?.usedTokens, 2_400_000)
+  assert.equal(store.usage(undefined, B).limits.find((w) => w.key === 'fiveHour')?.usedTokens, 0, 'raw counts retain the same tenant wall')
   // …and the default tenant is untouched too (A is not the default).
   assert.equal(store.overSpendLimit(undefined), null, 'the default tenant is not gated by a non-default tenant’s spend')
 })

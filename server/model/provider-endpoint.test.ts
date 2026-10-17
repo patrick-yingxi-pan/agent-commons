@@ -36,11 +36,12 @@ let fakeStreamModel: string | undefined
 let fakeStreamContent: Array<Record<string, unknown>> = []
 let fakeStreamStopReason: string | null = null
 let fakeStreamMinimumOutputTokens: number | undefined
+let fakeStreamInputUsage: Record<string, unknown> = { input_tokens: 17 }
 let fakeProbeModel: string | undefined
 
 function anthropicStream(model: string, content: Array<Record<string, unknown>>, stopReason: string): string {
   const events: Array<Record<string, unknown>> = [
-    { type: 'message_start', message: { id: `msg-${model}`, type: 'message', role: 'assistant', content: [], model, stop_reason: null, stop_sequence: null, usage: { input_tokens: 17, output_tokens: 0 } } },
+    { type: 'message_start', message: { id: `msg-${model}`, type: 'message', role: 'assistant', content: [], model, stop_reason: null, stop_sequence: null, usage: { ...fakeStreamInputUsage, output_tokens: 0 } } },
   ]
   for (const [index, block] of content.entries()) {
     if (block.type === 'text') {
@@ -245,6 +246,52 @@ test('Messages reply limit reaches the wire, meters truncation, and never runs a
   assert.deepEqual(usage, [{ inputTokens: 17, outputTokens: 4 }])
   assert.equal(dispatches, 0)
   assert.deepEqual(seen.filter(hit => hit.body?.model === config.model).map(hit => hit.body.max_tokens), [8192, 128], 'one request per explicit turn, without automatic retries')
+})
+
+test('streamed Message-start cache usage is recorded before tool execution and counted once', async t => {
+  fakeStreamModel = 'messages-cached-usage-proof'
+  fakeStreamInputUsage = {
+    input_tokens: 17,
+    cache_creation_input_tokens: 20,
+    cache_read_input_tokens: 30,
+  }
+  fakeStreamContent = [{ type: 'tool_use', id: 'cached-usage-tool', name: 'api__get_usage', input: { query: {} } }]
+  fakeStreamStopReason = 'tool_use'
+  const observed: string[] = []
+  const reports: Array<{ inputTokens: number; outputTokens: number }> = []
+  const api: ApiToolRuntime = {
+    catalog: [{ method: 'GET', pattern: '/usage', name: 'get_usage', params: [], access: { kind: 'product', session: 'tool' } }],
+    dispatch: async () => {
+      observed.push('tool')
+      fakeStreamInputUsage = { input_tokens: 11 }
+      fakeStreamContent = [{ type: 'text', text: 'Usage read complete.' }]
+      fakeStreamStopReason = 'end_turn'
+      return { status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from('{"remaining":42}') }
+    },
+  }
+  t.after(() => {
+    fakeStreamModel = undefined
+    fakeStreamContent = []
+    fakeStreamStopReason = null
+    fakeStreamMinimumOutputTokens = undefined
+    fakeStreamInputUsage = { input_tokens: 17 }
+  })
+
+  const result = await generateReply(session, DEFAULT_AGENT, 'Read usage.', {
+    ...collect().handlers,
+    onUsage: (usage) => {
+      reports.push(usage)
+      observed.push(`usage:${usage.inputTokens}`)
+    },
+  }, undefined, { baseURL: recorderUrl, model: fakeStreamModel, capabilities: { toolUse: true } }, undefined, [], api)
+
+  assert.equal(result.outcome, 'ok')
+  assert.deepEqual(reports, [
+    { inputTokens: 67, outputTokens: 4 },
+    { inputTokens: 11, outputTokens: 4 },
+  ])
+  assert.deepEqual(result.usage, { inputTokens: 78, outputTokens: 8 })
+  assert.deepEqual(observed, ['usage:67', 'tool', 'usage:11'], 'the first settled usage is recorded before dispatching its tool')
 })
 
 test('failed tool and no-tools probes hide upstream error bodies while retaining status and both attempts', async () => {

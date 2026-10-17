@@ -129,6 +129,23 @@ test('findings are returned only when they refer to an entry in the frozen chang
   })
 })
 
+test('settled native Messages usage includes cached input in the reported total', async () => {
+  mode = 'success'
+  providerUsage = {
+    input_tokens: 17,
+    output_tokens: 9,
+    cache_creation_input_tokens: 20,
+    cache_read_input_tokens: 30,
+  }
+  const usage: Array<{ inputTokens: number; outputTokens: number }> = []
+  try {
+    await generateContributionReview(changeset, DEFAULT_AGENT, provider('review-cached-usage'), (row) => usage.push(row))
+    assert.deepEqual(usage, [{ inputTokens: 67, outputTokens: 9 }])
+  } finally {
+    providerUsage = { input_tokens: 17, output_tokens: 29 }
+  }
+})
+
 test('review result parser rejects extra keys, unbound or repeated entry ids, and unbounded findings', () => {
   const ids = new Set(['entry-one', 'entry-two'])
   assert.throws(() => parseContributionReviewResult('{"summary":"ok","findings":[{"entryId":"other","body":"bad"}]}', ids), ContributionReviewGenerationError)

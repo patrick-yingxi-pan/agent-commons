@@ -5,9 +5,10 @@
  *  • **Context window** (the inner disc) — the *open* conversation's size: a
  *    fixed system+tools baseline plus an estimate of every message in the thread,
  *    against the model's context window. Computed per session in `store.usage`.
- *  • **Plan limits** (the two rings: 5-hour, weekly) — rolling meters that
- *    accumulate the model's *reported* token usage (input+output) from every turn
- *    (`store.recordUsage`, fed by the Messages/relay response). Only the default
+ *  • **Plan limits** (the two rings: 5-hour, weekly) — tenant-scoped local rolling
+ *    meters that accumulate validated usage counts from every model call
+ *    (`store.recordUsage`, fed by endpoint responses or Session relay estimates).
+ *    Only the default
  *    demo tenant gets a prior-usage fixture; clean installs and new tenants start
  *    at zero. Consumption and period anchors persist together across restarts.
  *
@@ -26,11 +27,12 @@ export const MAX_USAGE_STATE_START = 8_640_000_000_000_000 - 7 * DAY
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 /** Stable local window identities and lengths, shared with tenant reservation accounting. */
 export const USAGE_WINDOW_DEFINITIONS = [
-  { label: '5-hour limit', key: 'fiveHour', windowMs: 5 * HOUR },
-  { label: 'Weekly · all models', key: 'weekly', windowMs: 7 * DAY },
+  { key: 'fiveHour', label: '5-hour limit', windowMs: 5 * HOUR },
+  { key: 'weekly', label: 'Weekly · all models', windowMs: 7 * DAY },
 ] as const
 
 interface LimitWindow {
+  key: 'fiveHour' | 'weekly'
   label: string
   ceiling: number
   consumed: number
@@ -118,8 +120,8 @@ export function createUsageMeter(now: () => number, seeded = true, persisted?: u
   // surface (each new route adds a generated API tool to every turn's estimate)
   // tipped real sends into the 429 limit gate. Same demo face, double margin.
   const restored = persisted === undefined ? undefined : parseUsageMeterState(persisted)
-  const fiveHour: LimitWindow = { label: '5-hour limit', ceiling: 2_400_000, consumed: restored?.fiveHour.consumed ?? (seeded ? 1_704_000 : 0), windowMs: 5 * HOUR, start: restored?.fiveHour.start ?? t0 }
-  const weekly: LimitWindow = { label: 'Weekly · all models', ceiling: 24_000_000, consumed: restored?.weekly.consumed ?? (seeded ? 5_760_000 : 0), windowMs: 7 * DAY, start: restored?.weekly.start ?? t0 }
+  const fiveHour: LimitWindow = { key: 'fiveHour', label: '5-hour limit', ceiling: 2_400_000, consumed: restored?.fiveHour.consumed ?? (seeded ? 1_704_000 : 0), windowMs: 5 * HOUR, start: restored?.fiveHour.start ?? t0 }
+  const weekly: LimitWindow = { key: 'weekly', label: 'Weekly · all models', ceiling: 24_000_000, consumed: restored?.weekly.consumed ?? (seeded ? 5_760_000 : 0), windowMs: 7 * DAY, start: restored?.weekly.start ?? t0 }
   const windows = [fiveHour, weekly]
 
   // Roll a window forward to the current period, zeroing its consumption, if its
@@ -152,11 +154,14 @@ export function createUsageMeter(now: () => number, seeded = true, persisted?: u
     },
     planLimits() {
       roll(now())
-      return [
-        { label: fiveHour.label, reset: formatReset(fiveHour), pct: pct(fiveHour) },
-        { label: weekly.label, reset: formatReset(weekly), pct: pct(weekly) },
-        { label: 'Sonnet only', reset: '', pct: 0 },
-      ]
+      return windows.map((window) => ({
+        key: window.key,
+        label: window.label,
+        reset: formatReset(window),
+        usedTokens: window.consumed,
+        limitTokens: window.ceiling,
+        pct: pct(window),
+      }))
     },
     planCeilings() {
       return [

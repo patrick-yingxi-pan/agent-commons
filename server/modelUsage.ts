@@ -11,6 +11,38 @@ export class UsageRecordingError extends Error {
   }
 }
 
+/** Validate and normalize one settled provider usage payload. Native Messages
+ * reports uncached `input_tokens` separately from cache creation/read tokens;
+ * Responses has already folded cached input into `input_tokens`, so callers
+ * using that adapter set `inputIncludesCached` and do not add it again. */
+export function normalizeModelUsage(
+  usage: unknown,
+  options: { inputIncludesCached?: boolean } = {},
+): ModelUsage {
+  try {
+    if (!usage || typeof usage !== 'object' || Array.isArray(usage)) throw new RangeError()
+    const row = usage as Record<string, unknown>
+    const inputTokens = row.input_tokens
+    const outputTokens = row.output_tokens
+    if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
+        !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0) throw new RangeError()
+
+    const cacheTokens = (key: string): number => {
+      if (!Object.hasOwn(row, key) || row[key] === null) return 0
+      const value = row[key]
+      if (!Number.isSafeInteger(value) || (value as number) < 0) throw new RangeError()
+      return value as number
+    }
+    const totalInput = options.inputIncludesCached
+      ? inputTokens as number
+      : (inputTokens as number) + cacheTokens('cache_creation_input_tokens') + cacheTokens('cache_read_input_tokens')
+    if (!Number.isSafeInteger(totalInput) || !Number.isSafeInteger(totalInput + (outputTokens as number))) throw new RangeError()
+    return { inputTokens: totalInput, outputTokens: outputTokens as number }
+  } catch (cause) {
+    throw new UsageRecordingError({ cause })
+  }
+}
+
 export function createModelUsageRecorder(onUsage?: ModelUsageHandler) {
   let total: ModelUsage = { inputTokens: 0, outputTokens: 0 }
   let failed = false

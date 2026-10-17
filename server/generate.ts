@@ -24,7 +24,7 @@ import { executeToolBatch, toolLoopLimits } from './toolExecution.ts'
 import { routineArtifactToolDefinition, type RoutineArtifactCapture } from './routineArtifact.ts'
 import { COMPACTION_SYSTEM_PROMPT, CompactionGenerationError, type CompactionPartResult } from './compaction.ts'
 import type { ImageSnapshot } from '../contract/imageInput.ts'
-import { createModelUsageRecorder, UsageRecordingError, type ModelUsageHandler } from './modelUsage.ts'
+import { createModelUsageRecorder, normalizeModelUsage, UsageRecordingError, type ModelUsageHandler } from './modelUsage.ts'
 import type { McpConnectionView } from '../contract/mcpConnections.ts'
 import type { McpBoundToolCall } from '../contract/mcpExecution.ts'
 import { parseProjectWorkMcpDraftReply } from '../contract/projectWorkMcpDraft.ts'
@@ -185,7 +185,7 @@ function assertProviderProbeResponse(value: unknown, withTools: boolean): void {
   const stops = ['end_turn', 'stop_sequence', 'refusal', 'tool_use', 'max_tokens']
   if (!stops.includes(value.stop_reason as string)) return invalid()
   try {
-    createModelUsageRecorder().record({ inputTokens: value.usage.input_tokens as number, outputTokens: value.usage.output_tokens as number })
+    createModelUsageRecorder().record(normalizeModelUsage(value.usage))
   } catch { return invalid() }
   let text = false, tools = 0
   for (const block of value.content) {
@@ -440,7 +440,7 @@ export async function generateCompactionSummaryPart(
       { signal: withDeadline(signal) },
     )
     const recorder = createModelUsageRecorder(onUsage)
-    recorder.record({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens })
+    recorder.record(normalizeModelUsage(response.usage, { inputIncludesCached: provider.protocol === 'openai-responses' }))
     if (response.stop_reason !== 'end_turn') throw new CompactionGenerationError('The model did not complete the conversation summary.')
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === 'text')
@@ -521,16 +521,15 @@ export async function generateContributionReview(
 
   // A settled provider call is metered before examining its status or content.
   // Missing or invalid usage is uncertainty, not zero-cost evidence for a pass.
-  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
-  const inputTokens = usage?.input_tokens
-  const outputTokens = usage?.output_tokens
-  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
-    !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
-    !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) {
+  let normalizedUsage
+  try {
+    normalizedUsage = normalizeModelUsage(response.usage, { inputIncludesCached: config.protocol === 'openai-responses' })
+  } catch (error) {
+    if (!(error instanceof UsageRecordingError)) throw error
     throw new ContributionReviewUsageError()
   }
   // If persistence fails, UsageRecordingError propagates and the result is discarded.
-  recorder.record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  recorder.record(normalizedUsage)
   if (response.stop_reason !== 'end_turn') {
     throw new ContributionReviewGenerationError('The selected reviewer did not complete its response.')
   }
@@ -595,15 +594,14 @@ export async function generateDelegatedJudgment(
 
   // Record a settled response before inspecting output. Missing counters and
   // recorder failure are uncertainty, never a free or accepted decision.
-  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
-  const inputTokens = usage?.input_tokens
-  const outputTokens = usage?.output_tokens
-  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
-      !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
-      !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) {
+  let normalizedUsage
+  try {
+    normalizedUsage = normalizeModelUsage(response.usage, { inputIncludesCached: config.protocol === 'openai-responses' })
+  } catch (error) {
+    if (!(error instanceof UsageRecordingError)) throw error
     throw new DelegatedJudgmentUsageError()
   }
-  createModelUsageRecorder(onUsage).record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  createModelUsageRecorder(onUsage).record(normalizedUsage)
   if (response.stop_reason !== 'end_turn') {
     throw new DelegatedJudgmentGenerationError('The delegated reviewer did not complete its response.')
   }
@@ -636,15 +634,14 @@ export async function generateCommissionMcpArguments(
 
   // A settled response is accounted before stop reason, content shape or JSON
   // validation. Missing counters are uncertainty, never a zero-cost reply.
-  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
-  const inputTokens = usage?.input_tokens
-  const outputTokens = usage?.output_tokens
-  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
-      !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
-      !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) {
+  let normalizedUsage
+  try {
+    normalizedUsage = normalizeModelUsage(response.usage, { inputIncludesCached: provider.protocol === 'openai-responses' })
+  } catch (error) {
+    if (!(error instanceof UsageRecordingError)) throw error
     throw new CommissionMcpPreparationUsageError()
   }
-  createModelUsageRecorder(onUsage).record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  createModelUsageRecorder(onUsage).record(normalizedUsage)
   if (response.stop_reason !== 'end_turn') throw new CommissionMcpPreparationOutputError()
   if (response.content.length !== 1 || response.content[0]?.type !== 'text') throw new CommissionMcpPreparationOutputError()
   const parsed = parseProjectWorkMcpDraftReply(response.content[0].text, frozen.toolPermission.toolName)
@@ -680,15 +677,14 @@ export async function generateAgentRequestArguments(
   }
 
   // A completed response is accounted before output-shape or JSON validation.
-  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
-  const inputTokens = usage?.input_tokens
-  const outputTokens = usage?.output_tokens
-  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
-      !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
-      !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) {
+  let normalizedUsage
+  try {
+    normalizedUsage = normalizeModelUsage(response.usage, { inputIncludesCached: provider.protocol === 'openai-responses' })
+  } catch (error) {
+    if (!(error instanceof UsageRecordingError)) throw error
     throw new ProxyArgumentPreparationUsageError()
   }
-  createModelUsageRecorder(onUsage).record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  createModelUsageRecorder(onUsage).record(normalizedUsage)
   if (response.stop_reason !== 'end_turn' || !Array.isArray(response.content) || response.content.length !== 1 || response.content[0]?.type !== 'text') {
     throw new ProxyArgumentPreparationOutputError()
   }
@@ -708,12 +704,14 @@ export async function generateAgentRequestReply(
       messages: [{ role: 'user', content: frozen.prompt }],
     }, { signal })
   } catch (cause) { throw new ProxyReplyPreparationTransportError({ cause }) }
-  const usage = response.usage as unknown as { input_tokens?: unknown; output_tokens?: unknown } | null | undefined
-  const inputTokens = usage?.input_tokens, outputTokens = usage?.output_tokens
-  if (!Number.isSafeInteger(inputTokens) || (inputTokens as number) < 0 ||
-      !Number.isSafeInteger(outputTokens) || (outputTokens as number) < 0 ||
-      !Number.isSafeInteger((inputTokens as number) + (outputTokens as number))) throw new ProxyReplyPreparationUsageError()
-  createModelUsageRecorder(onUsage).record({ inputTokens: inputTokens as number, outputTokens: outputTokens as number })
+  let normalizedUsage
+  try {
+    normalizedUsage = normalizeModelUsage(response.usage, { inputIncludesCached: provider.protocol === 'openai-responses' })
+  } catch (error) {
+    if (!(error instanceof UsageRecordingError)) throw error
+    throw new ProxyReplyPreparationUsageError()
+  }
+  createModelUsageRecorder(onUsage).record(normalizedUsage)
   if (response.stop_reason !== 'end_turn' || !Array.isArray(response.content) || response.content.length !== 1 || response.content[0]?.type !== 'text') throw new ProxyReplyPreparationOutputError()
   return parseProxyReplyDraft(response.content[0].text)
 }
@@ -845,7 +843,7 @@ export async function generateReply(
         handlers.onDelta(delta)
       })
       const response = await stream.finalMessage()
-      usage.record({ inputTokens: response.usage.input_tokens, outputTokens: response.usage.output_tokens })
+      usage.record(normalizeModelUsage(response.usage, { inputIncludesCached: nativeResponses }))
       onStartOnce(response.id) // safety net if message_start was missed
       if (response.stop_reason === 'max_tokens') throw new ReplyOutputLimitError('The reply output limit was reached.')
       const toolUses = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')

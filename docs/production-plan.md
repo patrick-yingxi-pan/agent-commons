@@ -1,12 +1,32 @@
 # Desktop preview plan
 
-Reviewed 2026-10-16. The standing goal remains production readiness for Agent
+Reviewed 2026-10-17. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: close the locally reproduced empty-first-reply failure in
+Current checkpoint: correct usage source/scope after the owner's browser review.
+The indicator is now context-only: a partial app estimate against model catalog
+metadata, not a provider reading. Provider quota is explicitly unavailable;
+balances, API rate-limit headers and consumer subscription allowances are not
+integrated. The app's unchanged account-wide five-hour/weekly limits expose raw
+counts and stable keys; the synthetic Sonnet-only row is removed. Loading/failure
+never become zero, small positive estimates retain precision, opening refreshes
+local windows, and read-only Retry preserves drafts. Native Messages accounting
+includes cache creation/read input once; Responses aggregates are not added twice.
+Regression assertions were watched fail before implementation. Full local and
+responsive verification remain the landing gates; no paid-provider calls occur.
+
+Source review: [Anthropic caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+defines the input-token split; [OpenAI rate limits](https://developers.openai.com/api/docs/guides/rate-limits)
+describe API limits distinct from app policy. Any future provider-quota adapter
+must preserve source, account/model scope, timestamp and unknown/expired state
+instead of mapping heterogeneous API data into invented five-hour/weekly rings.
+
+Previous checkpoint `b36b78de` passed all five local verifier lanes (772 browser
+checks) and the complete unsigned arm64 desktop suite, then landed on main. It
+closed the locally reproduced empty-first-reply failure in
 the shared Messages/Responses loop. A completed initial response with no visible
 answer or tools previously returned blank success, including reasoning-only
 Responses output. It now uses the existing terminal invalid-response notice

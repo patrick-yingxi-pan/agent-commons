@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createModelUsageRecorder, UsageRecordingError } from './modelUsage.ts'
+import { createModelUsageRecorder, normalizeModelUsage, UsageRecordingError } from './modelUsage.ts'
 
 test('reports and totals are detached and each completed call is recorded once', () => {
   const reports = []
@@ -43,4 +43,37 @@ test('a failed sink fences subsequent reports without retrying an uncertain writ
   assert.throws(() => recorder.record({ inputTokens: 1, outputTokens: 2 }), UsageRecordingError)
   assert.equal(reports, 1)
   assert.deepEqual(recorder.snapshot(), { inputTokens: 0, outputTokens: 0 })
+})
+
+test('native Messages cached input is included once; absent or null cache counters mean zero', () => {
+  assert.deepEqual(normalizeModelUsage({
+    input_tokens: 17,
+    output_tokens: 9,
+    cache_creation_input_tokens: 20,
+    cache_read_input_tokens: 30,
+  }), { inputTokens: 67, outputTokens: 9 })
+  assert.deepEqual(normalizeModelUsage({ input_tokens: 17, output_tokens: 9 }), { inputTokens: 17, outputTokens: 9 })
+  assert.deepEqual(normalizeModelUsage({
+    input_tokens: 17, output_tokens: 9,
+    cache_creation_input_tokens: null, cache_read_input_tokens: null,
+  }), { inputTokens: 17, outputTokens: 9 })
+})
+
+test('malformed cache counters, missing base counters and unsafe cached-input sums are uncertain', () => {
+  for (const usage of [
+    { input_tokens: 17, output_tokens: 9, cache_creation_input_tokens: '20' },
+    { input_tokens: 17, output_tokens: 9, cache_read_input_tokens: -1 },
+    { input_tokens: 17, output_tokens: 9, cache_read_input_tokens: undefined },
+    { input_tokens: 17, cache_creation_input_tokens: 20 },
+    { input_tokens: Number.MAX_SAFE_INTEGER, output_tokens: 0, cache_creation_input_tokens: 1 },
+    { input_tokens: Number.MAX_SAFE_INTEGER, output_tokens: 1 },
+  ]) assert.throws(() => normalizeModelUsage(usage), UsageRecordingError)
+})
+
+test('normalized aggregate usage is not augmented with cached input a second time', () => {
+  assert.deepEqual(normalizeModelUsage({
+    input_tokens: 47,
+    output_tokens: 9,
+    cache_read_input_tokens: 30,
+  }, { inputIncludesCached: true }), { inputTokens: 47, outputTokens: 9 })
 })
