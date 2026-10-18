@@ -14,9 +14,18 @@ import { execSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ROOT, stripComments } from './helpers/source.ts'
+import { ROOT, filesUnder, stripComments } from './helpers/source.ts'
 import { createVerifyInterruptionFixture, removeVerifyInterruptionFixture, startFixtureVerifier } from './helpers/verifyInterruptionFixture.mjs'
 import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteConcurrency, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
+
+test('browser acceptance never depends on the owner preview origin', () => {
+  const sources = filesUnder('e2e')
+  assert.ok(sources.some(path => path.endsWith('agent-request-reply.spec.ts')), 'the failed reply-draft walk is in scope')
+  for (const path of sources) {
+    assert.doesNotMatch(stripComments(readFileSync(path, 'utf8')), /https?:\/\/(?:127\.0\.0\.1|localhost):5173\b/,
+      `${path}: use the configured shard baseURL, not the owner's preview`)
+  }
+})
 
 test('full verification can retain first-failure browser traces without enabling retries', () => {
   const config = stripComments(readFileSync(join(ROOT, 'playwright.config.ts'), 'utf8'))

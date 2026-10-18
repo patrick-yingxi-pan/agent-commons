@@ -133,7 +133,7 @@ async function captureViewports(page: Page, info: TestInfo, name: string, focus:
   }
 }
 
-test('owner reply drafting is private, optional and explicitly adopted before sharing', async ({ browser, request }, info) => {
+test('owner reply drafting is private, optional and explicitly adopted before sharing', async ({ browser, request, baseURL }, info) => {
   test.setTimeout(ms(240_000))
   const stack = await startMcpRouterStack()
   const model = await modelPeer()
@@ -170,7 +170,8 @@ test('owner reply drafting is private, optional and explicitly adopted before sh
     }, randomUUID()) as { id: string; status: string }
     expect(requestRow.status).toBe('waiting')
 
-    const origin = 'http://127.0.0.1:5173'
+    expect(baseURL, 'the browser walk uses its configured isolated shard').toBeTruthy()
+    const origin = new URL(baseURL!).origin
     ownerPage = await openAs(browser, origin, stack, owner)
     requesterPage = await openAs(browser, origin, stack, requester)
     foreignPage = await openAs(browser, origin, stack, foreign)

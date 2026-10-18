@@ -74,7 +74,30 @@ re-granting project complete parent ceilings through `UsageRegistry.budgetCeilin
 before checking each explicit child window. Stored windows stay sparse; provider
 narrowing visits Contributors even when their intermediate Agent is unchanged,
 without inventing an Agent revision or widening children after later expansion.
-See COMMONS-1, MODEL-7 and MODEL-67.
+An absent legacy/imported/forked Agent binding inherits the live fixed default
+provider definition, not its original seed grants or a tenant preference; it
+stays absent in saved state. Default-provider narrowing traverses these Agents
+too. Explicit-unknown legacy lookup is unchanged, and execution admission keeps
+its exact-identity checks. See COMMONS-1, MODEL-7 and MODEL-67.
+
+## Inherited capability authority
+
+Authority inherits per dimension, just as budgets inherit per window. The shared
+Agent ceiling intersects provider and Agent tools, connectors and scopes; no
+whole-object fallback may erase an omitted parent restriction. Commission mint,
+edit and shrink use this complete ceiling without materializing inherited axes.
+Runtime Commission reach also intersects its own grant and the Project's live
+admitted contexts, including the real mapped-runner file read/list wall. The
+development-only Agent proxy shares the parent projection but remains refused
+in release profiles. Parent expansion never widens explicit narrowed children.
+See COMMONS-1 and STORE-D18/20 for failure-first store, route and restart locks.
+
+Routine selection of a different provider intersects that provider with the
+Agent and its exact visible parent; missing identities grant no connector reach.
+Review and runtime use the same projection. Standing consent also hashes a
+distinct parent definition, so parent changes invalidate queued-call and output
+authority even without an Agent revision. Same-provider hash preimages remain
+unchanged. See MODEL-40 and `store/routine-provider-authority.test.ts`.
 
 ## Served filesystem boundary
 

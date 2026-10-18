@@ -2254,7 +2254,10 @@ function projectGraphForTenant(g: RelationGraph, tenantId: string): RelationGrap
 // never leaves the server, mirroring how `Capabilities` hides the key.
 const MODEL_PROVIDERS = new Map<string, ModelProvider>(SEED_PROVIDERS.map((p) => [p.id, p]))
 const PROVIDER_CONFIGS = new Map<string, ProviderConfig>(SEED_PROVIDER_CONFIGS)
-const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? '') ?? DEFAULT_PROVIDER
+// Absence means the fixed default's live definition, never a tenant preference
+// or its original seed grants. Explicit-unknown legacy lookup is unchanged;
+// management and execution admission own their exact-identity checks.
+const resolveProvider = (id?: string): ModelProvider => MODEL_PROVIDERS.get(id ?? DEFAULT_PROVIDER.id) ?? DEFAULT_PROVIDER
 
 function validateProviderProtocolConfig(config: ProviderConfig): void {
   if (config.replyOutputTokens !== undefined && !isReplyOutputTokens(config.replyOutputTokens)) {
@@ -2527,9 +2530,28 @@ function equivalentBudget(left: Budget | undefined, right: Budget | undefined): 
   )
 }
 
+// An omitted dimension inherits independently; choosing a whole sparse object
+// would erase the provider's restrictions on every other dimension. Keep this
+// projection separate from saved grants so inheritance never becomes a copy.
+function agentAuthorityCeiling(agent: Agent | undefined, provider: ModelProvider): Authority {
+  return intersectAuthority(provider.authority ?? {}, agent?.authority ?? {})
+}
+
+// Selecting another cognition provider adds a ceiling; it never replaces the
+// Agent's original parent. Unlike legacy definition lookup, execution authority
+// requires exact, currently visible identities and fails closed when unavailable.
+function selectedAgentAuthority(agent: Agent | undefined, provider: ModelProvider | undefined, tenantId: string): Authority {
+  const parent = MODEL_PROVIDERS.get(agent?.providerId ?? DEFAULT_PROVIDER.id)
+  if (!agent || !provider || !parent || !registryVisible(agent, tenantId) ||
+      !registryVisible(provider, tenantId) || !registryVisible(parent, tenantId)) {
+    return { tools: [], connectors: [], scopes: [] }
+  }
+  return intersectAuthority(agentAuthorityCeiling(agent, parent), provider.authority ?? {})
+}
+
 function reclampCommissionsOf(agent: Agent): void {
   const provider = resolveProvider(agent.providerId)
-  const parentAuthority = agent.authority ?? provider.authority ?? {}
+  const parentAuthority = agentAuthorityCeiling(agent, provider)
   const parentWindows = usageRegistry.budgetCeilings([provider.plan, agent.budget])
   for (const c of COMMISSIONS.values()) {
     if (c.agentId !== agent.id) continue
@@ -2549,12 +2571,12 @@ function reclampCommissionsOf(agent: Agent): void {
 function reclampAgentsOf(provider: ModelProvider): void {
   const parentWindows = usageRegistry.budgetCeilings([provider.plan])
   for (const a of WORKER_AGENTS.values()) {
-    if (a.providerId !== provider.id) continue
+    if ((a.providerId ?? DEFAULT_PROVIDER.id) !== provider.id) continue
     const authority = a.authority ? clampAuthority(a.authority, provider.authority ?? {}) : a.authority
     const budget = a.budget ? clampBudget(a.budget, parentWindows) : a.budget
     if (equivalentAuthority(authority, a.authority) && equivalentBudget(budget, a.budget)) {
-      // An inherited window can narrow without changing the Agent's sparse
-      // definition. Its Contributors still need the new complete parent caps.
+      // An inherited dimension or window can narrow without changing the Agent's
+      // sparse definition. Contributors still need the complete parent ceilings.
       reclampCommissionsOf(a)
       continue
     }
@@ -2895,21 +2917,26 @@ function routineMcpFacts(task: ScheduledTask): { reviewHash: string; disclosures
     tools: agent.tools, providerId: agent.providerId ?? null,
     authority: agent.authority ?? null, budget: agent.budget ?? null,
   } : null
-  const reviewedProvider = provider ? {
-    id: provider.id, tenantId: provider.tenantId ?? null, kind: provider.kind ?? 'endpoint',
-    definitionRevision: provider.definitionRevision ?? 0, connectionRevision: provider.connectionRevision ?? 0,
-    label: provider.label, modelFamily: provider.modelFamily, effortLevels: provider.effortLevels,
-    models: provider.models ?? null, catalogSource: provider.catalogSource ?? null,
-    plan: provider.plan ?? null, authority: provider.authority ?? null,
-    defaultModelId: provider.defaultModelId ?? null,
+  const reviewedProvider = (row: ModelProvider | undefined) => row ? {
+    id: row.id, tenantId: row.tenantId ?? null, kind: row.kind ?? 'endpoint',
+    definitionRevision: row.definitionRevision ?? 0, connectionRevision: row.connectionRevision ?? 0,
+    label: row.label, modelFamily: row.modelFamily, effortLevels: row.effortLevels,
+    models: row.models ?? null, catalogSource: row.catalogSource ?? null,
+    plan: row.plan ?? null, authority: row.authority ?? null,
+    defaultModelId: row.defaultModelId ?? null,
   } : null
+  const parentProviderId = agent?.providerId ?? DEFAULT_PROVIDER.id
   const project = projectId ? findProject(projectId) : undefined
   const reviewHash = createHash('sha256').update(routineMcpJsonText({
     owner, routineId: task.id, definitionRevision: task.revision ?? 0,
     artifact: graph.scheduleArtifact[task.id] ?? null, projectId, sessionLabel,
     extraTools: graph.scheduleExtraTools[task.id] ?? [],
     // Public definition and authority changes require fresh review too.
-    agent: reviewedAgent, provider: reviewedProvider,
+    agent: reviewedAgent, provider: reviewedProvider(provider),
+    // Ordinary same-provider approvals retain their exact hash. An override
+    // also reviews its inherited parent, including a sparse Agent's live shrink.
+    ...(parentProviderId !== provider?.id
+      ? { parentProvider: reviewedProvider(MODEL_PROVIDERS.get(parentProviderId)) } : {}),
     project: project ? { id: project.id, shared: project.shared ?? false } : null,
     audience: audience.map(row => ({ id: row.id, subject: row.subject, audience: row.audience, tier: row.tier,
       audienceTenant: row.audienceTenant, redeemedBy: row.redeemedBy ?? [] })),
@@ -6731,8 +6758,8 @@ export const store = {
     if (changedId) emit({ type: 'provider.changed', providerId: changedId, tenantId: ownerTenant })
     persist()
   },
-  /** Resolve an Agent's Model provider; unset/unknown falls back to the seeded
-   *  default. */
+  /** An unset binding reads the live fixed default; an explicit unknown id
+   * retains the legacy seeded fallback. Admission uses exact identity checks. */
   getProvider(id?: string): ModelProvider {
     return resolveProvider(id)
   },
@@ -7371,7 +7398,7 @@ export const store = {
     const provider = resolveProvider(agent.providerId)
     // Attenuate against the Agent's *effective* grants: an Agent that left a face unset
     // inherits its provider's there, so that inherited ceiling is the parent.
-    if (input.authority) mintAuthority(agent.authority ?? provider.authority, input.authority)
+    if (input.authority) mintAuthority(agentAuthorityCeiling(agent, provider), input.authority)
     if (input.grant) {
       mintBudget(usageRegistry.budgetCeilings([provider.plan, agent.budget]), input.grant)
     }
@@ -7436,7 +7463,7 @@ export const store = {
     // (denyForeignEntry lets it edit its OWN commission; the clamp is the wall). Same helper as
     // the mint path, keyed on the commission's owning tenant vs the Project owner.
     const role = clampContributorRole(patch.role ?? commission.role ?? 'writer', commission.tenantId, commission.projectId)
-    if (authority) mintAuthority(agent?.authority ?? provider.authority, authority)
+    if (authority) mintAuthority(agentAuthorityCeiling(agent, provider), authority)
     if (grant) {
       mintBudget(usageRegistry.budgetCeilings([provider.plan, agent?.budget]), grant)
     }
@@ -7504,8 +7531,8 @@ export const store = {
   },
 
   /** The **effective authority** a Contributor carries onto its Project (D12,
-   *  docs/agent-commons.md): the agent's granted authority (commission ?? agent ??
-   *  provider — the D8 ceiling) **clamped** to what the Project admits
+   *  docs/agent-commons.md): the per-dimension intersection of provider, Agent and
+   *  Commission grants (the D8 ceiling) **clamped** to what the Project admits
    *  (`projectAdmittedAuthority`). So a commissioned Agent sees the *Project's*
    *  connectors / scopes, never its owner's ambient set — default-deny on anything the
    *  Project doesn't admit, even for an Agent granted everything. Undefined for an
@@ -7517,7 +7544,7 @@ export const store = {
     if (!agent) return undefined
     const provider = resolveProvider(agent.providerId)
     // The ceiling: the most authority this Contributor could hold (the D8 cascade).
-    const granted = commission.authority ?? agent.authority ?? provider.authority ?? {}
+    const granted = intersectAuthority(agentAuthorityCeiling(agent, provider), commission.authority ?? {})
     const project = findProject(commission.projectId) // seed + created (P8 shared Projects)
     // The wall: clamp the ceiling to what the Project ADMITS. Read the admitted contexts from
     // the relation graph's authoritative join map (`graph.projectContexts`) — a created Project
@@ -8976,7 +9003,7 @@ export const store = {
     const to = WORKER_AGENTS.get(toAgentId)
     if (!to) return undefined
     const reaches = req.capability.startsWith('connector.') || req.capability.startsWith('mcp.')
-    const auth = to.authority ?? resolveProvider(to.providerId).authority ?? {}
+    const auth = agentAuthorityCeiling(to, resolveProvider(to.providerId))
     if (reaches && !authorityAdmits(auth, 'connectors', req.target)) {
       // Detective audit (D15): record the refused proxy too — a denied attempt is exactly
       // what a watcher wants to see (the actor is B, who declined under its own authority).
@@ -13674,7 +13701,7 @@ export const store = {
     const grantOwner = routineMcpPermissionOwner(storedPolicy)
     const agent = WORKER_AGENTS.get(task.agentId ?? DEFAULT_AGENT.id)
     const provider = MODEL_PROVIDERS.get(task.providerId ?? agent?.providerId ?? DEFAULT_PROVIDER.id)
-    const authority = intersectAuthority(provider?.authority ?? {}, agent?.authority ?? {})
+    const authority = selectedAgentAuthority(agent, provider, owner)
     const toolsFor = (person?: string) => this.mcpConnections(owner, person)
       .filter(connection => connection.status === 'connected' && connection.execution === 'approval-required' &&
         (connection.transport !== 'stdio' || mcpRuntimeCapabilities().localProcesses === true) &&
@@ -14024,7 +14051,7 @@ export const store = {
     const permissionOwner = routineMcpPermissionOwner(permission?.permission)
     const missing: string[] = []
     const denied: string[] = []
-    const effectiveAuthority = intersectAuthority(provider.authority ?? {}, agent.authority ?? {})
+    const effectiveAuthority = selectedAgentAuthority(agent, provider, tenantId)
     for (const { tool, exactId } of referenced) {
       const compatible = this.savedContexts(tenantId, permissionOwner).contexts.filter((context) =>
         tool.tone === 'mcp' ? context.kind === 'mcp' : context.kind === 'connector')

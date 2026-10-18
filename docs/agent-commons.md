@@ -245,6 +245,19 @@ attenuation — *you may delegate only a subset of the authority you hold* — a
 the spine of Agent Commons safety: the only thing that lets a user trust an Agent a
 stranger commissioned onto a Project they care about.
 
+**Current implementation (2026-10-17).** Creation and editing enforce the complete
+ancestor ceiling independently for each authority dimension and budget window;
+omitted axes inherit without copying them into saved grants. Unbound imported
+or forked Agents inherit the live fixed default provider, not its seed definition
+or a tenant preference. Parent shrink traverses unchanged inheriting Agents and
+attenuates explicit Contributor grants once; later expansion never widens those
+saved grants. Runtime Commission reach intersects every ancestor plus Project
+admission, including mapped-runner file reads. New model work also checks live
+account-wide operational usage against the inherited caps; these are not provider
+billing counters or a hard in-flight output ceiling. The original rationale below
+records the design's earlier mint-only trade-off; COMMONS-1 and MODEL-67 describe
+the implemented gates and their locks.
+
 **Why.** Leading with authority is the sound framing: the ocap "subset" claim holds
 for *capabilities* (a connector you weren't granted can't be misused); a token cap
 is a **quota**, not a capability, so it rides the same min/subset machinery but is

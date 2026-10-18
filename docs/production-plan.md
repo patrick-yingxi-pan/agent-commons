@@ -6,7 +6,66 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: inherited budget configuration. Agent and Contributor
+Current checkpoint: live default grants and per-dimension authority inheritance.
+Imported and forked Agents with no provider binding read the live fixed default,
+never its seed grants or the account's preferred provider. The binding stays
+absent; exact-identity execution checks and explicit-unknown legacy behavior
+remain unchanged. Default narrowing reaches these Agents and their Contributors.
+
+Commission mint, edit, shrink and effective reach now intersect provider, Agent
+and Commission authority independently for tools, connectors and file scopes.
+A partial child object cannot erase a restriction on another axis; Project
+admission remains an additional wall. Saved grants stay sparse, unchanged rows
+gain no revisions, explicit grants do not widen after later expansion, and the
+development-only Agent proxy uses the same parent projection.
+
+Routine provider overrides now add the selected provider's ceiling rather than
+discarding the Agent's original parent. Permission review and runtime connector
+admission require every exact visible parent, and the consent hash includes a
+distinct inherited provider. Parent changes therefore invalidate approval before
+dispatch or output publication even when the sparse Agent revision is unchanged.
+Same-provider approvals retain their previous hash; no permissions are widened.
+
+Failure-first evidence: the live-default store/persistence suites had 24 expected
+failures and signed routes had 18 failures with three positive controls. The
+authority store/persistence suites reproduced 40 failures with two sparse
+controls passing; routes reproduced 15 with four controls passing. Two real
+mapped-runner file read/list cases returned 200 instead of 403 for disposable
+test-owned paths. Both development proxy inheritance cases also failed, while
+release-profile guards passed. The corrected focused suites pass, including
+JSON/SQLite restart, exact replay, refusal atomicity and real local filesystem
+admission. No public provider calls, new UI, credential changes or paid tests.
+The complete frozen-tree local verifier remains mandatory before landing.
+
+All nine initial browser walks passed. The first full run passed its checks lane
+in 279.2 seconds but was interrupted before browser completion, so it is not
+release acceptance. A follow-up Routine audit reproduced 24 override failures
+with 19 inherited/same-provider and allowed controls passing: denied tools were
+reviewable, approval was accepted, parent shrink left consent active, and a
+queued call reached the injected executor. The corrected first 83 focused
+Routine tests pass without external I/O. Final verification includes this fix.
+The completed 51-case override suite passes. Reintroducing the old authority and
+hash path then failed 31 cases, including default/missing/foreign parent and late
+publication locks; deliberately adding an unnecessary same-provider hash field
+failed the historical-preimage lock. Both mutations are restored before gates.
+
+The final 124 focused checks and 16 scoped browser walks passed. The next full
+run passed checks and three browser shards, but one browser test navigated to
+the owner preview's fixed port instead of its configured shard (connection
+refused while the preview was stopped). `agent-request-reply.spec.ts` now takes
+the configured `baseURL` for every private browser context. A repository-wide
+E2E source lock first failed naming that test and passes after the correction;
+the full verifier must pass without relying on an owner preview. The 927.6-second
+failed run is not acceptance, and no retry allowance or assertion was relaxed.
+
+Remaining scope: counters are account-wide operational limits, not provider
+billing or subscription quotas, and ordinary in-flight generation has no new
+reservation cap. Signed/live release gates remain separate.
+
+Shipped checkpoint `5b871a8c`: inherited budget configuration. All five complete
+local verifier lanes passed in 939.2 seconds (796 browser tests), with the final
+source fingerprint unchanged; the reviewed commit was pushed to main.
+Agent and Contributor
 creation and editing now validate each explicit window against the complete
 account/provider/Agent chain. Omitted and empty windows retain inheritance;
 stored grants stay sparse, zero remains a real cap, and unknown or excessive
@@ -27,14 +86,6 @@ four screenshots were reviewed. Type checking and 71 focused policy, route,
 persistence and documentation tests pass. No new budget editor, renderer change
 or paid model call is introduced. The complete frozen-tree local verifier
 remains mandatory before landing.
-
-Remaining scope: counters are account-wide operational limits, not provider
-billing or subscription quotas, and ordinary in-flight generation has no new
-reservation cap. A separate legacy-binding audit found imported unbound Agents
-still resolving definition grants through the seed default provider; runtime
-model admission already enforces the live default cap. That older configuration
-path needs a focused follow-up rather than changing global fallback semantics
-inside this sparse-budget correction. Signed/live release gates remain separate.
 
 Shipped checkpoint `dee1e767`: inherited local model-work budgets. All five
 complete local verifier lanes passed in 941.8 seconds (794 browser tests), with
