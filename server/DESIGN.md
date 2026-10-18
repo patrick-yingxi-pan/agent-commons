@@ -69,9 +69,12 @@ admission and never repeat generation after later exhaustion.
 These limits use account-wide local consumption and existing usage holds, not
 provider-specific billing counters or a provider subscription quota. They gate
 new work, not a hard maximum on output or subsequent tool rounds already in
-flight. Provider-scoped accounting and per-window mint-time inheritance remain
-separate follow-up work; the current mint funnel may safely over-refuse a valid
-partial child budget. See MODEL-7 and MODEL-67.
+flight. Provider-scoped accounting remains separate follow-up work. Minting and
+re-granting project complete parent ceilings through `UsageRegistry.budgetCeilings`
+before checking each explicit child window. Stored windows stay sparse; provider
+narrowing visits Contributors even when their intermediate Agent is unchanged,
+without inventing an Agent revision or widening children after later expansion.
+See COMMONS-1, MODEL-7 and MODEL-67.
 
 ## Served filesystem boundary
 

@@ -6,7 +6,40 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: inherited local model-work budgets. Send, compaction,
+Current checkpoint: inherited budget configuration. Agent and Contributor
+creation and editing now validate each explicit window against the complete
+account/provider/Agent chain. Omitted and empty windows retain inheritance;
+stored grants stay sparse, zero remains a real cap, and unknown or excessive
+grants still refuse without effects. A provider shrink reaches Contributors even
+when the intermediate Agent definition is unchanged. Only actually changed
+rows advance revisions and emit changes; later expansion never widens an
+already narrowed explicit child grant. Provider rebinding follows the same rule.
+
+Failure-first evidence: twelve signed-route cases and four real-store mint cases
+rejected valid inherited windows; five propagation cases retained an excessive
+Commission grant. The new complete-ceiling projection initially failed its two
+registry tests. Reintroducing the skipped traversal failed both JSON/SQLite
+restart locks (800 retained instead of 200). Restoring the old edit validation
+also made both rendered ordinary Agent rename and Contributor role-save return
+400 instead of 200. All deliberate mutations are restored before final gates.
+Both rendered checks pass with narrow/wide containment and accessibility; all
+four screenshots were reviewed. Type checking and 71 focused policy, route,
+persistence and documentation tests pass. No new budget editor, renderer change
+or paid model call is introduced. The complete frozen-tree local verifier
+remains mandatory before landing.
+
+Remaining scope: counters are account-wide operational limits, not provider
+billing or subscription quotas, and ordinary in-flight generation has no new
+reservation cap. A separate legacy-binding audit found imported unbound Agents
+still resolving definition grants through the seed default provider; runtime
+model admission already enforces the live default cap. That older configuration
+path needs a focused follow-up rather than changing global fallback semantics
+inside this sparse-budget correction. Signed/live release gates remain separate.
+
+Shipped checkpoint `dee1e767`: inherited local model-work budgets. All five
+complete local verifier lanes passed in 941.8 seconds (794 browser tests), with
+the final source fingerprint unchanged; the reviewed commit was pushed to main.
+Send, compaction,
 ordinary Dispatch and Routine execution now share a live per-window intersection
 of account, Agent, Agent-parent provider and selected-provider caps. Project
 drafts retain their Commission grant, and existing model review/judgment gates
@@ -44,15 +77,14 @@ only after navigation; Chromium reported that the resource was gone while the
 destination account shell was still loading. The test now pins the exact target
 Session and GET method and consumes its body alongside navigation. No assertion,
 timeout or retry allowance is relaxed. The failed full run is not acceptance;
-the corrected frozen tree requires a new complete trace-enabled verifier.
+the corrected frozen tree passed the complete trace-enabled verifier above.
 
 Scope remains explicit: the shipped meter is tenant/account-wide, not
 provider-scoped billing or subscription allowance. The gate includes existing
 usage holds but does not add reservations to ordinary generation or impose a
-hard ceiling on in-flight output/tool rounds. Provider-scoped accounting and
-per-window mint-time inheritance remain follow-up work; the latter currently
-can safely over-refuse a valid partial child budget. These constraints must not
-be described as fully solved by admission enforcement.
+hard ceiling on in-flight output/tool rounds. Provider-scoped accounting remains
+follow-up work; per-window mint-time inheritance is the current checkpoint.
+These constraints must not be described as fully solved by admission enforcement.
 
 Shipped checkpoint `7219679c`: Routine binding recovery. All five complete local
 verifier lanes passed in 862.4 seconds (791 browser tests) with the source

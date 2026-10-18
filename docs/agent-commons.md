@@ -382,7 +382,10 @@ limits use tenant/account-wide local counters, intersecting each window across
 account, Agent, parent provider, selected provider and optional Commission caps.
 They gate new work and count existing usage holds; they are neither provider
 billing/subscription quotas nor a hard ceiling on already in-flight output.
-Per-provider meters and per-window mint-time inheritance remain follow-up work.
+Per-provider meters remain follow-up work. Minting and editing resolve complete
+parent ceilings per window while preserving sparse stored grants. Parent
+narrowing propagates through unchanged inheriting Agents to explicit Commission
+grants; later expansion does not automatically widen an attenuated child.
 
 **Rejected alternative.** Keep one global model and switch via the existing
 `ANTHROPIC_BASE_URL`/`KEY`/`MODEL` env vars. Rejected: env switching is

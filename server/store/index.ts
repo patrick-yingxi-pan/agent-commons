@@ -2530,7 +2530,7 @@ function equivalentBudget(left: Budget | undefined, right: Budget | undefined): 
 function reclampCommissionsOf(agent: Agent): void {
   const provider = resolveProvider(agent.providerId)
   const parentAuthority = agent.authority ?? provider.authority ?? {}
-  const parentWindows = agent.budget?.windows ?? provider.plan?.windows ?? usageRegistry.planCeilings()
+  const parentWindows = usageRegistry.budgetCeilings([provider.plan, agent.budget])
   for (const c of COMMISSIONS.values()) {
     if (c.agentId !== agent.id) continue
     const authority = c.authority ? clampAuthority(c.authority, parentAuthority) : c.authority
@@ -2547,12 +2547,15 @@ function reclampCommissionsOf(agent: Agent): void {
   }
 }
 function reclampAgentsOf(provider: ModelProvider): void {
-  const parentWindows = provider.plan?.windows ?? usageRegistry.planCeilings()
+  const parentWindows = usageRegistry.budgetCeilings([provider.plan])
   for (const a of WORKER_AGENTS.values()) {
     if (a.providerId !== provider.id) continue
     const authority = a.authority ? clampAuthority(a.authority, provider.authority ?? {}) : a.authority
     const budget = a.budget ? clampBudget(a.budget, parentWindows) : a.budget
-    if (JSON.stringify(authority) === JSON.stringify(a.authority) && JSON.stringify(budget) === JSON.stringify(a.budget)) {
+    if (equivalentAuthority(authority, a.authority) && equivalentBudget(budget, a.budget)) {
+      // An inherited window can narrow without changing the Agent's sparse
+      // definition. Its Contributors still need the new complete parent caps.
+      reclampCommissionsOf(a)
       continue
     }
     const next: Agent = { ...a, authority, budget, revision: (a.revision ?? 0) + 1 }
@@ -6469,7 +6472,7 @@ export const store = {
     }
     const provider = resolveProvider(input.providerId)
     if (input.authority) mintAuthority(provider.authority, input.authority)
-    if (input.budget) mintBudget(provider.plan?.windows ?? usageRegistry.planCeilings(), input.budget)
+    if (input.budget) mintBudget(usageRegistry.budgetCeilings([provider.plan]), input.budget)
     // Stamp the creating tenant (F2/PD9) so listAgents(tenant) scopes it; unset ⇒ shared.
     const agent: Agent = {
       ...input,
@@ -6575,7 +6578,7 @@ export const store = {
     const budget = 'budget' in patch ? patch.budget : current.budget
     const provider = resolveProvider(providerId)
     if (authority) mintAuthority(provider.authority, authority)
-    if (budget) mintBudget(provider.plan?.windows ?? usageRegistry.planCeilings(), budget)
+    if (budget) mintBudget(usageRegistry.budgetCeilings([provider.plan]), budget)
     const next: Agent = {
       ...current,
       label: patch.label ?? current.label,
@@ -7286,23 +7289,6 @@ export const store = {
     if (!c) return undefined
     return WORKER_AGENTS.get(c.agentId)?.tenantId ?? c.tenantId ?? defaultTenantId()
   },
-  /** Mint a Commission through the **leaf** of the D8 funnel: its grant + authority must
-   *  attenuate the *Agent's* (which themselves inherit the provider when unset) — so
-   *  *commission ⊆ agent ⊆ provider* holds by construction, an over-grant is
-   *  unrepresentable at mint, and a Commission can never carry authority the Agent never
-   *  held (the confused-deputy wall, fatal where the commissioner is a stranger). The
-   *  caller must have validated the agent + project exist; this asserts the cascade.
-   *  Persisted to disk like the agent/provider registries (persist.ts).
-   *
-   *  Known limitation (token face): the parent is a *single* tier — the Agent's own
-   *  budget, else the provider plan, else the account plan — not a per-window merge of
-   *  the chain. So if an Agent declared a *partial* budget (only some windows), a
-   *  commission tightening an *inherited* window is rejected. It errs safe (over-reject,
-   *  never over-grant) and is unreachable today (every seed uses the full account window
-   *  set); a per-window effective-budget merge (which would also touch `createAgent`,
-   *  slice 3) is the proper fix when partial window sets are introduced. The unknown-agent
-   *  guard throws a plain `Error` on purpose — the route pre-validates, so reaching it
-   *  signals a bypassed-validation bug (a 500), not a client error. */
   /** Set (or clear, with `undefined`) a Project's D13 commission cap — the owner raising or
    *  lifting the abuse ceiling. The single setter behind both the hub and the conversational
    *  card (5.5). Undefined for an unknown Project (→ 404); persisted (survives a restart). */
@@ -7342,6 +7328,11 @@ export const store = {
     for (const c of COMMISSIONS.values()) if (c.projectId === projectId) n += 1
     return n
   },
+  /** Mint through the leaf of D8: authority and each explicit token window must
+   * attenuate the Agent's effective provider/account grants. Complete parent
+   * ceilings resolve inheritance without materializing it in the saved child.
+   * The route validates the Agent and Project; an unknown Agent here is an
+   * internal caller error, not a request validation fallback. */
   createCommission(
     input: Omit<Commission, 'id'>,
     tenantId?: string,
@@ -7382,7 +7373,7 @@ export const store = {
     // inherits its provider's there, so that inherited ceiling is the parent.
     if (input.authority) mintAuthority(agent.authority ?? provider.authority, input.authority)
     if (input.grant) {
-      mintBudget(agent.budget?.windows ?? provider.plan?.windows ?? usageRegistry.planCeilings(), input.grant)
+      mintBudget(usageRegistry.budgetCeilings([provider.plan, agent.budget]), input.grant)
     }
     // Role is REQUIRED (INV-9): the funnel never picks one for the caller — the
     // commissioning surface pre-selects the Project's `defaultRole` (else the writer
@@ -7447,7 +7438,7 @@ export const store = {
     const role = clampContributorRole(patch.role ?? commission.role ?? 'writer', commission.tenantId, commission.projectId)
     if (authority) mintAuthority(agent?.authority ?? provider.authority, authority)
     if (grant) {
-      mintBudget(agent?.budget?.windows ?? provider.plan?.windows ?? usageRegistry.planCeilings(), grant)
+      mintBudget(usageRegistry.budgetCeilings([provider.plan, agent?.budget]), grant)
     }
     // The D19 standing flag: present ⇒ apply (normalized), absent ⇒ unchanged. A newly
     // standing Contributor is offered the backlog's still-open items right away — the

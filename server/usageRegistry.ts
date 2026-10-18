@@ -2,7 +2,7 @@
  * subscription ceilings remain code-owned, never imported from a backup. */
 import type { Budget } from '../contract/index.ts'
 import {
-  createUsageMeter, MAX_USAGE_STATE_START, parseUsageMeterState, USAGE_WINDOW_DEFINITIONS,
+  BudgetError, createUsageMeter, MAX_USAGE_STATE_START, parseUsageMeterState, USAGE_WINDOW_DEFINITIONS,
   type UsageMeter, type UsageMeterState,
 } from './usage.ts'
 
@@ -227,6 +227,17 @@ export class UsageRegistry {
   }
 
   planCeilings() { return this.readForTenant().planCeilings() }
+
+  /** Complete inherited ceilings for minting and re-clamping sparse grants.
+   * This projects policy only: consumption and reservations do not change a
+   * definition's ceiling, and omitted windows remain omitted in stored grants. */
+  budgetCeilings(budgets: readonly (Budget | undefined)[] = []) {
+    const base = this.planCeilings()
+    if (overBudget(budgets, base.map(window => window.label))) {
+      throw new BudgetError('The parent budget is invalid.')
+    }
+    return base.map(window => ({ ...window, ceiling: this.effectiveCeiling(window, window.label, budgets) }))
+  }
 
   snapshot(): UsageMeterEntries {
     return [...this.meters].map(([id, meter]) => [id, meter.snapshot()])

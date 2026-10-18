@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { Budget } from '../contract/index.ts'
+import { BudgetError } from './usage.ts'
 import { UsageRegistry, parseUsageMeterEntries } from './usageRegistry.ts'
 
 test('registry meters are tenant-isolated and snapshots identify exact owners', () => {
@@ -198,4 +199,49 @@ test('public multi-budget gate refuses invalid budgets without allocating or cha
     assert.throws(() => registry.overLimit(tenant, [budget(100)]))
     assert.deepEqual(registry.snapshot(), [])
   }
+})
+
+test('budgetCeilings resolves complete sparse-parent minima with inheritance, zero caps and no consumption effects', () => {
+  const registry = new UsageRegistry(() => 1_000, () => 'tenant-default')
+  registry.rehydrate([], false)
+  registry.record(75, 25, 'tenant-owner')
+  registry.reserve('existing-capacity-hold', 'tenant-owner', 20)
+  const metersBefore = registry.snapshot()
+  const reservationsBefore = registry.snapshotReservations()
+  const account = registry.planCeilings()
+  assert.deepEqual(registry.budgetCeilings(), account)
+  assert.deepEqual(registry.budgetCeilings([undefined, budget(), undefined]), account,
+    'absence and an empty budget inherit every account window')
+  const parents = [budget(100), undefined, budget(undefined, 300), budget(50, 500), budget()] as const
+  const expected = [{ label: FIVE_HOUR, ceiling: 50 }, { label: WEEKLY, ceiling: 300 }]
+  const parentsBefore = structuredClone(parents)
+  assert.deepEqual(registry.budgetCeilings(parents), expected)
+  assert.deepEqual(registry.budgetCeilings([...parents].reverse()), expected)
+  assert.deepEqual(registry.budgetCeilings([budget(0), budget(undefined, 0)]),
+    [{ label: FIVE_HOUR, ceiling: 0 }, { label: WEEKLY, ceiling: 0 }], 'zero is a real cap, never absence')
+  assert.deepEqual(registry.budgetCeilings([budget(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)]), account)
+  const detached = registry.budgetCeilings(parents)
+  detached[0]!.ceiling = 9_999
+  detached.push({ label: 'caller-only-window', ceiling: 1 })
+  assert.deepEqual(registry.budgetCeilings(parents), expected)
+  assert.deepEqual(parents, parentsBefore)
+  assert.deepEqual(registry.snapshot(), metersBefore)
+  assert.deepEqual(registry.snapshotReservations(), reservationsBefore)
+})
+
+test('budgetCeilings rejects malformed sparse parents as BudgetError without allocating meters or changing state', () => {
+  const registry = new UsageRegistry(() => 1_000, () => 'tenant-default')
+  registry.rehydrate([], false)
+  const invalid: unknown[] = [null, {}, { windows: null }, { windows: {} },
+    { windows: [{ label: 'unknown window', ceiling: 10 }] },
+    { windows: [{ label: FIVE_HOUR, ceiling: 10 }, { label: FIVE_HOUR, ceiling: 20 }] },
+    budget(-1), budget(1.5), budget(Number.NaN), budget(Number.POSITIVE_INFINITY), budget(Number.MAX_SAFE_INTEGER + 1),
+    { windows: [null] }, { windows: [{ label: FIVE_HOUR }] }]
+  for (const parent of invalid) {
+    assert.throws(() => registry.budgetCeilings([budget(100), parent as Budget]), BudgetError)
+    assert.deepEqual(registry.snapshot(), [])
+    assert.deepEqual(registry.snapshotReservations(), [])
+  }
+  for (let index = 0; index < 100; index++) registry.budgetCeilings([budget(100)])
+  assert.deepEqual(registry.snapshot(), [], 'pure ceiling resolution never creates the default or a tenant meter')
 })
