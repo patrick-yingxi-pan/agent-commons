@@ -5,6 +5,19 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { ROOT, read, stripComments } from '../../tests/helpers/source.ts'
 
+test('the eager Agent Requests rail reads through a narrow list door without loading decisions', () => {
+  const rail = stripComments(read(join(ROOT, 'src/components/SectionTreeChildren.tsx')))
+  assert.match(rail, /import \{ useAgentRequests \} from '\.\.\/api\/agentRequestList\.ts'/)
+  assert.doesNotMatch(rail, /from '\.\.\/api\/agentRequests\.ts'/)
+  const list = stripComments(read(join(ROOT, 'src/api/agentRequestList.ts')))
+  assert.match(list, /useQuery<AgentRequestSummary\[\]>\(keys\.agentRequests, \(\) => apiGet\(paths\.agentRequests, privateOptions\(\)\), enabled, true\)/)
+  assert.match(list, /expectedSessionUserId: identity\.via === 'session' \? identity\.user\.id : null/)
+  assert.doesNotMatch(list, /apiPost|apiPatch|acceptAgentRequest|decideAgentRequest|agentRequestActions/)
+  const detail = stripComments(read(join(ROOT, 'src/api/agentRequests.ts')))
+  assert.match(detail, /import \{ privateOptions \} from '\.\/agentRequestList\.ts'/)
+  assert.match(detail, /export \{ useAgentRequests \} from '\.\/agentRequestList\.ts'/)
+})
+
 test('provider gauge keeps its registry count eager and defers read-only details behind local recovery', () => {
   const control = stripComments(read(join(ROOT, 'src/components/ProvidersControl.tsx')))
   assert.match(control, /const ProvidersControlBody = lazy\(\(\) => import\('\.\/ProvidersControlBody'\)/)

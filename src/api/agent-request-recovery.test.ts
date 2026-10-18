@@ -6,7 +6,8 @@ import { refreshAccount } from './account.ts'
 import { ApiRequestError, API_BASE } from './client.ts'
 import { peek, resetAll, setData } from './cache.ts'
 import { keys, paths } from './keys.ts'
-import { decideAgentRequest } from './agentRequests.ts'
+import { acceptAgentRequest, decideAgentRequest } from './agentRequests.ts'
+import type { AgentRequestView } from '../../contract/agentRequests.ts'
 
 const tenantId = 'tenant-agent-request-recovery'
 const userId = 'user-agent-request-recovery'
@@ -66,4 +67,31 @@ test('a failed Agent request decision revalidates list, detail, and owner review
     'failure revalidation never retries the decision POST')
   }
   assert.equal(peek(keys.me), identity, 'the current identity cache remains intact')
+})
+
+test('pending acknowledgements revalidate every asynchronous request-work kind after the cache write', () => {
+  const source = readFileSync(new URL('./agentRequests.ts', import.meta.url), 'utf8')
+  const start = source.indexOf('export function acceptAgentRequest(')
+  const end = source.indexOf('export async function readAgentRequest(', start)
+  assert.ok(start >= 0 && end > start)
+  const accept = source.slice(start, end)
+  const write = accept.indexOf('setData(keys.agentRequest(id), row)')
+  const refresh = accept.indexOf('invalidate(keys.agentRequest(id))')
+  assert.ok(write >= 0 && refresh > write, 'the authoritative follow-up read must not be fenced by its own acknowledgement')
+  for (const condition of ["row.status === 'running'", "row.execution?.status === 'pending'",
+    "row.argumentDraft?.status === 'pending'", "row.replyDraft?.status === 'pending'"]) {
+    assert.ok(accept.slice(write, refresh).includes(condition), `${condition} must not depend on a later completion hint`)
+  }
+})
+
+test('a late pending acknowledgement cannot rewind an already completed exact request', () => {
+  const completed = { id: requestId, revision: 3, role: 'owner', status: 'waiting',
+    replyDraft: { status: 'done', text: 'Saved private reply.' } } as AgentRequestView
+  const pending = { ...completed, revision: 2, replyDraft: { status: 'pending' } } as AgentRequestView
+  setData(keys.agentRequest(requestId), completed)
+  acceptAgentRequest(pending)
+  assert.equal(peek(keys.agentRequest(requestId)), completed)
+  assert.throws(() => acceptAgentRequest(pending, 'another-request'), /did not identify/)
+  assert.equal(peek(keys.agentRequest(requestId)), completed)
+  resetAll()
 })

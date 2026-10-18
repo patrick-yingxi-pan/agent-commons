@@ -1,22 +1,26 @@
-import type { AgentRequestCreate, AgentRequestDecision, AgentRequestOptions, AgentRequestReplyReview, AgentRequestReview, AgentRequestSummary, AgentRequestView } from '../../contract/agentRequests.ts'
+import type { AgentRequestCreate, AgentRequestDecision, AgentRequestOptions, AgentRequestReplyReview, AgentRequestReview, AgentRequestView } from '../../contract/agentRequests.ts'
 import { apiGet, apiPost, type ApiMutationOptions } from './client.ts'
 import { invalidate, peek, setData, useQuery } from './cache.ts'
 import { keys, paths } from './keys.ts'
-import type { Identity } from '../../contract/identity.ts'
-
-function privateOptions(options: ApiMutationOptions = {}): ApiMutationOptions {
-  const identity = peek<Identity>(keys.me)
-  if (!identity) throw new Error('Wait for the current account before opening private requests.')
-  return { expectedSessionUserId: identity.via === 'session' ? identity.user.id : null,
-    signal: AbortSignal.timeout(30_000), ...options }
-}
+import { privateOptions } from './agentRequestList.ts'
+export { useAgentRequests } from './agentRequestList.ts'
 
 export function acceptAgentRequest(row: AgentRequestView, id = row.id): AgentRequestView {
   if (row.id !== id || !Number.isSafeInteger(row.revision) || row.revision < 1 || !['owner', 'requester'].includes(row.role)) {
     throw new Error('The response did not identify this Agent request.')
   }
   const previous = peek<AgentRequestView>(keys.agentRequest(id))
-  if (!previous || previous.revision <= row.revision) setData(keys.agentRequest(id), row)
+  if (!previous || previous.revision <= row.revision) {
+    setData(keys.agentRequest(id), row)
+    // The completion event can precede this pending acknowledgement. setData
+    // fences its in-flight read, so start a fresh read after accepting pending
+    // work rather than losing completion until the fallback poll. Never replay
+    // a decision or infer completion from the acknowledgement itself.
+    if (row.status === 'running' || row.execution?.status === 'pending' ||
+        row.argumentDraft?.status === 'pending' || row.replyDraft?.status === 'pending') {
+      invalidate(keys.agentRequest(id))
+    }
+  }
   invalidate(keys.agentRequests)
   invalidate(keys.agentRequestReview(id))
   invalidate(keys.agentRequestReplyReview(id))
@@ -26,9 +30,6 @@ export async function readAgentRequest(id: string, options: ApiMutationOptions =
   const row = await apiGet<AgentRequestView>(paths.agentRequest(id), privateOptions(options))
   if (row.id !== id) throw new Error('The response addressed another Agent request.')
   return row
-}
-export function useAgentRequests(enabled = true) {
-  return useQuery<AgentRequestSummary[]>(keys.agentRequests, () => apiGet(paths.agentRequests, privateOptions()), enabled, true)
 }
 export function useAgentRequestOptions() {
   return useQuery<AgentRequestOptions>(keys.agentRequestOptions, () => apiGet(paths.agentRequestOptions, privateOptions()), true, true)

@@ -42,7 +42,7 @@ import {
   useProviders,
   useSystemPrompts,
 } from '../api'
-import { useAgentRequests } from '../api/agentRequests.ts'
+import { useAgentRequests } from '../api/agentRequestList.ts'
 import { useRelations } from '../controller/useRelations'
 import { useContextRegistryProjection } from '../controller/useContextRegistryProjection.ts'
 import { resolveSavedContext } from '../lib/savedContextIdentity.ts'

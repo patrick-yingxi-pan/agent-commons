@@ -54,7 +54,7 @@ test('the rail and main page project the same declaration and give every live ma
   assert.match(rail, /onOpenDetail\('agents', \{ toolId: id \}\)/)
   assert.match(rail, /onOpenDetail\('agents', \{ agentRequestId: id \}\)/)
   assert.match(rail, /label=\{row\.task \|\| 'Agent request'\}/, 'request rail labels use task text rather than raw ids')
-  assert.match(rail, /import \{ useAgentRequests \} from '\.\.\/api\/agentRequests\.ts'/)
+  assert.match(rail, /import \{ useAgentRequests \} from '\.\.\/api\/agentRequestList\.ts'/)
   assert.match(page, /AgentRequestsSummary onOpenRequest=\{onOpenRequest\}/, 'the overview and Coordination page share the lightweight summary')
   assert.match(page, /<AgentRequestsPage requestId=\{focusRequestId\}/, 'detail and Requests structural page use the full request page')
   assert.match(page, /function AgentPublicPage\(/, 'ready-agent leaves resolve to the shared owner/visitor page')

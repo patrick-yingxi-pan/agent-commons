@@ -115,9 +115,9 @@ parser/error matrices, Excel-application/corpus or signed two-architecture gates
 
 Ordinary executable smoke compares exact SQLite tenant usage counters/anchors
 and personal model preference across full relaunch at a different loopback origin.
-A fresh draft must show that saved provider and a writable composer without
-browser-storage migration. This proves durability, not provider billing or
-concurrent/in-flight spend reservation; DESKTOP-V22 adds Responses tool use.
+A fresh draft shows the saved provider and writable composer without browser-storage migration. Responses and Messages additionally restore a narrowed provider plan, refuse
+Send/Retry without model/history/usage effects, then explicitly repair it through
+[`providerBudgetSmoke.mjs`](providerBudgetSmoke.mjs), locked by [`providerBudgetSmoke.test.ts`](providerBudgetSmoke.test.ts). This proves local admission, not provider billing or in-flight reservation; packaged acceptance is required on the delivered revision.
 
 Direct DOCX selection uses the same one-shot bridge, with 8 MiB/file and 24
 MiB/selection limits. ZIP/XML extraction stays in a dedicated renderer worker;

@@ -93,6 +93,7 @@ export function ignoreFromPackage(path) {
       'desktop/messagesSmoke.mjs',
       'desktop/messagesSmokeFixture.mjs',
       'desktop/providerSmokeState.mjs',
+      'desktop/providerBudgetSmoke.mjs',
       'desktop/profileAdmissionSmoke.mjs',
       'desktop/startupSmokeInspector.mjs',
       'desktop/mcpCredentialSmoke.mjs',

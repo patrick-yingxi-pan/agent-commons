@@ -6,7 +6,40 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: live default grants and per-dimension authority inheritance.
+Current checkpoint: packaged provider-budget persistence and private request
+completion freshness. The latest unsigned arm64 baseline passed the three
+authored-provider flows and the intermediate native/MCP phases, but its final
+Agent Request reply-draft check timed out; that run is not acceptance.
+
+A deterministic real-stream browser test reproduced a cache race: a delayed
+pending acknowledgement fenced the newer completion read, leaving the draft
+pending until the five-second fallback. The shared acceptance funnel now starts
+an exact read after every accepted pending execution/argument/reply acknowledgement,
+preserving newer revisions, private projections and one-shot decisions. The
+controlled test freezes browser timers and proves one model call, one decision
+and requester redaction. Both refresh and monotonic-revision locks were watched
+fail under deliberate mutations, then restored. All five focused request browser
+walks pass, with five-viewport owner/requester/foreign and draft-state review.
+
+The first rebuild exceeded the unchanged 800,000-byte initial JavaScript budget
+by 163 bytes. The sidebar now imports a narrow private-summary read module;
+request detail/decision code remains on demand, with one shared account-source
+and deadline helper. Its import-boundary lock failed before repair. No budget
+was raised and no rendered structure, authority or cache identity changed.
+
+Packaged OpenAI, Claude and DeepSeek checks now save a narrowed provider token
+plan through a revision-pinned public write before full relaunch. After relaunch
+they require Send/Retry refusal without outbound calls, conversation changes or
+usage effects, then explicitly repair the plan before the existing successful
+turn. No new paid calls or live-provider acceptance is authorized. The final
+complete local verifier, shell sweep and rebuilt desktop verifier are mandatory
+before landing; their results are reported with the delivered revision.
+
+Shipped checkpoint `633f2abe`: live default grants and per-dimension authority
+inheritance. All five complete local verifier lanes passed in 1010.3 seconds
+(796 browser tests), with the final source fingerprint unchanged; the reviewed
+commit was pushed to main. Earlier failed/interrupted runs below are not acceptance.
+
 Imported and forked Agents with no provider binding read the live fixed default,
 never its seed grants or the account's preferred provider. The binding stays
 absent; exact-identity execution checks and explicit-unknown legacy behavior

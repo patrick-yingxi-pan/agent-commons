@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { readProviderState } from './providerSmokeState.mjs'
+import { patchProviderSmokeCeiling, assertProviderSmokeBudget, assertProviderSmokeBudgetRefusal } from './providerBudgetSmoke.mjs'
 import { MESSAGES_SMOKE_KEY, MESSAGES_SMOKE_MODEL, MESSAGES_SMOKE_PRIVATE_ERROR,
   MESSAGES_SMOKE_TOOL_REPLY, MESSAGES_SMOKE_TEXT_REPLY, startMessagesSmokeFixture } from './messagesSmokeFixture.mjs'
 
@@ -193,6 +194,7 @@ async function smokeFamily({ executable, launch, close }, family) {
     await page.screenshot({ path: join(evidence, 'stopped-retry.png'), fullPage: true, animations: 'disabled' })
 
     stage = 'signed-in-relaunch-without-replay'
+    const savedBudgetProvider = await patchProviderSmokeCeiling(page, provider.id, 40)
     const previousOrigin = origin
     await close(run)
     run = undefined
@@ -203,6 +205,7 @@ async function smokeFamily({ executable, launch, close }, family) {
     assert.equal((await api(page, '/me')).user.id, identity.user.id)
     assert.deepEqual(await api(page, '/viewer-preferences/model'), preference)
     const restored = state()
+    assertProviderSmokeBudget(restored, savedBudgetProvider)
     assert.deepEqual(restored.config, stopped.config)
     assert.deepEqual(restored.session, stopped.session)
     assert.deepEqual(restored.usage, stopped.usage)
@@ -210,6 +213,19 @@ async function smokeFamily({ executable, launch, close }, family) {
     assert.equal(fixture.requests.length, 6, 'startup does not replay a completed or cancelled turn')
     await page.goto(`${origin}/s/${sessionId}`)
     await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible()
+    const budgetSessionIds = (await api(page, '/sessions')).map(session => session.id).sort()
+    const budgetRequestsBefore = fixture.requests.length
+    fixture.setMode('text')
+    const budgetRefusal = page.waitForResponse(response => response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/v1/sessions/${sessionId}/messages`)
+    await page.getByRole('button', { name: 'Retry', exact: true }).click()
+    const budgetResponse = await budgetRefusal
+    assertProviderSmokeBudgetRefusal({ status: budgetResponse.status(), body: await budgetResponse.json() },
+      restored, state(), budgetRequestsBefore, fixture.requests.length)
+    assert.deepEqual((await api(page, '/sessions')).map(session => session.id).sort(), budgetSessionIds, 'refused Retry creates no extra Session')
+    await expect(page.getByRole('alert').filter({ hasText: /Plan limit reached for '5-hour limit'/ })).toBeVisible()
+    await patchProviderSmokeCeiling(page, provider.id, 1000)
+    assert.equal(fixture.requests.length, budgetRequestsBefore, 'plan repair does not replay the stopped turn')
 
     stage = 'fresh-conversation-with-restored-device-key'
     fixture.setMode('text')
@@ -237,7 +253,7 @@ async function smokeFamily({ executable, launch, close }, family) {
     assertMessagesPrivate(requests)
     assertMessagesPrivate(await readFile(vaultPath, 'utf8'))
     await page.screenshot({ path: join(evidence, 'fresh-conversation.png'), fullPage: true, animations: 'disabled' })
-    console.log(`[desktop-messages-smoke] ${family} · encrypted setup · page-two catalog/no effort override · tool continuation retry · cache-aware usage · quota refusal · prompt Stop · signed-in relaunch without replay · fresh conversation · evidence ${evidence}`)
+    console.log(`[desktop-messages-smoke] ${family} · encrypted setup · page-two catalog/no effort override · tool continuation retry · cache-aware usage · quota refusal · prompt Stop · signed-in relaunch without replay · restored provider budget refuses Retry without effects · explicit plan repair and fresh conversation · evidence ${evidence}`)
   } catch (error) {
     if (evidence) await run?.page.screenshot({ path: join(evidence, `failure-${stage}.png`), fullPage: true }).catch(() => {})
     throw new Error(`Packaged ${family} Messages acceptance failed at ${stage}: ${error instanceof Error ? error.message : String(error)}`)

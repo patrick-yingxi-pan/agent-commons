@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { expect } from '@playwright/test'
 import { CREDENTIAL_VAULT_FILE } from './credentialVault.mjs'
 import { readProviderState as readOpenAIState } from './providerSmokeState.mjs'
+import { patchProviderSmokeCeiling, assertProviderSmokeBudget, assertProviderSmokeBudgetRefusal } from './providerBudgetSmoke.mjs'
 export { readProviderState as readOpenAIState } from './providerSmokeState.mjs'
 import {
   OPENAI_SMOKE_MODEL, OPENAI_SMOKE_KEY, OPENAI_SMOKE_REPLACEMENT_KEY,
@@ -206,6 +207,8 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     fixture.setMode('text')
 
     stage = 'full-relaunch-and-restored-key'
+    assert.equal(agent.budget, undefined, 'the authored Agent inherits its provider budget')
+    const savedBudgetProvider = await patchProviderSmokeCeiling(page, provider.id, 60)
     const oldOrigin = origin
     await close(run)
     run = undefined
@@ -217,14 +220,30 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     assert.equal(reopened.user.id, identity.user.id, 'ordinary native relaunch retains the same signed identity')
     assert.deepEqual(await api(page, '/viewer-preferences/model'), preference)
     const after = readOpenAIState(profile, provider.id, sessionId, identity.tenant.id)
+    assertProviderSmokeBudget(after, savedBudgetProvider)
+    assert.equal((await api(page, `/agents/${agent.id}`)).budget, undefined, 'native rehydration preserves sparse Agent inheritance')
     assert.deepEqual(after.config, before.config)
     assert.deepEqual(after.session, before.session, 'the exact saved conversation and tool provenance survive relaunch')
     assert.deepEqual(after.usage, before.usage, 'usage counters and reset anchors survive relaunch exactly')
     assert.equal(fixture.requests.length, 5, 'startup never redispatches the saved model turn')
     await page.goto(`${origin}/s/${sessionId}`)
     const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+    const budgetSessionIds = (await api(page, '/sessions')).map(session => session.id).sort()
+    const budgetRequestsBefore = fixture.requests.length
+    const budgetRefusal = page.waitForResponse(response => response.request().method() === 'POST'
+      && new URL(response.url()).pathname === `/api/v1/sessions/${sessionId}/messages`)
     await composer.fill('Continue after the full native relaunch.')
     await composer.press('Enter')
+    const budgetResponse = await budgetRefusal
+    assertProviderSmokeBudgetRefusal({ status: budgetResponse.status(), body: await budgetResponse.json() },
+      after, readOpenAIState(profile, provider.id, sessionId, identity.tenant.id), budgetRequestsBefore, fixture.requests.length)
+    assert.deepEqual((await api(page, '/sessions')).map(session => session.id).sort(), budgetSessionIds, 'the refused send creates no extra Session')
+    const budgetError = page.getByRole('alert').filter({ hasText: /Plan limit reached for '5-hour limit'/ })
+    await expect(budgetError).toBeVisible()
+    await expect(budgetError.getByRole('button', { name: 'Retry', exact: true })).toBeEnabled()
+    await patchProviderSmokeCeiling(page, provider.id, 1000)
+    assert.equal(fixture.requests.length, budgetRequestsBefore, 'repairing the plan never replays the refused intent')
+    await budgetError.getByRole('button', { name: 'Retry', exact: true }).click()
     await expect(page.locator('[data-turn]').filter({ hasText: 'The restored OpenAI connection completed another turn.' })).toBeVisible({ timeout: TIMEOUT_MS })
     await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
     assert.equal(fixture.requests.length, 6, 'the restored original device key permits exactly one fresh turn')
@@ -234,6 +253,7 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     assert.equal(retained.usage.fiveHour.consumed, 90)
     assert.equal(retained.usage.weekly.consumed, 90)
     assert.equal(retained.session.messages.length, before.session.messages.length + 2)
+    assert.equal(retained.session.messages.at(-2).content, 'Continue after the full native relaunch.', 'explicit Retry preserves the exact refused intent once')
     assertNoSecrets(retained.productJson)
     assertNoSecrets(productRequests)
     assertNoSecrets(await readFile(vaultPath, 'utf8'))
@@ -380,7 +400,7 @@ export async function smokePackagedOpenAIResponses({ executable, launch, close }
     assertNoSecrets(productRequests)
     assertNoSecrets(await readFile(vaultPath, 'utf8'))
     await page.screenshot({ path: join(evidence, 'final-relaunch.png'), fullPage: true, animations: 'disabled' })
-    console.log(`[desktop-openai-smoke] rendered OpenAI setup · OS-encrypted synthetic key · explicit Agent Dispatch · Responses stream + read tool + retried opaque continuation · exact SQLite usage · refused key replacement · signed-in relaunch and fresh authenticated turn · Agent-page draft/relaunch · rendered quota refusal and stopped positive retry wait · final exact-history relaunch without replay · evidence ${evidence}`)
+    console.log(`[desktop-openai-smoke] rendered OpenAI setup · OS-encrypted synthetic key · explicit Agent Dispatch · Responses stream + read tool + retried opaque continuation · exact SQLite usage · refused key replacement · inherited budget refusal after signed-in relaunch and explicit Retry with restored key · Agent-page draft/relaunch · rendered quota refusal and stopped positive retry wait · final exact-history relaunch without replay · evidence ${evidence}`)
   } catch (error) {
     await run?.page.screenshot({ path: join(evidence, `failure-${stage}.png`), fullPage: true }).catch(() => {})
     throw new Error(`Packaged OpenAI Responses acceptance failed at ${stage}: ${error instanceof Error ? error.message : String(error)}`)
