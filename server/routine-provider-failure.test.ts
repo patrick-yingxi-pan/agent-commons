@@ -80,7 +80,7 @@ function runStore(context: RoutineExecutionContext, onSettled: () => void, resul
       onSettled()
       return context.run
     },
-    overSpendLimit: () => null,
+    modelSpendLimit: () => null,
     recordUsage: () => {},
     recordGenerationOutcome: () => {},
   }

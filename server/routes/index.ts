@@ -4910,7 +4910,7 @@ export function buildRouter(): Router {
     // Spend-time enforcement (D8): once a plan window is exhausted for this Agent's
     // effective budget, refuse the turn (429) until it resets — the per-turn gate the
     // mint-time funnel doesn't give. Checked before persisting the user turn or streaming.
-    const over = store.overSpendLimit(agent.budget, tenantId)
+    const over = store.modelSpendLimit(agent, providerFace, tenantId)
     if (over) {
       return sendError(res, 'limit_exceeded', `Plan limit reached for '${over.label}' — this turn is refused until the window resets.`)
     }
@@ -5296,7 +5296,7 @@ export function buildRouter(): Router {
         return sendError(res, 'relay_busy', 'Your session is busy answering another request — retry compaction when it finishes.')
       }
     }
-    const over = store.overSpendLimit(agent.budget, tenantId)
+    const over = store.modelSpendLimit(agent, providerFace, tenantId)
     if (over) {
       return sendError(res, 'limit_exceeded', `Plan limit reached for '${over.label}' — compaction is refused until the window resets.`)
     }

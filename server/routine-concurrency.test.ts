@@ -160,7 +160,7 @@ function harness(contexts: RoutineExecutionContext[]): Harness {
       state.failures.push({ id: taskId, code, detail })
       return ctx.run
     },
-    overSpendLimit: (_budget, tenantId) => state.overBudgetTenants?.has(tenantId)
+    modelSpendLimit: (_agent, _provider, tenantId) => state.overBudgetTenants?.has(tenantId)
       ? { label: `${tenantId} budget`, ceiling: 100 }
       : null,
     recordUsage: (input, output, tenantId) => state.usage.push([input, output, tenantId]),

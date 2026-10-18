@@ -56,7 +56,7 @@ function setup() {
     deferScheduleRun: (_taskId, _runId, at) => { run.nextAttemptAt = at; state.deferrals += 1; return run },
     completeScheduleRun: (_taskId, _runId, _message, _provenance, _at) => { run.status = 'ok'; state.completed = true; return run },
     failScheduleRun: (_taskId, _runId, code) => { run.status = 'failed'; state.failures.push(code); return run },
-    overSpendLimit: () => null,
+    modelSpendLimit: () => null,
     recordUsage: () => {},
     recordGenerationOutcome: () => {},
   }

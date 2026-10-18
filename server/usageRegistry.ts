@@ -222,7 +222,7 @@ export class UsageRegistry {
       planLimits: () => meter.planLimits(),
       planCeilings: () => meter.planCeilings(),
       snapshot: () => meter.snapshot(),
-      overLimit: budget => this.overLimitWithReservations(meter, tenantId, budget),
+      overLimit: budget => this.overLimit(tenantId, [budget]),
     }
   }
 
@@ -242,10 +242,13 @@ export class UsageRegistry {
     this.meters = next
   }
 
-  private overLimitWithReservations(meter: UsageMeter, tenantId: string, budget?: Budget): { label: string; ceiling: number } | null {
-    const budgets = budget === undefined ? [] : [budget]
+  /** Intersect every applicable ceiling per window, including existing holds.
+   * Omitted windows add no constraint; reads never allocate a tenant meter. */
+  overLimit(tenantId = this.defaultTenantId(), budgets: readonly (Budget | undefined)[] = []): { label: string; ceiling: number } | null {
+    if (!tenantKey(tenantId)) throw new Error('The usage tenant is invalid.')
     const invalid = overBudget(budgets, USAGE_WINDOW_DEFINITIONS.map(window => window.label))
     if (invalid) return invalid
+    const meter = this.meters.get(tenantId) ?? createUsageMeter(this.now, false)
     const state = meter.snapshot()
     const baseWindows = meter.planCeilings()
     const now = this.now()

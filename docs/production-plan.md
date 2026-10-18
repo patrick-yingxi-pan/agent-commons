@@ -6,7 +6,58 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: Routine binding recovery. An audit reproduced a saved
+Current checkpoint: inherited local model-work budgets. Send, compaction,
+ordinary Dispatch and Routine execution now share a live per-window intersection
+of account, Agent, Agent-parent provider and selected-provider caps. Project
+drafts retain their Commission grant, and existing model review/judgment gates
+use the same funnel. Missing or partial Agent windows cannot erase a tighter
+provider cap; overrides cannot widen the original parent grant. Queued Routines
+recheck current plans, while represented retries remain ahead of admission and
+never generate again after later exhaustion. Missing/foreign provider identities
+fail closed without falling back, and a captured older face cannot defeat a
+newly narrowed live plan. A budget-refused Routine run no longer falsely claims
+that the Routine definition was paused.
+
+Failure-first evidence: old Send/compaction gates admitted 12 refused-route
+cases, ordinary Dispatch admitted 10 inherited-limit cases, and all eight Routine
+cases invoked the generator. The rendered old-route check also received 200
+instead of 429; the cross-module lock named the bypass. Deliberately bypassing
+identity checks and using a stale provider face failed both branch locks. All
+mutations are restored before passing gates. Authored Claude-root,
+DeepSeek-mounted and native Responses browser peers cover refusal, explicit
+Retry after a normal plan repair, exact-once history/usage and no reload replay.
+Narrow/wide containment and accessibility review cover the existing error UI;
+no renderer layout, account controls, native shell or packaging changes require
+a new broad UI/native sweep. Complete frozen-tree local verification gates
+delivery; paid-provider tests remain deferred.
+
+Before the full gate, all nine scoped browser walks passed, including the three
+provider budget refusals/recoveries, compaction recovery and UI-authored Routine
+execution. All six narrow/wide refusal screenshots were reviewed and their
+accessibility checks passed. The final 48 focused policy/doc locks passed;
+earlier adjacent integration coverage passed 90/90. No public provider request
+or charge was made.
+
+The first full gate failed one existing Usage matrix test after the other four
+lanes passed. Its response waiter accepted any conversation, then read the body
+only after navigation; Chromium reported that the resource was gone while the
+destination account shell was still loading. The test now pins the exact target
+Session and GET method and consumes its body alongside navigation. No assertion,
+timeout or retry allowance is relaxed. The failed full run is not acceptance;
+the corrected frozen tree requires a new complete trace-enabled verifier.
+
+Scope remains explicit: the shipped meter is tenant/account-wide, not
+provider-scoped billing or subscription allowance. The gate includes existing
+usage holds but does not add reservations to ordinary generation or impose a
+hard ceiling on in-flight output/tool rounds. Provider-scoped accounting and
+per-window mint-time inheritance remain follow-up work; the latter currently
+can safely over-refuse a valid partial child budget. These constraints must not
+be described as fully solved by admission enforcement.
+
+Shipped checkpoint `7219679c`: Routine binding recovery. All five complete local
+verifier lanes passed in 862.4 seconds (791 browser tests) with the source
+fingerprint unchanged. The separate UI sweep passed 135/135 cells, zero
+violations/skips, and the reviewed commit was pushed to main. The audit reproduced a saved
 enabled Routine throwing out of the scheduler after its Agent/provider was
 deleted or its selected model/effort disappeared. Scheduled admission now
 represents the exact refused occurrence, with zero attempts and an inspectable
@@ -33,14 +84,6 @@ JSON/SQLite/commit-failure regressions fail. The scheduler cursor lock failed
 before the live-state recheck. Restoring the first-Agent fallback failed the
 rendered deletion assertion: it displayed “Default agent” instead of
 “Unavailable Agent.” All deliberate mutations were restored before final gates.
-
-Next confirmed gap: conversation Send/compaction, ordinary Dispatch and the
-Routine worker check only the Agent budget at spend time. An unset Agent budget
-can therefore omit a stricter provider plan. The audit's memory-only reproduction
-exhausted a 100-token provider window while the account-only check still admitted
-work. Resolve the documented budget inheritance/intersection and add no-call
-admission regressions across those core paths before claiming those caps are
-enforced. This is not a provider billing cap or authorization for paid tests.
 
 Shipped checkpoint `2425e1d5`: account-wide usage freshness. All five complete
 local verifier lanes passed in 857.9 seconds (790 browser tests), with the source

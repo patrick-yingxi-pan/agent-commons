@@ -138,7 +138,7 @@ for (const protocol of ['anthropic-messages', 'openai-responses'] as const) {
           deferScheduleRun: (...args) => { const result = store.deferScheduleRun(...args); settled(); return result },
           completeScheduleRun: (...args) => { const result = store.completeScheduleRun(...args); settled(); return result },
           failScheduleRun: (...args) => { const result = store.failScheduleRun(...args); settled(); return result },
-          overSpendLimit: (...args) => store.overSpendLimit(...args),
+          modelSpendLimit: (...args) => store.modelSpendLimit(...args),
           recordUsage: (...args) => store.recordUsage(...args),
           recordGenerationOutcome: (...args) => store.recordGenerationOutcome(...args),
         }

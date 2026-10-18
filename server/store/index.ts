@@ -8009,10 +8009,8 @@ export const store = {
     if (!agent) throw new NotFoundError('The selected Agent is unavailable.')
     const selectedProvider = this.listProviders(tenantId).find(row => row.id === input.execution.providerId)
     if (!selectedProvider) throw new NotFoundError('The selected model provider is unavailable.')
-    for (const budget of [commission.grant, agent.budget, resolveProvider(agent.providerId).plan, selectedProvider.plan]) {
-      const over = this.overSpendLimit(budget, tenantId)
-      if (over) throw new LimitError(`Contributor budget limit reached for '${over.label}'.`)
-    }
+    const over = this.modelSpendLimit(agent, selectedProvider, tenantId, [commission.grant])
+    if (over) throw new LimitError(`Contributor budget limit reached for '${over.label}'.`)
     const mcp = input.mcpProposal
       ? prepareProjectWorkMcpDraft(this, tenantId, actorUserId, input.mcpProposal, item)
       : undefined
@@ -8033,7 +8031,7 @@ export const store = {
     if (provider.kind === 'session') throw new ValidationError('Dispatch requires an endpoint model, not a Session provider.')
     assertModelInCatalog(modelId, providerId, agentId)
     if (provider.execution !== 'configured' && provider.execution !== 'mock') throw new CapabilityUnavailableError('Connect the selected model provider before starting Dispatch.')
-    const over = this.overSpendLimit(agent.budget, tenantId)
+    const over = this.modelSpendLimit(agent, provider, tenantId)
     if (over) throw new LimitError(`Plan limit reached for '${over.label}'.`)
     // A Dispatch starts immediately or retains the user's form for Retry. It
     // never silently queues work that could later spend under changed authority.
@@ -8563,6 +8561,18 @@ export const store = {
    *  another. Omitted `tenantId` ⇒ the default tenant (the single-tenant mock, and tests). */
   overSpendLimit(budget?: Budget, tenantId?: string): { label: string; ceiling: number } | null {
     return meterFor(tenantId).overLimit(budget)
+  },
+  /** Model admission retains the Agent's parent grant even when cognition uses
+   * another selected provider. These are local account-wide operational limits,
+   * not remote billing quotas; missing windows inherit instead of erasing caps. */
+  modelSpendLimit(agent: Agent, selectedProvider: ModelProvider | undefined, tenantId: string,
+    extraBudgets: readonly (Budget | undefined)[] = []): { label: string; ceiling: number } | null {
+    const parent = MODEL_PROVIDERS.get(agent.providerId ?? DEFAULT_PROVIDER.id)
+    const selected = MODEL_PROVIDERS.get(selectedProvider?.id ?? '')
+    if (!parent || !selected || !registryVisible(parent, tenantId) || !registryVisible(selected, tenantId)) {
+      throw new ValidationError('The model provider budget is unavailable. Choose an available Agent and provider.')
+    }
+    return usageRegistry.overLimit(tenantId, [...extraBudgets, agent.budget, parent.plan, selected.plan])
   },
   /** The usage snapshot the composer gauge renders: the open session's real
    *  context-window fill (system+tools baseline + an estimate of every message in
@@ -12274,7 +12284,7 @@ export const store = {
     if (!bindingCurrent()) return 'conflict'
     const config = structuredClone(this.providerExecutionConfig(provider.id))
     if (provider.kind === 'session' || endpointExecution(config) !== 'configured') return 'unconfigured'
-    if (this.overSpendLimit(provider.plan, tenantId) || this.overSpendLimit(agent.budget, tenantId)) return 'limit'
+    if (this.modelSpendLimit(agent, provider, tenantId)) return 'limit'
     const captureInput = (): DelegatedJudgmentInput => structuredClone({
       policy: {
         actKind: d.actKind, mode: d.mode, policy: d.policy!, escalation: d.escalation, revision: d.revision ?? 0,
@@ -12406,7 +12416,7 @@ export const store = {
       (provider.definitionRevision ?? 0) !== binding.providerRevision || (provider.connectionRevision ?? 0) !== binding.connectionRevision) return 'conflict'
     const config = structuredClone(this.providerExecutionConfig(provider.id))
     if (provider.kind === 'session' || endpointExecution(config) !== 'configured') return 'unconfigured'
-    if (this.overSpendLimit(provider.plan, tenantId) || this.overSpendLimit(agent.budget, tenantId)) return 'limit'
+    if (this.modelSpendLimit(agent, provider, tenantId)) return 'limit'
     const frozenVersion = structuredClone(version)
     const frozenAgent = structuredClone(agent)
     const run: StoredContributionReview = {

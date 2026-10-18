@@ -124,7 +124,7 @@ function fakeStore(state: FakeState): RoutineRunStore {
       state.failures.push({ code, detail })
       return context.run
     },
-    overSpendLimit: () => state.overBudget ? { label: 'Agent monthly', ceiling: 100 } : null,
+    modelSpendLimit: () => state.overBudget ? { label: 'Agent monthly', ceiling: 100 } : null,
     recordUsage: (input, output, tenantId) => state.usage.push([input, output, tenantId]),
     recordGenerationOutcome: (outcome) => state.outcomes.push(outcome),
   }

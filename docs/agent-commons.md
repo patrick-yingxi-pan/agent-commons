@@ -376,6 +376,14 @@ slider. ("backend" on `Capabilities` at [`../contract/api.ts:24`](../contract/ap
 is a *different* axis — which server answers — and must not be conflated with which
 cognition source an Agent picks.)
 
+**Implementation boundary (MODEL-7, MODEL-67).** The provider-scoped accounting
+above remains the design target, not the shipped meter. Current operational
+limits use tenant/account-wide local counters, intersecting each window across
+account, Agent, parent provider, selected provider and optional Commission caps.
+They gate new work and count existing usage holds; they are neither provider
+billing/subscription quotas nor a hard ceiling on already in-flight output.
+Per-provider meters and per-window mint-time inheritance remain follow-up work.
+
 **Rejected alternative.** Keep one global model and switch via the existing
 `ANTHROPIC_BASE_URL`/`KEY`/`MODEL` env vars. Rejected: env switching is
 process-global, so two Agents in one account can't run on different providers — the

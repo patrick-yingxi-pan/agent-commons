@@ -49,17 +49,28 @@ test('usage explains partial estimates and unknown capacity at every layout tier
   expect(knownResponse.ok()).toBe(true)
   const known = await knownResponse.json()
   expect(known.id).toBeTruthy()
+  expect(known.id).not.toBe(session.id)
 
   for (const viewport of VIEWPORTS) {
     await page.setViewportSize(viewport)
     for (const state of ['known', 'unknown'] as const) {
-      // Address each owned row explicitly; '/' may restore the previous pane.
-      const usageResponsePromise = page.waitForResponse((response) => {
+      // A late read from the departing conversation must not satisfy this wait.
+      // Capture the destination body as it arrives, not after navigation has
+      // discarded the previous document's network resources.
+      const targetSessionId = state === 'known' ? known.id : session.id
+      const usageSnapshotPromise = page.waitForResponse((response) => {
         const url = new URL(response.url())
-        return url.pathname === '/api/v1/usage' && url.searchParams.has('session')
+        return response.request().method() === 'GET' && url.pathname === '/api/v1/usage'
+          && url.searchParams.get('session') === targetSessionId
+      }).then(async response => {
+        expect(response.status()).toBe(200)
+        return response.json() as Promise<UsageSnapshot>
       })
-      await page.goto(`/s/${state === 'known' ? known.id : session.id}`)
-      const snapshot = await (await usageResponsePromise).json()
+      // Address each owned row explicitly; '/' may restore the previous pane.
+      const [snapshot] = await Promise.all([
+        usageSnapshotPromise,
+        page.goto(`/s/${encodeURIComponent(targetSessionId)}`),
+      ])
       const trigger = page.getByRole('button', { name: /^Usage — estimated context/ })
       await expect(trigger).toBeVisible()
       const title = await trigger.getAttribute('title')

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { Budget } from '../contract/index.ts'
 import { UsageRegistry, parseUsageMeterEntries } from './usageRegistry.ts'
 
 test('registry meters are tenant-isolated and snapshots identify exact owners', () => {
@@ -97,4 +98,104 @@ test('gauge and gate reads cannot grow retained tenant state before reported spe
   assert.deepEqual(registry.readForTenant('tenant-1').snapshot().fiveHour, { start: 2_000, consumed: 12 })
   assert.deepEqual(registry.snapshot().map(([id]) => id), ['tenant-1'])
   assert.throws(() => registry.readForTenant(' '))
+})
+
+const FIVE_HOUR = '5-hour limit'
+const WEEKLY = 'Weekly · all models'
+const HOUR = 3_600_000
+const budget = (fiveHour?: number, weekly?: number): Budget => ({ windows: [
+  ...(fiveHour === undefined ? [] : [{ label: FIVE_HOUR, ceiling: fiveHour }]),
+  ...(weekly === undefined ? [] : [{ label: WEEKLY, ceiling: weekly }]),
+] })
+
+test('public multi-budget gate takes each window minimum, preserves omitted inheritance, and refuses equality', () => {
+  let now = 1_000
+  const registry = new UsageRegistry(() => now, () => 'tenant-default')
+  registry.rehydrate([], false)
+  const constraints = [undefined, budget(100, 300), budget(60), budget(undefined, 150), budget()] as const
+  const before = structuredClone(constraints)
+  registry.record(59, 0, 'tenant-owner')
+  assert.equal(registry.overLimit('tenant-owner', constraints), null, 'one token below every effective ceiling remains admissible')
+  registry.record(1, 0, 'tenant-owner')
+  assert.deepEqual(registry.overLimit('tenant-owner', constraints), { label: FIVE_HOUR, ceiling: 60 })
+  assert.deepEqual(registry.overLimit('tenant-owner', [...constraints].reverse()), { label: FIVE_HOUR, ceiling: 60 },
+    'budget order cannot replace a tighter parent or child constraint')
+  now += 5 * HOUR
+  registry.record(90, 0, 'tenant-owner')
+  assert.deepEqual(registry.overLimit('tenant-owner', [budget(100, 300), budget(undefined, 150)]), { label: WEEKLY, ceiling: 150 },
+    'a partial child inherits every omitted provider window')
+  assert.deepEqual(constraints, before, 'gate reads never normalize or mutate caller-owned budgets')
+})
+
+test('public multi-budget gate always retains account ceilings and treats empty budgets as inheritance', () => {
+  const registry = new UsageRegistry(() => 1_000, () => 'tenant-default')
+  registry.rehydrate([], false)
+  const account = registry.planCeilings()[0]!
+  registry.record(account.ceiling, 0, 'tenant-owner')
+  assert.deepEqual(registry.overLimit('tenant-owner'), account)
+  assert.deepEqual(registry.overLimit('tenant-owner', [undefined, budget(), budget(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER)]), account,
+    'no supplied budget can widen the account plan')
+})
+
+test('public multi-budget gate counts active and uncertain reservations exactly once, and releases settled allowance', () => {
+  let now = 1_000
+  const registry = new UsageRegistry(() => now, () => 'tenant-default')
+  registry.rehydrate([], false)
+  const constraints = [budget(200, 200), budget(100, 100)]
+  registry.record(25, 0, 'tenant-owner')
+  registry.reserve('active-model-work', 'tenant-owner', 75, constraints)
+  assert.deepEqual(registry.overLimit('tenant-owner', constraints), { label: FIVE_HOUR, ceiling: 100 })
+  registry.recordReserved('active-model-work', 'tenant-owner', 30, 0)
+  assert.deepEqual(registry.overLimit('tenant-owner', constraints), { label: FIVE_HOUR, ceiling: 100 },
+    'reported usage replaces an equal portion of the live hold instead of counting twice')
+  registry.settleReservation('active-model-work', 'tenant-owner', true)
+  assert.equal(registry.overLimit('tenant-owner', constraints), null, 'settlement releases the unused allowance')
+  registry.reserve('uncertain-model-work', 'tenant-owner', 45, constraints)
+  registry.settleReservation('uncertain-model-work', 'tenant-owner', false)
+  assert.deepEqual(registry.overLimit('tenant-owner', constraints), { label: FIVE_HOUR, ceiling: 100 })
+  assert.equal(registry.overLimit('other-tenant', constraints), null, 'foreign reservations cannot consume this tenant’s capacity')
+  now += 5 * HOUR
+  assert.deepEqual(registry.overLimit('tenant-owner', constraints), { label: WEEKLY, ceiling: 100 },
+    'an uncertain hold expires independently in each anchored window')
+  now = 1_000 + 7 * 24 * HOUR
+  assert.equal(registry.overLimit('tenant-owner', constraints), null)
+})
+
+test('public multi-budget gate rolls each window independently and preserves tenant isolation', () => {
+  let now = 1_000
+  const registry = new UsageRegistry(() => now, () => 'tenant-default')
+  registry.rehydrate([], false)
+  const constraints = [budget(100), budget(undefined, 150)]
+  registry.record(100, 0, 'tenant-owner')
+  assert.deepEqual(registry.overLimit('tenant-owner', constraints), { label: FIVE_HOUR, ceiling: 100 })
+  assert.equal(registry.overLimit('other-tenant', constraints), null)
+  now += 5 * HOUR
+  assert.equal(registry.overLimit('tenant-owner', constraints), null)
+  registry.record(50, 0, 'tenant-owner')
+  assert.deepEqual(registry.overLimit('tenant-owner', constraints), { label: WEEKLY, ceiling: 150 })
+  now = 1_000 + 7 * 24 * HOUR
+  assert.equal(registry.overLimit('tenant-owner', constraints), null, 'expired weekly spend no longer gates the next period')
+})
+
+test('public multi-budget gate refuses invalid budgets without allocating or changing retained state', () => {
+  const registry = new UsageRegistry(() => 1_000, () => 'tenant-default')
+  registry.rehydrate([], false)
+  const invalid: unknown[] = [null, {}, { windows: null }, { windows: [{ label: 'unknown window', ceiling: 10 }] },
+    budget(-1), budget(1.5), budget(Number.NaN), budget(Number.MAX_SAFE_INTEGER + 1),
+    { windows: [{ label: FIVE_HOUR, ceiling: 10 }, { label: FIVE_HOUR, ceiling: 20 }] },
+    { windows: [null] }]
+  for (const candidate of invalid) {
+    const refusal = registry.overLimit('unmetered-tenant', [undefined, candidate as Budget])
+    assert.ok(refusal, 'malformed present constraints must never become an unrestricted budget')
+    assert.equal(refusal.ceiling, 0)
+    assert.deepEqual(registry.snapshot(), [])
+  }
+  for (let index = 0; index < 2_000; index++) {
+    assert.equal(registry.overLimit(`unmetered-${index}`, [undefined, budget(100), budget(undefined, 200)]), null)
+  }
+  assert.deepEqual(registry.snapshot(), [], 'admission reads must not create durable empty meter rows')
+  for (const tenant of ['', ' ', 'bad\u0000tenant', ' leading', 'trailing ']) {
+    assert.throws(() => registry.overLimit(tenant, [budget(100)]))
+    assert.deepEqual(registry.snapshot(), [])
+  }
 })

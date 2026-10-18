@@ -9,7 +9,7 @@
  *  proposal tools are withheld because an unattended turn cannot ask for fresh
  *  consent, while connector contexts authored into the routine carry standing
  *  approval. */
-import type { Agent, Message, ScheduledRun, ScheduledTask } from '../contract/index.ts'
+import type { Agent, Message, ModelProvider, ScheduledRun, ScheduledTask } from '../contract/index.ts'
 import type { ScheduledArtifactSpec } from '../contract/scheduledArtifact.ts'
 import { createRoutineArtifactCapture } from './routineArtifact.ts'
 import { generateReply, resolvedModelId, type ReplyResult } from './generate.ts'
@@ -41,7 +41,7 @@ export interface RoutineRunStore {
     detail: string,
     finishedAt?: number,
   ): ScheduledRun | undefined
-  overSpendLimit(agentBudget: Agent['budget'], tenantId: string): { label: string; ceiling: number } | null
+  modelSpendLimit(agent: Agent, provider: ModelProvider, tenantId: string): { label: string; ceiling: number } | null
   recordUsage(inputTokens: number, outputTokens: number, tenantId?: string): void
   recordGenerationOutcome(outcome: 'ok' | 'fallback' | 'aborted' | 'error'): void
 }
@@ -277,12 +277,12 @@ export function createRoutineRunner(
         'This routine’s structured output requires a provider with tool use. Choose a compatible provider; its saved artifact was not changed.', false)
       return
     }
-    const over = runStore.overSpendLimit(ctx.agent.budget, ctx.tenantId)
+    const over = runStore.modelSpendLimit(ctx.agent, ctx.provider, ctx.tenantId)
     if (over) {
       retryOrFail(
         ctx,
         'budget_exceeded',
-        `Plan limit reached for '${over.label}' — this routine is paused until the window resets or its budget changes.`,
+        `Plan limit reached for '${over.label}' — this run was refused. Try again after the window resets or its budget changes.`,
         false,
       )
       return

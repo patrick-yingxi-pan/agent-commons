@@ -55,6 +55,24 @@ doc-lint and cross-layer locks with no single module to belong to.
   their result is shown. Full statement + earned instances:
   [`docs/spec/09-design-invariants.md`](../docs/spec/09-design-invariants.md).
 
+## Local model-work admission
+
+`store.modelSpendLimit` intersects each rolling window across the account
+ceiling, Agent budget, live Agent-parent provider plan, selected provider plan,
+and any Commission grant. Missing windows inherit; a provider override cannot
+widen the parent grant. Missing or foreign provider identities fail closed,
+and a stale captured provider face cannot defeat a newly narrowed live plan.
+Send, compaction, Dispatch and Routine workers share this gate with Project
+drafts and model review/judgment. Represented retries stay ahead of new-work
+admission and never repeat generation after later exhaustion.
+
+These limits use account-wide local consumption and existing usage holds, not
+provider-specific billing counters or a provider subscription quota. They gate
+new work, not a hard maximum on output or subsequent tool rounds already in
+flight. Provider-scoped accounting and per-window mint-time inheritance remain
+separate follow-up work; the current mint funnel may safely over-refuse a valid
+partial child budget. See MODEL-7 and MODEL-67.
+
 ## Served filesystem boundary
 
 `fs.ts` is shared by the cloud source and mapped development runner roots.
