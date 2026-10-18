@@ -192,6 +192,21 @@ tool continuations and disables server-side response storage. All adapters,
 including tool-free generation used by configured Agents, retain the shared
 usage, cancellation, and execution policy.
 
+Dedicated review, judgment and argument/reply drafting accept exactly one
+visible text block plus optional well-shaped thinking/redacted-thinking blocks.
+They discard the opaque reasoning rather than parsing, retaining or publishing
+it. This accommodates provider-default thinking without forcing a mode or
+increasing the task's output budget: see Claude's
+[Messages thinking response](https://platform.claude.com/docs/en/claude_api_primer#how-thinking-works)
+and DeepSeek's [thinking defaults](https://api-docs.deepseek.com/guides/thinking_mode/).
+The native Responses adapter already separates opaque reasoning from visible
+text. All five callers still require a completed turn, meter validated usage
+before inspecting output, reject tools/unknown or malformed blocks and multiple
+visible answers, and apply their existing strict bounded prose/JSON parser.
+No result authorizes an effect or requester disclosure, and no invalid output
+triggers another model attempt. Compaction's multi-text summary policy and the
+shared conversational tool loop remain separate.
+
 Manual later-turn Responses history preserves each native assistant message's
 `phase` (`commentary`, `final_answer`, explicit null or absence), following the
 [official reasoning guide](https://developers.openai.com/api/docs/guides/reasoning).

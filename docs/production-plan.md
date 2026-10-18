@@ -6,10 +6,32 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: packaged provider-budget persistence and private request
-completion freshness. The latest unsigned arm64 baseline passed the three
-authored-provider flows and the intermediate native/MCP phases, but its final
-Agent Request reply-draft check timed out; that run is not acceptance.
+Current checkpoint: tool-free provider answers with opaque reasoning. A local
+synthetic Messages response reproduced valid Agent reply/argument drafts being
+metered and then rejected solely because a thinking block preceded the answer.
+The same exactly-one-content-block guard exists in Contribution review,
+delegated judgment and Commission MCP preparation. These five paths now share
+one strict visible-answer extractor; no reasoning is published or persisted,
+no tools or extra answers are accepted, and existing parser limits, accounting
+order and single-attempt behavior remain unchanged. Authored Claude-root,
+DeepSeek-mounted and native Responses fixtures, then the complete frozen-tree
+local verifier, are required before landing. No paid calls are authorized.
+
+Failure-first evidence: all 30 thinking-bearing Messages cases failed across
+the five callers and two endpoint shapes, while ten text-only and five native
+Responses reasoning controls passed. All 110 new acceptance/refusal cases now
+pass. Replacing strict extraction with a permissive first-text filter made all
+20 selected malformed/unknown/tool/duplicate-answer checks fail; that mutation
+was restored. All 236 focused model-workflow checks and typechecking pass.
+No UI, persistence schema, model mode, task budget or native-shell change is
+part of this checkpoint; existing rendered workflows run in the full verifier.
+
+Shipped checkpoint `fc0e918d`: packaged provider-budget persistence and private
+request completion freshness. All five complete local verifier lanes passed
+in 988.5 seconds (797 browser tests), the separate shell sweep passed all 135
+cells without violations or skips, and the rebuilt unsigned arm64 desktop
+verifier passed. The final source fingerprint stayed unchanged; the reviewed
+commit was pushed to main. Earlier timed-out native runs are not acceptance.
 
 A deterministic real-stream browser test reproduced a cache race: a delayed
 pending acknowledgement fenced the newer completion read, leaving the draft
@@ -32,8 +54,8 @@ plan through a revision-pinned public write before full relaunch. After relaunch
 they require Send/Retry refusal without outbound calls, conversation changes or
 usage effects, then explicitly repair the plan before the existing successful
 turn. No new paid calls or live-provider acceptance is authorized. The final
-complete local verifier, shell sweep and rebuilt desktop verifier are mandatory
-before landing; their results are reported with the delivered revision.
+complete local verifier, shell sweep and rebuilt desktop verifier passed for
+this shipped revision; signing, native Intel and live-provider gates stay open.
 
 Shipped checkpoint `633f2abe`: live default grants and per-dimension authority
 inheritance. All five complete local verifier lanes passed in 1010.3 seconds

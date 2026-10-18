@@ -7,6 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { anthropicMessagesClient } from './model/anthropicMessages.ts'
 import { providerUsage, providerUsageCacheKey } from './providerUsage.ts'
 import { replyThinking } from './model/replyThinking.ts'
+import { toolFreeText } from './model/toolFreeText.ts'
 import { collectProviderModels } from './model/providerCatalog.ts'
 import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
 import { EndpointHttpError, EndpointRetryWaitError, EndpointResponseError, openaiResponsesClient, responsesHistoryContent, type EndpointMessage } from './model/openaiResponses.ts'
@@ -524,11 +525,12 @@ export async function generateContributionReview(
   if (response.stop_reason !== 'end_turn') {
     throw new ContributionReviewGenerationError('The selected reviewer did not complete its response.')
   }
-  if (response.content.length !== 1 || response.content[0]?.type !== 'text') {
+  const text = toolFreeText(response.content)
+  if (text === undefined) {
     throw new ContributionReviewGenerationError('The selected reviewer returned a non-text response.')
   }
   const entryIds = new Set(entries.map((entry) => entry.id))
-  return parseContributionReviewResult(response.content[0].text, entryIds)
+  return parseContributionReviewResult(text, entryIds)
 }
 
 const DELEGATED_JUDGMENT_TIMEOUT_DEFAULT_MS = 30_000
@@ -596,10 +598,11 @@ export async function generateDelegatedJudgment(
   if (response.stop_reason !== 'end_turn') {
     throw new DelegatedJudgmentGenerationError('The delegated reviewer did not complete its response.')
   }
-  if (response.content.length !== 1 || response.content[0]?.type !== 'text') {
+  const text = toolFreeText(response.content)
+  if (text === undefined) {
     throw new DelegatedJudgmentGenerationError('The delegated reviewer returned a non-text response.')
   }
-  return parseDelegatedJudgmentResult(response.content[0].text)
+  return parseDelegatedJudgmentResult(text)
 }
 
 /** One tool-free Messages request for a frozen Commission MCP argument draft.
@@ -634,8 +637,9 @@ export async function generateCommissionMcpArguments(
   }
   createModelUsageRecorder(onUsage).record(normalizedUsage)
   if (response.stop_reason !== 'end_turn') throw new CommissionMcpPreparationOutputError()
-  if (response.content.length !== 1 || response.content[0]?.type !== 'text') throw new CommissionMcpPreparationOutputError()
-  const parsed = parseProjectWorkMcpDraftReply(response.content[0].text, frozen.toolPermission.toolName)
+  const text = toolFreeText(response.content)
+  if (text === undefined) throw new CommissionMcpPreparationOutputError()
+  const parsed = parseProjectWorkMcpDraftReply(text, frozen.toolPermission.toolName)
   if (!parsed.ok) throw new CommissionMcpPreparationOutputError()
   return commissionMcpDraftCall(frozen, parsed.arguments)
 }
@@ -676,10 +680,10 @@ export async function generateAgentRequestArguments(
     throw new ProxyArgumentPreparationUsageError()
   }
   createModelUsageRecorder(onUsage).record(normalizedUsage)
-  if (response.stop_reason !== 'end_turn' || !Array.isArray(response.content) || response.content.length !== 1 || response.content[0]?.type !== 'text') {
-    throw new ProxyArgumentPreparationOutputError()
-  }
-  return parseProxyArgumentDraft(response.content[0].text, frozen.toolName)
+  if (response.stop_reason !== 'end_turn') throw new ProxyArgumentPreparationOutputError()
+  const text = toolFreeText(response.content)
+  if (text === undefined) throw new ProxyArgumentPreparationOutputError()
+  return parseProxyArgumentDraft(text, frozen.toolName)
 }
 
 /** One paid, tool-free attempt; never adopts or discloses its private result. */
@@ -703,8 +707,10 @@ export async function generateAgentRequestReply(
     throw new ProxyReplyPreparationUsageError()
   }
   createModelUsageRecorder(onUsage).record(normalizedUsage)
-  if (response.stop_reason !== 'end_turn' || !Array.isArray(response.content) || response.content.length !== 1 || response.content[0]?.type !== 'text') throw new ProxyReplyPreparationOutputError()
-  return parseProxyReplyDraft(response.content[0].text)
+  if (response.stop_reason !== 'end_turn') throw new ProxyReplyPreparationOutputError()
+  const text = toolFreeText(response.content)
+  if (text === undefined) throw new ProxyReplyPreparationOutputError()
+  return parseProxyReplyDraft(text)
 }
 
 /** Stream an assistant reply through the Messages API tool-use loop. Fires the
