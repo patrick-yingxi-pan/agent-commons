@@ -98,6 +98,7 @@ import {
 import { parseModelChoice } from '../lib/legacyModelChoice.ts'
 import { modelBlurb } from '../lib/modelDescriptions.ts'
 import { modelProviderAvailable, modelSetupRequired } from '../lib/modelExecution'
+import { routineAgentSelection } from '../lib/routineAgentSelection'
 import { updateModelPreferences, useModelPreferences } from '../controller/modelPreferences'
 import {
   PALETTES,
@@ -13707,7 +13708,7 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
   const [editing, setEditing] = useState(false)
   const [draftHeld, setDraftHeld] = useState(false)
   const agents = useAgents().data ?? []
-  const agent = agents.find((candidate) => candidate.id === task.agentId) ?? agents[0]
+  const { agent, agentId } = routineAgentSelection(agents, task.agentId)
   return (
     <FoldSection
       title="Agent & model"
@@ -13717,6 +13718,8 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
     >
       <div className="relative">
         <button
+          data-routine-agent={agentId}
+          data-routine-agent-state={agent ? 'available' : 'unavailable'}
           onClick={() => setEditing((v) => !v)}
           disabled={draftHeld}
           title="Change Agent, model & effort"
@@ -13737,7 +13740,7 @@ function ModelPanel({ task }: { task: ScheduledTask }) {
         )}
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-ink-faint">
-        Runs headless under this Agent’s tool, authority, and budget limits.
+        {agent ? 'Runs headless under this Agent’s tool, authority, and budget limits.' : 'This Routine’s Agent is unavailable. Choose an available Agent before running it.'}
       </p>
     </FoldSection>
   )
@@ -13758,7 +13761,6 @@ function ScheduleModelPicker({
   const popRef = usePopoverShift<HTMLDivElement>(true)
   const providers = useProviders().data ?? []
   const agents = useAgents().data ?? []
-  const agent = agents.find((candidate) => candidate.id === task.agentId) ?? agents[0]
   const legacy = parseModelChoice(task.model, providers)
   const init = task.providerId || task.modelId
     ? {
@@ -13769,13 +13771,11 @@ function ScheduleModelPicker({
         effort: task.effort,
       }
     : legacy
-  const [agentId, setAgentId] = useState(agent?.id ?? task.agentId ?? '')
+  const [agentId, setAgentId] = useState(() => routineAgentSelection(agents, task.agentId).agentId)
+  const selectedAgent = routineAgentSelection(agents, agentId).agent
   const [pick, setPick] = useState<ModelPick>(init.pick)
   const [effort, setEffort] = useState<string | undefined>(init.effort)
   const baseRevision = useRef(task.revision ?? 0)
-  useEffect(() => {
-    if (!agentId && agent?.id) setAgentId(agent.id)
-  }, [agent?.id, agentId])
   const { busy, error, commit } = useScheduleDraftCommit(
     updateSchedule,
     task.id,
@@ -13798,7 +13798,7 @@ function ScheduleModelPicker({
     stageModel(nextPick, resolveEffort(effortLevelsFor(provider, model), undefined))
   }
   const apply = async () => {
-    if (!agentId || busy) return
+    if (!selectedAgent || busy) return
     await commit(
       {
         agentId,
@@ -13831,7 +13831,7 @@ function ScheduleModelPicker({
             onChange={(event) => setAgentId(event.currentTarget.value)}
             className={`${FORM_INPUT_CLASS} mt-1 w-full`}
           >
-            {agents.length === 0 && <option value="">No Agent available</option>}
+            {!selectedAgent && <option value={agentId} disabled>Unavailable Agent</option>}
             {agents.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.label}</option>)}
           </select>
         </label>
@@ -13854,7 +13854,8 @@ function ScheduleModelPicker({
           </button>
           <button
             onClick={() => void apply()}
-            disabled={busy || !agentId}
+            disabled={busy || !selectedAgent}
+            title={!selectedAgent ? 'Choose an available Agent before applying this binding.' : undefined}
             className={`flex items-center gap-1 ${SOFT_BUTTON_CLASS} px-2.5 py-1 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}
           >
             {busy ? <Spinner size={13} /> : <Check size={13} />}

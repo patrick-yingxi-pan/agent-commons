@@ -60,8 +60,12 @@ export function runSchedulerPass(port: SchedulerPort, options: SchedulerPassOpti
       if (run?.scheduledFor !== cursor) continue
     }
 
-    const next = nextFor(task, now)
-    if (next !== undefined) port.setScheduleNextFire(task.id, next, now)
+    // Admission can durably pause a stale binding. Re-read through the port:
+    // callers may return detached projections, not live store objects.
+    const current = port.listSchedules().find(candidate => candidate.id === task.id)
+    if (!current?.enabled) continue
+    const next = nextFor(current, now)
+    if (next !== undefined) port.setScheduleNextFire(current.id, next, now)
   }
 
   const nextWakeAt = port.listSchedules()

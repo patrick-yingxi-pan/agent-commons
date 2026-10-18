@@ -6,7 +6,47 @@ complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: account-wide usage freshness. Provider reply-completion,
+Current checkpoint: Routine binding recovery. An audit reproduced a saved
+enabled Routine throwing out of the scheduler after its Agent/provider was
+deleted or its selected model/effort disappeared. Scheduled admission now
+represents the exact refused occurrence, with zero attempts and an inspectable
+failure recap, then pauses only that Routine for explicit repair. Healthy due
+siblings continue. Manual Run now retains its ordinary validation refusal;
+unexpected faults and failed durable writes remain fatal rather than being
+misreported as configuration failures. The scheduler re-reads current enabled
+state before advancing a represented occurrence, so a pause cannot regain a
+future cursor. No model/tool call or unattended permission is created by refusal.
+
+The same audit found the Routine summary and editor borrowing the first Agent
+after an explicit saved Agent disappeared. One exact-identity helper now keeps
+that choice unavailable, including deletion while the editor is open. Legacy
+absence means the fixed default Agent, never registry order. Apply requires an
+explicit live choice; acknowledgement holds and read-only account walls remain
+unchanged. Failure-first store/scheduler and UI locks, JSON/SQLite recovery,
+five-size rendered review, the separate UI sweep and the complete frozen-tree
+local verifier gate delivery. Paid-provider tests remain deferred; no native
+shell or packaging behavior changes in this checkpoint.
+
+Negative evidence: four real-store scheduler tests failed with uncaught
+validation errors before repair. Reintroducing the old throw made all five
+JSON/SQLite/commit-failure regressions fail. The scheduler cursor lock failed
+before the live-state recheck. Restoring the first-Agent fallback failed the
+rendered deletion assertion: it displayed “Default agent” instead of
+“Unavailable Agent.” All deliberate mutations were restored before final gates.
+
+Next confirmed gap: conversation Send/compaction, ordinary Dispatch and the
+Routine worker check only the Agent budget at spend time. An unset Agent budget
+can therefore omit a stricter provider plan. The audit's memory-only reproduction
+exhausted a 100-token provider window while the account-only check still admitted
+work. Resolve the documented budget inheritance/intersection and add no-call
+admission regressions across those core paths before claiming those caps are
+enforced. This is not a provider billing cap or authorization for paid tests.
+
+Shipped checkpoint `2425e1d5`: account-wide usage freshness. All five complete
+local verifier lanes passed in 857.9 seconds (790 browser tests), with the source
+fingerprint unchanged throughout. The final separate UI sweep passed 135/135
+cells with zero violations and skips; the reviewed commit was pushed to main.
+Provider reply-completion,
 attachment/history and private observation audits found no additional gap in
 those paths. The Usage audit found a real inconsistency: local limits are
 account-wide, but an open panel only refreshed after its own conversation

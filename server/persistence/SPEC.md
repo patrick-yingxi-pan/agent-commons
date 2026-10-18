@@ -25,6 +25,13 @@ live routine are pruned, with one graph revision and durable recovery before
 request admission. Repeated boots become no-ops; content, grants and legitimate
 live bindings are preserved.
 
+MODEL-66's scheduled admission refusal uses those existing durable slices, not
+a second job ledger: pause/revision, cleared cursor, zero-attempt failed run,
+run conversation and optional notification commit together. JSON/SQLite reload
+and exact fire-time replay retain the same history without worker admission;
+a failed save publishes no run or pause and retains the existing storage wall.
+The local lock is `schedule-admission.test.ts`.
+
 | ID | Requirement | Implementation | Verified by | Status |
 |----|-------------|----------------|-------------|--------|
 | PERSIST-60 | Assistant text-item metadata is optional and strictly bounded in active and compacted history. Only assistant rows admit closed text/phase items whose concatenation exactly equals visible content; malformed presence refuses admission while legacy absence needs no schema upgrade. JSON/SQLite fresh-process recovery retains order, null and absence and reconstructs native Responses input. Compaction archives originals without lending phases to synthetic summaries; prose export remains unchanged. | `contract/assistantTextItems.ts`, `server/persistence/format.ts`, `server/toolActivityHistory.ts`, `server/model/openaiResponses.ts` | `contract/assistantTextItems.test.ts`, `server/persistence/assistant-text-items.test.ts`, `server/store/compaction.test.ts`, `server/sessionExport.test.ts`, `desktop/openaiResponsesSmoke.mjs` | ✅ local implementation; full local and unsigned packaged gates required before landing |

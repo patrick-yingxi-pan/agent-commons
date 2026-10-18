@@ -2927,13 +2927,17 @@ function routineMcpFacts(task: ScheduledTask): { reviewHash: string; disclosures
   ] }
 }
 
-function pauseRoutineMcp(task: ScheduledTask): void {
+function pauseRoutineForReview(task: ScheduledTask, next: string): void {
   routineMcpRegistry.suspend(task.tenantId ?? defaultTenantId(), task.id)
-  if (task.next !== 'Paused — review external calls' || task.enabled) task.revision = (task.revision ?? 0) + 1
+  if (task.next !== next || task.enabled) task.revision = (task.revision ?? 0) + 1
   task.enabled = false
-  task.next = 'Paused — review external calls'
+  task.next = next
   delete task.nextFireAt
   emit({ type: 'schedule.changed', taskId: task.id, tenantId: task.tenantId })
+}
+
+function pauseRoutineMcp(task: ScheduledTask): void {
+  pauseRoutineForReview(task, 'Paused — review external calls')
 }
 
 // Per-session attached contexts — the *attachment of record* (Primitive 1 of
@@ -13824,15 +13828,34 @@ export const store = {
       const inFlight = task.runs.find((r) => r.status === 'running')
       if (inFlight) return inFlight
       const startedAt = options?.startedAt ?? Date.now()
-      const binding = scheduleBindingChoice(task)
-      const rawArtifact = graph.scheduleArtifact[task.id]
-      const artifact = rawArtifact === undefined ? null : parseScheduledArtifactSpec(rawArtifact)
-      if (artifact === undefined) throw new ValidationError('The routine’s standing approvals are invalid. Update them before starting a run.')
-      const standing = parseScheduleStanding({
-        artifact,
-        tools: graph.scheduleExtraTools[task.id] ?? [],
-      })
-      if (!standing) throw new ValidationError('The routine’s standing approvals are invalid. Update them before starting a run.')
+      let binding: ScheduleBindingChoice
+      let standing: NonNullable<ReturnType<typeof parseScheduleStanding>>
+      try {
+        binding = scheduleBindingChoice(task)
+        const rawArtifact = graph.scheduleArtifact[task.id]
+        const artifact = rawArtifact === undefined ? null : parseScheduledArtifactSpec(rawArtifact)
+        if (artifact === undefined) throw new ValidationError('The routine’s standing approvals are invalid. Update them before starting a run.')
+        const parsed = parseScheduleStanding({ artifact, tools: graph.scheduleExtraTools[task.id] ?? [] })
+        if (!parsed) throw new ValidationError('The routine’s standing approvals are invalid. Update them before starting a run.')
+        standing = parsed
+      } catch (error) {
+        // A saved binding can disappear between cadence fires. Represent that
+        // occurrence without invoking a worker, then pause for explicit repair.
+        // Manual requests still receive ordinary validation errors; unexpected
+        // faults and persistence failures must escape, never become run history.
+        if (options?.scheduledFor === undefined || !(error instanceof ValidationError)) throw error
+        const refused: ScheduledRun = {
+          id: `run-live-${(runSeq += 1)}`, status: 'running', duration: '—', reachedStep: 0,
+          summary: 'Not started', at: startedAt, scheduledFor: options.scheduledFor, attempts: 0,
+        }
+        task.runs = [refused, ...task.runs]
+        retireOldRuns(task)
+        pauseRoutineForReview(task, 'Paused — review configuration')
+        // The common terminal funnel owns recap, notification and events. Its
+        // intermediate running row is never published outside this atomic batch.
+        return this.failScheduleRun(task.id, refused.id, 'execution_error',
+          `This Routine was paused before any model or tool work. ${error.message} Review its configuration, then enable it again.`, startedAt)
+      }
       const run: ScheduledRun = {
         id: options?.manualRunId ?? `run-live-${(runSeq += 1)}`,
         status: 'running',

@@ -122,3 +122,28 @@ test('the live driver uses one-shot recursion rather than overlapping intervals'
   assert.match(source, /setTimeout\(tick,/)
   assert.doesNotMatch(source, /setInterval\(/)
 })
+
+test('a refused occurrence that pauses its routine cannot regain a future cursor', () => {
+  const due = Date.parse('2026-06-26T15:00:00.000Z')
+  const row = task({ nextFireAt: due })
+  const { port, calls } = harness(row)
+  port.listSchedules = () => [structuredClone(row)]
+  port.runSchedule = () => {
+    row.enabled = false
+    row.next = 'Paused — review configuration'
+    delete row.nextFireAt
+    return { id: 'refused', status: 'failed', duration: '0s', reachedStep: 0,
+      summary: 'Not started', at: NOW, scheduledFor: due, attempts: 0 }
+  }
+  assert.deepEqual(runSchedulerPass(port, { now: NOW }), { nextWakeAt: undefined })
+  assert.deepEqual(calls.cursors, [])
+  assert.equal(row.nextFireAt, undefined)
+  assert.equal(row.next, 'Paused — review configuration')
+})
+
+test('unexpected admission faults still stop the scheduler rather than masquerading as a refused routine', () => {
+  const { port } = harness(task({ nextFireAt: NOW - 1 }))
+  const failure = new Error('storage or programming fault')
+  port.runSchedule = () => { throw failure }
+  assert.throws(() => runSchedulerPass(port, { now: NOW }), error => error === failure)
+})

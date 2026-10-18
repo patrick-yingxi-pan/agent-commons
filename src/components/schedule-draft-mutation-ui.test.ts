@@ -11,6 +11,23 @@ function between(source: string, start: string, end: string): string {
   return source.slice(from, to)
 }
 
+test('routine Agent summaries and staged choices preserve missing identities through explicit repair', () => {
+  const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
+  const summary = between(view, 'function ModelPanel(', 'function ScheduleModelPicker(')
+  const picker = between(view, 'function ScheduleModelPicker(', 'function AutomationNotice(')
+  for (const [name, subject] of [['summary', summary], ['picker', picker]] as const) {
+    assert.match(subject, /routineAgentSelection\(/, `${name} uses the exact shared Agent resolution`)
+    assert.doesNotMatch(subject, /agents\[0\]/, `${name} never borrows the first registry Agent`)
+  }
+  assert.match(summary, /data-routine-agent-state=\{agent \? 'available' : 'unavailable'\}/)
+  assert.match(picker, /const selectedAgent = routineAgentSelection\(agents, agentId\)\.agent/)
+  assert.match(picker, /if \(!selectedAgent \|\| busy\) return/,
+    'a stale mounted selection cannot submit an unavailable identity')
+  assert.match(picker, /!selectedAgent && <option value=\{agentId\} disabled>Unavailable Agent<\/option>/)
+  assert.match(picker, /disabled=\{busy \|\| !selectedAgent\}/,
+    'Apply requires the explicit selection to exist in the live registry')
+})
+
 test('every routine draft editor closes only after acknowledgement and survives explicit Dismiss', () => {
   const view = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   const page = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))

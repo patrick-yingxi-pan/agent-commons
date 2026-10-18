@@ -337,6 +337,16 @@ second address for that profile would be the drift, not the fix).
 
 ## Durable state — persistence and snapshots
 
+A scheduled occurrence whose saved Agent/model binding or standing approval is
+no longer valid becomes one durable zero-attempt failure, with its ordinary
+run conversation and optional notification. The same batch pauses the Routine,
+clears its cursor and suspends unattended MCP permission. Other due Routines
+continue; manual Run now still returns its validation error without new history.
+Only expected pre-I/O validation failures take this path: unknown and storage
+faults remain fatal. Exact fire-time replay precedes current configuration
+checks, and the scheduler re-reads enabled state before advancing a cursor.
+Repair and re-enabling are explicit; no model/tool call or retry is implicit.
+
 When the real server runs (`dev` / `start` / `server`), the UI-owned state —
 sent messages, created sessions, attached context + its panels, schedules,
 recents, relation edits, and the Agent Commons registries — is snapshotted to
