@@ -10,6 +10,7 @@
  * proposals and consent proposals are live product entities. */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync, type Dirent } from 'node:fs'
 import { basename, join, relative, sep } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -32,6 +33,25 @@ const LEGACY = [
   /proposal to Anthropic/i,
   /share this with Anthropic/i,
 ]
+
+test('public license metadata and the complete AGPLv3 text stay aligned', () => {
+  const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  const lock = JSON.parse(readFileSync(join(ROOT, 'package-lock.json'), 'utf8'))
+  assert.equal(pkg.license, 'AGPL-3.0-only')
+  assert.equal(lock.packages[''].license, pkg.license)
+  // SPDX's verbatim AGPL-3.0-only text, with line endings normalized for Windows.
+  // This detects missing clauses or accidental edits to the legal instrument.
+  const license = readFileSync(join(ROOT, 'LICENSE'), 'utf8').replaceAll('\r\n', '\n')
+  assert.equal(createHash('sha256').update(license).digest('hex'),
+    'd8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee')
+  const notice = readFileSync(join(ROOT, 'LICENSING.md'), 'utf8')
+  assert.match(notice, /Copyright \(c\) 2026 Patrick Pan/)
+  assert.match(notice, /AGPL-3\.0-only/)
+  assert.match(notice, /\]\(LICENSE\)/)
+  const readme = readFileSync(join(ROOT, 'README.md'), 'utf8')
+  assert.match(readme, /\]\(LICENSING\.md\)/)
+  assert.match(readme, /\]\(CONTRIBUTING\.md\)/)
+})
 
 function repositoryTextFiles(root = ROOT, readDirectory: (path: string, options: { withFileTypes: true }) => Dirent[] = readdirSync): string[] {
   const files: string[] = []

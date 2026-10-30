@@ -18,6 +18,19 @@ fail closed where a real adapter is not configured.
 The current milestone order and remaining release gates are recorded in the
 [desktop preview plan](docs/production-plan.md).
 
+## License and contributions
+
+Copyright (c) 2026 Patrick Pan. Unless separately identified, Agent Commons is
+licensed under the [GNU Affero General Public License, version 3 only](LICENSE)
+(`AGPL-3.0-only`). Commercial use is allowed under the AGPL without purchasing a
+commercial license. A separate paid commercial license is available by agreement
+for customers who need alternative permissions.
+
+See [licensing and commercial inquiries](LICENSING.md) for the scope, source-sharing
+obligations, third-party exclusions, and commercial agreement requirements.
+Read [Contributing](CONTRIBUTING.md) before submitting code; outside contributions
+need documented permissions that preserve both licensing options before merging.
+
 ## What the platform supports
 
 - **People and agent workers.** Accounts register providers and system prompts,

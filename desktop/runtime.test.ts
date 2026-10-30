@@ -22,6 +22,13 @@ import localGitChannels from './local-git-channels.cjs'
 import imageOcrChannels from './image-ocr-channels.cjs'
 import dataChannels from './data-channels.cjs'
 
+test('desktop distributions retain the public license and project licensing notice', () => {
+  for (const legalFile of ['LICENSE', 'LICENSING.md']) {
+    assert.equal(ignoreFromPackage(`/${legalFile}`), false, `${legalFile} must accompany the desktop distribution`)
+    assert.equal(ignoreFromPackage(`\\${legalFile}`), false, `${legalFile} must also ship when packaging on Windows`)
+  }
+})
+
 test('packaged Undici acceptance requires the patched reviewed major, not a larger unreviewed major', () => {
   for (const version of ['7.29.1', '7.29.2', '7.30.0']) {
     assert.doesNotThrow(() => assertReviewedEmbeddedUndici(version), version)

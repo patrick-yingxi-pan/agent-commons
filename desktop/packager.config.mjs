@@ -30,13 +30,14 @@ function nodeModuleName(path) {
 }
 
 /** Electron Packager visits paths with a leading slash. Keep the artifact to
- * executable runtime inputs: no docs, fixtures, source UI, or test evidence. */
+ * executable runtime inputs and required legal notices: no general docs,
+ * fixtures, source UI, or test evidence. */
 export function ignoreFromPackage(path) {
   if (!path) return false
   const normalized = path.replaceAll('\\', '/').replace(/^\//, '')
   if (!normalized) return false
   const [root] = normalized.split('/')
-  if (['package.json', 'LICENSE'].includes(normalized)) return false
+  if (['package.json', 'LICENSE', 'LICENSING.md'].includes(normalized)) return false
   if (!SHIPPED_ROOTS.has(root)) return true
   // Packager stops traversing a directory as soon as its parent is ignored.
   // Root allowlisting therefore has to keep the directory node itself before
