@@ -34,7 +34,7 @@ const LEGACY = [
   /share this with Anthropic/i,
 ]
 
-test('public license metadata and the complete AGPLv3 text stay aligned', () => {
+test('AGPLv3 license text, metadata, and contribution policy stay aligned', () => {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
   const lock = JSON.parse(readFileSync(join(ROOT, 'package-lock.json'), 'utf8'))
   assert.equal(pkg.license, 'AGPL-3.0-only')
@@ -51,6 +51,16 @@ test('public license metadata and the complete AGPLv3 text stay aligned', () => 
   const readme = readFileSync(join(ROOT, 'README.md'), 'utf8')
   assert.match(readme, /\]\(LICENSING\.md\)/)
   assert.match(readme, /\]\(CONTRIBUTING\.md\)/)
+  const contributions = readFileSync(join(ROOT, 'CONTRIBUTING.md'), 'utf8').replace(/\s+/g, ' ')
+  assert.match(readme.replace(/\s+/g, ' '), /Commercial use, including paid hosting, is allowed under the AGPL\./)
+  assert.match(notice.replace(/\s+/g, ' '), /The project offers no separate proprietary licensing option\./)
+  assert.match(contributions, /By submitting a contribution, you agree to license your original contribution under AGPLv3 only \(`AGPL-3\.0-only`\)\./)
+  assert.match(contributions, /Contributors retain their copyrights\./)
+  assert.match(contributions, /No separate contributor agreement or copyright assignment is required\./)
+  for (const [file, text] of Object.entries({ 'README.md': readme, 'LICENSING.md': notice, 'CONTRIBUTING.md': contributions })) {
+    assert.doesNotMatch(text.replace(/\s+/g, ' '), /separate paid commercial|optional paid commercial|both licensing options|dual-licensing model|commercial-license inquiry/i,
+      `${file} must not restore the separate commercial licensing program`)
+  }
 })
 
 function repositoryTextFiles(root = ROOT, readDirectory: (path: string, options: { withFileTypes: true }) => Dirent[] = readdirSync): string[] {

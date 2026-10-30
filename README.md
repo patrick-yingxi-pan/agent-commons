@@ -22,14 +22,13 @@ The current milestone order and remaining release gates are recorded in the
 
 Copyright (c) 2026 Patrick Pan. Unless separately identified, Agent Commons is
 licensed under the [GNU Affero General Public License, version 3 only](LICENSE)
-(`AGPL-3.0-only`). Commercial use is allowed under the AGPL without purchasing a
-commercial license. A separate paid commercial license is available by agreement
-for customers who need alternative permissions.
+(`AGPL-3.0-only`). Commercial use, including paid hosting, is allowed under the
+AGPL.
 
-See [licensing and commercial inquiries](LICENSING.md) for the scope, source-sharing
-obligations, third-party exclusions, and commercial agreement requirements.
-Read [Contributing](CONTRIBUTING.md) before submitting code; outside contributions
-need documented permissions that preserve both licensing options before merging.
+See [licensing](LICENSING.md) for the scope, source-sharing obligations, and
+third-party exclusions. Contributions are accepted under the same AGPLv3-only
+license, with contributors retaining their copyrights and no separate contributor
+agreement required. Read [Contributing](CONTRIBUTING.md) before submitting code.
 
 ## What the platform supports
 

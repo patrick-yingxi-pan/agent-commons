@@ -7,26 +7,23 @@ requests.
 
 ## Licensing of contributions
 
-Agent Commons offers its original code under AGPLv3 only, with a separate paid
-commercial option. Read [LICENSING.md](LICENSING.md) and [LICENSE](LICENSE) before
-contributing code or documentation.
+Agent Commons offers its original code under AGPLv3 only. Read
+[LICENSING.md](LICENSING.md) and [LICENSE](LICENSE) before contributing code or
+documentation.
 
-Before an outside copyrightable contribution is merged, the maintainer must have
-documented permission to distribute that contribution under both AGPLv3 and
-separate commercial terms. Contact Patrick Pan through an issue or the pull
-request to arrange a separate written contributor agreement before acceptance.
-That agreement must cover the necessary licensing and sublicensing rights for
-both options; submitting a pull request alone does not supply those extra rights.
-There is no automatic copyright assignment in these contribution guidelines.
+By submitting a contribution, you agree to license your original contribution
+under AGPLv3 only (`AGPL-3.0-only`). Contributors retain their copyrights.
+No separate contributor agreement or copyright assignment is required.
+No additional rights to relicense contributions under proprietary terms are
+requested.
 
-Contribute only material you have the right to submit. Identify any employer or
-other party whose authorization is needed, and disclose third-party code and its
-license. Preserve third-party notices. Maintainers must review compatibility and
-record the applicable permissions before merging; an AGPL-only contribution
-cannot simply be included in a proprietary commercial grant.
+Contribute only material you have the right to submit, including any necessary
+authorization from your employer or another copyright holder. Disclose third-party
+code and its license, and preserve its notices. Third-party material retains its
+own terms; maintainers must review license compatibility before merging.
 
-This is a contribution policy, not the contributor agreement itself. Existing
-contributors' rights are not changed by adding this file.
+This policy does not revoke rights already granted under separately executed
+agreements.
 
 ## Development and review
 
