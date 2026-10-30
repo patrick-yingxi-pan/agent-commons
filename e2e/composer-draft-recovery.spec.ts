@@ -40,7 +40,12 @@ test('multiline drafts survive context-pane collapse at every viewport and send 
       const preference = await page.request.patch(`/api/v1/sessions/${id}/preferences`, { data: { panelFocus: null } })
       expect(preference.ok()).toBe(true)
       await page.goto(`/s/${id}`)
-      const composer = page.getByRole('textbox', { name: 'Message', exact: true })
+      // A direct URL can briefly show the restored prior pane while the boot
+      // route validates this session. Type only after the addressed pane is live.
+      const conversation = page.locator(`[data-conversation-pane="${id}"]`)
+      await expect(conversation).toBeVisible()
+      const composer = conversation.getByRole('textbox', { name: 'Message', exact: true })
+      await expect(composer).toBeEnabled()
       await composer.click()
       const draft = `Draft across detach ${width}\nSecond line · café 世界\n${'Long continuation '.repeat(12)}`
       await composer.fill(draft)

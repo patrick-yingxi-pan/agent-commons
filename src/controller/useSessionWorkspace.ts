@@ -69,6 +69,10 @@ export function useSessionWorkspace(split?: {
    *  the focused pane) — 'keep' when a pane with no canonical location is
    *  focused (a picker, the background): the address stays as-is. */
   focusedPath?: string | 'keep'
+  /** Current imperative projection, including edits not yet rendered. */
+  readFocusedPath?: () => string
+  /** Changes on navigation/focus/removal, not layout or context projection. */
+  readNavigationRevision?: () => number
   /** Apply a routed view to the focused pane — null routes the root (a fresh
    *  draft). The popstate planner's fallback arm and the boot route share it. */
   applyRouteToFocused?: (routed: RoutedView | null) => void
@@ -115,10 +119,17 @@ export function useSessionWorkspace(split?: {
   // outgoing instance must stop writing the address — the incoming account's
   // remount owns it from here.
   const leftAccount = useRef(false)
+  const mounted = useRef(false)
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false }
+  }, [])
   // Holds URL writes until the boot address has been consumed and applied, so
   // the restored tree's focused path can't overwrite the address the user
   // arrived at before it routes.
-  const restoreSettled = useRef(false)
+  const [restoreSettled, setRestoreSettled] = useState(false)
+  const bootStarted = useRef(false)
+  const pendingBootPath = useRef<string | undefined>(undefined)
   // The boot route is a setState — it PROJECTS on the next render, but the
   // URL-sync effect runs first in the SAME commit with the restored tree's
   // stale focusedPath and would push it OVER the boot address (a junk history
@@ -131,13 +142,14 @@ export function useSessionWorkspace(split?: {
   // the fresh draft (ADAPT-1). Runs once per mount — the per-account remount
   // re-runs it, but takeBootView only answers on the first page-load consume.
   useEffect(() => {
-    if (restoreSettled.current) return
+    if (bootStarted.current) return
+    bootStarted.current = true
     // A sibling mount's session validation is in flight (StrictMode's
     // double-mount): follow its settle — consuming the (now-null) boot view
     // here would mint a draft over the validating address.
     if (bootValidation) {
       void bootValidation.finally(() => {
-        restoreSettled.current = true
+        setRestoreSettled(true)
       })
       return
     }
@@ -146,7 +158,7 @@ export function useSessionWorkspace(split?: {
       // No address: the per-account TREE (restored by useMainSplit's mount
       // initializer) IS the view memory. Nothing restored → the fresh draft.
       splitRef.current?.mintIfEmpty?.()
-      restoreSettled.current = true
+      setRestoreSettled(true)
       return
     }
     const applyBoot = (r: RoutedView) => {
@@ -172,27 +184,39 @@ export function useSessionWorkspace(split?: {
       // account switch must not route into (and persist under) the NEW
       // account's tree scope.
       const sid = routed.loc.sessionId
+      const readPath = () => splitRef.current?.readFocusedPath?.() ?? splitRef.current?.focusedPath
+      const issuedPath = readPath()
+      const issuedAddress = window.location.pathname
+      const issuedNavigation = splitRef.current?.readNavigationRevision?.()
+      pendingBootPath.current = issuedPath
+      // A boot read has no authority over later navigation or a pane closed /
+      // deleted while it was pending. Read the split's imperative refs, not
+      // just the previous render's projection. Back/Forward also supersedes it.
+      const stillCurrent = () => mounted.current && !leftAccount.current &&
+        splitRef.current?.readNavigationRevision?.() === issuedNavigation &&
+        readPath() === issuedPath && window.location.pathname === issuedAddress
       bootValidation = loadSession(sid)
         .then(() => {
-          if (!leftAccount.current) applyBoot(routed)
+          if (stillCurrent()) applyBoot(routed)
         })
         .catch(() => {
-          if (leftAccount.current) return
+          if (!stillCurrent()) return
           splitRef.current?.mintIfEmpty?.()
           // The dead address must not stand over a page that has its own
           // canonical URL (ADAPT-15: the address reflects what's shown) —
           // correct it in place (a fix, not a navigation).
-          const p = splitRef.current?.focusedPath
+          const p = readPath()
           if (p && p !== 'keep' && window.location.pathname !== p) window.history.replaceState(null, '', p)
         })
         .finally(() => {
-          restoreSettled.current = true
+          pendingBootPath.current = undefined
+          setRestoreSettled(true)
           bootValidation = null
         })
       return
     }
     applyBoot(routed)
-    restoreSettled.current = true
+    setRestoreSettled(true)
   }, [])
 
   // ── The address bar projects the FOCUSED pane (ADAPT-15) ──────────────────
@@ -200,8 +224,14 @@ export function useSessionWorkspace(split?: {
   // address stays — page identity didn't change. Equality-guarded so arriving
   // VIA the address (boot, popstate) never mints a duplicate history entry.
   useEffect(() => {
-    if (!restoreSettled.current || leftAccount.current) return
+    if (leftAccount.current) return
     const path = split?.focusedPath
+    if (!restoreSettled) {
+      // A newer workspace action releases the projection immediately, even
+      // while the obsolete boot request is still waiting on the network.
+      if (pendingBootPath.current === undefined || path === pendingBootPath.current) return
+      setRestoreSettled(true)
+    }
     if (!path || path === 'keep') return
     if (bootTarget.current) {
       // The boot route hasn't projected yet — the focused path is still the
@@ -211,7 +241,7 @@ export function useSessionWorkspace(split?: {
       bootTarget.current = null // caught up; the equality guard below no-pushes
     }
     if (window.location.pathname !== path) window.history.pushState(null, '', path)
-  }, [split?.focusedPath])
+  }, [split?.focusedPath, restoreSettled])
 
   // ── Browser Back/Forward: re-parse the address it moved to and land it in
   // the focused pane, like every navigation. The URL-sync effect above then

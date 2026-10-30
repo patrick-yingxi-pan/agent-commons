@@ -30,7 +30,29 @@ function assertWorkflow(smoke: string) {
     assert.ok(at > previous, `real packaged ${stage} remains in order`)
     previous = at
   }
+  let discoveryStep = -1
   for (const fragment of [
+    "getByLabel('Model ID', { exact: true }).fill('')",
+    "getByRole('button', { name: 'Load models', exact: true }).click()",
+    "toHaveAttribute('data-provider-model-discovery', 'loaded')",
+    "getByRole('combobox', { name: 'Available models', exact: true }).selectOption(OPENAI_SMOKE_MODEL)",
+    'assert.equal(fixture.requests.length, 0',
+    "assert.deepEqual(await api(page, '/providers'), providersBeforeDiscovery",
+    "assert.deepEqual(await api(page, '/viewer-preferences/model'), preferencesBeforeDiscovery",
+    'assert.equal(provisionalVault.entries[preparedReference].providerId, undefined',
+    "getByRole('button', { name: 'Create', exact: true }).click()",
+    'assert.deepEqual(Object.keys(originalVault.entries), [preparedReference]',
+    'assert.equal(originalVault.entries[preparedReference].providerId, provider.id',
+  ]) {
+    const at = smoke.indexOf(fragment)
+    assert.ok(at > discoveryStep, `Responses discovery checks ${fragment} in order`)
+    discoveryStep = at
+  }
+  for (const fragment of [
+    'assert.equal(fixture.catalogCount, 1)',
+    'assert.equal(fixture.catalogCount, 2)',
+    "getByPlaceholder('Paste API key', { exact: true })).toHaveValue('')",
+    'assert.equal(Object.keys(provisionalVault.entries).length, 1',
     "getByRole('combobox', { name: /^Provider preset/ }).selectOption('openai')",
     "getByRole('combobox', { name: 'Agent', exact: true }).selectOption(agent.id)",
     "getByRole('button', { name: 'Dispatch', exact: true }).click()",
@@ -102,6 +124,8 @@ test('Responses acceptance retains rendered setup, real tool continuation, refus
   const smoke = source('./openaiResponsesSmoke.mjs')
   assertWorkflow(smoke)
   for (const [from, to] of [
+    ["getByRole('button', { name: 'Load models', exact: true }).click()", "getByRole('button', { name: 'Skip discovery', exact: true }).click()"],
+    ['assert.deepEqual(Object.keys(originalVault.entries), [preparedReference]', 'assert.deepEqual(Object.keys(originalVault.entries), []'],
     ['assert.equal((await refused).status(), 400', 'assert.equal((await refused).status(), 200'],
     ['assert.deepEqual(after.session, before.session', 'void(after.session, before.session'],
     ['assertPhaseHistory(after.session.messages.at(-1), fixture.requests[5])', 'void(after.session.messages.at(-1), fixture.requests[5])'],

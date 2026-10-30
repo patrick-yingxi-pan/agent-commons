@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { basename, join } from 'node:path'
 import { filesUnder, read, ROOT, stripComments } from '../../tests/helpers/source.ts'
 
-test('explicit model selectors share provider-derived model choices', () => {
+test('explicit model selectors derive choices from their canonical registered or draft source', () => {
   const consumers = [
     ['NewDispatchDialog.tsx', /const modelChoices = providerModelChoices\(provider\)/, /modelChoices\.some\(\(model\) => model\.id === modelId\)/, /modelChoices\.map\(\(model\) =>/],
     ['ProjectWorkDraftPanel.tsx', /const selectedModelChoices = providerModelChoices\(selectedProvider\)/, /providerModelChoices\(provider\)\.length > 0/, /heldModelId && !selectedModelChoices\.some/, /selectedModelChoices\.map\(\(model\) =>/],
@@ -11,15 +11,21 @@ test('explicit model selectors share provider-derived model choices', () => {
     ['CommissionMcpApprovalPanel.tsx', /providerModelChoices\(provider\)\.length > 0/, /const selectedModelChoices = providerModelChoices\(selectedProvider\)/, /selectedModelChoices\.find\(model => model\.id === selectedModelId\)/, /selectedModelChoices\.map\(model =>/],
     ['ModelPickerMenuBody.tsx', /const catalog = providerModelChoices\(provider\)/, /catalog\.map\(\(m\) =>/],
   ] as const
+  // Pre-save discovery has no registered provider or configured default yet.
+  // Its choices must stay transient instead of fabricating a provider to pass
+  // through the saved-provider fallback resolver.
+  const draftConsumers = [
+    ['ProviderDialogs.tsx', /useProviderModelDiscovery\(tenantId/, /discovery\.models\.some\(choice => choice\.id === model\)/, /discovery\.models\.map\(choice =>/],
+  ] as const
 
   const explicitSelectors = filesUnder('src').filter((path) => path.endsWith('.tsx') &&
     /Choose a model/.test(stripComments(read(path)))).map((path) => basename(path)).sort()
-  assert.deepEqual(explicitSelectors, consumers.map(([file]) => file).filter((file) => file !== 'ModelPickerMenuBody.tsx').sort(),
+  assert.deepEqual(explicitSelectors, [...consumers, ...draftConsumers].map(([file]) => file).filter((file) => file !== 'ModelPickerMenuBody.tsx').sort(),
     'every explicit model chooser belongs to this enumeration, not just the original four')
 
-  for (const [filename, ...checks] of consumers) {
+  for (const [filename, ...checks] of [...consumers, ...draftConsumers]) {
     const source = stripComments(read(join(ROOT, 'src', 'components', filename)))
-    for (const check of checks) assert.match(source, check, `${filename} must use canonical provider model choices`)
+    for (const check of checks) assert.match(source, check, `${filename} must use its canonical model choices`)
     if (filename !== 'ModelPickerMenuBody.tsx') assert.match(source, /Choose a model/)
   }
   const projection = stripComments(read(join(ROOT, 'src', 'lib', 'models.ts')))

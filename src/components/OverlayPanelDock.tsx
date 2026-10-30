@@ -12,9 +12,9 @@ import { useSessionContextCommands } from '../controller/useSessionContextComman
 import { useContextWritable } from '../controller/useContextWritable'
 import { dismissContextMutation, retryContextMutation } from '../controller/contextMutations'
 import { isContextMutationHeld } from '../controller/conversationCore'
+import { DRAFT_ID, focusValidIn } from '../data/liveSession'
 import { rememberPanelPreference } from '../controller/panelPreferences'
 import { SCRIM_CLASS } from '../lib/scrim'
-import { DRAFT_ID } from '../data/liveSession'
 import { DeferredWorkspacePanel as WorkspacePanel } from './DeferredWorkspacePanel'
 import { DeferredConnectorContextPanel as ConnectorPanel } from './DeferredConnectorContextPanel'
 import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
@@ -52,6 +52,7 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
   const focusedConnector = focus?.kind === 'connector' ? live.connectors.find((c) => c.id === focus.id) : undefined
   const focusedDiscussion = focus?.kind === 'discussion' ? live.attachments.find((item) => item.kind === 'discussion' && item.id === focus.id) : undefined
   const focusedArtifact = focus?.kind === 'artifact' ? live.attachments.find((item) => item.kind === 'artifact' && item.id === focus.id) : undefined
+  const attachmentFocus = focus && (focus.kind === 'file' || focus.kind === 'photo') && focusValidIn(live, focus) ? focus : null
   const panelOpen = !!focus
   const chrome: PaneChrome = {
     footer: panelOpen ? (
@@ -122,15 +123,15 @@ function Dock({ sessionId, tier }: { sessionId: string; tier: 'medium' | 'narrow
           </AnimatePresence>
 
           <AnimatePresence>
-            {(focus?.kind === 'file' || focus?.kind === 'photo') && (
+            {attachmentFocus && (
               <DeferredAttachmentPanel
                 key="att"
-                kind={focus.kind}
-                items={live.attachments.filter((a) => a.kind === focus.kind)}
+                kind={attachmentFocus.kind}
+                items={live.attachments.filter((a) => a.kind === attachmentFocus.kind)}
                 allAttachments={inputAttachments}
-                initialId={focus.id}
+                initialId={attachmentFocus.id}
                 onClose={closePanel}
-                onRemove={writable ? (id) => removeContexts([{ kind: focus.kind, id }]) : undefined}
+                onRemove={writable ? (id) => removeContexts([{ kind: attachmentFocus.kind, id }]) : undefined}
                 refreshSessionId={writable ? sessionId : undefined}
                 refreshDisabled={isContextMutationHeld(contextMutation)}
               />

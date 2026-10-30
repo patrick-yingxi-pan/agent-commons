@@ -24,3 +24,13 @@ test('one panel admission fence rejects late lazy shells without claiming ordina
     assert.match(source(`${name}.tsx`), /<PanelShell/, `${name}'s loading/recovery chrome shares the same fence`)
   }
 })
+
+test('attachment panels mount only when their exact addressed item is in the live projection', () => {
+  const context = source('ContextPanelView.tsx')
+  assert.match(context, /if \(!focusValidIn\(live, panel\)\) return null/)
+  assert.match(context, /case 'file':[\s\S]*case 'photo': \{[\s\S]*if \(!focusValidIn\(live, panel\)\) return null[\s\S]*<DeferredAttachmentPanel/)
+
+  const overlay = source('OverlayPanelDock.tsx')
+  assert.match(overlay, /const attachmentFocus = focus && \(focus\.kind === 'file' \|\| focus\.kind === 'photo'\) && focusValidIn\(live, focus\) \? focus : null/)
+  assert.match(overlay, /\{attachmentFocus && \([\s\S]*<DeferredAttachmentPanel/)
+})

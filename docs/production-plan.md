@@ -1,12 +1,115 @@
 # Desktop preview plan
 
-Reviewed 2026-10-17. The standing goal remains production readiness for Agent
+Reviewed 2026-10-30. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened
 mutation paths. Routine refactors and recovery work should support these
 milestones or address a demonstrated defect.
 
-Current checkpoint: tool-free provider answers with opaque reasoning. A local
+Current checkpoint: explicit model discovery before provider registration.
+OpenAI and Claude setup previously required a model ID before the app could
+offer the endpoint's catalog. New-provider setup now lists models only after
+Load models, without a selected model, generation, registration, usage event,
+or saved-catalog mutation. Selection is explicit; manual entry remains available
+when listing is unsupported. Create still verifies and saves separately.
+
+The bounded listing route requires an explicit protocol and URL, accepts only
+a credential-variable reference, fails without ambient credential fallback,
+and shares HTTP/MCP authorization. Desktop discovery owns one provisional
+encrypted key until Create transfers that exact reference to the existing
+acknowledgement lifecycle. Cancel, connection edits and account changes retire
+only unused draft-owned keys; late native and HTTP results cannot cross drafts.
+
+Failure-first evidence: three route cases failed with 404 and the rendered
+setup walk failed on the absent Load models control. Removing the late-read
+fence failed two controller cases; removing the post-body identity check failed
+the API test. Removing pre-enqueue credential cleanup failed its exact-reference
+test. All mutations were restored. The complete local verifier gates landing;
+paid/live-provider tests stay deferred.
+
+Review additionally reproduced a credential-repair regression: discovery had
+cleared the raw key, so a rejected Create followed by Dismiss could silently
+retry a corrected model without authentication. The browser test failed on
+enabled Create with an empty key. The shared form now requires explicit key
+re-entry after a prepared key is transferred or invalidated by connection edits;
+it never retrieves a raw secret or deletes uncertain submitted custody.
+UI-254 records the exact repair and its regression lock. New setup loading,
+failed and selected-long-model states have five-viewport and WCAG AA checks.
+
+After rebasing onto the renamed repository on 2026-10-30, all seven focused
+browser walks passed. All 15 discovery-state screenshots were reviewed, and
+the separate responsive sweep covered 135/135 cells with no violations or
+skips. The preview's local catalog and manual-entry fallback were checked;
+Ada is active with the six demo accounts stacked. A fresh unsigned arm64
+Electron build passed OpenAI Responses, Claude-root and DeepSeek-mounted
+acceptance using only authored loopback providers. Each proves discovery has
+no registration, generation or preference effect, Create reuses its exact
+encrypted draft key, and subsequent tool, usage, quota, Stop and relaunch
+workflows remain intact. Signing, Intel and paid-provider acceptance are not
+claimed by these checks.
+
+One verifier attempt failed during browser collection with a missing-export
+error for the existing `DelegatedJudgmentGenerationError`; the export is
+present, and subsequent standalone collection passed all 803 tests. Shared
+non-atomic Playwright transform-cache writes are a possible cause, but four
+cold concurrent collection checks did not reproduce it. This observation
+remains unconfirmed; no product fix or retry-based acceptance is claimed.
+
+The complete gate also caught the explicit-model-selector inventory omitting
+the new draft picker. The lock now enumerates both saved-provider choices and
+the transient discovery source without inventing a registered provider. An
+unrelated relay pre-latch test inspected its first poll before that background
+request had arrived; it now waits on the existing bounded poll observer before
+checking authentication. Both focused suites pass, with production timing and
+retry behavior unchanged. The full gate must pass after these test corrections.
+
+A subsequent complete gate passed Node checks/typecheck/build but exposed six
+browser failures. Confirmed product defects in attachment restoration and
+asynchronous boot routing are now locked by unchanged image-original assertions
+and controlled delayed-read cases (UI-255/256). The three delayed boot cases
+were watched fail before their respective repairs. Project folding now waits
+for its lazy Changes section after reload; the model-effort contrast check waits
+for pending disabled rows and their finite opacity transition to settle. These
+assertions retain their original geometry, contrast and behavior requirements.
+The focused image, split, social and initial boot walks passed 31/31; the final
+navigation-revision repair passed all 19 split/boot cases. The sharing failure
+was not reproduced: its trace shows a later closed popover but cannot establish
+whether it remounted or was dismissed. Its code and assertions remain unchanged. Final acceptance requires
+the complete frozen-tree local verifier, without paid provider calls or retries.
+
+The verifier inventory also caught loop-declared boot cases receiving zero
+static weight. Their three top-level declarations now preserve the same shared
+fixture and assertions; all 17 planner locks pass. The interrupted run named an
+export failure without usable per-test evidence; its unchanged complete export
+suite and the three boot cases then passed 5/5. Neither this observation nor the
+sharing/collection observations are claimed as independently fixed defects.
+
+The next complete run passed all Node/type/build checks and found two browser
+readiness defects. Composer recovery typed into the previous restored session
+while the requested session was still validating; its locator now requires the
+addressed pane and enabled field. The Viewed-lens walk unloaded its page while
+both exact view-record requests were pending (the trace records aborted POSTs);
+it now awaits the exact acknowledgement before full navigation. Multiline draft,
+detach, send-count and lens assertions remain unchanged. These corrections do
+not claim same-session draft loss or a lost acknowledged view write. All eight
+focused composer/Commons walks pass after the readiness corrections.
+
+The following complete run passed every check except the recurring sharing
+walk. Its newer trace identified the earlier unknown: the cached session body
+already contained `panelFocus: null`, but initial pane paint ignored it and
+opened the repo; the next read collapsed the split and reset the sharing form.
+Initial paint now uses the ordinary preference resolver, preserving dirty local
+intent and exact server closure. A controlled held-read regression failed on
+the invented context pane before this repair and also checks the open form's
+unsent audience survives hydration. UI-166 records this confirmed cause;
+the sharing assertion itself remains unchanged. All ten focused browser cases
+and 23 preference/controller/documentation locks pass.
+
+Shipped checkpoint `640714fa`: tool-free provider answers with opaque reasoning
+(the corresponding commit in the rewritten `agent-commons` history).
+The complete frozen-tree local verifier passed all five lanes in 1000.3 seconds,
+including 797 browser tests; final review passed and main was pushed cleanly.
+A local
 synthetic Messages response reproduced valid Agent reply/argument drafts being
 metered and then rejected solely because a thinking block preceded the answer.
 The same exactly-one-content-block guard exists in Contribution review,
@@ -14,8 +117,8 @@ delegated judgment and Commission MCP preparation. These five paths now share
 one strict visible-answer extractor; no reasoning is published or persisted,
 no tools or extra answers are accepted, and existing parser limits, accounting
 order and single-attempt behavior remain unchanged. Authored Claude-root,
-DeepSeek-mounted and native Responses fixtures, then the complete frozen-tree
-local verifier, are required before landing. No paid calls are authorized.
+DeepSeek-mounted and native Responses fixtures and the complete frozen-tree
+local verifier passed. No paid calls were made.
 
 Failure-first evidence: all 30 thinking-bearing Messages cases failed across
 the five callers and two endpoint shapes, while ten text-only and five native

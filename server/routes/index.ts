@@ -142,6 +142,7 @@ import {
 import { pageParams, paginate, MAX_PAGE_LIMIT } from '../pagination.ts'
 import { RateLimiter } from '../ratelimit.ts'
 import { generateCompactionSummaryPart, probeProviderEndpoint, fetchProviderModels, resolvedModelId, type ReplySession } from '../generate.ts'
+import { discoverProviderModels, ProviderModelDiscoveryError } from '../providerModelDiscovery.ts'
 import { UsageRecordingError } from '../modelUsage.ts'
 import {
   deriveRelayCreationSecret,
@@ -1538,6 +1539,19 @@ export function buildRouter(): Router {
     sendJson(res, store.listProviders(store.identity(req.headers).tenant.id))
   })
   registerProviderUsageRoutes(r, accountTransitionSourceMatches)
+  // Transient endpoint listing is a product capability, not a credential form
+  // or a saved-catalog mutation. A selected model still must pass registration.
+  r.post('/providers/models/discover', async ({ req, res, body }) => {
+    if (!accountTransitionSourceMatches(req, res)) return
+    try {
+      sendJson(res, await discoverProviderModels(await body<unknown>({ maxBytes: 16 * 1024 })))
+    } catch (error) {
+      if (error instanceof ValidationError || error instanceof ProviderModelDiscoveryError) {
+        return sendError(res, 'bad_request', error.message)
+      }
+      throw error
+    }
+  })
   r.aliasGet('/providers/:id', 'GET /providers', 'the by-id provider read is a focused projection of the provider collection visible in the UI', ({ req, res, params }) => {
     if (!accountTransitionSourceMatches(req, res)) return
     // `listProviders(tenant).find`, not `store.getProvider` — the latter falls back to the

@@ -43,3 +43,15 @@ test('a definitive refusal discards only its exact provisional key', async () =>
     ['discard', `PROVIDER_DESKTOP_${'B'.repeat(32)}`],
   ])
 })
+
+test('a credential already provisioned for discovery transfers into creation without replacement', async () => {
+  const stagedReference = `PROVIDER_DESKTOP_${'C'.repeat(32)}`
+  const h = harness(`PROVIDER_DESKTOP_${'D'.repeat(32)}`)
+  const attempt = { credentialReference: stagedReference, deviceSecret: 'unused-draft-key' }
+  await prepareProviderCreationCredential(attempt, h.deps)
+  await prepareProviderCreationCredential(attempt, h.deps)
+  assert.equal(attempt.credentialReference, stagedReference)
+  assert.deepEqual(h.calls, [], 'creation must reuse the transferred reference without another native provision')
+  await bindProviderCreationCredential(attempt, 'provider-created-after-discovery', h.deps)
+  assert.deepEqual(h.calls, [['bind', stagedReference, 'provider-created-after-discovery']])
+})

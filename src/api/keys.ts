@@ -200,6 +200,7 @@ export const paths = {
   turnCancel: (id: string, turnId: string) =>
     `/sessions/${encodePathSegment(id)}/turns/${encodePathSegment(turnId)}/cancel`,
   providers: '/providers',
+  providerModelsDiscover: '/providers/models/discover',
   provider: (id: string) => `/providers/${encodePathSegment(id)}`,
   providerConnection: (id: string) => `/providers/${encodePathSegment(id)}/connection`,
   providerRotate: (id: string) => `/providers/${encodePathSegment(id)}/rotate`,

@@ -8,6 +8,7 @@ import { anthropicMessagesClient } from './model/anthropicMessages.ts'
 import { providerUsage, providerUsageCacheKey } from './providerUsage.ts'
 import { replyThinking } from './model/replyThinking.ts'
 import { toolFreeText } from './model/toolFreeText.ts'
+import type { DiscoverProviderModelsRequest } from '../contract/providerDiscovery.ts'
 import { collectProviderModels } from './model/providerCatalog.ts'
 import { resolveReplyOutputTokens } from '../contract/providerReplyLimits.ts'
 import { EndpointHttpError, EndpointRetryWaitError, EndpointResponseError, openaiResponsesClient, responsesHistoryContent, type EndpointMessage } from './model/openaiResponses.ts'
@@ -325,6 +326,24 @@ export async function fetchProviderModels(config: ProviderConfig = {}): Promise<
   } catch {
     return undefined
   }
+}
+
+/** Listing-only client: no model selection, ambient endpoint/credential,
+ * generation observer, capability probe or transport retry. The caller owns
+ * strict request validation; credential references still fail before egress. */
+export async function fetchUnregisteredProviderModels(config: DiscoverProviderModelsRequest): Promise<ModelInfo[] | undefined> {
+  try {
+    if (!config.baseURL?.trim() || !['anthropic-messages', 'openai-responses'].includes(config.protocol) ||
+      !validApiKeyEnv(config.apiKeyEnv)) return undefined
+    const declared = config.apiKeyEnv ? process.env[config.apiKeyEnv] : undefined
+    if (config.apiKeyEnv && !declared?.trim()) return undefined
+    const fetcher: typeof fetch = (input, init) => fetch(input, { ...init, redirect: 'error' })
+    const client = config.protocol === 'openai-responses'
+      ? openaiResponsesClient(config.baseURL, declared ?? 'mock-no-key-needed', fetcher, 0)
+      : anthropicMessagesClient(config.baseURL, declared ?? 'mock-no-key-needed', fetcher, 0)
+    return await collectProviderModels(client.models.list, config.protocol,
+      AbortSignal.timeout(positiveNumberEnv(process.env.PROVIDER_PROBE_TIMEOUT_MS, 10_000)))
+  } catch { return undefined }
 }
 
 /** The bit of a session the reply depends on (resolved by the route). */

@@ -8,7 +8,7 @@ import { test, expect } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { mkdirSync } from 'node:fs'
 import { ms } from './budget.ts'
-import { STAMP, createProject, gotoSection, newUser, openAdaProfile, openSection, openShareForm } from './social-helpers.ts'
+import { STAMP, createProject, gotoSection, newUser, openAdaProfile, openSection, openShareForm, projectId } from './social-helpers.ts'
 test('the Commons lenses: an act fills the collection the rail lists it under', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   // The lenses are the viewer's OWN relationships (UI-19), so the proof has to
@@ -68,8 +68,16 @@ test('the Commons lenses: an act fills the collection the rail lists it under', 
   await expect(grace.page.getByRole('heading', { name: 'Commons · Recently viewed' })).toBeVisible()
   await expect(grace.page.getByText(LENS_NOTE)).toHaveCount(0)
   await grace.page.goto('/commons')
+  const visitedProjectId = await projectId(ada.page, LENS_PROJECT)
+  const viewRecorded = grace.page.waitForResponse((response) => {
+    const request = response.request()
+    if (request.method() !== 'POST' || !response.url().endsWith('/api/v1/social/viewed') || !response.ok()) return false
+    const body = request.postDataJSON() as { subject?: { kind?: string; id?: string } }
+    return body.subject?.kind === 'project' && body.subject.id === visitedProjectId
+  })
   await grace.page.getByRole('main').getByText(LENS_PROJECT).first().click()
   await expect(grace.page.getByRole('heading', { name: LENS_PROJECT })).toBeVisible()
+  await viewRecorded
   await grace.page.goto('/commons/viewed')
   await expect(grace.page.getByText(LENS_NOTE)).toBeVisible()
 

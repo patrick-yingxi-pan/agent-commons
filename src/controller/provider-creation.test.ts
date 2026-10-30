@@ -18,6 +18,33 @@ function select(userId: string) {
   setData(keys.me, identity(userId))
 }
 
+test('creation refuses an unresolved account and cleans the exact never-submitted discovery handoff', async () => {
+  const savedFetch = globalThis.fetch
+  const savedWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const discarded: string[] = []
+  try {
+    refreshAccount(null)
+    resetAll()
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { agentCommonsDesktop: { credentials: {
+      provision: async () => assert.fail('the discovery reference must not be provisioned again'),
+      bind: async () => assert.fail('no provider was created'),
+      discard: async (value: string) => { discarded.push(value) },
+    } } } })
+    globalThis.fetch = async () => assert.fail('an unresolved account cannot send the draft')
+    await assert.rejects(enqueueProviderCreation({
+      tenantId: 'tenant-a', credentialReference: reference,
+      request: { label: 'Never submitted', modelFamily: 'claude', effortLevels: [] },
+    }), /identity unresolved/)
+    assert.deepEqual(discarded, [reference])
+  } finally {
+    globalThis.fetch = savedFetch
+    if (savedWindow) Object.defineProperty(globalThis, 'window', savedWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+    refreshAccount(null)
+    resetAll()
+  }
+})
+
 test('switching account during native provisioning never submits the abandoned provider', { timeout: 5_000 }, async () => {
   const savedFetch = globalThis.fetch
   const savedWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')

@@ -108,7 +108,12 @@ test('env vars pre-latch the binding; typed credentials must then match', async 
   const c = spawnConnector({ RELAY_URL: stub.url, RELAY_SECRET: 'rv_live_env' })
   try {
     assert.match(await callTool(c, 'start'), /Nothing pending/, 'argument-less start drains the pre-latched relay')
-    assert.equal(stub.seen[0]!.auth, 'Bearer rv_live_env')
+    // The start acknowledgement can win the race with the background poll
+    // under full-suite load; wait for the observable wire receipt before
+    // asserting which credential was sent.
+    await waitForPoll(stub, '/v1/relay/poll?channels=8&images=1')
+    const firstPoll = stub.seen.find((request) => request.path === '/v1/relay/poll?channels=8&images=1')
+    assert.equal(firstPoll?.auth, 'Bearer rv_live_env')
     assert.match(await callTool(c, 'start', { secret: 'rv_live_other' }), /already bound/, 'env binding wins over typed credentials')
     assert.ok(stub.seen.every((s) => s.auth === 'Bearer rv_live_env'), 'the pre-latched credentials are the only ones on the wire')
   } finally {

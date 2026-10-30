@@ -457,6 +457,15 @@ choices and suppresses misleading effort controls. Draft Usage retains that exac
 ID without borrowing another model's metadata. Conversation Send and nontrivial
 compaction enforce the same identity wall before new work.
 
+Before registration, Load models is an explicit transient read of the entered
+connection, not a registry or readiness claim. It needs no guessed model ID;
+the user chooses a returned ID or keeps manual entry when listing is unavailable.
+Changing the connection invalidates the listing, and Cancel/account changes
+fence late results. On desktop, discovery stages one encrypted credential and
+passes that exact reference to Create; only an unused draft-owned reference is
+discarded locally. Create remains the separate verification and durable
+registration ceremony, retaining its acknowledgement and uncertain-retry rules.
+
 A removed provider is likewise unresolved, not permission to inherit a different
 connection. The shared picker retains the sole remaining provider as an explicit
 recovery choice when necessary, with no borrowed selected checkmark. Once that

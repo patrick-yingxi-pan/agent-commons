@@ -136,6 +136,14 @@ async function capturePicker(page: Page, testInfo: TestInfo, state: string, view
       await picker.evaluate(element => element.scrollWidth <= element.clientWidth) &&
       await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)
   }, { message: `${viewport.width}x${viewport.height}: picker geometry, internal overflow, and page width stay within bounds` }).toBe(true)
+  // The landscape reachability click saves an effort preference. Its HTTP
+  // acknowledgement can arrive during axe's scan, re-enabling rows while their
+  // disabled-opacity transition is still running. Audit the admitted choices
+  // only after that mutation and each row's painted hold have settled.
+  for (const row of await picker.locator('[data-model-choice]').all()) {
+    await expect(row).toBeEnabled()
+    await settledOpaquePaint(row)
+  }
   await assertWcag22Aa(page, `provider effort ${state} picker ${viewport.width}x${viewport.height}`)
   await page.screenshot({ path: testInfo.outputPath(`provider-effort-${state}-${viewport.width}x${viewport.height}.png`) })
 }

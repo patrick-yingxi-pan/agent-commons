@@ -8,9 +8,11 @@ import {
   useProviderConnectionStatus,
 } from '../controller/providerConnectionMutations.ts'
 import { enqueueProviderCreation } from '../controller/providerCreationMutations.ts'
+import { useProviderModelDiscovery } from '../controller/useProviderModelDiscovery.ts'
 import { updateProviderDefinition } from '../controller/providerDefinitionMutations.ts'
 import { providerProtocolLabel, providerSetupDefaults, type ProviderProtocol, type ProviderSetupPreset } from '../lib/providerSetup.ts'
 import { FORM_INPUT_CLASS } from '../lib/formInput.ts'
+import { SECONDARY_BUTTON_CLASS } from '../lib/button.ts'
 import { FormDialog, FormField } from './FormDialog.tsx'
 import { DefaultToggle } from './Checkbox.tsx'
 import { RelayBadge, RelaySecretPanel } from './RelaySecretPanel.tsx'
@@ -67,6 +69,14 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
   const [replyOutputTokens, setReplyOutputTokens] = useState<number | ''>(DEFAULT_REPLY_OUTPUT_TOKENS)
   const [apiKeyEnv, setApiKeyEnv] = useState('')
   const [apiKey, setApiKey] = useState('')
+  const [needsNewKey, setNeedsNewKey] = useState(false)
+  const discovery = useProviderModelDiscovery(tenantId, () => { setApiKey(''); setNeedsNewKey(false) })
+  const discovering = discovery.status === 'loading'
+  const availableModelsId = useId()
+  const resetDiscovery = () => {
+    if (discovery.hasCredential) setNeedsNewKey(true)
+    discovery.reset()
+  }
   const hasSecureDeviceVault = desktopCredentialsAvailable()
   const [isDefault, setIsDefault] = useState(provider?.isDefault ?? false)
   const [error, setError] = useState<string | null>(null)
@@ -77,9 +87,11 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
   const familyChanged = !!provider && !isSession && family.trim() !== (original?.modelFamily ?? '')
   const defaultChanged = !!provider && isDefault !== (original?.isDefault ?? false)
   const hasEditChanges = labelChanged || familyChanged || defaultChanged
+  const keyReady = !hasSecureDeviceVault || !needsNewKey || !!apiKey.trim() || discovery.hasCredential
   const canSubmit = label.trim().length > 0 &&
     (isSession || (family.trim().length > 0 && (provider !== null || (model.trim().length > 0 && baseURL.trim().length > 0 && isReplyOutputTokens(replyOutputTokens))))) &&
-    (!!provider || !!tenantId) && (!provider || hasEditChanges) && !busy
+    (!!provider || !!tenantId) && (!provider || hasEditChanges) &&
+    (provider !== null || isSession || keyReady) && !busy && !discovering
 
   const submit = async () => {
     if (!canSubmit) return
@@ -112,6 +124,8 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
         setMinted(result.provider)
       } else {
         if (!isReplyOutputTokens(replyOutputTokens)) return
+        const credentialReference = discovery.takeCredential()
+        if (credentialReference) setNeedsNewKey(true)
         const result = await enqueueProviderCreation({
           tenantId: tenantId!,
           request: {
@@ -119,7 +133,8 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
             config: { protocol, baseURL: baseURL.trim(), model: model.trim(), replyOutputTokens, ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}) },
             ...(isDefault ? { isDefault } : {}),
           },
-          ...(hasSecureDeviceVault && apiKey.trim() ? { deviceSecret: apiKey.trim() } : {}),
+          ...(credentialReference ? { credentialReference }
+            : hasSecureDeviceVault && apiKey.trim() ? { deviceSecret: apiKey.trim() } : {}),
         })
         if (result.outcome === 'discarded') {
           setError('Your provider details are still here. Review them, then create again when ready.')
@@ -139,11 +154,12 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
 
   if (minted?.secret) return <RelaySecretPanel provider={minted} secret={minted.secret} onClose={onClose} />
   return <FormDialog title={provider ? 'Edit provider' : 'New provider'} icon={<Cpu size={18} className="text-ink-soft" />}
-    submitLabel={provider ? 'Save' : 'Create'} canSubmit={canSubmit} onSubmit={submit} onClose={onClose} error={error} busy={busy}>
+    submitLabel={provider ? 'Save' : 'Create'} canSubmit={canSubmit} onSubmit={submit}
+    onClose={() => { discovery.reset(); onClose() }} error={error} busy={busy} fieldsDisabled={busy || discovering}>
     {!provider && <FormField label="Kind">
       <div className="flex gap-1 rounded-lg border border-line bg-panel p-1">
         {([['endpoint', 'API endpoint'], ['session', 'My AI session']] as const).map(([value, text]) =>
-          <button key={value} type="button" onClick={() => setKind(value)} className={`flex-1 rounded-md px-2 py-1 text-[12px] font-medium transition ${kind === value ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-faint hover:text-ink-soft'}`}>{text}</button>)}
+          <button key={value} type="button" onClick={() => { if (value !== kind) resetDiscovery(); setKind(value) }} className={`flex-1 rounded-md px-2 py-1 text-[12px] font-medium transition ${kind === value ? 'bg-surface text-ink ring-1 ring-line-strong' : 'text-ink-faint hover:text-ink-soft'}`}>{text}</button>)}
       </div>
       {isSession && <span className="mt-1.5 flex items-start gap-1.5 text-[11px] text-ink-faint"><span className="mt-0.5 shrink-0"><RelayBadge /></span>
         An AI session you already run does the thinking — nothing to dial, no key. You get a one-time rendezvous secret and a drain loop to start; tool calls are relayed through your session unexecuted, so relation cards and escalations still land here as consent prompts.
@@ -154,28 +170,57 @@ export function ProviderDialog({ provider, onClose, onCreated }: ProviderDialogP
     {!isSession && <>
       {!provider && <FormField label="Provider preset"><select value={preset} onChange={event => {
         const nextPreset = event.target.value as ProviderSetupPreset
+        resetDiscovery()
         setPreset(nextPreset)
         const defaults = providerSetupDefaults(nextPreset)
         if (!defaults) return
         setProtocol(defaults.protocol); setBaseURL(defaults.baseURL); setModel(defaults.model); setFamily(defaults.modelFamily)
       }} className={FORM_INPUT_CLASS}>
         <option value="custom">Custom</option><option value="anthropic">Claude / Anthropic</option><option value="openai">OpenAI</option><option value="deepseek">DeepSeek</option>
-      </select><span className="mt-1 block text-[11px] text-ink-faint">Presets fill editable connection fields. The model ID is required; capabilities come from the provider catalog.</span></FormField>}
-      {!provider && <FormField label="Protocol"><select value={protocol} onChange={event => setProtocol(event.target.value as ProviderProtocol)} className={FORM_INPUT_CLASS}>
+      </select><span className="mt-1 block text-[11px] text-ink-faint">Presets fill editable connection fields. Load the provider’s models or enter a model ID manually.</span></FormField>}
+      {!provider && <FormField label="Protocol"><select value={protocol} onChange={event => { resetDiscovery(); setProtocol(event.target.value as ProviderProtocol) }} className={FORM_INPUT_CLASS}>
         <option value="anthropic-messages">Anthropic Messages</option><option value="openai-responses">OpenAI Responses</option>
       </select></FormField>}
       <FormField label="Model family"><input value={family} onChange={e => setFamily(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="claude" className={FORM_INPUT_CLASS} />
         <span className="mt-1 block text-[11px] text-ink-faint">A system prompt tuned for a different family shows a fit warning when picked.</span></FormField>
       {!provider && <>
-        <FormField label="Endpoint URL"><input type="url" value={baseURL} onChange={e => setBaseURL(e.target.value)} placeholder="https://models.example.com/v1" className={FORM_INPUT_CLASS} />
+        <FormField label="Endpoint URL"><input type="url" value={baseURL} onChange={e => { resetDiscovery(); setBaseURL(e.target.value) }} placeholder="https://models.example.com/v1" className={FORM_INPUT_CLASS} />
           <span className="mt-1 block text-[11px] text-ink-faint">The URL is editable. The selected protocol is verified before it is saved.</span></FormField>
+        <p className="text-[11px] leading-snug text-ink-faint">Provider API access uses a separate API key; a consumer chat subscription does not supply one.</p>
+        {hasSecureDeviceVault ? <FormField label={needsNewKey ? 'API key (required again)' : 'API key (optional)'}><input type="password" value={apiKey} onChange={e => { resetDiscovery(); setApiKey(e.target.value) }} placeholder="Paste API key" autoComplete="new-password" spellCheck={false} className={FORM_INPUT_CLASS} />
+          <span className="mt-1 block text-[11px] text-ink-faint">{discovery.hasCredential
+            ? 'Key prepared securely for this draft. Leave blank to use it; typing a replacement or changing the connection discards it.'
+            : needsNewKey
+              ? 'Re-enter the API key before loading models or creating again. The prepared key is no longer available in this draft. Cancel and reopen to set up a connection without a key.'
+              : 'Encrypted for your OS account and kept outside Agent Commons data. The backend stores only a generated reference.'}</span></FormField>
+          : <FormField label="Credential variable (optional)"><input value={apiKeyEnv} onChange={e => { resetDiscovery(); setApiKeyEnv(e.target.value.toUpperCase()) }} placeholder="PROVIDER_TEAM_KEY" className={FORM_INPUT_CLASS} />
+            <span className="mt-1 block text-[11px] text-ink-faint">Enter a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Only its name is stored; the secret never enters this app.</span></FormField>}
+        <div className="space-y-2" data-provider-model-discovery={discovery.status}>
+          <button type="button" disabled={!tenantId || !baseURL.trim() || !keyReady || busy || discovering}
+            title={!keyReady ? 'Re-enter the API key first' : !baseURL.trim() ? 'Enter an endpoint URL first' : undefined}
+            onClick={() => void discovery.load({ protocol, baseURL: baseURL.trim(),
+              ...(!hasSecureDeviceVault && apiKeyEnv.trim() ? { apiKeyEnv: apiKeyEnv.trim() } : {}),
+            }, hasSecureDeviceVault ? apiKey.trim() : undefined)}
+            className={`${SECONDARY_BUTTON_CLASS} px-3 py-1.5 text-[12px] disabled:cursor-not-allowed disabled:opacity-50`}>
+            {discovering ? 'Loading models…' : 'Load models'}
+          </button>
+          <p className="text-[11px] leading-relaxed text-ink-faint">Listing models does not generate a reply or save this provider. Create verifies the selected connection before saving; listing alone does not prove it can run.</p>
+          {discovering && <p role="status" className="text-[12px] text-ink-soft">Loading the provider’s model list… You can cancel this draft.</p>}
+          {discovery.error && <p role="alert" className="text-[12px] text-danger-text">{discovery.error}</p>}
+          {discovery.status === 'loaded' && <>
+            <p role="status" className="text-[12px] text-ink-soft">{discovery.models.length} models listed. Choose one, or enter an ID below.</p>
+            <FormField label="Available models" controlId={availableModelsId}>
+              <select id={availableModelsId} value={discovery.models.some(choice => choice.id === model) ? model : ''}
+                onChange={event => { if (event.target.value) setModel(event.target.value) }}
+                className={`${FORM_INPUT_CLASS} min-w-0`}>
+                <option value="">Choose a model…</option>
+                {discovery.models.map(choice => <option key={choice.id} value={choice.id}>{choice.label === choice.id ? choice.id : `${choice.label} · ${choice.id}`}</option>)}
+              </select>
+            </FormField>
+          </>}
+        </div>
         <FormField label="Model ID"><input value={model} onChange={e => setModel(e.target.value)} placeholder="Enter the model ID from the provider" className={FORM_INPUT_CLASS} /></FormField>
         <ReplyOutputLimitField value={replyOutputTokens} onChange={setReplyOutputTokens} />
-        <p className="text-[11px] leading-snug text-ink-faint">Provider API access uses a separate API key; a consumer chat subscription does not supply one.</p>
-        {hasSecureDeviceVault ? <FormField label="API key (optional)"><input type="password" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="Paste API key" autoComplete="new-password" spellCheck={false} className={FORM_INPUT_CLASS} />
-          <span className="mt-1 block text-[11px] text-ink-faint">Encrypted for your OS account and kept outside Agent Commons data. The backend stores only a generated reference.</span></FormField>
-          : <FormField label="Credential variable (optional)"><input value={apiKeyEnv} onChange={e => setApiKeyEnv(e.target.value.toUpperCase())} placeholder="PROVIDER_TEAM_KEY" className={FORM_INPUT_CLASS} />
-            <span className="mt-1 block text-[11px] text-ink-faint">Enter a <span className="font-mono">PROVIDER_*</span> variable already available to the server. Only its name is stored; the secret never enters this app.</span></FormField>}
       </>}
     </>}
     <DefaultToggle checked={isDefault} onChange={setIsDefault} entity="provider" />

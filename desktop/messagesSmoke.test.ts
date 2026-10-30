@@ -64,11 +64,32 @@ function assertWorkflow(smoke: string) {
     assert.ok(at > previous, `packaged Messages acceptance retains ${stage} in order`)
     previous = at
   }
+  let discoveryStep = -1
+  for (const fragment of [
+    "getByLabel('Model ID', { exact: true }).fill('')",
+    "getByRole('button', { name: 'Load models', exact: true }).click()",
+    "toHaveAttribute('data-provider-model-discovery', 'loaded')",
+    "getByRole('combobox', { name: 'Available models', exact: true }).selectOption(MESSAGES_SMOKE_MODEL)",
+    'assert.equal(fixture.requests.length, 0',
+    "assert.deepEqual(await api(page, '/providers'), providersBeforeDiscovery",
+    "assert.deepEqual(await api(page, '/viewer-preferences/model'), preferencesBeforeDiscovery",
+    'assert.equal(provisionalVault.entries[preparedReference].providerId, undefined',
+    "getByRole('button', { name: 'Create', exact: true }).click()",
+    'assert.deepEqual(Object.keys(originalVault.entries), [preparedReference]',
+    'assert.equal(originalVault.entries[preparedReference].providerId, provider.id',
+  ]) {
+    const at = smoke.indexOf(fragment)
+    assert.ok(at > discoveryStep, `Messages discovery checks ${fragment} in order`)
+    discoveryStep = at
+  }
   for (const fragment of [
     "selectOption(family === 'claude' ? 'anthropic' : 'deepseek')",
     "toHaveValue('anthropic-messages')",
     'assert.equal(provider.models.length, 2',
     'assert.equal(fixture.catalogCount, 2)',
+    'assert.equal(fixture.catalogCount, 4)',
+    "getByPlaceholder('Paste API key', { exact: true })).toHaveValue('')",
+    'assert.equal(Object.keys(provisionalVault.entries).length, 1',
     "getByText('This model declares no effort levels.'",
     'assertMessagesToolRound(fixture.requests, completed)',
     "assert.equal(fixture.requests.length, 5, 'quota refusal does not trigger transport replay')",
@@ -95,6 +116,8 @@ test('the packaged Messages workflow covers both provider flavors and durable re
   const smoke = source('./messagesSmoke.mjs')
   assertWorkflow(smoke)
   for (const [from, to] of [
+    ["getByRole('button', { name: 'Load models', exact: true }).click()", "getByRole('button', { name: 'Skip discovery', exact: true }).click()"],
+    ['assert.deepEqual(Object.keys(originalVault.entries), [preparedReference]', 'assert.deepEqual(Object.keys(originalVault.entries), []'],
     ['assert.equal(provider.models.length, 2', 'assert.equal(provider.models.length, 1'],
     ['assertMessagesToolRound(fixture.requests, completed)', 'void(fixture.requests, completed)'],
     ["assert.equal(refused.session.messages.at(-2).content, 'Explain a provider quota refusal safely.')", "assert.equal(refused.session.messages.at(-2).content, 'Changed quota prompt.')"],

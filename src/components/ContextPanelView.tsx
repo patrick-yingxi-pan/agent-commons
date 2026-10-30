@@ -21,6 +21,7 @@ import { DeferredAttachmentPanel } from './DeferredAttachmentPanel'
 import { DeferredDiscussionContextPanel } from './DeferredDiscussionContextPanel'
 import { DeferredArtifactContextPanel } from './DeferredArtifactContextPanel'
 import { usePaneConversation } from '../controller/usePaneConversation'
+import { focusValidIn } from '../data/liveSession'
 import { useSessionContextCommands } from '../controller/useSessionContextCommands'
 import { useContextWritable } from '../controller/useContextWritable'
 import { dismissContextMutation, retryContextMutation } from '../controller/contextMutations'
@@ -77,7 +78,8 @@ export function ContextPanelView({
         return attachment ? <DeferredDiscussionContextPanel sessionId={sessionId} attachment={attachment} /> : null
       }
       case 'file':
-      case 'photo':
+      case 'photo': {
+        if (!focusValidIn(live, panel)) return null
         return (
           <DeferredAttachmentPanel
             kind={panel.kind}
@@ -90,6 +92,7 @@ export function ContextPanelView({
             refreshDisabled={isContextMutationHeld(contextMutation)}
           />
         )
+      }
       default:
         return null
     }

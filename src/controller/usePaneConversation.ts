@@ -131,10 +131,12 @@ export function usePaneConversation(sessionId: string): ConversationState & {
     if (canSeedConversationFromCache(entry)) {
       const seed = peek<Session>(keys.session(sessionId))
       if (seed?.id === sessionId) conversations.reset(sessionId, liveFromSession(seed))
-      // Restore the session's remembered panel (FWD-2): a stored focus, or
-      // null (explicitly closed) — both honoured over the auto-open; with no
-      // stored choice, the strongest present context opens.
-      const pref = getPanelPref(sessionId)
+      // The exact cached row includes its viewer's panel preference too. Use
+      // the shared resolver so dirty local intent still wins, but a saved
+      // close never flashes an auto-open that later remounts the conversation.
+      const pref = seed?.id === sessionId
+        ? resolvePanelPreference(sessionId, seed.viewerPreferences)
+        : getPanelPref(sessionId)
       conversations.setFocus(sessionId, pref !== undefined ? pref : strongestFocus(conversations.get(sessionId).live))
     }
 

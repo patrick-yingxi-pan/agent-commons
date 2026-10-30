@@ -605,6 +605,10 @@ test('Organize pane folds the focused page, and the posture survives a reload', 
   //  layer that never wrote anything.
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Insights dashboard' })).toBeVisible({ timeout: ms(20_000) })
+  // Changes is lazy and is not part of the fold registry until its real header
+  // mounts. Wait for that section before asking the page-wide command to unfold
+  // every section, or a section that appears afterward keeps its saved posture.
+  await expect(header(page, 'Changes')).toBeVisible()
   await expect(expanded()).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Organize pane', exact: true })).toBeVisible()
 

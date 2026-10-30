@@ -24,6 +24,7 @@ import {
   closeMainPane as closeMain,
   findFocusDrivenContext,
   getMainSplitPref,
+  paneLocationPath,
   retargetDraftPanes,
   setMainSplitPref,
   setFocusDrivenContextTree,
@@ -72,6 +73,10 @@ export function useMainSplit(opts?: {
   const [focusedPane, setFocusedPane] = useState<string>(() => firstPanePath(treeRef.current))
   const focusedRef = useRef(focusedPane)
   focusedRef.current = focusedPane
+  // User navigation and authoritative removal supersede pending boot work,
+  // including focus changes between panes with the same canonical address.
+  const navigationRevision = useRef(0)
+  const readNavigationRevision = useCallback(() => navigationRevision.current, [])
 
   /** Commit a tree edit: render + persist, and reconcile the focus cursor —
    *  a path that no longer names a pane falls back to the first pane.
@@ -79,7 +84,8 @@ export function useMainSplit(opts?: {
    *  — it is a transient projection of `focus`, re-derived on boot by the sync
    *  effect, so storing it would churn on every toggle and flash a wrong-session
    *  panel on reload (never-in-storage). */
-  const commit = useCallback((next: MainSplitNode | null) => {
+  const commit = useCallback((next: MainSplitNode | null, navigated = false) => {
+    if (navigated) navigationRevision.current += 1
     treeRef.current = next
     setMainTreeState(next)
     setMainSplitPref(withoutFocusDrivenContext(next))
@@ -99,6 +105,7 @@ export function useMainSplit(opts?: {
   const focusMainPane = useCallback((path: string) => {
     const t = treeRef.current
     if (t && nodeAt(t, path)?.kind === 'pane' && focusedRef.current !== path) {
+      navigationRevision.current += 1
       focusedRef.current = path
       setFocusedPane(path)
     }
@@ -115,7 +122,7 @@ export function useMainSplit(opts?: {
       const path = focusedRef.current
       const node = nodeAt(t, path)
       if (!node || node.kind !== 'pane') return
-      commit(splitLeaf(t, path, dir, unpinnedContent({ ...node.content })))
+      commit(splitLeaf(t, path, dir, unpinnedContent({ ...node.content })), true)
       // The new pane (the split's second half) takes focus, ready to retarget.
       focusedRef.current = `${path}b`
       setFocusedPane(focusedRef.current)
@@ -137,7 +144,7 @@ export function useMainSplit(opts?: {
     (content: MainPaneContent, push?: boolean): string => {
       const t = treeRef.current
       if (!t) {
-        commit(pane(content))
+        commit(pane(content), true)
         focusedRef.current = ''
         setFocusedPane('')
         return ''
@@ -153,7 +160,7 @@ export function useMainSplit(opts?: {
         push && node?.kind === 'pane' && content.kind !== 'context-panel'
           ? withBackPush(node.content, content, optsRef.current?.sessionTitle)
           : content
-      commit(replacePane(t, path, landing))
+      commit(replacePane(t, path, landing), true)
       return path
     },
     [commit],
@@ -164,7 +171,7 @@ export function useMainSplit(opts?: {
   const fillMainPane = useCallback(
     (path: string, content: MainPaneContent) => {
       const t = treeRef.current
-      if (t) commit(replacePane(t, path, content))
+      if (t) commit(replacePane(t, path, content), true)
     },
     [commit],
   )
@@ -172,7 +179,7 @@ export function useMainSplit(opts?: {
   const closeMainPane = useCallback(
     (path: string) => {
       const t = treeRef.current
-      if (t) commit(closeMain(t, path))
+      if (t) commit(closeMain(t, path), true)
     },
     [commit],
   )
@@ -192,9 +199,10 @@ export function useMainSplit(opts?: {
       const node = nodeAt(t, path)
       if (node?.kind !== 'pane') return
       if (node.content.kind === 'context-panel' && node.content.focusDriven) {
+        navigationRevision.current += 1
         onCloseActiveContext?.(node.content.sessionId)
       } else {
-        commit(closeMain(t, path))
+        commit(closeMain(t, path), true)
       }
     },
     [commit],
@@ -209,6 +217,14 @@ export function useMainSplit(opts?: {
    *  derives the address from this (Phase 6: the address bar is a projection
    *  of the FOCUSED pane, not of a designated primary). */
   const focusedContent = focusedNode?.kind === 'pane' ? focusedNode.content : undefined
+
+  /** Async navigation checks must see edits made in the current event, even
+   * before React has rendered their new focusedContent. */
+  const readFocusedPath = useCallback((): string => {
+    const tree = treeRef.current
+    const node = tree ? nodeAt(tree, focusedRef.current) : undefined
+    return node?.kind === 'pane' ? (paneLocationPath(node.content) ?? 'keep') : 'keep'
+  }, [])
 
   const setMainRatio = useCallback(
     (path: string, ratio: number) => {
@@ -254,7 +270,8 @@ export function useMainSplit(opts?: {
         JSON.stringify(prev.hist ?? []) === JSON.stringify(hist)
       )
         return
-      commit(updatePaneContent(t, path, { ...node.content, at, hist }))
+      const nextContent = { ...node.content, at, hist }
+      commit(updatePaneContent(t, path, nextContent), paneLocationPath(prev) !== paneLocationPath(nextContent))
     },
     [commit],
   )
@@ -271,7 +288,7 @@ export function useMainSplit(opts?: {
       // subject must vanish from history too, or the back affordance would
       // walk into a dead thread.
       const next = pruneMainTree(t, keep)
-      if (next !== t) commit(next)
+      if (next !== t) commit(next, true)
     },
     [commit],
   )
@@ -282,7 +299,7 @@ export function useMainSplit(opts?: {
     (draftId: string, realId: string) => {
       const t = treeRef.current
       const next = retargetDraftPanes(t, draftId, realId)
-      if (next !== t) commit(next)
+      if (next !== t) commit(next, true)
     },
     [commit],
   )
@@ -292,6 +309,8 @@ export function useMainSplit(opts?: {
     focusedPane,
     focusedClosable,
     focusedContent,
+    readFocusedPath,
+    readNavigationRevision,
     focusMainPane,
     splitFocused,
     routeToFocused,

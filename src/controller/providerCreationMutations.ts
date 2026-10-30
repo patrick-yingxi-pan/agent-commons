@@ -110,12 +110,21 @@ export async function enqueueProviderCreation(input: {
   tenantId: string
   request: CreateProviderRequest
   deviceSecret?: string
+  credentialReference?: string
 }): Promise<ProviderCreationMutationResult> {
-  const intent: ProviderCreationIntent = {
-    ...input,
-    ...captureProviderCreationSource(input.tenantId),
-    request: structuredClone(input.request),
-    intentId: crypto.randomUUID(),
+  let intent: ProviderCreationIntent
+  try {
+    intent = {
+      ...input,
+      ...captureProviderCreationSource(input.tenantId),
+      request: structuredClone(input.request),
+      intentId: crypto.randomUUID(),
+    }
+  } catch (error) {
+    // Discovery transferred a never-submitted key; the queue has not accepted
+    // it yet. After enqueue, only the acknowledgement lifecycle may retire it.
+    if (input.credentialReference) await discardDesktopCredential(input.credentialReference).catch(() => {})
+    throw error
   }
   // Dismiss and account switching both release the visible intent, but neither
   // can prove a transport-aborted server request is no longer in flight. Keep

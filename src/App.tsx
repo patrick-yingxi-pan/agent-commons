@@ -209,6 +209,8 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
     focusedPane,
     focusedClosable,
     focusedContent,
+    readFocusedPath,
+    readNavigationRevision,
     focusMainPane,
     splitFocused,
     routeToFocused,
@@ -286,7 +288,7 @@ function Workspace({ instanceAdmin }: { instanceAdmin: boolean }) {
     renameSession,
     archiveSession,
     deleteSession,
-  } = useSessionWorkspace({ focusedPath, applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty })
+  } = useSessionWorkspace({ focusedPath, readFocusedPath, readNavigationRevision, applyRouteToFocused, applyPopRoute, applyBootRoute, routeDoor, routeSession, routeSection, mintIfEmpty })
 
   // LIVE PRUNE, the delete half: deleting a session evicts EVERY pane it
   // hosts — its conversation panes and its context panes alike (hostsSession),
