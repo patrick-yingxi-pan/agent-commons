@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { tooltipLifecycle } from '../lib/tooltipLifecycle.ts'
 
 /** A bubble that appears after a short hover delay — for icon-only controls whose
  *  purpose isn't obvious at a glance (e.g. the connect/disconnect plug). Rendered
@@ -16,36 +17,24 @@ export function Tooltip({
 }) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null)
   const ref = useRef<HTMLSpanElement>(null)
-  const timer = useRef<number | undefined>(undefined)
+  const owner = useRef({})
 
-  /** Two triggers share one timer slot, so this MUST clear before it sets.
-   *
-   *  Hover and focus both open, and a click fires both: `mouseenter` starts one
-   *  timer, `mousedown`'s focus starts another over the top of the handle, and
-   *  `cancel` can then only clear the second. The first survives its own
-   *  cancellation and fires afterwards — a bubble that appears with the pointer
-   *  somewhere else entirely and stays until the button loses focus, which for a
-   *  control you clicked and walked away from is indefinitely.
-   *
-   *  Latent in every `<Tooltip>` in the app (any hover-then-click within the
-   *  delay reaches it) and invisible until 2026-08-12, because it needs a
-   *  tooltipped control that OUTLIVES its own click — the per-post unfold-all
-   *  used to unmount as it was pressed, taking the stuck bubble with it. Found
-   *  by an unrelated assertion two acts later reading the wrong tooltip. */
+  // One lifecycle owns both hover and focus, across instances as well as
+  // within this control. A still-focused control cannot leave its bubble over
+  // the next hovered act, nor can its later blur close that new explanation.
   const openSoon = () => {
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => {
+    tooltipLifecycle.open(owner.current, () => {
       const el = ref.current
-      if (!el) return
+      if (!el?.isConnected) return
       const r = el.getBoundingClientRect()
       setPos({ x: r.left + r.width / 2, y: r.top })
-    }, delay)
+    }, () => setPos(null), delay)
   }
-  const cancel = () => {
-    window.clearTimeout(timer.current)
-    setPos(null)
-  }
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const cancel = () => tooltipLifecycle.cancel(owner.current)
+  useEffect(() => {
+    const identity = owner.current
+    return () => tooltipLifecycle.cancel(identity, false)
+  }, [])
 
   return (
     <span

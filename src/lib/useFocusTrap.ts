@@ -23,6 +23,8 @@ function getFocusable(root: HTMLElement | null): HTMLElement[] {
  * @param dialogRef the dialog container to trap focus within
  * @param onClose   invoked on Escape (the modal's dismiss path)
  * @param options.initialFocus  element to focus on open (defaults to first focusable)
+ * @param options.returnFocus   explicit opener when asynchronous preparation loses focus;
+ *                              captured on mount, never re-read after navigation
  * @param options.closeOnEscape bind Escape → onClose (default true); pass false when
  *                              the dialog handles Escape itself (e.g. a capture-phase
  *                              handler that must run before an ancestor's)
@@ -32,9 +34,10 @@ function getFocusable(root: HTMLElement | null): HTMLElement[] {
 export function useFocusTrap<T extends HTMLElement, F extends HTMLElement = HTMLElement>(
   dialogRef: RefObject<T | null>,
   onClose: () => void,
-  options?: { initialFocus?: RefObject<F | null>; closeOnEscape?: boolean; isolateEscape?: boolean },
+  options?: { initialFocus?: RefObject<F | null>; returnFocus?: RefObject<HTMLElement | null>; closeOnEscape?: boolean; isolateEscape?: boolean },
 ): void {
   const initialFocus = options?.initialFocus
+  const returnFocus = options?.returnFocus
   const closeOnEscape = options?.closeOnEscape ?? true
   const isolateEscape = options?.isolateEscape ?? false
 
@@ -43,7 +46,7 @@ export function useFocusTrap<T extends HTMLElement, F extends HTMLElement = HTML
   // inline arrows), or every keystroke in the dialog would yank the caret back
   // to the initial element.
   useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null
+    const opener = returnFocus?.current ?? (document.activeElement as HTMLElement | null)
     const target = initialFocus?.current ?? getFocusable(dialogRef.current)[0] ?? dialogRef.current
     target?.focus()
     return () => opener?.focus?.()

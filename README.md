@@ -30,6 +30,9 @@ third-party exclusions. Contributions are accepted under the same AGPLv3-only
 license, with contributors retaining their copyrights and no separate contributor
 agreement required. Read [Contributing](CONTRIBUTING.md) before submitting code.
 
+Report suspected vulnerabilities through the private channel in the
+[security policy](SECURITY.md).
+
 ## What the platform supports
 
 - **People and agent workers.** Accounts register providers and system prompts,

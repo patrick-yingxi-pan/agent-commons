@@ -142,9 +142,14 @@ test('the overlay panel separator takes RAPID keyboard steps, announces its valu
   // crowded or reordered by other fixtures; this test is about the panel
   // separator, not sidebar membership or row reveal behavior.
   await page.goto('/s/auth-refactor')
-  const panelHandle = page.getByRole('separator', { name: 'Resize panel' })
+  const dock = page.locator('[data-overlay-dock="medium"]')
+  // The loading fallback owns a separate shell. Measure and focus only after
+  // the real repository body has replaced it, so keys target the lasting handle.
+  await expect(dock.getByRole('button', { name: 'Diff', exact: true })).toBeVisible()
+  await expect(dock.locator('[data-workspace-panel-load]')).toHaveCount(0)
+  const panelHandle = dock.getByRole('separator', { name: 'Resize panel' })
   await expect(panelHandle).toBeVisible()
-  const panel = page.locator('div.border-l.bg-panel').first()
+  const panel = dock.locator('div.border-l.bg-panel').first()
   const w0 = await settled(page, panel, 'width')
   const v0 = Number(await panelHandle.getAttribute('aria-valuenow'))
   expect(v0, 'the separator announces a plausible current width').toBeGreaterThanOrEqual(300)
@@ -155,6 +160,7 @@ test('the overlay panel separator takes RAPID keyboard steps, announces its valu
   // flag dropping inside the batched commit), the second press re-snaps to the
   // mid-flight rect and this total comes up short.
   await panelHandle.focus()
+  await expect(panelHandle).toBeFocused()
   await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('ArrowLeft')
   const w1 = await settled(page, panel, 'width')

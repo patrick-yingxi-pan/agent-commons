@@ -15,8 +15,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { ROOT, filesUnder, stripComments } from './helpers/source.ts'
-import { createVerifyInterruptionFixture, removeVerifyInterruptionFixture, startFixtureVerifier } from './helpers/verifyInterruptionFixture.mjs'
-import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteConcurrency, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
+import { createVerifyInterruptionFixture, removeVerifyInterruptionFixture, startFixtureVerifier, waitForFixtureFile } from './helpers/verifyInterruptionFixture.mjs'
+import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteBatches, suiteConcurrency, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
 
 test('browser acceptance never depends on the owner preview origin', () => {
   const sources = filesUnder('e2e')
@@ -97,6 +97,46 @@ test('coverage mismatch emits the E2E lane tail and exits nonzero', { timeout: 1
     assert.doesNotMatch(verifier.output(), /coverage mismatch diagnostics/)
   } finally {
     await removeVerifyInterruptionFixture(fixture, verifier)
+  }
+})
+
+test('fixture launchers isolate a held lane and cleanup retires its entire owned process tree', { timeout: 15_000 }, async () => {
+  const fixture = await createVerifyInterruptionFixture()
+  const verifier = startFixtureVerifier(fixture, { holdTypecheck: true, runnerArgs: ['checks'] })
+  try {
+    const ready = JSON.parse(await waitForFixtureFile(join(fixture.state, 'ready.json')))
+    assert.equal(readFileSync(join(fixture.state, 'steps.log'), 'utf8'), 'npm run typecheck\n',
+      'the fixture npm shim runs instead of the host npm executable')
+    assert.equal(verifier.child.exitCode, null, 'cleanup has a live verifier and held descendant to retire')
+    process.kill(ready.pid, 0)
+    await removeVerifyInterruptionFixture(fixture, verifier)
+    assert.throws(() => process.kill(ready.pid, 0), { code: 'ESRCH' }, 'the held shim cannot outlive cleanup')
+    assert.throws(() => readFileSync(join(fixture.root, 'package.json')), { code: 'ENOENT' })
+    const result = await verifier.closed
+    assert.ok(result.code !== 0 || result.signal !== null, 'cleanup never presents interrupted work as green')
+  } finally {
+    await removeVerifyInterruptionFixture(fixture, verifier)
+  }
+})
+
+test('parallel verifier partitions own distinct absolute Playwright transform caches', { timeout: 15_000 }, async () => {
+  const fixture = await createVerifyInterruptionFixture()
+  const verifiers = [1, 2].map(part => startFixtureVerifier(fixture, {
+    reportedPasses: 1, runnerArgs: ['e2e'], partition: { part, parts: 2 },
+  }))
+  try {
+    const results = await Promise.all(verifiers.map(verifier => verifier.closed))
+    results.forEach((result, i) => assert.equal(result.code, 0, verifiers[i].output()))
+    const caches = [0, 1].map(shard => {
+      const env = JSON.parse(readFileSync(join(fixture.state, `npx-env-${shard}.json`), 'utf8'))
+      assert.equal(env.shard, String(shard))
+      assert.equal(env.cacheDir, join(fixture.root, '.data', 'playwright-transform-cache', `shard-${shard}`),
+        'each actual browser lane receives its own project-local absolute cache directory')
+      return env.cacheDir
+    })
+    assert.equal(new Set(caches).size, 2, 'concurrent collectors cannot truncate each other\'s compiled modules')
+  } finally {
+    for (const verifier of verifiers) await removeVerifyInterruptionFixture(fixture, verifier)
   }
 })
 
@@ -207,13 +247,32 @@ test('Node test concurrency comes from one valid bounded npm test option', () =>
   }
 })
 
+test('Windows Node invocations partition the exact suite manifest within a bounded command line', () => {
+  const files = Array.from({ length: 1_000 }, (_, i) => `suite with spaces/nested/${i}-${'long-name-'.repeat(8)}.test.ts`)
+  assert.ok(files.join(' ').length > 32_767, 'the fixture exceeds the Windows process command-line limit')
+  for (const manifest of [files, suiteFiles()]) {
+    const batches = suiteBatches(manifest, 'win32')
+    assert.ok(batches.length > 1, 'the large manifest is actually divided')
+    assert.deepEqual(batches.flat(), manifest, 'every original path runs exactly once and in order')
+    for (const batch of batches) {
+      assert.ok(batch.length > 0, 'an empty invocation could discover unplanned suites')
+      assert.ok(batch.reduce((size, file) => size + file.length * 2 + 3, 0) <= 6_000,
+        'even Windows argument quoting remains below the reserved argument budget')
+    }
+  }
+  assert.deepEqual(suiteBatches(files, 'linux'), [files], 'other platforms retain one Node invocation')
+  assert.throws(() => suiteBatches([], 'win32'), /empty.*suite|suite.*empty/i)
+  assert.throws(() => suiteBatches(['x'.repeat(6_000)], 'win32'), /command.line|argument.*budget/i,
+    'an individually oversized path fails before launching any partial suite')
+})
+
 test('verification keeps complete suite coverage and uses the npm test concurrency', () => {
   const runner = stripComments(readFileSync(join(ROOT, 'scripts', 'verify.mjs'), 'utf8'))
   assert.match(runner, /const SUITE = suiteFiles\(\)/, 'the planned node suite list is unchanged')
   assert.match(runner, /const NODE_TEST_CONCURRENCY = suiteConcurrency\(\)/)
   assert.match(
     runner,
-    /args: \['--test', `--test-concurrency=\$\{NODE_TEST_CONCURRENCY\}`, \.\.\.SUITE\]/,
+    /suiteBatches\(SUITE\)\.map\(\(files\) => \(\{[\s\S]*?args: \['--test', `--test-concurrency=\$\{NODE_TEST_CONCURRENCY\}`, \.\.\.files\]/,
     'the verifier passes the npm-owned concurrency without changing the suite manifest',
   )
 })
@@ -356,6 +415,10 @@ test('the runner survives a step it cannot even spawn', () => {
   // and an un-stripped scan matches the ban itself.
   const src = stripComments(readFileSync(join(ROOT, 'scripts', 'verify.mjs'), 'utf8'))
   assert.match(src, /child\.on\('error'/, "the child's 'error' event is handled")
+  assert.match(src, /try\s*\{\s*child = spawn\([\s\S]*?\}\s*catch \(err\)\s*\{\s*return \{ code: 1, out:/,
+    'a synchronous spawn refusal fails its lane without abandoning sibling children')
+  assert.match(src, /shell: process\.platform === 'win32' && st\.cmd !== 'node'/,
+    'Node test arguments bypass the Windows shell and its shorter command-line limit')
   assert.match(src, /process\.exitCode/, 'the exit is a code, not process.exit')
   assert.doesNotMatch(
     src,

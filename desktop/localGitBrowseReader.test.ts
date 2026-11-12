@@ -11,7 +11,7 @@ import { createLocalGitReader, localGitCommandEnvironment } from './localGitRead
 import { localBrowseFileByteLimit } from '../contract/localFileBrowse.mjs'
 
 const fileExecutable = buildGitFileTestHelper()
-const gitExecutable = join(bundledGitDirectory({ packaged: false }), 'git')
+const gitExecutable = process.platform === 'darwin' ? join(bundledGitDirectory({ packaged: false }), 'git') : ''
 const native = { skip: process.platform !== 'darwin' }
 
 async function fixture(t, readHook = async (_base, _name, _options, _value) => {}) {

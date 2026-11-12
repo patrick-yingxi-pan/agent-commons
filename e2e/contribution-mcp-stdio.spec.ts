@@ -62,7 +62,9 @@ type NativeFixture = {
 }
 
 async function startNativeFixture(mode: 'success' | 'uncertain' = 'success'): Promise<NativeFixture> {
-  const supervisor = createMcpStdioSupervisor()
+  // Exercise the authored Node peer through real POSIX pipes on macOS/Linux.
+  // This explicit test seam is not native platform or packaged-app acceptance.
+  const supervisor = createMcpStdioSupervisor({ targetPlatform: 'darwin' })
   const toolCalls: NativeFixture['toolCalls'] = []
   const opens: NativeFixture['opens'] = []
   const protocolCalls: string[] = []

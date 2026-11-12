@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { basename } from 'node:path'
 import { filesUnder, read, stripComments } from '../../tests/helpers/source.ts'
 import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, dialogReadRegionProps, namedReadRegionProps } from './dialog.ts'
 
@@ -10,7 +11,12 @@ test('prose-only dialog bodies share named keyboard-scroll access', () => {
   const consumers = filesUnder('src').filter(file => file.endsWith('.tsx'))
     .map(file => ({ file, source: stripComments(read(file)) }))
     .filter(({ source }) => /dialogReadRegionProps|data-dialog-read-region/.test(source))
-  assert.ok(consumers.some(({ file }) => file.endsWith('/ConversationDownload.tsx')))
+  for (const component of ['ConversationDownload.tsx', 'ConfirmDialog.tsx']) {
+    assert.ok(consumers.some(({ file }) => basename(file) === component), `${component} exposes its prose-only scroll body`)
+  }
+  const confirm = stripComments(read('src/components/ConfirmDialog.tsx'))
+  assert.match(confirm, /<div\s+\{\.\.\.dialogReadRegionProps\('Confirmation details'\)\}\s+className=\{BOUNDED_DIALOG_BODY_CLASS\}>/,
+    'confirmation keyboard access belongs to the overflowing body, not its fixed actions')
   for (const { file, source } of consumers) {
     assert.match(source, /\{\.\.\.dialogReadRegionProps\('/, file)
     assert.doesNotMatch(source, /data-dialog-read-region=/, `${file} uses the shared accessibility props`)
@@ -50,7 +56,7 @@ test('every bounded dialog composes the whole layout and exposes the browser enu
     assert.match(source, /data-bounded-dialog=/, `${file} is discoverable for rendered geometry checks`)
     assert.match(source, /useBoundedDialog\(dialogRef\)/, `${file} observes the available workspace below shell notices`)
   }
-  for (const file of filesUnder('src').filter((file) => !file.endsWith('/lib/dialog.ts'))) {
+  for (const file of filesUnder('src').filter((file) => !file.replaceAll('\\', '/').endsWith('/lib/dialog.ts'))) {
     const source = stripComments(read(file))
     for (const literal of [BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS]) {
       assert.ok(!source.includes(literal), `${file} must not duplicate bounded dialog layout`)

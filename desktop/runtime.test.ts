@@ -30,13 +30,13 @@ test('desktop distributions retain the public license and project licensing noti
 })
 
 test('packaged Undici acceptance requires the patched reviewed major, not a larger unreviewed major', () => {
-  for (const version of ['7.29.1', '7.29.2', '7.30.0']) {
+  for (const version of ['7.30.1', '7.30.2', '7.31.0']) {
     assert.doesNotThrow(() => assertReviewedEmbeddedUndici(version), version)
   }
-  for (const version of ['7.29.0', '7.28.9', '6.99.99', '8.0.0', '8.3.0', '8.10.2', '9.0.0']) {
+  for (const version of ['7.30.0', '7.29.2', '7.29.1', '7.29.0', '7.28.9', '6.99.99', '8.0.0', '8.3.0', '8.10.2', '9.0.0']) {
     assert.throws(() => assertReviewedEmbeddedUndici(version), assert.AssertionError, version)
   }
-  for (const version of [undefined, '', '7.29', '7.29.1-preview', '7.29.1\n']) {
+  for (const version of [undefined, '', '7.30', '7.30.1-preview', '7.30.1\n']) {
     assert.throws(() => assertReviewedEmbeddedUndici(version), assert.AssertionError)
   }
 })
@@ -582,7 +582,7 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     'unregisteredSchemeRelative',
     'runtimeUndici: process.versions.undici',
     'assertReviewedEmbeddedUndici(runtimeUndici)',
-    'the packaged Node runtime must include the Undici 7.29.1 security fixes',
+    'the packaged Node runtime must include the Undici 7.30.1 security fixes',
   ]) assert.ok(schemaSmoke.includes(contract), `packaged schema smoke must contain ${contract}`)
   assert.doesNotMatch(schemaSmoke, /await import\('node:path'\)/,
     'Playwright main-process evaluation has no dynamic-import callback; compute the shipped path in the host')

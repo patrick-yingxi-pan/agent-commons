@@ -155,15 +155,16 @@ test('the fold caret sits ON the hairline it collapses, at both tiers', () => {
   }
 })
 
-test('the discard is the caret’s shadow on the VERTICAL axis, and costs the row nothing', () => {
+test('the discard is the caret’s shadow on the VERTICAL axis, centered over the unchanged indent', () => {
   // The owner's placement rule, moved 2026-08-12: directly BELOW the caret, in
   // the caret's own column. Three properties, each of which was a live bug at
   // some point in this control's history — see the class's own comment.
   assert.match(DISCARD_SLOT_CLASS, /\babsolute\b/, 'out of flow, so a control that comes and goes moves nothing')
   assert.match(DISCARD_SLOT_CLASS, /\btop-full\b/, 'anchored below the caret’s box')
-  assert.match(DISCARD_SLOT_CLASS, /\bleft-0\b/, 'and in the caret’s column, not offset from it')
+  assert.match(DISCARD_SLOT_CLASS, /\bleft-1\/2\b/, 'anchor the wider target on the indent gutter’s center')
+  assert.match(DISCARD_SLOT_CLASS, /(?:^|\s)-translate-x-1\/2(?:\s|$)/, 'center its own target width on that anchor')
   // The horizontal offsets of the previous placement, stated as absences: with
-  // `left-0` in the string as well, a stray `right-full` would silently win and
+  // a centered left anchor in the string, a stray `right-full` would still
   // put the control back beside the caret at a width nobody chose.
   assert.doesNotMatch(DISCARD_SLOT_CLASS, /\bright-full\b/, 'the left-hand shadow is gone, not merely overridden')
   assert.doesNotMatch(DISCARD_SLOT_CLASS, /\bm[rl]-/, 'no horizontal margin — the column is shared exactly')
@@ -172,9 +173,9 @@ test('the discard is the caret’s shadow on the VERTICAL axis, and costs the ro
   // cost a commit the last time this control was anchored explicitly.
   assert.match(DISCARD_SLOT_CLASS, /\bflex\b/, 'no line box, so no baseline leading under the anchor')
   // Cut on the narrow tier: `HOVER_REVEAL` pins hover-revealed controls visible
-  // where there is no hover, so every folded stub would carry a permanent second
-  // glyph 4px above the NEXT post's caret — two chevrons in one column belonging
-  // to two different posts. The thread-level Unfold all covers that reach.
+  // where there is no hover, so every folded stub would need the full vertical
+  // footprint of a permanent second glyph. The thread-level Unfold all covers
+  // that reach without making every narrow stub taller.
   assert.match(DISCARD_SLOT_CLASS, /\bmax-sm:hidden\b/, 'and absent where it would be pinned visible')
 })
 

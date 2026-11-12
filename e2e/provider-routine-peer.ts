@@ -17,6 +17,8 @@ export type ProviderRoutinePeer = {
   requests: ProviderRoutineRequest[]
   /** Generation turns exclude only the explicit endpoint verification probe. */
   generationRequests(): ProviderRoutineRequest[]
+  /** Test-held Messages streams distinguish a live call from observed abort. */
+  heldMessageStreams(): { open: number; aborted: number }
   close(): Promise<void>
 }
 
@@ -57,7 +59,7 @@ function messageReply(model: string, id: string, reply: string) {
   }
 }
 
-function streamMessage(response: ServerResponse, model: string, id: string, reply: string): void {
+function streamMessage(response: ServerResponse, model: string, id: string, reply: string, hold?: (response: ServerResponse) => void): void {
   response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', connection: 'keep-alive' })
   const event = (name: string, value: unknown) => response.write(`event: ${name}\ndata: ${JSON.stringify(value)}\n\n`)
   event('message_start', { type: 'message_start', message: {
@@ -66,6 +68,10 @@ function streamMessage(response: ServerResponse, model: string, id: string, repl
   } })
   event('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
   event('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: reply } })
+  if (hold) {
+    hold(response)
+    return
+  }
   event('content_block_stop', { type: 'content_block_stop', index: 0 })
   event('message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: usage(reply).output_tokens } })
   event('message_stop', { type: 'message_stop' })
@@ -114,16 +120,29 @@ function streamResponse(response: ServerResponse, result: ReturnType<typeof resp
  * Start a local-only Messages or Responses peer for rendered provider workflows.
  * This is an authored protocol fixture, not evidence of live provider compatibility.
  */
-export async function startProviderRoutinePeer(preset: ProviderRoutinePreset, stamp: string): Promise<ProviderRoutinePeer> {
+export async function startProviderRoutinePeer(preset: ProviderRoutinePreset, stamp: string,
+  options: { holdMessagesOpen?: boolean; reply?: string } = {},
+): Promise<ProviderRoutinePeer> {
+  if (options.holdMessagesOpen && preset === 'openai') throw new Error('The held-stream fixture requires the Messages protocol.')
   const suffix = stamp.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 48) || 'fixture'
   const modelId = `${preset}-routine-${suffix}`
   const modelLabel = preset === 'openai' ? modelId : `${preset} Routine fixture ${suffix}`
-  const reply = `Local ${preset} fixture completed the Routine turn for ${suffix}.`
+  const reply = options.reply ?? `Local ${preset} fixture completed the Routine turn for ${suffix}.`
   const requests: ProviderRoutineRequest[] = []
   const rootPath = preset === 'deepseek' ? '/anthropic' : preset === 'openai' ? '/v1' : ''
   const modelPath = preset === 'openai' ? `${rootPath}/models` : `${rootPath}/v1/models`
   const generationPath = preset === 'openai' ? `${rootPath}/responses` : `${rootPath}/v1/messages`
   let sequence = 0
+  let closing = false
+  let abortedStreams = 0
+  const heldStreams = new Set<ServerResponse>()
+  const holdMessage = options.holdMessagesOpen ? (response: ServerResponse) => {
+    heldStreams.add(response)
+    response.once('close', () => {
+      heldStreams.delete(response)
+      if (!closing && !response.writableEnded) abortedStreams += 1
+    })
+  } : undefined
 
   const server: Server = createServer(async (request, response) => {
     let body: unknown
@@ -166,7 +185,7 @@ export async function startProviderRoutinePeer(preset: ProviderRoutinePreset, st
       return
     }
 
-    if (object(body).stream === true) streamMessage(response, selectedModel, requestId, reply)
+    if (object(body).stream === true) streamMessage(response, selectedModel, requestId, reply, holdMessage)
     else sendJson(response, messageReply(selectedModel, requestId, reply))
   })
 
@@ -196,7 +215,10 @@ export async function startProviderRoutinePeer(preset: ProviderRoutinePreset, st
         && object(value.tools[0]).name === 'probe_noop'
       return !probe
     }),
+    heldMessageStreams: () => ({ open: heldStreams.size, aborted: abortedStreams }),
     async close() {
+      if (closing) return
+      closing = true
       server.closeAllConnections?.()
       await new Promise<void>((resolve, reject) => {
         server.close((error) => error ? reject(error) : resolve())

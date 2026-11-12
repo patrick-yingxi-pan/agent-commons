@@ -4,7 +4,7 @@
  *  longest spec). The tests are unchanged and were already independent — no
  *  constant was shared between two of them. Shared setup lives in
  *  `./social-helpers.ts`; the walks themselves are documented there. */
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import assert from 'node:assert/strict'
 import { ms } from './budget.ts'
 import { RUN_POST, STAMP, TURN_POST, TURN_REPLY, TURN_SESSION, gotoSection, newUser } from './social-helpers.ts'
@@ -13,10 +13,9 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   const ada = await newUser(browser)
   const page = ada.page
 
-  // A SHORT viewport, deliberately: a conversation opens at the bottom, so the
-  // earliest turn falls off-screen — which is what makes the final "landed on
-  // the turn" assertion mean something instead of passing vacuously on a thread
-  // that fits.
+  // A SHORT viewport and a real keyboard scroll put the earliest seeded turn
+  // off-screen. The later anchor landing must move the transcript, rather than
+  // passing vacuously because its target was already visible on arrival.
   // Short enough that the earliest turn is off-screen with MARGIN, not by a
   // pixel: a knife-edge height turns a real assertion into a flake the first
   // time any per-turn chrome changes size (it did — a 4px gutter trim).
@@ -26,6 +25,17 @@ test('the turn gutter: a thread anchored to ONE turn, and the chip that lands ba
   await expect(turns.first()).toBeAttached({ timeout: ms(20_000) })
   const count = await turns.count()
   expect(count, 'a multi-turn conversation to anchor into').toBeGreaterThan(1)
+  const transcript = page.locator('[data-conversation-pane="auth-refactor"]')
+    .getByRole('region', { name: 'Conversation transcript', exact: true })
+  await expect.poll(() => transcript.evaluate(element => element.scrollHeight > element.clientHeight), {
+    message: 'the seeded transcript really overflows before the anchor walk',
+  }).toBe(true)
+  await transcript.focus()
+  await expect(transcript).toBeFocused()
+  await transcript.press('End')
+  await expect.poll(() => transcript.evaluate(element => element.scrollTop), {
+    message: 'End scrolls the real transcript away from its earliest turn',
+  }).toBeGreaterThan(0)
 
   // ── Mint: the gutter opens an inline composer on THAT turn ────────────────
   // The FIRST turn — the one the bottom landing scrolls past.
@@ -241,6 +251,7 @@ test('a discussion hangs on ONE block of an artifact, and its chip lands back th
 test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Enter', async ({ browser }) => {
   test.setTimeout(ms(120_000))
   const ada = await newUser(browser)
+  await ada.page.clock.install()
   const ANSWER = `Answering that directly ${STAMP}`
   const SECOND = `And answering the answer ${STAMP}`
 
@@ -672,6 +683,61 @@ test('a reply chain nests, collapses to stubs, folds all, and posts on Ctrl+Ente
   // became when its render rule was collapsed to one term.
   await expect(ada.page.getByRole('tooltip')).toHaveCount(1)
   await expect(ada.page.getByRole('tooltip')).toHaveText('Fold everything else')
+
+  // A keyboard-focused act must yield its visible or pending explanation to
+  // the next hover, without its later blur/unmount cancelling the new owner.
+  // Advance the actual 400ms tooltip delay through the browser clock; no sleep
+  // guesses when an old pending callback could have leaked back onto the page.
+  const bubbles = ada.page.getByRole('tooltip')
+  const trash = parent.getByRole('button', { name: /^(Delete|Retract) this post$/ }).first()
+  const endorse = parent.getByRole('button', { name: /^(Endorse this post|Remove your endorsement)$/ }).first()
+  const endorseLabel = await endorse.getAttribute('aria-label')
+  await trash.focus()
+  await ada.page.clock.runFor(400)
+  await expect(bubbles).toHaveText('Delete this post (you own the surface)')
+  await endorse.hover()
+  await expect(bubbles.filter({ hasText: 'Delete this post (you own the surface)' })).toHaveCount(0)
+  await ada.page.clock.runFor(400)
+  await expect(trash).toBeFocused()
+  await expect(bubbles).toHaveCount(1)
+  await expect(bubbles).toHaveText(endorseLabel!)
+  // Controlled blur/click stimuli below isolate lifecycle cleanup without
+  // pointer-driven focus changes. Trusted fold clicks and hit targets are
+  // covered by the earlier walk and discussion-actions.spec.ts.
+  await trash.evaluate(element => element.blur())
+  await expect(bubbles).toHaveText(endorseLabel!)
+
+  // Move focus while the pointer's new owner is still pending, then leave that
+  // old pointer target. Neither its deadline nor mouseleave may replace focus.
+  await onlyThis.hover()
+  await replyBtn.focus()
+  await ada.page.clock.runFor(400)
+  await expect(bubbles).toHaveCount(1)
+  await expect(bubbles).toHaveText('Reply to this post')
+  await ada.page.mouse.move(0, 0)
+  await expect(bubbles).toHaveText('Reply to this post')
+
+  // A previous owner's React cleanup is equally stale. Fold its row while an
+  // independent root holds keyboard focus, then restore the unchanged thread.
+  const asideEndorse = asideRow.getByRole('button', { name: /^(Endorse this post|Remove your endorsement)$/ }).first()
+  const asideLabel = await asideEndorse.getAttribute('aria-label')
+  await asideEndorse.focus()
+  await ada.page.clock.runFor(400)
+  await expect(bubbles).toHaveText(asideLabel!)
+  await fold.evaluate(element => (element as HTMLButtonElement).click())
+  await expect(fold).toHaveAttribute('aria-expanded', 'false')
+  await expect(asideEndorse).toBeFocused()
+  await expect(bubbles).toHaveCount(1)
+  await expect(bubbles).toHaveText(asideLabel!)
+  await fold.evaluate(element => (element as HTMLButtonElement).click())
+  await expect(fold).toHaveAttribute('aria-expanded', 'true')
+  await replyBtn.focus()
+  await fold.evaluate(element => (element as HTMLButtonElement).click())
+  await expect(fold).toHaveAttribute('aria-expanded', 'false')
+  await ada.page.clock.runFor(400)
+  await expect(bubbles).toHaveCount(0, { timeout: ms(5_000) })
+  await fold.evaluate(element => (element as HTMLButtonElement).click())
+  await expect(fold).toHaveAttribute('aria-expanded', 'true')
 
   // ── The trash ASKS ────────────────────────────────────────────────────────
   //  (owner directive 2026-08-11: "confirm deletion in a pop-up window".) The

@@ -37,6 +37,8 @@ function scopedHeaders(userId: string, tenantId: string) {
 async function peer(t: TestContext, options: { gate?: Promise<void>; afterDiscovery?: () => void } = {}) {
   const methods: string[] = []
   let toolsCalls = 0
+  let onToolsCall!: () => void
+  const toolsCallArrived = new Promise<void>(resolve => { onToolsCall = resolve })
   let socketClosed!: () => void
   const disconnected = new Promise<void>(resolve => { socketClosed = resolve })
   const server = createServer(async (req, res) => {
@@ -55,6 +57,7 @@ async function peer(t: TestContext, options: { gate?: Promise<void>; afterDiscov
     }
     assert.equal(request.method, 'tools/call')
     toolsCalls++
+    onToolsCall()
     if (options.gate) {
       req.socket.once('close', socketClosed)
       await options.gate
@@ -72,7 +75,7 @@ async function peer(t: TestContext, options: { gate?: Promise<void>; afterDiscov
   })
   const address = server.address()
   assert.ok(address && typeof address === 'object')
-  return { endpoint: `http://127.0.0.1:${address.port}/mcp`, methods, toolsCalls: () => toolsCalls, disconnected }
+  return { endpoint: `http://127.0.0.1:${address.port}/mcp`, methods, toolsCalls: () => toolsCalls, toolsCallArrived, disconnected }
 }
 
 async function fixture(t: TestContext, options: { gate?: Promise<void>; afterDiscovery?: () => void } = {}) {
@@ -281,7 +284,7 @@ test('cancellation and a lost run acknowledgement cannot dispatch the same call 
     assert.equal(ack.status, 200)
     const started = await settled(f.getOwner, (row: any) => row.status === 'running')
     assert.equal(started.execution.status, 'pending')
-    for (let attempt = 0; attempt < 100 && f.http.toolsCalls() === 0; attempt++) await new Promise(resolve => setTimeout(resolve, 5))
+    await f.http.toolsCallArrived
     assert.equal(f.http.toolsCalls(), 1)
 
     const cancelled = await f.decide({ action: 'cancel', expectedRevision: started.revision })

@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { execFile, spawn } from 'node:child_process'
+import { chmod, copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, delimiter, join, relative } from 'node:path'
 import { ROOT } from './source.ts'
 
 function npmSource(node) {
@@ -48,6 +48,9 @@ import { join } from 'node:path'
 
 const state = process.env.VERIFY_FIXTURE_STATE
 writeFileSync(join(state, 'npx-finished'), 'finished')
+writeFileSync(join(state, 'npx-env-' + process.env.E2E_SHARD + '.json'), JSON.stringify({
+  shard: process.env.E2E_SHARD, cacheDir: process.env.PWTEST_CACHE_DIR,
+}))
 process.stdout.write('› e2e/first.spec.ts:1:1 › first fixture (11ms)\\n')
 process.stdout.write('› e2e/second.spec.ts:1:1 › second fixture (13ms)\\n')
 process.stdout.write(process.env.VERIFY_FIXTURE_PASSED + ' passed\\n')`
@@ -78,6 +81,7 @@ export async function createVerifyInterruptionFixture() {
   } }))
   await writeFile(join(root, 'e2e', 'first.spec.ts'), "test('first fixture', () => {})\n")
   await writeFile(join(root, 'e2e', 'second.spec.ts'), "test('second fixture', () => {})\n")
+  await writeFile(join(root, 'tests', 'placeholder.test.ts'), "import { test } from 'node:test'\ntest('placeholder', () => {})\n")
   const launchers = [
     ['npm', npmSource(process.execPath)],
     ['npx', npxSource(process.execPath)],
@@ -85,8 +89,13 @@ export async function createVerifyInterruptionFixture() {
   ]
   for (const [name, source] of launchers) {
     const path = join(bin, name)
-    await writeFile(path, source, { mode: 0o755 })
-    await chmod(path, 0o755)
+    if (process.platform === 'win32') {
+      await writeFile(`${path}.mjs`, source)
+      await writeFile(`${path}.cmd`, `@"${process.execPath}" "%~dp0${name}.mjs" %*\r\n`)
+    } else {
+      await writeFile(path, source, { mode: 0o755 })
+      await chmod(path, 0o755)
+    }
   }
   return { root, state, bin, runner: join(scripts, 'verify.mjs') }
 }
@@ -103,12 +112,16 @@ export async function waitForFixtureFile(path, timeoutMs = 5_000) {
   throw new Error(`Timed out waiting for fixture readiness: ${basename(path)}`)
 }
 
-export function startFixtureVerifier(fixture, { holdTypecheck = false, reportedPasses = 2, runnerArgs = [] } = {}) {
+export function startFixtureVerifier(fixture, { holdTypecheck = false, reportedPasses = 2, runnerArgs = [], partition } = {}) {
   const env = { ...process.env }
   delete env.VERIFY_E2E_PART
   delete env.VERIFY_E2E_PARTS
+  if (partition) {
+    env.VERIFY_E2E_PART = String(partition.part)
+    env.VERIFY_E2E_PARTS = String(partition.parts)
+  }
   Object.assign(env, {
-    PATH: `${fixture.bin}:${process.env.PATH ?? ''}`,
+    PATH: `${fixture.bin}${delimiter}${process.env.PATH ?? ''}`,
     VERIFY_FIXTURE_STATE: fixture.state,
     VERIFY_FIXTURE_HOLD: holdTypecheck ? '1' : '0',
     VERIFY_FIXTURE_PASSED: String(reportedPasses),
@@ -181,7 +194,17 @@ export async function removeVerifyInterruptionFixture(fixture, verifier, socket)
   const pids = await fixturePids(fixture.state)
   try {
     if (verifier?.child.exitCode === null && verifier.child.signalCode === null) {
-      verifier.child.kill('SIGINT')
+      if (process.platform === 'win32') {
+        // Windows signals terminate only the leader. While this exact spawned
+        // verifier still owns its PID, retire its cmd/shim descendants too.
+        const child = verifier.child
+        await new Promise((resolve, reject) => {
+          execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true }, error => {
+            if (!error || child.exitCode !== null || child.signalCode !== null) resolve()
+            else reject(error)
+          })
+        })
+      } else verifier.child.kill('SIGINT')
     }
     // Cleanup must also work against the intentionally broken verifier, which
     // may already have exited without forwarding any signal to this fixture.
@@ -201,8 +224,22 @@ export async function removeVerifyInterruptionFixture(fixture, verifier, socket)
       }
     }
   } finally {
-    await rm(fixture.root, { recursive: true, force: true })
+    await removeFixtureRoot(fixture.root)
   }
+}
+
+async function removeFixtureRoot(root) {
+  let target
+  try { target = await realpath(root) }
+  catch (error) { if (error.code === 'ENOENT') return; throw error }
+  const tempRoot = await realpath(tmpdir())
+  // Resolve the actual target before recursive removal; a replaced symlink or
+  // malformed fixture object must never expand cleanup outside its temp root.
+  if (relative(tempRoot, target) !== basename(target) || !basename(target).startsWith('verify-interruption-')) {
+    throw new Error('Refusing to remove a verifier fixture outside its temporary root')
+  }
+  // Windows may briefly retain cwd/file handles after taskkill and pipe close.
+  await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
 }
 
 async function closesWithin(closed, timeoutMs) {

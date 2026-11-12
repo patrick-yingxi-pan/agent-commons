@@ -5,6 +5,9 @@ Bug reports, reproducible examples, and proposed improvements are welcome in
 Keep credentials and private workspace or customer data out of issues and pull
 requests.
 
+For suspected security vulnerabilities, follow the private reporting process in
+[SECURITY.md](SECURITY.md) instead of opening a public issue.
+
 ## Licensing of contributions
 
 Agent Commons offers its original code under AGPLv3 only. Read

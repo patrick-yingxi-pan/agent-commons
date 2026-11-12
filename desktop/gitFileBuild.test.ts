@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import packagerConfig, { ignoreFromPackage } from './packager.config.mjs'
 import { gitFileBuildPlan } from './gitFileBuild.mjs'
 import { gitFileExecutable } from './gitFileRead.mjs'
@@ -27,9 +28,9 @@ test('Git file helper is target-specific, architecture-bounded, and uses only sy
 })
 
 test('Git file helper has a fixed packaged path and build inputs stay out of ASAR', () => {
-  assert.equal(gitFileExecutable({ packaged: true, resourcesPath: '/App/Contents/Resources', targetArch: 'arm64' }),
-    '/App/Contents/Resources/agent-commons-git-file')
-  assert.equal(gitFileExecutable({ packaged: false, targetArch: 'arm64' }),
+  assert.equal(gitFileExecutable({ packaged: true, resourcesPath: '/App/Contents/Resources', targetPlatform: 'darwin', targetArch: 'arm64' }),
+    join('/App/Contents/Resources', 'agent-commons-git-file'))
+  assert.equal(gitFileExecutable({ packaged: false, targetPlatform: 'darwin', targetArch: 'arm64' }),
     fileURLToPath(new URL('./bin/git-file-arm64/agent-commons-git-file', import.meta.url)))
   assert.equal(gitFileExecutable({ targetPlatform: 'linux', targetArch: 'x64' }), null)
   assert.equal(ignoreFromPackage('/desktop/gitFileBuild.mjs'), true)

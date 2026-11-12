@@ -137,6 +137,12 @@ export const MAX_INDENT_DEPTH = 5
  *  off the rail. */
 export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
 
+/** The collapsed post keeps its author door, age, readable synopsis and reply
+ * count together. Narrow panes give the synopsis its own row; wide panes keep
+ * the compact inline arrangement. */
+export const FOLDED_POST_CLASS =
+  'grid min-w-0 flex-1 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 rounded-md py-0.5 pr-1.5 transition hover:bg-panel-2 sm:flex sm:gap-2'
+
 /** The unfold-all's placement: **out of flow, directly BELOW the caret, in the
  *  caret's own column** (owner directive 2026-08-12 — *"positioned immediately
  *  below the corresponding fold/unfold button and vertically aligned with it,
@@ -157,20 +163,18 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *  someone else's indent below that. Underneath is the space its own branch
  *  occupies, which is what it acts on.
  *
- *  `absolute left-0 top-full` is exactly that and nothing more — offset from
- *  the gutter it lives in, so it inherits the gutter's indent for free. Which
+ *  `absolute left-1/2 top-full -translate-x-1/2` centers the 24px target over
+ *  the unchanged 12/16px gutter, so it inherits the gutter's indent. Which
  *  is why the gutter is `relative`. `flex` on the slot, not decoration: the
  *  Tooltip's `inline-flex` span would otherwise sit on a text baseline and take
  *  that line box's leading, the same 4px error the vertical note below records.
  *  Sized to the caret too: same width, height and radius, two controls of one
  *  kind reading as a pair.
  *
- *  **No gap, deliberately.** `top-full` abuts the gutter's 16px box exactly, so
- *  the glyphs sit ~4px apart (each is 12px in a 16px box) and the control ends
- *  precisely where the next row's caret box begins. A stub is one line tall and
- *  the rows are 12px apart, so any positive margin here puts a hover-revealed
- *  control on top of the NEXT post's caret — the collision is only reachable on
- *  a folded post, which is the state this control mostly renders in.
+ *  **No gap, deliberately.** `top-full` abuts the gutter's 24px box. Both
+ *  controls retain 12px glyphs within 24px targets, and a branch row reserves
+ *  their full 48px footprint above the narrow tier even while collapsed. This
+ *  keeps the lower control off the next row without changing horizontal indent.
  *
  *  Five spellings were tried; three were wrong, and the wrong ones are the
  *  content of this comment (the fourth is the left-hand shadow this replaced,
@@ -202,8 +206,7 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *  The old one was horizontal (2px from the screen edge) and the move retires
  *  it. The one that replaces it: `HOVER_REVEAL` pins hover-revealed controls
  *  visible where there is no hover, so every folded stub would grow a permanent
- *  second glyph 4px above the next post's caret — two chevrons in one column,
- *  belonging to two different posts. The thread-level "Unfold all" does the
+ *  second glyph below its caret and require a taller stub. The thread-level "Unfold all" does the
  *  same job one tap further away, so the cut costs reach, not capability.
  *
  *  **`top-full` is an anchor, and it had to become one.** Setting no `top` used
@@ -221,7 +224,7 @@ export const FOLD_GUTTER_CLASS = 'w-4 max-sm:w-3 shrink-0'
  *  Four pixels is invisible in a screenshot and reads as unexplained
  *  sloppiness. Only that assertion finds it — which is also how the mistake
  *  above was caught, by mutating the class and watching the lock stay green. */
-export const DISCARD_SLOT_CLASS = 'absolute left-0 top-full flex max-sm:hidden'
+export const DISCARD_SLOT_CLASS = 'absolute left-1/2 top-full -translate-x-1/2 flex max-sm:hidden'
 
 /** The nested list's own class at `depth` (1 = an answer to a root post).
  *

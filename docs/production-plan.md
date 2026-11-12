@@ -1333,19 +1333,19 @@ observation and signed/native acceptance are still needed.
 
 The 2026-10-15 advisory audit found four affected npm dependency entries:
 runtime `fast-uri` 3.1.7 and build-only `brace-expansion` 5.0.9,
-`source-map-js` 1.2.1 and npm `undici` 7.29.0. Compatible updates lock them to
+`source-map-js` 1.2.1 and npm `undici` 7.29.0. Compatible updates locked them to
 3.1.8, 5.0.12, 1.2.2 and 7.29.1 respectively. The full npm audit then reported
 zero known vulnerabilities; this does not prove the absence of undisclosed
 issues or replace runtime acceptance.
 
 Electron 44.0.0 separately embedded Node 24.18.1 with Undici 7.29.0. Updating
 the downloader's npm dependency does not change that runtime. The compatible
-Electron 44.7.2 update is therefore included, and packaged acceptance now reads
-the actual utility process's embedded Undici version and requires the 7.29.1
+Electron 44.7.2 update was therefore included, and packaged acceptance began reading
+the actual utility process's embedded Undici version and requiring the 7.29.1
 security fixes. The old executable was watched fail that check. The existing
 official archive-checksum verification remains unchanged.
 Review also caught an overly broad newer-major allowance: the embedded check
-now admits only the reviewed 7.x line at or above 7.29.1. Behavioral boundaries
+then admitted only the reviewed 7.x line at or above 7.29.1. Behavioral boundaries
 reject older, malformed and unreviewed-major versions; the initial predicate
 was watched fail the 8.0.0 refusal. A future major update requires a fresh
 advisory review rather than assuming a larger number includes the same fixes.
@@ -1365,6 +1365,17 @@ before landing; the handoff records their final-tree results. Signed/notarized,
 Intel, two-version update, live-provider and third-party-service gates remain
 open. The release audit found no candidate receipts or configured download
 destination, so owner enrollment/configuration remains the next release input.
+
+Public-repository preparation on 2026-11-12 raises the embedded security floor
+to Undici 7.30.1 within the reviewed 7.x line and locks
+[Electron 44.10.0](https://releases.electronjs.org/release/v44.10.0), whose
+[Node 24.22.1 security update](https://nodejs.org/en/blog/release/v24.22.1)
+includes those fixes. The updated boundary lock was watched fail against the
+old predicate accepting 7.30.0. A checksum-verified official Linux x64 binary
+directly reported Electron 44.10.0, Node 24.22.1 and Undici 7.30.1. This is a
+direct binary version probe, not fresh packaged-application, native OS-storage,
+signed or two-architecture acceptance; the earlier native evidence retains its
+recorded revision and scope.
 
 ## Implemented milestone: a reviewed local file becomes a Document
 

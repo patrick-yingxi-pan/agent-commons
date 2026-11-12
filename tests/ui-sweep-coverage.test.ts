@@ -16,12 +16,255 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
+import { expect as browserExpect } from '@playwright/test'
 import { join } from 'node:path'
 import { ROOT, read as readAbs } from './helpers/source.ts'
 import { CELLS, SECTIONS, createLedger } from '../scripts/ui-sweep-ledger.mjs'
 
 const read = (p: string) => readAbs(join(ROOT, p))
 const SWEEP = read('scripts/ui-sweep.mjs')
+
+test('surface readiness requires visible content in the focused pane, never a loading shell or sibling', () => {
+  const source = SWEEP.match(/function surfaceReady\(\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(source, 'all canonical navigation shares a rendered-surface readiness predicate')
+  type State = { pane?: boolean; surface?: boolean; blocker?: string; width?: number; height?: number; visibility?: string }
+  const run = ({ pane = true, surface = true, blocker = '', width = 300, height = 600, visibility = 'visible' }: State) => {
+    const element = { getBoundingClientRect: () => ({ width, height }) }
+    const focused = { querySelector: (selector: string) => {
+      if (selector === '[data-resource-page]') return surface ? element : null
+      return blocker && selector.includes(blocker) ? {} : null
+    } }
+    const ready = vm.runInNewContext(`(${source})`, {
+      document: { querySelector: (selector: string) => {
+        assert.equal(selector, 'main [data-main-pane][data-focused="true"]', 'only the actual focused main pane can qualify')
+        return pane ? focused : null
+      } },
+      getComputedStyle: () => ({ visibility }),
+    })
+    return ready()
+  }
+  assert.equal(run({ pane: false }), false, 'a populated sibling or rail cannot stand in for the focused pane')
+  assert.equal(run({ surface: false }), false, 'main/pane chrome alone is not the named surface')
+  for (const blocker of ['data-section-loading', 'data-section-load-error', 'data-resource-unavailable']) {
+    assert.equal(run({ blocker }), false, `${blocker} cannot count as reviewed content`)
+  }
+  assert.equal(run({ width: 0 }), false)
+  assert.equal(run({ height: 0 }), false)
+  assert.equal(run({ visibility: 'hidden' }), false)
+  assert.equal(run({}), true, 'a rendered resource page can be legitimately empty')
+  const conversation = read('src/components/ConversationPane.tsx')
+  assert.match(conversation, /<AtomicResourcePage layout="workspace" data-conversation-pane=\{sessionId\}>/,
+    'conversation and draft routes use the same positive resource-page marker')
+  const frame = read('src/components/ResourcePage.tsx')
+  assert.match(frame, /if \(layout === 'workspace'\)[\s\S]*?data-resource-page/)
+})
+
+test('canonical navigation cannot release checks or coverage before bounded surface readiness', async () => {
+  const start = SWEEP.indexOf('async function goTo(')
+  const end = SWEEP.indexOf('\n/** The sharing editor', start)
+  assert.ok(start >= 0 && end > start)
+  const body = SWEEP.slice(start, end)
+  assert.match(body, /await page\.waitForFunction\(surfaceReady, null, \{ timeout: 8000 \}\)/)
+  assert.match(body, /await page\.waitForFunction\(deferredSurfaceReady, null, \{ timeout: Math\.max\(1, readyDeadline - Date\.now\(\)\) \}\)/)
+  assert.doesNotMatch(body, /await tick\(/, 'elapsed time cannot substitute for rendered content')
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => { release = resolve })
+  let entered!: () => void
+  const entering = new Promise<void>(resolve => { entered = resolve })
+  let now = 1000
+  const failures: string[] = []
+  const readiness = () => true
+  const deferred = () => true
+  const gates: unknown[] = []
+  const goTo = vm.runInNewContext(`(${body})`, {
+    BASE: 'http://127.0.0.1:5193', surfaceReady: readiness, deferredSurfaceReady: deferred,
+    Date: { now: () => now },
+    unreachable: (_cell: string, why: string) => failures.push(why),
+    firstLine: (error: Error) => error.message,
+  })
+  let finished = false
+  const pending = goTo({
+    goto: async () => {},
+    waitForFunction: async (predicate: unknown, argument: unknown, options: { timeout: number }) => {
+      gates.push(predicate)
+      assert.equal(argument, null)
+      assert.equal(options.timeout, predicate === readiness ? 8000 : 6000, 'nested readiness uses the remaining navigation budget')
+      if (predicate === readiness) now += 2000
+      if (predicate === deferred) { entered(); await gate }
+    },
+  }, '/projects', '320x700/projects').then((result: boolean) => { finished = true; return result })
+  await entering
+  assert.equal(finished, false, 'callers cannot audit, capture or mark coverage while readiness is pending')
+  assert.deepEqual(gates, [readiness, deferred], 'nested controls must settle before any caller measures the page')
+  release()
+  assert.equal(await pending, true)
+  const rejected = await goTo({ goto: async () => {}, waitForFunction: async () => { throw new Error('still loading') } },
+    '/projects', '320x700/projects')
+  assert.equal(rejected, false, 'readiness failure does not enter the cell checks')
+  assert.equal(failures.length, 1)
+  assert.match(failures[0], /8s/)
+})
+
+test('conversation paint rejects fading, moving, disconnected and changed rows across two frames', async () => {
+  const source = SWEEP.match(/async function settledConversationPaint\(\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(source, 'every screenshot shares the actual conversation paint predicate')
+  type PaintNode = { isConnected: boolean; parentElement: PaintNode | null; opacity: string; visibility: string; x: number; width: number; getBoundingClientRect: () => object }
+  const node = (parentElement: PaintNode | null = null): PaintNode => {
+    const value = { isConnected: true, parentElement, opacity: '1', visibility: 'visible', x: 20, width: 300,
+      getBoundingClientRect: () => ({ x: value.x, y: 100, width: value.width, height: 80 }) }
+    return value
+  }
+  const run = async (rows: PaintNode[], change?: (rows: PaintNode[]) => void) => {
+    let frames = 0
+    const predicate = vm.runInNewContext(`(${source})`, {
+      document: { querySelectorAll: (selector: string) => {
+        assert.equal(selector, '[data-conversation-pane] [data-turn]', 'all rendered conversations, including rail and repo captures, are reviewed')
+        return rows
+      } },
+      getComputedStyle: (element: PaintNode) => element,
+      requestAnimationFrame: (callback: () => void) => { frames++; if (frames === 2) change?.(rows); callback() },
+    })
+    const result = await predicate()
+    return { result, frames }
+  }
+  assert.deepEqual(await run([node()]), { result: true, frames: 2 })
+  assert.deepEqual(await run([]), { result: true, frames: 2 }, 'empty drafts and nonconversation pages remain valid')
+  assert.equal((await run([Object.assign(node(), { opacity: '0.8' })])).result, false, 'a row reveal cannot be captured')
+  assert.equal((await run([node(Object.assign(node(), { opacity: '0.8' }))])).result, false, 'an ancestor reveal cannot be captured')
+  assert.equal((await run([node()], rows => { rows[0].x++ })).result, false, 'motion is not settled paint')
+  assert.equal((await run([node()], rows => { rows[0].isConnected = false })).result, false)
+  assert.equal((await run([node()], rows => { rows[0] = node() })).result, false, 'replacement with identical geometry is a different row')
+  assert.equal((await run([node()], rows => { rows.push(node()) })).result, false, 'new transcript rows require a fresh stable sample')
+  assert.equal((await run([], rows => { rows.push(node()) })).result, false)
+  assert.equal((await run([node()], rows => { rows.pop() })).result, false)
+  assert.equal((await run([node()], rows => { rows[0].opacity = '0.5' })).result, false)
+  assert.equal((await run([Object.assign(node(), { width: 0, opacity: '0' })])).result, true, 'nonrendered rows do not block unrelated captures')
+  assert.equal((await run([Object.assign(node(), { visibility: 'hidden', opacity: '0' })])).result, true)
+})
+
+test('nested deferred readiness rejects only rendered owned placeholders and keeps loaded empty pages valid', () => {
+  const source = SWEEP.match(/function deferredSurfaceReady\(\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(source)
+  type Status = { textContent: string; width?: number; visibility?: string; proposals?: boolean }
+  const run = (statuses: Status[], hasPane = true) => {
+    const predicate = vm.runInNewContext(`(${source})`, {
+      document: { querySelector: (selector: string) => {
+        assert.equal(selector, 'main [data-main-pane][data-focused="true"]', 'hidden sibling panes cannot block the reviewed surface')
+        return hasPane ? { querySelectorAll: (selector: string) => {
+          assert.equal(selector, '[role="status"], [role="alert"], [data-proposals-load]')
+          return statuses.map(status => ({ ...status,
+            getBoundingClientRect: () => ({ width: status.width ?? 300, height: 24 }),
+            hasAttribute: (name: string) => name === 'data-proposals-load' && status.proposals === true,
+          }))
+        } } : null
+      } },
+      getComputedStyle: (status: Status) => ({ visibility: status.visibility ?? 'visible' }),
+    })
+    return predicate()
+  }
+  for (const textContent of ['Loading requests…', 'Loading improvements…', 'Loading backup controls…',
+    'Couldn’t load request history. Copy unsent workspace text before reloading.',
+    'Couldn’t read current request access. No new action is available from stale information.',
+    'Couldn’t load backup controls. Your data was not changed.']) {
+    assert.equal(run([{ textContent }]), false, textContent)
+    assert.equal(run([{ textContent, width: 0 }]), true, 'unrendered optional controls do not block capture')
+    assert.equal(run([{ textContent, visibility: 'hidden' }]), true)
+  }
+  assert.equal(run([{ textContent: 'Couldn’t load improvements.', proposals: true }]), false)
+  assert.equal(run([]), true)
+  assert.equal(run([], false), true, 'nonworkspace captures keep their own subject gates')
+  assert.equal(run([{ textContent: 'No requests yet. Requests are private to the two people involved.' }]), true)
+  assert.equal(run([{ textContent: 'Saved' }]), true, 'ordinary live statuses are not loading placeholders')
+  for (const path of ['src/components/AgentRequestsSummary.tsx', 'src/components/AgentRequestsSummaryRuntime.tsx']) {
+    assert.match(read(path), /role="status"[^>]*>Loading requests…/)
+  }
+  assert.match(read('src/components/SectionView.tsx'), /role="status"[^>]*>Loading backup controls…/)
+  assert.match(read('src/components/DeferredProposalsPanel.tsx'), /data-proposals-load=\{failed \? 'error' : 'loading'\}/)
+})
+
+test('capture awaits false asynchronous paint samples before taking a screenshot', async () => {
+  const source = SWEEP.match(/async function shot\(page, name\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(source)
+  let ready = false
+  let samples = 0
+  let captures = 0
+  const paint = async () => { samples++; return ready }
+  const capture = vm.runInNewContext(`(${source})`, {
+    SHOTS: '/shots/', deferredSurfaceReady: () => true, settledConversationPaint: paint, expect: browserExpect,
+  })
+  const pending = capture({
+    // Playwright tests the returned value's truthiness before adopting it. An
+    // async false result therefore ends waitForFunction instead of polling.
+    waitForFunction: async (predicate: () => unknown) => {
+      const result = predicate()
+      assert.ok(result)
+      return await result
+    },
+    evaluate: (predicate: () => unknown) => predicate(),
+    screenshot: async () => { captures++ },
+  }, 'thread-repo')
+  const outcome = pending.then(() => null, (error: unknown) => error)
+  await new Promise(resolve => setImmediate(resolve))
+  const premature = captures
+  ready = true
+  const error = await outcome
+  if (error) throw error
+  assert.equal(premature, 0, 'a resolved false Promise cannot admit a screenshot')
+  assert.ok(samples >= 2, 'the real polling assertion must await and repeat a false paint sample')
+  assert.equal(captures, 1)
+})
+
+test('screenshots and trigger review wait for bounded readiness and propagate evidence failure', async () => {
+  const source = SWEEP.match(/async function shot\(page, name\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(source)
+  const deferred = () => true
+  const settled = async () => true
+  const polling = { poll: (sample: () => Promise<boolean>, options: { timeout: number }) => {
+    assert.equal(options.timeout, 8000, 'the complete paint poll retains its existing deadline')
+    return { toBe: async (expected: boolean) => assert.equal(await sample(), expected) }
+  } }
+  const capture = vm.runInNewContext(`(${source})`, {
+    SHOTS: '/shots/', deferredSurfaceReady: deferred, settledConversationPaint: settled, expect: polling,
+  })
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let entered!: () => void
+  const entering = new Promise<void>(resolve => { entered = resolve })
+  const calls: unknown[] = []
+  const pending = capture({
+    waitForFunction: async (predicate: unknown, argument: unknown, options: { timeout: number }) => {
+      calls.push(predicate)
+      assert.equal(argument, null)
+      assert.equal(options.timeout, 8000)
+    },
+    evaluate: async (predicate: unknown) => { calls.push(predicate); entered(); await gate; return true },
+    screenshot: async (options: { path: string }) => { calls.push(options.path) },
+  }, 'thread-repo')
+  await entering
+  assert.deepEqual(calls, [deferred, settled], 'no screenshot while transcript paint remains unsettled')
+  release()
+  await pending
+  assert.deepEqual(calls, [deferred, settled, '/shots/thread-repo.png'])
+  for (const failure of [deferred, settled]) {
+    await assert.rejects(capture({
+      waitForFunction: async (predicate: unknown) => { if (predicate === failure) throw new Error('readiness timeout') },
+      evaluate: async (predicate: unknown) => { if (predicate === failure) throw new Error('readiness timeout'); return true },
+      screenshot: async () => assert.fail('unready content cannot become evidence'),
+    }, 'thread-repo'), /readiness timeout/)
+  }
+  await assert.rejects(capture({ waitForFunction: async () => {}, evaluate: async () => true, screenshot: async () => { throw new Error('capture failed') } }, 'projects'), /capture failed/)
+  const triggerStart = SWEEP.indexOf('async function sweepTriggers(')
+  const triggerEnd = SWEEP.indexOf('\n}', triggerStart) + 2
+  const triggerSource = SWEEP.slice(triggerStart, triggerEnd)
+  const sweep = vm.runInNewContext(`(${triggerSource})`, { deferredSurfaceReady: deferred })
+  await assert.rejects(sweep({
+    waitForFunction: async (predicate: unknown, argument: unknown, options: { timeout: number }) => {
+      assert.equal(predicate, deferred); assert.equal(argument, null); assert.equal(options.timeout, 8000)
+      throw new Error('deferred controls unavailable')
+    },
+    locator: () => assert.fail('trigger inventory must wait for its deferred controls'),
+  }, {}, 'agents'), /deferred controls unavailable/)
+})
 
 test('canonical artifact coverage waits for its actual surface instead of a fixed startup tick', () => {
   const start = SWEEP.indexOf("cell = at('artifact-page')")
@@ -149,7 +392,7 @@ test('popover enumeration follows the live DOM instead of stale numeric indexes'
   // controls that shifted left and eventually points past the live list. The
   // 1280px project/artifact/agent cells exposed that as three tolerated skips.
   const fn = SWEEP.slice(SWEEP.indexOf('async function sweepTriggers'))
-  const body = fn.slice(0, fn.indexOf('\nconst shot'))
+  const body = fn.slice(0, fn.indexOf('\n}\n') + 2)
   assert.ok(body.includes('while (true)'), 'trigger selection repeats against the current DOM')
   assert.ok(body.includes('const liveCount = await triggers.count()'), 'each pass recounts live triggers')
   assert.ok(body.includes('if (seen.has(candidateLabel)) continue'), 'a stable label prevents repeat clicks')
@@ -203,7 +446,7 @@ test('an address that renders no workspace is unreachable, not swept', () => {
   // in a different disguise.
   const fn = SWEEP.slice(SWEEP.indexOf('async function goTo'))
   const body = fn.slice(0, fn.indexOf('\n/** Real ids'))
-  assert.ok(body.includes("locator('main')"), 'goTo checks the address actually opened a workspace')
+  assert.ok(body.includes('waitForFunction(surfaceReady'), 'goTo checks the address actually opened a rendered workspace')
   assert.ok(body.includes('unreachable(cell,'), 'a dead address records the cell unreachable')
 })
 
@@ -248,6 +491,43 @@ test('draft cell explicitly selects the fresh draft and proves it is empty', () 
   const zeroGuard = draft.indexOf('turns !== 0')
   const screenshot = draft.indexOf('await shot(page, cell.replace')
   assert.ok(zeroGuard >= 0 && zeroGuard < screenshot, 'draft zero-turn rejection precedes its screenshot')
+})
+
+test('repo capture waits for its exact transcript, repository chip and visible deferred panel body', () => {
+  const start = SWEEP.indexOf('// ── cell: a seeded repo session')
+  const end = SWEEP.indexOf('// ── cell: a fresh draft', start)
+  assert.ok(start >= 0 && end > start)
+  const repo = SWEEP.slice(start, end)
+  const capture = repo.indexOf('await shot')
+  assert.ok(capture > 0)
+  for (const gate of ['data-conversation-pane', "locator('[data-turn]')", 'ids.repoLabel', 'repoPanelsReady']) {
+    const position = repo.indexOf(gate)
+    assert.ok(position >= 0 && position < capture, `${gate} readiness precedes the screenshot`)
+  }
+  assert.match(repo, /unreachable\(cell,/, 'a missing named repo subject fails coverage')
+  assert.doesNotMatch(SWEEP, /repoSessionId:\s*repoSessionId\s*\?\?\s*chipSessionId/,
+    'a non-repository attachment cannot stand in for the repo cell')
+  const source = SWEEP.match(/function repoPanelsReady\(sessionId\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(source)
+  const run = (panels: Array<{ id?: string; visible?: boolean; loading?: boolean; body?: boolean }>) => {
+    const nodes = panels.map((panel) => ({
+      getAttribute: () => panel.id ?? null,
+      getBoundingClientRect: () => ({ width: panel.visible === false ? 0 : 300, height: 500 }),
+      querySelector: (selector: string) => selector === '[data-workspace-panel-load]' ? (panel.loading ? {} : null)
+        : selector === '[aria-label="Code changes"]' && panel.body ? {} : null,
+    }))
+    return vm.runInNewContext(`(${source})`, {
+      document: { querySelectorAll: () => nodes },
+      getComputedStyle: () => ({ pointerEvents: 'auto' }),
+    })('repo-session')
+  }
+  assert.equal(run([]), true, 'the narrow layout need not open a context panel')
+  assert.equal(run([{ id: 'repo-session repo one', loading: true }]), false)
+  assert.equal(run([{ id: 'repo-session repo one', body: false }]), false)
+  assert.equal(run([{ id: 'repo-session repo one', body: true }]), true)
+  assert.equal(run([{ id: 'repo-session repo one', visible: false, loading: true }]), true)
+  assert.equal(run([{ id: 'other-session repo one', loading: true }]), true, 'unrelated context panes are not a global request gate')
+  assert.equal(run([{ loading: true }]), false, 'a visible overlay loading shell is not the repository body')
 })
 
 // ── the stack the sweep drives ──────────────────────────────────────────────

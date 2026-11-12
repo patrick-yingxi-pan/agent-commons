@@ -111,10 +111,10 @@ export function assertReviewedEmbeddedUndici(runtimeUndici) {
   assert.match(runtimeUndici, /^\d+\.\d+\.\d+$/, 'the packaged utility process reports its embedded Undici version')
   const [major, minor, patch] = runtimeUndici.split('.').map(Number)
   assert.equal(runtimeUndici, [major, minor, patch].join('.'), 'the embedded version is canonical')
-  // Electron 44 embeds the reviewed 7.x line. Larger majors need a fresh
-  // advisory review: GHSA-w293-vg96-wgc3 also affects 8.x before 8.10.2.
-  assert.ok(major === 7 && (minor > 29 || (minor === 29 && patch >= 1)),
-    'the packaged Node runtime must include the Undici 7.29.1 security fixes')
+  // Electron 44 embeds the reviewed 7.x line. The 7.30.1 security release fixes
+  // GHSA-2m5v-pch6-74hx and related advisories; larger majors need a fresh review.
+  assert.ok(major === 7 && (minor > 30 || (minor === 30 && patch >= 1)),
+    'the packaged Node runtime must include the Undici 7.30.1 security fixes')
 }
 
 export async function smokePackagedMcpSchema({ executable = packagedExecutable() } = {}) {

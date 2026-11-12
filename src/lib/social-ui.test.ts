@@ -583,7 +583,8 @@ test('the shared per-post act face carries no colour of its own', () => {
   // The general rule this instance stands for: a shared primitive must not own
   // a property that any of its callers vary.
   const src = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
-  const def = /const POST_ACT_CLASS =\s*'([^']*)'/.exec(src)
+  const face = stripComments(read(join(ROOT, 'src', 'lib', 'discussionPostAction.ts')))
+  const def = /export const POST_ACT_CLASS =\s*'([^']*)'/.exec(face)
   assert.ok(def, 'the shared per-post act face is defined')
   const colour = /\btext-(?:ink|accent|co|danger|removed|warn|ok|on-solid)[\w-]*/.exec(def[1])
   assert.equal(

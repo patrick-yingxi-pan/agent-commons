@@ -15,6 +15,15 @@ procedure so the always-loaded map stays small.
   workers. The full verifier derives the same setting from that script without
   reducing the suite manifest. This avoids observed native-helper timeouts under
   16-worker contention without raising production deadlines or adding retries.
+- On Windows the verifier runs the same exact Node suite manifest in bounded,
+  sequential batches to stay below process command-line limits. Every batch
+  retains the npm-owned worker count; no suite is omitted or rediscovered.
+  Some native filesystem fixtures still assume POSIX permissions, symlinks, and
+  path separators. Use a Linux or macOS checkout for complete suite acceptance;
+  the Windows launcher checks do not establish native Windows support.
+- Each browser lane owns a separate absolute Playwright transform-cache path
+  under ignored `.data/`, so concurrent collectors cannot rewrite each other's
+  compiled modules. Suite selection, timeouts and retries are unchanged.
 - Run `npm run ui:sweep` separately from the full verifier: its isolated
   5193/5194 stack overlaps the verifier's second browser shard. Never enable
   server reuse to mask this collision; wait for the first command to finish.

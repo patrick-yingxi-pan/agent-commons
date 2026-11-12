@@ -126,6 +126,7 @@ import { cleanSteps, moveStep, removeStep } from '../lib/steps'
 import { DeferredConnectorDetailBody as ConnectorDetailBody } from './DeferredConnectorContextPanel'
 import { AddContextButton } from './AddContextButton'
 import { INLINE_ACTION_CLASS } from '../lib/inlineAction'
+import { POST_ACT_CLASS } from '../lib/discussionPostAction.ts'
 import { useDisclosure } from '../lib/useDisclosure'
 import { DIALOG_SURFACE_CLASS } from '../lib/dialog'
 import { NotificationRow, type NotificationDoors } from './NotificationList'
@@ -162,6 +163,7 @@ import {
   unfoldBranch,
   DISCARD_SLOT_CLASS,
   FOLD_GUTTER_CLASS,
+  FOLDED_POST_CLASS,
 } from '../lib/replyTree'
 import { ActorByline, AgentActor, Byline, CreditLine, OwnerLink, IdentityMark } from './PublicFace'
 import { TextDiff } from './TextDiff'
@@ -4244,6 +4246,7 @@ function DiscussionPostList({
       <span className={DISCARD_SLOT_CLASS}>
       <Tooltip label="Unfold this branch and everything folded inside it">
         <button
+          data-discussion-post-action="unfold-branch"
           onClick={() => fold.unfoldBranch([p.id, ...kin])}
           disabled={held}
           // NOT a disclosure, and `aria-expanded` here would claim a toggle
@@ -4263,7 +4266,7 @@ function DiscussionPostList({
           // "unfold this post" half is simply a no-op, and it is the "everything
           // folded inside it" half that the reader pressed it for.
           aria-label={`Unfold ${p.author}’s post and everything folded inside it`}
-          className={`${FOLD_GUTTER_CLASS} flex h-4 items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${HOVER_REVEAL}`}
+          className={`${POST_ACT_CLASS} h-6 w-6 text-ink-faint hover:bg-panel-2 hover:text-ink ${HOVER_REVEAL}`}
         >
           <ChevronsDown size={12} className="shrink-0" />
         </button>
@@ -4276,7 +4279,7 @@ function DiscussionPostList({
         data-discussion-post-id={p.id}
         data-discussion-post-deletion={deletionPhase}
       >
-        <div className="group flex items-start gap-1.5">
+        <div className={`group flex items-start gap-1.5 ${branch > 0 ? 'sm:min-h-12' : ''}`}>
           {/* ── The fold ──────────────────────────────────────────────────────
               ONE button across both states, at the same position in the tree, so
               React keeps the DOM node and the keyboard focus survives the press.
@@ -4302,11 +4305,12 @@ function DiscussionPostList({
               beside it — one cut reserved an in-flow slot and aligned the stubs
               with EACH OTHER by pushing all of them 32px right of the open rows,
               a worse bug than the one it fixed. Vertically it would be the row
-              height itself: a stub is one line tall, and a hover-revealed
-              control that grew it would make the thread twitch under the
-              mouse. */}
-          <div className={`${FOLD_GUTTER_CLASS} relative mt-0.5 flex h-4 items-center`}>
+              height itself. Rows with a branch reserve the two 24px targets
+              above the narrow tier, whether revealed or not, so a collapsed
+              stub's unfold target cannot cover the next row. */}
+          <div className={`${FOLD_GUTTER_CLASS} relative flex h-6 items-center justify-center`}>
           <button
+            data-discussion-post-action="fold-toggle"
             onClick={() => toggle(p.id)}
             disabled={held}
             aria-expanded={!hidden}
@@ -4318,7 +4322,7 @@ function DiscussionPostList({
             // pinned visible — a stub whose only way back is invisible is a post
             // nobody finds again. The slot is reserved in all three cases, so
             // nothing shifts when a caret appears.
-            className={`flex h-4 w-full items-center justify-center rounded text-ink-faint transition hover:bg-panel-2 hover:text-ink focus-visible:opacity-100 ${
+            className={`${POST_ACT_CLASS} h-6 w-6 text-ink-faint hover:bg-panel-2 hover:text-ink ${
               branch > 0 || hidden ? '' : HOVER_REVEAL
             }`}
           >
@@ -4342,8 +4346,9 @@ function DiscussionPostList({
               chevron would compress a long thread into a column of nothing —
               and coping with a large history is the whole point of the control
               (owner directive 2026-08-11); you cannot navigate a history you
-              cannot recognise. Whitespace collapses rather than surviving as
-              gaps, so the one line is one line.
+              cannot recognise. Whitespace collapses in the one-line synopsis.
+              Narrow stubs put synopsis/count below author/age so metadata
+              cannot consume the opening words or push the count out of bounds.
 
               The row takes the mouse and the CARET keeps the keyboard, which is
               the card-door model (lib/cardDoor) and is here for its second
@@ -4359,16 +4364,17 @@ function DiscussionPostList({
               from the text you just highlighted does not. */}
           {hidden && (
             <div
+              data-discussion-post-stub
               onClick={(e) => {
                 if (!held && !isCardControlClick(e.target instanceof Element ? e.target : null, e.currentTarget)) toggle(p.id)
               }}
-              className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md py-0.5 pr-1.5 transition hover:bg-panel-2"
+              className={FOLDED_POST_CLASS}
             >
               <span className="shrink-0 text-[12px] font-medium text-ink">
                 <OwnerLink bare ownerName={p.author} own={p.mine === true} onClick={() => onOpenPerson(p.author)} />
               </span>
               <span className="shrink-0 text-[11px] text-ink-faint">{relativeTime(p.at)}</span>
-              <span className="min-w-0 flex-1 truncate text-[12px] text-ink-faint">
+              <span data-discussion-post-synopsis className="min-w-0 flex-1 truncate text-[12px] text-ink-faint">
                 {p.body.replace(/\s+/g, ' ').trim()}
               </span>
               {branch > 0 && <span className="shrink-0 text-[11px] tabular-nums text-ink-faint">{replies}</span>}
@@ -4409,8 +4415,8 @@ function DiscussionPostList({
                     On the byline rather than under the body, which is the
                     other place "after the content" could mean: a control row
                     beneath every post is a row per post, and Reply was moved
-                    OFF exactly such a row earlier the same day. This spends no
-                    vertical space at all.
+                    OFF exactly such a row earlier the same day. The shared
+                    24px targets stay on the byline without a separate act row.
 
                     `flex-wrap` on the line above: below `sm` the cluster is
                     persistent (UI-7), and name + time + four controls do not
@@ -4439,6 +4445,7 @@ function DiscussionPostList({
                       hover-revealed ones too. */}
                   <Tooltip label={p.reacted ? 'Remove your endorsement' : 'Endorse this post'}>
                     <button
+                      data-discussion-post-action="endorse"
                       onClick={() => void react(p)}
                       disabled={held || reacting.has(p.id)}
                       aria-busy={reacting.has(p.id) || undefined}
@@ -4468,14 +4475,15 @@ function DiscussionPostList({
                       not: while it read "only this" the words cost a whole
                       extra line per post on a 375px column, so it took
                       HOVER_CUE and vanished on touch. Becoming a glyph removed
-                      the reason — measured at 375px, the byline is 18px tall
-                      whether this is shown or hidden — and UI-7's rule for a
+                      the reason — hidden controls retain the same 24px target
+                      boxes as shown ones — and UI-7's rule for a
                       real control is that it PERSISTS where there is no hover.
                       A phone reading a long thread wants this more than a
                       desktop does, not less. */}
                   {posts.length > 1 && (
                     <Tooltip label="Fold everything else">
                       <button
+                        data-discussion-post-action="fold-others"
                         onClick={() => fold.foldAllBut(p.id)}
                         disabled={held}
                         aria-label={`Fold every post but ${p.author}’s`}
@@ -4488,6 +4496,7 @@ function DiscussionPostList({
                   {replyComposer && (
                     <Tooltip label="Reply to this post">
                       <button
+                        data-discussion-post-action="reply"
                         onClick={() => setReplyingTo((cur) => (cur === p.id ? null : p.id))}
                         disabled={held}
                         aria-expanded={replyingTo === p.id}
@@ -4518,6 +4527,7 @@ function DiscussionPostList({
                   {deletion && p.canDelete === true && (
                     <Tooltip label={p.mine === true ? 'Retract this post' : 'Delete this post (you own the surface)'}>
                       <button
+                        data-discussion-post-action="delete"
                         onClick={() => {
                           setCascade(false)
                           setConfirmDelete(p)
@@ -4533,6 +4543,7 @@ function DiscussionPostList({
                   {onReport && p.canDelete !== true && (
                     <Tooltip label={isReported ? 'Reported' : 'Report this post to the owner of this surface'}>
                       <button
+                        data-discussion-post-action="report"
                         onClick={() => void report(p.id)}
                         disabled={held || isReported || isReporting}
                         aria-busy={isReporting || undefined}
@@ -4661,22 +4672,6 @@ function DiscussionPostList({
     </div>
   )
 }
-
-/** Every per-post act wears one face: a compact icon button on the byline. Same
- *  role ⇒ same look (src/CLAUDE.md) — five controls that had five spellings of
- *  the same padding and radius between them.
- *
- *  SHAPE ONLY — no colour, deliberately. It carried `text-ink-faint` for one
- *  revision, and the endorsement (which appends `text-accent` when you have
- *  endorsed) silently stopped showing it: two base `text-*` utilities in one
- *  class attribute have no defined winner, the cascade decides by the order
- *  they appear in the generated CSS, and the faint one won. That is the same
- *  trap `lib/textDoor` records for `border-*`, and the reason a shared
- *  primitive must not own a property any caller varies. Callers supply the
- *  resting colour, the hover colour, and the reveal rule — all three genuinely
- *  differ per act. */
-const POST_ACT_CLASS =
-  'flex shrink-0 items-center justify-center rounded-md px-1.5 py-0.5 transition focus-visible:opacity-100'
 
 /** The subject's discussions (social S2, SOCIAL-6b) — the ROOT thread as a flat
  *  timeline with an inline composer, generic over the anchor ref by

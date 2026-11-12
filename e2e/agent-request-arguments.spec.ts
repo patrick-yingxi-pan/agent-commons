@@ -130,7 +130,7 @@ async function createRequest(request: APIRequestContext, stack: McpRouterStack, 
   return api(request, stack, requester, 'POST', '/agent-requests', { fromAgentId, toAgentId, task }, randomUUID())
 }
 
-async function captureViewports(page: Page, info: TestInfo, label: string, focus: ReturnType<Page['getByRole']>) {
+async function captureViewports(page: Page, info: TestInfo, label: string, focus: ReturnType<Page['getByRole']>, writableAction?: ReturnType<Page['getByRole']>) {
   const collapse = page.getByRole('button', { name: 'Collapse sidebar', exact: true })
   if (await collapse.evaluateAll(nodes => nodes.some(node => !node.closest('[inert]')))) await collapse.click()
   for (const viewport of VIEWPORTS) {
@@ -145,6 +145,12 @@ async function captureViewports(page: Page, info: TestInfo, label: string, focus
         const box = node.getBoundingClientRect()
         return box.width > 0 && (box.left < -1 || box.right > innerWidth + 1)
       }) }))).toEqual({ overflow: false, fields: false })
+    if (writableAction) {
+      // A pending-request poll can re-enable this action after the status has
+      // settled. Its disabled-opacity transition must finish before review.
+      await expect(writableAction).toBeEnabled()
+      await settledOpaquePaint(writableAction)
+    }
     if (viewport.width === 320 || viewport.width === 1280) await assertWcag22Aa(page, `${label} ${viewport.width}`)
     await page.screenshot({ path: info.outputPath(`${label}-${viewport.width}.png`) })
   }
@@ -224,6 +230,9 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     expect(savedDraft.argumentDraft.status).toBe('pending')
     await page.unroute('**/api/v1/agent-requests/*/decision', loseFirstDraftAck)
     await expect.poll(() => savedStatusReads, { timeout: ms(12_000) }).toBeGreaterThan(0)
+    // A started GET is not a settled recovery. Leaving earlier can restore the
+    // opaque recovery reminder in the next document and correctly hold Reply.
+    await expect(page.getByRole('button', { name: 'Cancel request', exact: true })).toBeEnabled()
     await page.goto('/agents/requests')
     await page.goto(`/agents/requests/${first.id}`)
     await openToolOptions(page)
@@ -233,7 +242,8 @@ test('argument drafts stay private advice across pending, done, uncertain and st
     await expect(page.getByRole('textbox', { name: 'Reply', exact: true })).toBeDisabled()
     await expect(pending.locator('[data-agent-request-draft-binding]')).toContainText(TOOL.name)
     await expect(pending.locator('[data-agent-request-draft-binding]')).toContainText(MODEL_ID)
-    await captureViewports(page, info, 'argument-draft-pending', pending.getByRole('status'))
+    await captureViewports(page, info, 'argument-draft-pending', pending.getByRole('status'),
+      page.getByRole('button', { name: 'Cancel request', exact: true }))
     expect(draftPosts).toBe(1, 'lost acknowledgement recovery reads saved status and never resubmits the model request')
     expect(savedStatusReads).toBeGreaterThan(0, 'the controller resolves uncertainty with a canonical GET')
     expect(model.requests).toHaveLength(1)

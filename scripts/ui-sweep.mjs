@@ -63,6 +63,7 @@
  *  Output: violations + skips as JSON; screenshots per cell in .data/ui-sweep/
  */
 import { chromium } from 'playwright'
+import { expect } from '@playwright/test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -298,6 +299,7 @@ function assertInside(cell, label, b, vp) {
 /** Click every visible aria-haspopup trigger in `scope`, one at a time; assert
  *  each surfaced popover is inside the viewport; Escape to close. */
 async function sweepTriggers(page, vp, cell, scope = page) {
+  await page.waitForFunction(deferredSurfaceReady, null, { timeout: 8000 })
   const triggers = scope.locator('[aria-haspopup]:visible')
   const seen = new Set()
   while (true) {
@@ -345,7 +347,38 @@ async function sweepTriggers(page, vp, cell, scope = page) {
   }
 }
 
-const shot = (page, name) => page.screenshot({ path: `${SHOTS}${name}.png` }).catch(() => {})
+/** Reveal motion can leave readable transcript rows faded or blurred in an
+ * otherwise ready workspace. Match the E2E opaque-paint gate for every rendered
+ * conversation, resampling row identity as well as geometry after two frames. */
+async function settledConversationPaint() {
+  const paint = () => {
+    const snapshot = []
+    for (const row of document.querySelectorAll('[data-conversation-pane] [data-turn]')) {
+      if (!row.isConnected) return null
+      const { x, y, width, height } = row.getBoundingClientRect()
+      if (width === 0 || height === 0 || getComputedStyle(row).visibility !== 'visible') continue
+      for (let node = row; node; node = node.parentElement) {
+        if (getComputedStyle(node).opacity !== '1') return null
+      }
+      snapshot.push({ row, rect: JSON.stringify([x, y, width, height]) })
+    }
+    return snapshot
+  }
+  const before = paint()
+  if (!before) return false
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  const after = paint()
+  return !!after && before.length === after.length && before.every((entry, index) =>
+    entry.row === after[index].row && entry.rect === after[index].rect)
+}
+
+async function shot(page, name) {
+  await page.waitForFunction(deferredSurfaceReady, null, { timeout: 8000 })
+  // waitForFunction treats an async predicate's Promise as truthy before it
+  // resolves. Poll the awaited two-frame result so false keeps capture held.
+  await expect.poll(() => page.evaluate(settledConversationPaint), { timeout: 8000 }).toBe(true)
+  return page.screenshot({ path: `${SHOTS}${name}.png` })
+}
 
 // ── navigation (loud, never fatal) ──────────────────────────────────────────
 /** The drawer's true state. Measure the OUTER overflow-hidden container — the
@@ -414,6 +447,47 @@ async function closeRailIfNarrow(page, vp) {
   await tick(250)
 }
 
+/** The shell mounts before its lazy body. Only the focused pane's visible
+ * resource page is reviewable; conversations and drafts use that same frame.
+ * Normal empty pages qualify, but loading, failed and unavailable substitutes
+ * cannot satisfy a cell that promises the actual subject. Runs in the browser. */
+function surfaceReady() {
+  const pane = document.querySelector('main [data-main-pane][data-focused="true"]')
+  if (!pane || pane.querySelector('[data-section-loading], [data-section-load-error], [data-resource-unavailable]')) return false
+  const surface = pane.querySelector('[data-resource-page]')
+  if (!surface) return false
+  const { width, height } = surface.getBoundingClientRect()
+  return width > 0 && height > 0 && getComputedStyle(surface).visibility === 'visible'
+}
+
+/** These nested modules mount after the page frame. Wait for the requested,
+ * rendered controls, including their data read, without waiting for unrelated
+ * live statuses or hidden optional sections. Runs in the browser. */
+function deferredSurfaceReady() {
+  const pane = document.querySelector('main [data-main-pane][data-focused="true"]')
+  if (!pane) return true
+  return [...pane.querySelectorAll('[role="status"], [role="alert"], [data-proposals-load]')].every(status => {
+    const { width, height } = status.getBoundingClientRect()
+    if (width === 0 || height === 0 || getComputedStyle(status).visibility !== 'visible') return true
+    const text = status.textContent?.trim() ?? ''
+    return !status.hasAttribute('data-proposals-load') &&
+      !/^Loading (?:requests|improvements|backup controls)…$/.test(text) &&
+      !/^Couldn’t (?:load request history|read current request access|load improvements|load backup controls)\./.test(text)
+  })
+}
+
+/** A visible repository panel must contain its real diff body, not just the
+ * shared lazy shell. Closed narrow docks and unrelated panes are not subjects. */
+function repoPanelsReady(sessionId) {
+  return [...document.querySelectorAll('[data-context-pane], [data-overlay-dock]')].every((panel) => {
+    const identity = panel.getAttribute('data-context-pane')
+    if (identity && !identity.startsWith(`${sessionId} repo `)) return true
+    const { width, height } = panel.getBoundingClientRect()
+    if (width === 0 || height === 0 || getComputedStyle(panel).pointerEvents === 'none') return true
+    return !panel.querySelector('[data-workspace-panel-load]') && !!panel.querySelector('[aria-label="Code changes"]')
+  })
+}
+
 /** Land on a page by its CANONICAL URL. Every page has one (ADAPT-15,
  *  src/lib/urlRoutes.ts), so the sweep addresses a surface directly instead of
  *  clicking through the rail — which at the narrow tier means opening a drawer
@@ -429,17 +503,16 @@ async function goTo(page, path, cell) {
     unreachable(cell, `${path} failed to load: ${firstLine(e)}`)
     return false
   }
-  // WAIT for the workspace, don't sleep-then-look: a fixed tick makes the guard
-  // itself flaky (one cold 320px navigation reported a perfectly good page as
-  // unreachable), and a harness that cries wolf gets ignored exactly like one
-  // that stays silent.
+  // Main chrome exists during lazy loading. Require its real body before any
+  // caller measures, captures or marks this cell covered, within the same budget.
   try {
-    await page.locator('main').first().waitFor({ state: 'attached', timeout: 8000 })
+    const readyDeadline = Date.now() + 8000
+    await page.waitForFunction(surfaceReady, null, { timeout: 8000 })
+    await page.waitForFunction(deferredSurfaceReady, null, { timeout: Math.max(1, readyDeadline - Date.now()) })
   } catch {
-    unreachable(cell, `${path} rendered no <main> in 8s — the address did not open a workspace`)
+    unreachable(cell, `${path} exposed no ready focused resource page in 8s — the workspace was absent, hidden, loading or unavailable`)
     return false
   }
-  await tick(600) // then let data land and entry animations settle before measuring
   return true
 }
 
@@ -480,6 +553,7 @@ async function seedIds(page) {
   // chips-plus-panel cell needs a repo. Ask rather than assume.
   let chipSessionId = null
   let repoSessionId = null
+  let repoLabel = null
   let threadSessionId = null
   let threadSessionTitle = null
   for (const row of arr(sessions).slice(0, 14)) {
@@ -487,7 +561,10 @@ async function seedIds(page) {
     const w = d?.workspace ?? {}
     const n = (w.workspaces?.length ?? 0) + (w.repos?.length ?? 0) + (w.connectors?.length ?? 0) + (w.attachments?.length ?? 0)
     if (n > 0) chipSessionId ??= row.id
-    if ((w.repos?.length ?? 0) > 0) repoSessionId ??= row.id
+    if (!repoSessionId && (w.repos?.length ?? 0) > 0) {
+      repoSessionId = row.id
+      repoLabel = w.repos[0].label
+    }
     if (!threadSessionId && (w.repos?.length ?? 0) === 0 && Array.isArray(d?.messages) && d.messages.length > 0) {
       threadSessionId = row.id
       threadSessionTitle = d.title ?? row.title
@@ -496,7 +573,8 @@ async function seedIds(page) {
   }
   return {
     chipSessionId,
-    repoSessionId: repoSessionId ?? chipSessionId,
+    repoSessionId,
+    repoLabel,
     threadSessionId,
     threadSessionTitle,
     // The canonical registry includes foreign shared/granted rows. The owner
@@ -650,16 +728,24 @@ for (const vp of VIEWPORTS) {
 
     // ── cell: a seeded repo session (chips + the auto-opened panel) ──
     cell = at('thread-repo')
-    if (ids.repoSessionId) {
+    if (ids.repoSessionId && ids.repoLabel) {
       if (await goTo(page, `/s/${ids.repoSessionId}`, cell)) {
-        await noHScroll(page, cell)
-        await shot(page, cell.replace('/', '_'))
-        await dismissOverlayPanel(page) // measure the thread, then leave it clean
-        const closeBtn = page.getByRole('button', { name: 'Close', exact: true }).first()
-        if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click().catch(() => {})
-        await tick(200)
-        await sweepTriggers(page, vp, cell)
-        covered(cell)
+        try {
+          const conversation = page.locator(`[data-conversation-pane="${ids.repoSessionId}"]`)
+          await conversation.locator('[data-turn]').first().waitFor({ state: 'visible', timeout: 8000 })
+          await conversation.getByRole('button', { name: ids.repoLabel, exact: true }).waitFor({ state: 'visible', timeout: 8000 })
+          await page.waitForFunction(repoPanelsReady, ids.repoSessionId, { timeout: 8000 })
+          await noHScroll(page, cell)
+          await shot(page, cell.replace('/', '_'))
+          await dismissOverlayPanel(page) // measure the thread, then leave it clean
+          const closeBtn = page.getByRole('button', { name: 'Close', exact: true }).first()
+          if (await closeBtn.isVisible().catch(() => false)) await closeBtn.click().catch(() => {})
+          await tick(200)
+          await sweepTriggers(page, vp, cell)
+          covered(cell)
+        } catch (e) {
+          unreachable(cell, `repo session ${ids.repoSessionId} did not expose its transcript, chip and ready panel: ${firstLine(e)}`)
+        }
       }
     } else unreachable(cell, 'no session with an attached repo')
 

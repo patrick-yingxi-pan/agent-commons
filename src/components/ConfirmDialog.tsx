@@ -1,6 +1,6 @@
-import { useRef } from 'react'
+import { useRef, type RefObject } from 'react'
 import { SCRIM_CLASS } from '../lib/scrim'
-import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
+import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS, dialogReadRegionProps } from '../lib/dialog'
 import { useBoundedDialog } from '../lib/useBoundedDialog'
 import { WRAPPING_PROSE_CLASS } from '../lib/prose'
 import { DANGER_BUTTON_CLASS, SECONDARY_BUTTON_CLASS } from '../lib/button'
@@ -44,6 +44,7 @@ export function ConfirmDialog({
   confirmLabel,
   onConfirm,
   onCancel,
+  returnFocus,
 }: {
   title: string
   /** What is being destroyed and what follows from it. Prose, not "Are you
@@ -61,11 +62,13 @@ export function ConfirmDialog({
   confirmLabel: string
   onConfirm: () => void
   onCancel: () => void
+  /** Explicit opener for callers that load a review before mounting this dialog. */
+  returnFocus?: RefObject<HTMLElement | null>
 }) {
   const dialogRef = useRef<HTMLDivElement>(null)
   const cancelRef = useRef<HTMLButtonElement>(null)
   useBoundedDialog(dialogRef)
-  useFocusTrap(dialogRef, onCancel, { initialFocus: cancelRef })
+  useFocusTrap(dialogRef, onCancel, { initialFocus: cancelRef, returnFocus })
 
   return (
     <div
@@ -83,7 +86,7 @@ export function ConfirmDialog({
         className={`w-[380px] p-4 ${BOUNDED_DIALOG_PANEL_CLASS} ${DIALOG_SURFACE_CLASS}`}
       >
         <p className="shrink-0 text-[15px] font-semibold text-ink">{title}</p>
-        <div className={BOUNDED_DIALOG_BODY_CLASS}>
+        <div {...dialogReadRegionProps('Confirmation details')} className={BOUNDED_DIALOG_BODY_CLASS}>
           <p data-wrapping-prose className={`mt-1.5 text-[12px] leading-relaxed text-ink-soft ${WRAPPING_PROSE_CLASS}`}>{body}</p>
           {/* The shared checkbox keeps widening the action a familiar, explicit choice. */}
           {option && (

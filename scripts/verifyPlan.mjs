@@ -92,6 +92,33 @@ export function suiteFiles(dirs = suiteRoots()) {
     .sort()
 }
 
+/** Keep the exact manifest while bounding Windows process arguments. The full
+ * suite now exceeds CreateProcess's 32,767-character limit. Reserve ample space
+ * for the executable/options and conservatively allow every path character to
+ * double during Windows quoting. Batches run sequentially in the checks lane,
+ * so the npm-owned concurrency remains the total Node worker limit. */
+export function suiteBatches(files, platform = process.platform) {
+  if (files.length === 0) throw new Error('cannot run an empty Node suite manifest')
+  if (platform !== 'win32') return [files]
+  const budget = 6_000
+  const batches = []
+  let batch = []
+  let size = 0
+  for (const file of files) {
+    const cost = file.length * 2 + 3
+    if (cost > budget) throw new Error(`Node suite path exceeds the Windows command-line argument budget: ${file}`)
+    if (size + cost > budget) {
+      batches.push(batch)
+      batch = []
+      size = 0
+    }
+    batch.push(file)
+    size += cost
+  }
+  batches.push(batch)
+  return batches
+}
+
 /** Where the runner records how long each spec actually took, as a SHARE of the
  *  run rather than in seconds.
  *

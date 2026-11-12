@@ -68,6 +68,24 @@ test('focus lands on CANCEL, not on the destructive verb', () => {
   assert.ok(!confirmBtn[1].includes(`ref={${focused}}`), 'the destructive verb never holds the initial focus')
 })
 
+test('an asynchronous deletion preview carries its exact opener through the shared focus trap', () => {
+  const deletion = stripComments(read('src/components/ArtifactPermanentDeletionSection.tsx'))
+  const button = /<button\b([^>]*data-artifact-permanent-delete-open="true"[^>]*?)>/.exec(deletion)
+  assert.ok(button, 'the preview has its own existing opener')
+  const opener = /ref=\{([A-Za-z_$][\w$]*)\}/.exec(button[1])?.[1]
+  assert.ok(opener, 'the preview opener retains its identity while loading disables it')
+  const confirmation = /<ConfirmDialog\b([\s\S]*?)\/>/.exec(deletion)
+  assert.ok(confirmation, 'the successful preview still opens the shared confirmation')
+  assert.ok(confirmation[1].includes(`returnFocus={${opener}}`), 'the exact preview button is the return target')
+  assert.match(src(), /useFocusTrap\(dialogRef, onCancel, \{ initialFocus: cancelRef, returnFocus \}\)/,
+    'confirmation forwards the explicit target without replacing initial Cancel focus')
+  const trap = stripComments(read('src/lib/useFocusTrap.ts'))
+  assert.match(trap, /const opener = returnFocus\?\.current \?\? \(document\.activeElement as HTMLElement \| null\)/,
+    'the target is captured on mount, with the existing active-element default')
+  assert.match(trap, /return \(\) => opener\?\.focus\?\.\(\)/,
+    'cleanup uses the captured node, never a later mutable ref in another page or account')
+})
+
 test('a discussion post is never deleted without asking first', () => {
   const s = stripComments(read(join(ROOT, 'src', 'components', 'SectionView.tsx')))
   // Every post-deletion command, with enough context to include its enclosing

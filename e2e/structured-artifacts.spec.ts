@@ -1,6 +1,6 @@
 /** Rendered structured authored artifacts: consent previews and canonical bodies share one identity. */
 import { test, expect, type Browser, type Page } from '@playwright/test'
-import type { ArtifactItem, Session } from '../contract/index.ts'
+import type { ArtifactItem, Identity, Session, UsageSnapshot } from '../contract/index.ts'
 import { API, newUser } from './social-helpers.ts'
 import { ms } from './budget.ts'
 import { settleArtifactPageRail } from './artifact-page-helpers.ts'
@@ -35,6 +35,28 @@ async function walkStructuredArtifact({ browser, testInfo, kind }: { browser: Br
   const prompt = kind === 'sheet' ? `Save a sheet as ${name}` : `Save slides as ${name}`
   const expected = kind === 'sheet' ? ['Metric', 'Value', 'Summary', 'Saved from this conversation'] : ['Summary', 'Saved from this conversation']
   try {
+    // This real model turn uses its own authenticated owner's normal meter,
+    // independent of model work earlier in the shared demo account's window.
+    const email = `structured-${kind}-owner-${stamp}@example.test`
+    const signup = await owner.page.request.post(`${API}/auth/signup`, {
+      data: { name: `Structured ${kind} owner ${stamp}`, email, password: 'structured-artifact-owner-password' },
+    })
+    expect(signup.ok(), await signup.text()).toBe(true)
+    const createdOwner = await signup.json() as Identity
+    expect(createdOwner.user.id).not.toBe('user-ada')
+    expect(createdOwner.tenant.id).not.toBe('tenant-acme')
+    const meResponse = await owner.page.request.get(`${API}/me`)
+    expect(meResponse.ok()).toBe(true)
+    expect(await meResponse.json()).toMatchObject({
+      via: 'session', role: 'owner', user: { id: createdOwner.user.id, email }, tenant: { id: createdOwner.tenant.id },
+    })
+    const usageResponse = await owner.page.request.get(`${API}/usage`)
+    expect(usageResponse.ok()).toBe(true)
+    const usage = await usageResponse.json() as UsageSnapshot
+    const fiveHour = usage.limits.find(window => window.key === 'fiveHour')
+    expect(fiveHour, 'the fresh owner has a real account budget').toBeDefined()
+    expect(fiveHour!.usedTokens, 'the proposal inherits no seeded or earlier-test spending').toBe(0)
+    expect(fiveHour!.limitTokens).toBeGreaterThan(fiveHour!.usedTokens)
     const session = await propose(owner.page, prompt, stamp)
     await owner.page.goto(`/s/${session.id}`)
     const row = owner.page.locator('[data-relation-action-key]').first()

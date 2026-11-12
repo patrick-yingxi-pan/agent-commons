@@ -171,26 +171,39 @@ test('failed/uncertain receipts and thrown adapters return safe errors without T
   assert.deepEqual(activities, [])
 })
 
-test('pre-dispatch cancellation skips callback; dispatched work receives abort signal and deadline is terminal', async () => {
+test('pre-dispatch cancellation skips callback; dispatched work receives abort signal and deadline is terminal', { timeout: 10_000 }, async t => {
   const derived = derive()
   const name = derived.definitions[0]!.name
   let calls = 0
+  let onDispatch!: () => void
+  const dispatched = new Promise<void>(resolve => { onDispatch = resolve })
+  let dispatchedSignal: AbortSignal | undefined
   const runtime: RoutineMcpRuntime = { tools: [permission], async execute(call, _key, signal) {
     calls += 1
     assert.ok(signal)
+    dispatchedSignal = signal
     return new Promise<RoutineMcpCallReceipt>((_resolve, reject) => {
       signal!.addEventListener('abort', () => reject(new Error('cancelled')), { once: true })
+      onDispatch()
     })
   } }
   const before = await runRoutineMcpTool(name, derived.bindings, { query: 'approved' }, runtime, AbortSignal.abort())
   assert.equal(before?.isError, true)
   assert.equal(calls, 0)
-  const batch = await executeToolBatch([{ id: 'provider', name, input: { query: 'approved' } }], {
+  // The assertion concerns an already-dispatched call. Schema-worker startup
+  // must finish before advancing the same 250 ms deadline under test.
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const pending = executeToolBatch([{ id: 'provider', name, input: { query: 'approved' } }], {
     declaredNames: new Set([name]), connectorBindings: derived.bindings, routineMcp: runtime,
     context: { session: { id: 'session', title: 'test' } }, relationOps: [], toolActivities: [],
     limits: { maxCalls: 1, timeoutMs: 250 },
   })
+  await dispatched
   assert.equal(calls, 1)
+  assert.equal(dispatchedSignal?.aborted, false)
+  t.mock.timers.tick(250)
+  const batch = await pending
+  assert.equal(dispatchedSignal?.aborted, true)
   assert.equal(batch.results[0]!.isError, true)
   assert.match(batch.results[0]!.content, /deadline/)
 })

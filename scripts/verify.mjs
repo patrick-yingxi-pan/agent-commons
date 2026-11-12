@@ -71,8 +71,8 @@
 import { spawn } from 'node:child_process'
 import { availableParallelism } from 'node:os'
 import { mkdirSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-import { e2ePartition, envCount, specFiles, specGroups, suiteConcurrency, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
+import { dirname, resolve } from 'node:path'
+import { e2ePartition, envCount, specFiles, specGroups, suiteBatches, suiteConcurrency, suiteFiles, weightsFrom, WEIGHTS_FILE } from './verifyPlan.mjs'
 import { resolvedFactor, shardCount } from './hostSpeed.mjs'
 import { observeChild, stopOwnedChildren } from './childProcessLifecycle.mjs'
 
@@ -124,7 +124,9 @@ const lanes = [
     name: 'checks',
     steps: [
       { cmd: 'npm', args: ['run', 'typecheck'] },
-      { cmd: 'node', args: ['--test', `--test-concurrency=${NODE_TEST_CONCURRENCY}`, ...SUITE] },
+      ...suiteBatches(SUITE).map((files) => ({
+        cmd: 'node', args: ['--test', `--test-concurrency=${NODE_TEST_CONCURRENCY}`, ...files],
+      })),
       { cmd: 'npm', args: ['run', 'build'] },
     ],
   },
@@ -140,6 +142,7 @@ const lanes = [
           E2E_SHARD: String(PARTITION.parts > 1 ? PARTITION.part - 1 : i),
           E2E_SHARDS: String(E2E_GROUPS.length),
           E2E_HOST_FACTOR: String(HOST_FACTOR),
+          PWTEST_CACHE_DIR: resolve('.data/playwright-transform-cache', `shard-${PARTITION.parts > 1 ? PARTITION.part - 1 : i}`),
         },
       },
     ],
@@ -182,16 +185,22 @@ process.on('SIGTERM', () => interrupt('SIGTERM'))
 // unhandled EPIPE and abandoning active lanes.
 process.stdout.on('error', () => interrupt('SIGTERM', 1))
 process.stderr.on('error', () => interrupt('SIGTERM', 1))
-/** One step. `shell: true` on win32: npm/npx are .cmd shims, which spawn cannot
- *  exec directly. Output is buffered and surfaced only on failure — four live
+/** One step. npm/npx need a shell on win32 because they are .cmd shims; Node
+ *  runs directly so suite paths retain their argument boundaries. Output is
+ *  buffered and surfaced only on failure — four live
  *  streams interleaved are unreadable, and the tail is the part that says why. */
 const step = async (st) => {
   if (interrupted) return { code: interrupted, out: '' }
-  const child = spawn(st.cmd, st.args, {
-    shell: process.platform === 'win32',
-    detached: process.platform !== 'win32',
-    env: { ...process.env, ...st.env },
-  })
+  let child
+  try {
+    child = spawn(st.cmd, st.args, {
+      shell: process.platform === 'win32' && st.cmd !== 'node',
+      detached: process.platform !== 'win32',
+      env: { ...process.env, ...st.env },
+    })
+  } catch (err) {
+    return { code: 1, out: `\nverify: could not spawn ${st.cmd} — ${err.message}\n` }
+  }
   const owned = observeChild(child, { processGroup: true })
   activeChildren.set(owned, st.env?.E2E_SHARD !== undefined)
   let out = ''

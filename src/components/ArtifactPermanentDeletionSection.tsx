@@ -46,6 +46,7 @@ export function ArtifactPermanentDeletionSection({
   const [review, setReview] = useState<Review | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const deletionHeld = useArtifactPermanentDeletionHeld(artifact.id)
+  const reviewOpenerRef = useRef<HTMLButtonElement>(null)
   const mounted = useRef(false)
   const redirected = useRef(false)
   const scope = useRef({ artifactId: artifact.id, sourceUserId, generation: accountGeneration() })
@@ -138,6 +139,7 @@ export function ArtifactPermanentDeletionSection({
       action={notice.startsWith('Couldn’t load') ? { label: 'Retry preview', onClick: () => { void loadReview() } } : undefined}
     /></div>}
     <button
+      ref={reviewOpenerRef}
       type="button"
       data-artifact-permanent-delete-open="true"
       disabled={reading || submitting || deletionHeld}
@@ -146,6 +148,7 @@ export function ArtifactPermanentDeletionSection({
       onClick={() => { void loadReview() }}
     >{deletionHeld ? 'Deletion awaiting confirmation' : reading ? 'Loading deletion preview…' : 'Delete permanently…'}</button>
     {review && <ConfirmDialog
+      returnFocus={reviewOpenerRef}
       title="Delete artifact permanently?"
       body={deletionScope(review.preview)}
       confirmLabel="Delete permanently"

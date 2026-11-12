@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http'
 import { test, expect, type Page, type TestInfo, type Browser } from '@playwright/test'
 import type {
   Agent,
+  AuthAccount,
   Commission,
   CreateProjectResponse,
   DispatchRun,
@@ -11,6 +12,7 @@ import type {
   OpenSubGoal,
   Project,
   SystemPromptEntry,
+  UsageSnapshot,
 } from '../contract/index.ts'
 import { DISPATCH_TITLE_MAX } from '../contract/dispatchExecution.ts'
 import { manualDispatchRunId } from '../server/dispatchIdentity.ts'
@@ -59,6 +61,7 @@ interface Fixture {
 }
 
 const activePeers = new Set<MessagesPeer>()
+const fixtureOwners = new WeakMap<Page, Identity>()
 test.afterEach(async () => {
   await Promise.all([...activePeers].map((peer) => peer.close()))
 })
@@ -137,9 +140,45 @@ async function startMessagesPeer(reply: string): Promise<MessagesPeer> {
 }
 
 async function createFixture(page: Page, stamp: string, options: { shared?: boolean; reply?: string } = {}): Promise<Fixture> {
+  // Real drafts spend against the signed-in owner's meter. Give each browser
+  // test its own authenticated account instead of inheriting earlier Ada turns;
+  // another entity fixture on this page keeps that same owner and its real usage.
+  let owner = fixtureOwners.get(page)
+  if (!owner) {
+    const stackBeforeResponse = await page.request.get(`${API}/auth/accounts`)
+    expect(stackBeforeResponse.ok()).toBe(true)
+    const stackBefore = await stackBeforeResponse.json() as AuthAccount[]
+    const email = `project-draft-owner-${stamp}@example.test`
+    const signup = await page.request.post(`${API}/auth/signup`, {
+      data: { name: `Project draft owner ${stamp}`, email, password: 'project-draft-owner-password' },
+    })
+    expect(signup.ok(), await signup.text()).toBe(true)
+    owner = await signup.json() as Identity
+    expect(owner).toMatchObject({ via: 'session', role: 'owner', user: { email } })
+    expect(owner.user.id).not.toBe('user-ada')
+    expect(owner.tenant.id).not.toBe('tenant-acme')
+
+    const stackAfterResponse = await page.request.get(`${API}/auth/accounts`)
+    expect(stackAfterResponse.ok()).toBe(true)
+    const stackAfter = await stackAfterResponse.json() as AuthAccount[]
+    for (const remembered of stackBefore) {
+      expect(stackAfter.some(entry => entry.user.id === remembered.user.id), 'signup preserves every remembered demo account').toBe(true)
+    }
+    expect(stackAfter.filter(entry => entry.current).map(entry => entry.user.id)).toEqual([owner.user.id])
+
+    const usageResponse = await page.request.get(`${API}/usage`)
+    expect(usageResponse.ok()).toBe(true)
+    const usage = await usageResponse.json() as UsageSnapshot
+    const fiveHour = usage.limits.find(window => window.key === 'fiveHour')
+    expect(fiveHour, 'the fresh authenticated owner has a real account budget').toBeDefined()
+    expect(fiveHour!.usedTokens, 'a new owner inherits no seeded or earlier-test spend').toBe(0)
+    expect(fiveHour!.limitTokens, 'the normal account plan admits the first draft').toBeGreaterThan(fiveHour!.usedTokens)
+    fixtureOwners.set(page, owner)
+  }
   const meResponse = await page.request.get(`${API}/me`)
   expect(meResponse.ok()).toBe(true)
   const identity = await meResponse.json() as Identity
+  expect(identity).toMatchObject({ via: 'session', user: { id: owner.user.id }, tenant: { id: owner.tenant.id } })
   const projectName = `Project work draft ${stamp} ${'long-project-label-'.repeat(5)}`
   const projectDescription = `Only this authored Project description belongs in the draft ${stamp}.`
   const projectResponse = await page.request.post(`${API}/projects`, {
