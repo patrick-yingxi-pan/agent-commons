@@ -37,5 +37,8 @@ for the part of the repository you are changing.
 Keep changes focused, include regression checks for behavioral changes, and update
 the relevant requirement in `docs/spec/`. Follow the verification and review
 procedure in [docs/agent-workflow.md](docs/agent-workflow.md), including the complete
-local `npm run verify` before landing. Describe what changed and which checks
-passed in the pull request.
+local `npm run verify` before pushing. Open a pull request targeting `main` and
+describe what changed and which checks passed. The required GitHub `Checks`,
+all six E2E jobs (`E2E 1/6` through `E2E 6/6`), and `Dependency review` must pass
+before merging; resolve review conversations and update the branch when GitHub
+requires it.

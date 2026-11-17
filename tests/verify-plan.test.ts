@@ -296,16 +296,22 @@ test('the shard groups PARTITION the spec files — every one, exactly once', ()
 
 test('external E2E partitions divide the same manifest and fail closed when misconfigured', () => {
   const all = specFiles()
-  const left = e2ePartition({ VERIFY_E2E_PARTS: '2', VERIFY_E2E_PART: '1' }, all)
-  const right = e2ePartition({ VERIFY_E2E_PARTS: '2', VERIFY_E2E_PART: '2' }, all)
-  assert.equal(left.parts, 2)
-  assert.equal(right.parts, 2)
-  assert.deepEqual(
-    [...left.files, ...right.files].sort(),
-    all.map((f) => f.file).sort(),
-    'the isolated runners cover every spec exactly once between them',
-  )
-  assert.equal(new Set([...left.files, ...right.files]).size, all.length, 'no spec is duplicated between runners')
+  for (const parts of [2, 6]) {
+    const partitions = Array.from({ length: parts }, (_, index) => {
+      const partition = e2ePartition({ VERIFY_E2E_PARTS: String(parts), VERIFY_E2E_PART: String(index + 1) }, all)
+      assert.equal(partition.parts, parts)
+      assert.equal(partition.part, index + 1)
+      assert.ok(partition.files.length > 0, `partition ${index + 1}/${parts} must not invoke the whole suite accidentally`)
+      return partition
+    })
+    const covered = partitions.flatMap((partition) => partition.files)
+    assert.deepEqual(
+      covered.sort(),
+      all.map((f) => f.file).sort(),
+      `${parts} isolated runners cover every spec exactly once between them`,
+    )
+    assert.equal(new Set(covered).size, all.length, `${parts} runners never duplicate a spec`)
+  }
 
   const whole = e2ePartition({}, all)
   assert.deepEqual(whole.files.sort(), all.map((f) => f.file).sort(), 'no partition variables means the full local sweep')

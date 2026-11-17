@@ -161,7 +161,8 @@ test('bound local MCP execution propagates caller cancellation and closes its pr
   }) })
   const caller = new AbortController()
   const pending = execute(store, 'tenant-a', binding(), () => true, 'person-a', caller.signal)
-  await callStarted
+  const beforeCancellation = await Promise.race([callStarted.then(() => 'call-started'), pending.then((outcome) => outcome.status)])
+  assert.equal(beforeCancellation, 'call-started', 'execution must reach the tool call before caller cancellation')
   caller.abort()
   assert.equal((await pending).status, 'uncertain', 'a submitted call retains its uncertain receipt')
   assert.equal(closed, 1, 'caller abort releases the native process session')
@@ -276,7 +277,8 @@ test('bound execution ignores unrelated oversized catalog entries and snapshots 
     },
   })
   const pending = guarded(changedStore, 'tenant-a', binding(), () => true)
-  await started
+  const beforeMutation = await Promise.race([started.then(() => 'credential-started'), pending.then((outcome) => outcome.status)])
+  assert.equal(beforeMutation, 'credential-started', 'execution must reach credential resolution before the authority mutation')
   changedStore.replace({ ...bearerRow, endpoint: 'http://127.0.0.1:8790/mcp' })
   release('private-token')
   assert.equal((await pending).status, 'failed')
