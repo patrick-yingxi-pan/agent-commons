@@ -1,17 +1,38 @@
 name: Verify
 
-# Optional diagnostics only. Local npm run verify is the required pre-push gate.
+# Local npm run verify gates pushes; required GitHub checks gate merging to main.
 on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: verify-${{ github.workflow }}-${{ github.ref }}
+  group: verify-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Reject newly introduced vulnerable dependencies
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          comment-summary-in-pr: never
+
   full-product:
     name: ${{ matrix.label }}
     runs-on: ubuntu-24.04
@@ -24,20 +45,36 @@ jobs:
             lane: checks
             e2e_part: 1
             e2e_parts: 1
-          - label: E2E 1/2
+          - label: E2E 1/6
             lane: e2e
             e2e_part: 1
-            e2e_parts: 2
-          - label: E2E 2/2
+            e2e_parts: 6
+          - label: E2E 2/6
             lane: e2e
             e2e_part: 2
-            e2e_parts: 2
+            e2e_parts: 6
+          - label: E2E 3/6
+            lane: e2e
+            e2e_part: 3
+            e2e_parts: 6
+          - label: E2E 4/6
+            lane: e2e
+            e2e_part: 4
+            e2e_parts: 6
+          - label: E2E 5/6
+            lane: e2e
+            e2e_part: 5
+            e2e_parts: 6
+          - label: E2E 6/6
+            lane: e2e
+            e2e_part: 6
+            e2e_parts: 6
     env:
       CI: true
       # Measured hosted baselines (2026-09-06): one runner took 29.7m and timed
       # out six interactions at 1.11x, then exceeded a 45m job cap at 4x. Keep
-      # one CPU-safe stack per host, divide the registry across two isolated
-      # hosts, and retain the bounded factor for shared-runner/I/O jitter.
+      # one CPU-safe stack per host and the bounded factor for runner/I/O jitter.
+      # Six isolated partitions accommodate suite growth within the same 35m cap.
       E2E_HOST_FACTOR: 4
       VERIFY_E2E_PART: ${{ matrix.e2e_part }}
       VERIFY_E2E_PARTS: ${{ matrix.e2e_parts }}

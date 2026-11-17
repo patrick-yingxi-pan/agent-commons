@@ -1,5 +1,5 @@
-/** Optional, manually dispatched remote diagnostics project the repository's
- * mandatory local verifier. Their source is scanned here because a workflow
+/** Required GitHub checks project the repository's mandatory local verifier.
+ * Their source is scanned here because a workflow
  * that quietly drops E2E, floats executable actions, or gains write authority
  * can stay green while ceasing to be evidence. */
 import { test } from 'node:test'
@@ -16,22 +16,33 @@ test('the repository declares its supported Node floor in both npm manifests', (
   assert.equal(lockfile.packages?.['']?.engines?.node, manifest.engines.node)
 })
 
-test('remote verification is manual-only and cannot consume Actions on repository events', () => {
+test('every pull request to main and main push runs verification without path filters', () => {
   const triggers = workflow.match(/^on:\s*\n((?:[ \t]+[^\n]*\n|\n)*)/m)
-  assert.ok(triggers, 'the optional workflow declares its trigger block')
-  assert.equal(triggers[1].trim(), 'workflow_dispatch:',
-    'only an explicit manual dispatch may run optional remote diagnostics')
+  assert.ok(triggers, 'the required workflow declares its trigger block')
+  assert.equal(triggers[1].replace(/\s+/g, ' ').trim(),
+    'pull_request: branches: [main] push: branches: [main] workflow_dispatch:',
+    'all contributions to main need checks; filters or privileged PR triggers are not allowed')
 })
 
-test('optional remote diagnostics retain the complete verifier plan with bounded read-only authority', () => {
-  assert.match(workflow, /permissions:\s*\n\s*contents: read/)
-  assert.match(workflow, /concurrency:\s*\n\s*group: verify-\$\{\{ github\.workflow \}\}-\$\{\{ github\.ref \}\}\s*\n\s*cancel-in-progress: true/)
+test('required GitHub checks retain the complete verifier plan with bounded read-only authority', () => {
+  const permissions = workflow.match(/^permissions:\s*\n((?:[ \t]+[^\n]*\n|\n)*)/m)
+  assert.ok(permissions, 'the workflow explicitly bounds its token authority')
+  assert.equal(permissions[1].trim(), 'contents: read')
+  assert.equal([...workflow.matchAll(/^\s*permissions:/gm)].length, 1,
+    'jobs cannot override the read-only workflow token')
+  assert.doesNotMatch(workflow, /\bsecrets\s*[.\[]|pull_request_target:|workflow_run:/,
+    'untrusted pull request verification never uses repository secrets or privileged triggers')
+  assert.match(workflow, /concurrency:\s*\n\s*group: verify-\$\{\{ github\.workflow \}\}-\$\{\{ github\.event_name \}\}-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}\s*\n\s*cancel-in-progress: true/)
   assert.match(workflow, /runs-on: ubuntu-24\.04/)
   assert.match(workflow, /timeout-minutes: 35/)
   assert.match(workflow, /strategy:\s*\n\s*fail-fast: false/)
-  assert.match(workflow, /- label: Checks\s*\n\s*lane: checks\s*\n\s*e2e_part: 1\s*\n\s*e2e_parts: 1/)
-  assert.match(workflow, /- label: E2E 1\/2\s*\n\s*lane: e2e\s*\n\s*e2e_part: 1\s*\n\s*e2e_parts: 2/)
-  assert.match(workflow, /- label: E2E 2\/2\s*\n\s*lane: e2e\s*\n\s*e2e_part: 2\s*\n\s*e2e_parts: 2/)
+  const matrix = workflow.match(/matrix:\s*\n\s*include:\s*\n([\s\S]*?)^    env:/m)
+  assert.ok(matrix, 'the full-product job declares its complete hosted matrix')
+  assert.equal(matrix[1].replace(/\s+/g, ' ').trim(), [
+    '- label: Checks lane: checks e2e_part: 1 e2e_parts: 1',
+    ...Array.from({ length: 6 }, (_, index) =>
+      `- label: E2E ${index + 1}/6 lane: e2e e2e_part: ${index + 1} e2e_parts: 6`),
+  ].join(' '), 'required check names cover exactly six isolated E2E partitions and the checks lane')
   assert.match(workflow, /CI: true\s*\n(?:\s*#[^\n]*\n)*\s*E2E_HOST_FACTOR: 4\s*\n\s*VERIFY_E2E_PART: \$\{\{ matrix\.e2e_part \}\}\s*\n\s*VERIFY_E2E_PARTS: \$\{\{ matrix\.e2e_parts \}\}/)
   assert.doesNotMatch(workflow, /E2E_SHARDS:/,
     'each CI runner must retain one CPU-safe local stack rather than oversubscribing')
@@ -53,6 +64,19 @@ test('third-party workflow actions are immutable and checkout leaves no push cre
   }
   assert.match(workflow, /uses: actions\/checkout@[a-f0-9]{40}[^\n]*\n\s*with:\s*\n\s*persist-credentials: false/)
   assert.match(workflow, /uses: actions\/setup-node@[a-f0-9]{40}[^\n]*\n\s*with:\s*\n\s*node-version: 26\s*\n\s*cache: npm/)
+})
+
+test('pull requests reject new high-severity vulnerable dependencies without posting comments', () => {
+  const review = workflow.match(/^  dependency-review:\s*\n([\s\S]*?)(?=^  [\w-]+:|$(?![\s\S]))/m)
+  assert.ok(review, 'the required Dependency review job exists')
+  assert.match(review[1], /name: Dependency review/)
+  assert.match(review[1], /if: github\.event_name == 'pull_request'/)
+  assert.match(review[1], /runs-on: ubuntu-24\.04/)
+  assert.match(review[1], /timeout-minutes: 10/)
+  assert.match(review[1], /uses: actions\/checkout@[a-f0-9]{40}[^\n]*\n\s*with:\s*\n\s*persist-credentials: false/)
+  assert.match(review[1], /uses: actions\/dependency-review-action@[a-f0-9]{40}[^\n]*\n\s*with:\s*\n\s*fail-on-severity: high\s*\n\s*comment-summary-in-pr: never/)
+  assert.doesNotMatch(review[1], /continue-on-error:|allow-.*:|fail-on-severity: critical/,
+    'dependency review cannot silently suppress vulnerable dependency failures')
 })
 
 test('failed browser CI preserves first-attempt evidence under bounded retention', () => {

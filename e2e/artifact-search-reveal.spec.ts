@@ -168,7 +168,7 @@ test('stale and missing search targets never highlight a substitute field or cur
   await editDocument(page, artifact.id, 0, 1, `Replacement text after the search.`)
   await page.reload()
   const stalePage = artifactPage(page, artifact.id)
-  await expect(stalePage.getByRole('status')).toContainText('This artifact changed since this search result.')
+  await expect(stalePage.locator('[data-artifact-search-reveal="stale"]').getByRole('status')).toContainText('This artifact changed since this search result.')
   await expect(stalePage.locator('[data-artifact-search-match]')).toHaveCount(0,
     'a stale revision is not redirected to same-position current text')
 

@@ -39,15 +39,18 @@ procedure so the always-loaded map stays small.
   scripts and documentation. Vite can reload after watched-file changes outside
   the product modules; a code-only freeze is insufficient. Apply review findings
   between runs, then verify the final revision without edits or relaxed retries.
-- The complete local `npm run verify` is the mandatory pre-push gate. Do not
-  rely on GitHub Actions, wait for a remote check, or dispatch/monitor workflows
-  as part of routine delivery. Record the local command and outcome in the
-  checkpoint handoff, including any separate UI or packaged-native acceptance.
-  GitHub diagnostics are manual-only and require an explicit owner request.
-  If requested, their checks lane and two deterministic E2E manifest partitions
-  project the same complete verifier plan on isolated Node 26 hosts. Local runs
-  retain their own shard selection and calibrated timing; optional hosted runs
-  retain the measured bounded runner profile.
+- The complete local `npm run verify` is the mandatory pre-push gate. Record
+  the local command and outcome in the pull request and checkpoint handoff,
+  including any separate UI or packaged-native acceptance. GitHub runs the
+  same complete verifier plan for every pull request targeting `main` and every
+  push to `main`; manual dispatch remains available for diagnostics. The
+  required `Checks`, all six E2E jobs (`E2E 1/6` through `E2E 6/6`), and
+  `Dependency review` must pass before merging. Dependency review rejects newly
+  introduced dependencies with high or critical vulnerabilities and posts no
+  pull-request comments.
+  The checks lane and six deterministic E2E manifest partitions run on
+  isolated Node 26 hosts. Local runs retain their own shard selection and
+  calibrated timing; hosted runs retain the measured bounded runner profile.
 - Review the working diff adversarially after tests pass. Fix confirmed findings
   before commit; do not leave finished work uncommitted.
 - Diagnose intermittent first-attempt browser failures with
@@ -55,7 +58,7 @@ procedure so the always-loaded map stays small.
   browser traces in shard-owned directories under `test-results/` without adding
   local retries or extending timeouts; ordinary runs keep their lower-overhead
   trace policy.
-  Local runs do not retry tests; optional remote runs explicitly fail retry-only
+  Local runs do not retry tests; remote runs explicitly fail retry-only
   passes and retain failed browser traces for three days. A coverage mismatch
   prints lane tails even when Playwright exited successfully; do not treat a
   retry as a repaired defect.
@@ -85,6 +88,13 @@ Full boundary rules: [`docs/mcp-access.md`](mcp-access.md).
 
 ## Land the change
 
-Commit and push directly to `main` over HTTPS after verification and diff
-review. Preserve unrelated work in a dirty tree; never erase or rewrite it to
-make a patch easier.
+After local verification and diff review, commit and push a branch over HTTPS,
+then open a pull request targeting `main`. Preserve unrelated work in a dirty
+tree; never erase or rewrite it to make a patch easier.
+
+Wait for the required GitHub checks on the current revision, fix failures, and
+resolve review conversations before merging. Keep the branch up to date when
+GitHub requires it, and rerun local verification after changes. Do not bypass
+the pull-request or required-check rules. A separate approving reviewer is not
+required for the solo-maintainer workflow; maintainer diff review remains
+mandatory.

@@ -4656,10 +4656,12 @@ covered 135/135 cells with no violations or skips. Reviewed and pushed as
 - Preserve sign-in and personal MCP tokens across relaunch using an encrypted
   device signing root protected by macOS Keychain (approved 2026-09-06).
 - Keep the HTTP/SSE contract portable to the later hosted service.
-- Verify, review, commit, and push each completed checkpoint directly to main.
-- The complete local verifier is the delivery gate (owner decision 2026-10-04).
-  GitHub Actions is manual-only optional diagnostics, not a prerequisite or a
-  routine monitoring task. Earlier CI references below are historical evidence.
+- Verify and review each completed checkpoint locally, then push a branch and
+  open a pull request to main. Required GitHub checks must pass before merging
+  (owner decision 2026-11-17).
+- The complete local verifier remains the pre-push gate. GitHub Actions also
+  verifies pull requests and main pushes; manual diagnostics remain available.
+  This replaces the earlier direct-push and manual-only Actions policy.
 - Follow the approved desktop defaults below. Ask before materially widening
   the supported external integration scope or changing an approved policy.
 - Sequencing is delegated: all planned core capabilities remain required;
