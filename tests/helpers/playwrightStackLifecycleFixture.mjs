@@ -114,7 +114,7 @@ export async function createPlaywrightStackLifecycleFixture() {
   const root = await mkdtemp(join(tmpdir(), 'playwright-stack-lifecycle-'))
   const state = join(root, 'state')
   const bin = join(root, 'bin')
-  const specs = join(root, 'specs')
+  const specs = join(root, 'e2e')
   await Promise.all([mkdir(state), mkdir(bin), mkdir(specs)])
   // The dev children bind port 0 directly; the config waits for a stdout
   // readiness token instead of probing and racing another process to bind.
@@ -124,7 +124,12 @@ export async function createPlaywrightStackLifecycleFixture() {
   await writeFile(nodePath, fakeNodeSource(process.execPath, devPath), { mode: 0o755 })
   await chmod(nodePath, 0o755)
   const testModule = pathToFileURL(join(ROOT, 'node_modules', '@playwright', 'test', 'index.mjs')).href
-  await writeFile(join(specs, 'stack.spec.mjs'), fixtureSpecSource(testModule))
+  // The verifier must plan the same ESM spec that the Playwright worker loads.
+  await writeFile(join(root, 'package.json'), JSON.stringify({
+    type: 'module',
+    scripts: { test: 'node --test --test-concurrency=1 "tests/**/*.test.ts"' },
+  }, null, 2))
+  await writeFile(join(specs, 'stack.spec.ts'), fixtureSpecSource(testModule))
 
   const configPath = join(root, 'playwright.config.mjs')
   const productionConfig = pathToFileURL(join(ROOT, 'playwright.config.ts')).href
@@ -197,12 +202,11 @@ export function startPlaywrightStackLifecycleRunner(fixture, controlPort) {
 }
 
 export async function createVerifierLifecycleHarness(fixture, { mapBrowserSignal = true } = {}) {
-  const root = join(fixture.root, 'verifier-repo')
+  const root = fixture.root
   const scripts = join(root, 'scripts')
-  const e2e = join(root, 'e2e')
   const tests = join(root, 'tests')
-  const bin = join(root, 'bin')
-  await Promise.all([scripts, e2e, tests, bin].map(path => mkdir(path, { recursive: true })))
+  const bin = join(root, 'verifier-bin')
+  await Promise.all([scripts, tests, bin].map(path => mkdir(path)))
   for (const file of ['verify.mjs', 'verifyPlan.mjs', 'hostSpeed.mjs', 'childProcessLifecycle.mjs']) {
     await copyFile(join(ROOT, 'scripts', file), join(scripts, file))
   }
@@ -213,15 +217,9 @@ export async function createVerifierLifecycleHarness(fixture, { mapBrowserSignal
     if (!source.includes(mapped)) throw new Error('Verifier fixture could not find its Playwright signal mapping seam.')
     await writeFile(verifyPath, source.replace(mapped, 'signal,'))
   }
-  await writeFile(join(root, 'package.json'), JSON.stringify({
-    type: 'module',
-    scripts: { test: 'node --test --test-concurrency=1 "tests/**/*.test.ts"' },
-  }, null, 2))
   await writeFile(join(tests, 'placeholder.test.ts'), "import { test } from 'node:test'\ntest('placeholder', () => {})\n")
-  await writeFile(join(e2e, 'stack.spec.ts'), "import { test } from '@playwright/test'\ntest('one counted verifier fixture', () => {})\n")
 
   const shimPath = join(bin, 'npx')
-  const specPath = join(fixture.specs, 'stack.spec.mjs')
   await writeFile(shimPath, `#!${process.execPath}
 import { spawn } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
@@ -232,17 +230,14 @@ const args = process.argv.slice(2)
 if (args[0] !== 'playwright' || args[1] !== 'test') process.exit(64)
 const child = spawn(${JSON.stringify(process.execPath)}, [
   ${JSON.stringify(PLAYWRIGHT_CLI)},
-  'test',
-  '--config',
-  ${JSON.stringify(fixture.configPath)},
-  ${JSON.stringify(specPath)},
+  ...args.slice(1),
 ], { cwd: process.cwd(), env: process.env, stdio: 'inherit' })
 writeFileSync(join(state, 'npx.json'), JSON.stringify({ wrapperPid: process.pid, pid: child.pid }))
 child.on('error', () => { process.exitCode = 1 })
 child.on('close', (code, signal) => { process.exitCode = code ?? (signal ? 1 : 0) })
 `, { mode: 0o755 })
   await chmod(shimPath, 0o755)
-  return { root, scripts, e2e, tests, bin, verifierPath: join(scripts, 'verify.mjs') }
+  return { root, scripts, e2e: fixture.specs, tests, bin, verifierPath: join(scripts, 'verify.mjs') }
 }
 
 export function startVerifierLifecycleRunner(fixture, harness) {
