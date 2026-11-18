@@ -10,7 +10,8 @@
  *
  *  Pure, filesystem-in / plan-out, and locked by `tests/verify-plan.test.ts`.
  */
-import { readdirSync, readFileSync } from 'node:fs'
+import { globSync, readdirSync, readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 /** Node's test-runner worker count, derived from the one authoritative `npm
  * test` script. Keep it bounded: too many concurrent suites contend for the
@@ -42,11 +43,15 @@ export function suiteConcurrency(pkgPath = 'package.json') {
  *  to prevent, one level up. Deriving the roots from `package.json` makes it
  *  unrepresentable: there is one list, and the runner reads the one the package
  *  script uses. */
-export function suiteRoots(pkgPath = 'package.json') {
+function suiteGlobs(pkgPath) {
   const script = JSON.parse(readFileSync(pkgPath, 'utf8')).scripts.test
-  const roots = [...script.matchAll(/"([^"*]+)\/\*\*\/\*\.test\.ts"/g)].map((m) => m[1])
-  if (!roots.length) throw new Error('no recursive suite globs in the `test` script: ' + script)
-  return roots
+  const globs = [...script.matchAll(/"([^"*]+\/\*\*\/[^"]+)"/g)].map((m) => m[1])
+  if (!globs.length) throw new Error('no recursive suite globs in the `test` script: ' + script)
+  return globs
+}
+
+export function suiteRoots(pkgPath = 'package.json') {
+  return [...new Set(suiteGlobs(pkgPath).map((glob) => glob.split('/**/')[0]))]
 }
 
 /** Top-level directories that actually CONTAIN suites, found by looking.
@@ -74,14 +79,14 @@ export function suiteDirs(root = '.') {
   return [...found].sort()
 }
 
-/** Every node suite file under every root, RECURSIVELY.
- *
- *  Recursive because `package.json`'s `test` script is a recursive glob, and
- *  two enumerations of one thing drift: a flat readdir agrees today and stops
- *  agreeing the first time a suite lands in a subdirectory — silently, since
- *  the lane still goes green, just over fewer tests. Separators are normalised
- *  because `recursive: true` yields win32 backslashes for nested entries. */
-export function suiteFiles(dirs = suiteRoots()) {
+/** Expand the npm manifest's glob operands from the package directory, keeping
+ * each root's declared suffixes. An absolute pkgPath produces absolute paths.
+ * Explicit directory callers retain their recursive `.test.ts` discovery. */
+export function suiteFiles(dirs, pkgPath = 'package.json') {
+  if (dirs === undefined) {
+    const cwd = dirname(pkgPath)
+    return globSync(suiteGlobs(pkgPath), { cwd }).map((file) => join(cwd, file).split('\\').join('/')).sort()
+  }
   return (Array.isArray(dirs) ? dirs : [dirs])
     .flatMap((dir) =>
       readdirSync(dir, { recursive: true })
@@ -172,12 +177,17 @@ export function specWeights(file = WEIGHTS_FILE) {
  *  own share otherwise — a new spec is estimated from its size until the first
  *  run measures it, and a repo with no cache behaves exactly as before. */
 export function specFiles(dir = 'e2e', weights = specWeights()) {
-  const files = readdirSync(dir)
-    .filter((f) => f.endsWith('.spec.ts'))
-    .map((f) => ({
-      file: `${dir}/${f}`,
-      tests: (readFileSync(`${dir}/${f}`, 'utf8').match(/^test\(/gm) ?? []).length,
-    }))
+  const files = []
+  function visit(directory) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const file = `${directory}/${entry.name}`
+      if (entry.isDirectory() && entry.name !== 'node_modules') visit(file)
+      if (entry.isFile() && entry.name.endsWith('.spec.ts')) {
+        files.push({ file, tests: (readFileSync(file, 'utf8').match(/^test\(/gm) ?? []).length })
+      }
+    }
+  }
+  visit(dir)
   const totalTests = files.reduce((n, f) => n + f.tests, 0) || 1
   return files
     .map((f) => ({ ...f, weight: weights[f.file] ?? f.tests / totalTests }))

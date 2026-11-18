@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page, type TestInfo } from '@playwright/test'
 import { docxFixture } from '../tests/helpers/docxFixture.mjs'
-import { assertWcag22Aa, settledOpaquePaint } from './accessibility-helpers.ts'
+import { assertWcag22Aa, settledNarrowRail, settledOpaquePaint } from './accessibility-helpers.ts'
 import { API, createProject, newUser } from './social-helpers.ts'
 import { ms } from './budget.ts'
 
@@ -235,6 +235,32 @@ test('Project context previews untracked documents at five viewports without att
   await expect(native.getByRole('button', { name: 'Attach', exact: true })).toHaveCount(0)
   await matrix(page, browser, text, info, 'untracked-project-document')
   expect(await page.evaluate(() => (window as any).__untrackedBrowse.snapshots)).toBe(0)
+
+  await test.step('Share stays operable alongside the open picker when the phone page scrolls', async () => {
+    await page.setViewportSize({ width: 375, height: 812 })
+    await settledNarrowRail(page)
+    await settledOpaquePaint(dialog)
+    const share = page.getByRole('button', { name: 'Share with an audience', exact: true })
+    const projectPage = page.locator('[data-resource-layout="reading"]').filter({ has: share })
+    // Put Share across the bottom edge of the nonmodal picker with its Done
+    // button on the same row, as happens when the project scrolls underneath.
+    await expect.poll(async () => {
+      const pickerBottom = await dialog.evaluate(node => node.getBoundingClientRect().bottom)
+      const shareBottom = await share.evaluate(node => node.getBoundingClientRect().bottom)
+      const delta = shareBottom - pickerBottom - 1
+      await projectPage.evaluate((node, amount) => node.scrollBy(0, amount), delta)
+      return Math.abs(delta)
+    }).toBeLessThanOrEqual(1)
+    const done = await dialog.getByRole('button', { name: 'Done', exact: true }).boundingBox()
+    const action = await share.boundingBox()
+    expect(done).not.toBeNull()
+    expect(action).not.toBeNull()
+    expect(Math.min(done!.y + done!.height, action!.y + action!.height)).toBeGreaterThan(Math.max(done!.y, action!.y))
+    await assertWcag22Aa(page, 'project sharing beside the untracked context picker')
+    await share.click()
+    await expect(dialog).toHaveCount(0)
+    await expect(share).toHaveAttribute('aria-expanded', 'true')
+  })
 })
 
 test('disconnect retires an untracked preview and cancels only its pending native operation', async ({ page }) => {

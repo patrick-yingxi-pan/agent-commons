@@ -50,9 +50,10 @@ const state = process.env.VERIFY_FIXTURE_STATE
 writeFileSync(join(state, 'npx-finished'), 'finished')
 writeFileSync(join(state, 'npx-env-' + process.env.E2E_SHARD + '.json'), JSON.stringify({
   shard: process.env.E2E_SHARD, cacheDir: process.env.PWTEST_CACHE_DIR,
+  files: process.env.VERIFY_BROWSER_FILES,
 }))
 process.stdout.write('› e2e/first.spec.ts:1:1 › first fixture (11ms)\\n')
-process.stdout.write('› e2e/second.spec.ts:1:1 › second fixture (13ms)\\n')
+process.stdout.write('› e2e/nested/second.spec.ts:1:1 › second fixture (13ms)\\n')
 process.stdout.write(process.env.VERIFY_FIXTURE_PASSED + ' passed\\n')`
 }
 
@@ -71,7 +72,7 @@ export async function createVerifyInterruptionFixture() {
   const scripts = join(root, 'scripts')
   const state = join(root, 'state')
   const bin = join(root, 'bin')
-  await Promise.all([mkdir(scripts), mkdir(join(root, 'e2e')), mkdir(join(root, 'tests')), mkdir(state), mkdir(bin)])
+  await Promise.all([mkdir(scripts), mkdir(join(root, 'e2e', 'nested'), { recursive: true }), mkdir(join(root, 'tests')), mkdir(state), mkdir(bin)])
   for (const name of ['verify.mjs', 'verifyPlan.mjs', 'hostSpeed.mjs', 'childProcessLifecycle.mjs']) {
     await copyFile(join(ROOT, 'scripts', name), join(scripts, name))
   }
@@ -80,7 +81,7 @@ export async function createVerifyInterruptionFixture() {
     test: 'node --test --test-concurrency=1 "tests/**/*.test.ts"',
   } }))
   await writeFile(join(root, 'e2e', 'first.spec.ts'), "test('first fixture', () => {})\n")
-  await writeFile(join(root, 'e2e', 'second.spec.ts'), "test('second fixture', () => {})\n")
+  await writeFile(join(root, 'e2e', 'nested', 'second.spec.ts'), "test('second fixture', () => {})\n")
   await writeFile(join(root, 'tests', 'placeholder.test.ts'), "import { test } from 'node:test'\ntest('placeholder', () => {})\n")
   const launchers = [
     ['npm', npmSource(process.execPath)],
