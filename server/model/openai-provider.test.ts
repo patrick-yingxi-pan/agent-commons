@@ -3,7 +3,7 @@
  * The peer below is a local HTTP server. These tests exercise the public model
  * generation seam and never call a paid or remote provider. */
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, afterEach, before, test } from 'node:test'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { generateCompactionSummaryPart, generateContributionReview, generateReply, fetchProviderModels, probeProviderEndpoint, type ReplySession } from '../generate.ts'
 import { ProviderProbeError, type ProviderConfig } from '../data/providers.ts'
@@ -15,6 +15,7 @@ type SeenRequest = { method: string; path: string; authorization?: string; body?
 type Script = (request: SeenRequest, response: ServerResponse) => void | Promise<void>
 
 const requests: SeenRequest[] = []
+const fixtureErrors: unknown[] = []
 let server: Server
 let baseURL = ''
 let script: Script = defaultScript
@@ -113,8 +114,9 @@ before(async () => {
       accepted = undefined
       await script(seen, res)
     } catch (error) {
+      fixtureErrors.push(error)
       if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' })
-      res.end(error instanceof Error ? error.message : String(error))
+      res.end('Fixture request failed')
     }
   })
   await new Promise<void>((resolve, reject) => {
@@ -124,6 +126,8 @@ before(async () => {
   baseURL = address()
   process.env.PROVIDER_OPENAI_TEST_KEY = 'openai-local-test-key'
 })
+
+afterEach(() => assert.deepEqual(fixtureErrors.splice(0), [], 'unexpected loopback fixture errors remain local test failures'))
 
 after(() => {
   delete process.env.PROVIDER_OPENAI_TEST_KEY
@@ -140,6 +144,18 @@ function collect() {
   let text = ''
   return { handlers: { onStart: () => {}, onDelta: (delta: string) => { text += delta } }, get text() { return text } }
 }
+
+test('loopback provider fixture keeps unexpected errors out of HTTP responses', async () => {
+  const marker = 'private-provider-fixture-detail'
+  script = () => { throw new Error(marker) }
+  const response = await fetch(`${baseURL}/responses`, { method: 'POST', body: '{}' })
+  assert.equal(response.status, 500)
+  assert.equal(await response.text(), 'Fixture request failed')
+  assert.equal(fixtureErrors.length, 1)
+  assert.ok(fixtureErrors[0] instanceof Error)
+  assert.equal(fixtureErrors[0].message, marker, 'the original error remains available to local test diagnostics')
+  fixtureErrors.length = 0
+})
 
 test('malformed provider JSON never exposes upstream response fragments in a connection error', async () => {
   requests.length = 0

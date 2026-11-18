@@ -19,7 +19,14 @@ test('OAuth fixture transforms only known networking/browser seams in an exclude
   for (const path of ['/desktop/mcpOAuthSmoke.mjs', '/desktop/mcpOAuthSmokeFixture.mjs', '/desktop/mcpOAuthMessagesSmokeFixture.mjs', '/desktop/mcpOAuthRoutineMessagesSmokeFixture.mjs', '/desktop/mcpLoopbackSmokePackage.mjs']) {
     assert.equal(ignoreFromPackage(path), true)
   }
-  assert.throws(() => oauthSmokePatches('https://public.example'), assert.AssertionError)
+  assert.ok(patches.some(patch => patch.after.includes('"http://127.0.0.1:49152"')))
+  for (const origin of [
+    'https://public.example', 'http://127.0.0.1.evil.example:49152',
+    'http://user@127.0.0.1:49152', 'http://127.0.0.1:49152/path',
+    'http://127.0.0.1:49152?code=";throw new Error("injected")//',
+    'http://127.0.0.1:49152#fragment', 'http://127.0.0.1:0',
+  ]) assert.throws(() => oauthSmokePatches(origin), assert.AssertionError)
+  assert.ok(oauthSmokePatches('http://127.0.0.1').some(patch => patch.after.includes('"http://127.0.0.1:80"')))
 })
 
 function contributionEvidence() {

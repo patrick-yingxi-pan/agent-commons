@@ -147,6 +147,7 @@ test('JSON and SQLite restart history restores ordered native Responses assistan
   ]
   const state = stateWith([assistant('restart-assistant', visibleText, items)])
   const ports: any[] = []
+  const fixtureErrors: unknown[] = []
   let peer: Server
   peer = createServer(async (request, response) => {
     try {
@@ -155,8 +156,9 @@ test('JSON and SQLite restart history restores ordered native Responses assistan
       ports.push(await readBody(request))
       respond(response)
     } catch (error) {
+      fixtureErrors.push(error)
       response.writeHead(500, { 'content-type': 'application/json' })
-      response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }))
+      response.end(JSON.stringify({ error: 'Fixture request failed' }))
     }
   })
   await new Promise<void>((resolve, reject) => {
@@ -189,6 +191,11 @@ test('JSON and SQLite restart history restores ordered native Responses assistan
   `
 
   try {
+    const invalid = await fetch(`${providerURL}/responses`)
+    assert.equal(invalid.status, 500)
+    assert.deepEqual(await invalid.json(), { error: 'Fixture request failed' })
+    assert.equal(fixtureErrors.length, 1)
+    assert.ok(fixtureErrors.shift() instanceof assert.AssertionError, 'the rejected fixture method retains its local assertion evidence')
     for (const backend of ['json', 'sqlite'] as const) {
       const file = join(ROOT, `restart-${backend}.${backend === 'json' ? 'json' : 'db'}`)
       if (backend === 'json') {
@@ -212,6 +219,7 @@ test('JSON and SQLite restart history restores ordered native Responses assistan
         DATABASE_PATH: file,
         PEER_URL: providerURL,
       })
+      assert.deepEqual(fixtureErrors, [], 'unexpected peer errors fail locally instead of entering HTTP output')
       assert.equal(child.code, 0, `${backend} fresh process failed: ${child.stderr || child.stdout}`)
       const result = JSON.parse(child.stdout.trim().split('\n').at(-1)!)
       assert.equal(result.outcome, 'ok', `${backend} restarted conversation completed through the loopback peer`)

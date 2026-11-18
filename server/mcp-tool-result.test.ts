@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import {
   MCP_TOOL_RESULT_LEGACY_VERSIONS,
@@ -9,6 +10,40 @@ import {
 
 const image = { type: 'image', data: 'aGVsbG8=', mimeType: 'image/png; charset=binary' }
 const audio = { type: 'audio', data: 'aGVsbG8=', mimeType: 'audio/wav' }
+
+test('MIME metadata preserves the bounded media-type and parameter grammar', () => {
+  const valid = ['image/png', 'text/plain; charset=utf-8', 'text/plain ; charset=utf-8 ; format=flowed', 'application/vnd.example+json; profile="example value"', '!/!;!=! ;!=!']
+  const invalid = ['', 'text', 'text/', '/plain', 'text/plain ', 'text/plain;', 'text/plain; charset=', 'text/plain; charset= utf-8', 'text/plain; char set=utf-8', 'text/plain\n', `text/plain; value=${'x'.repeat(256)}`]
+  const blocks = (mimeType: string) => [
+    { type: 'image', data: 'aGVsbG8=', mimeType },
+    { type: 'audio', data: 'aGVsbG8=', mimeType },
+    { type: 'resource_link', uri: 'urn:metadata', name: 'metadata', mimeType },
+    { type: 'resource', resource: { uri: 'urn:metadata', text: 'body', mimeType } },
+  ]
+  for (const mimeType of valid) {
+    assert.doesNotThrow(() => parseMcpToolResult({ resultType: 'complete', content: blocks(mimeType) }, MCP_TOOL_RESULT_MODERN_VERSION), mimeType)
+  }
+  for (const mimeType of invalid) {
+    for (const block of blocks(mimeType)) {
+      assert.throws(() => parseMcpToolResult({ resultType: 'complete', content: [block] }, MCP_TOOL_RESULT_MODERN_VERSION), McpToolResultError, mimeType)
+    }
+  }
+})
+
+test('adversarial MIME parameters cannot monopolize the service event loop', () => {
+  // Isolate the parser so a regression to exponential backtracking is killed
+  // by the parent deadline instead of hanging the entire verifier.
+  const script = `
+    import assert from 'node:assert/strict';
+    import { parseMcpToolResult, MCP_TOOL_RESULT_MODERN_VERSION, McpToolResultError } from ${JSON.stringify(new URL('./mcpToolResult.ts', import.meta.url).href)};
+    const mimeType = '!/!;!=!' + ' ;!=!'.repeat(45) + ';';
+    assert.ok(mimeType.length <= 256);
+    assert.throws(() => parseMcpToolResult({ resultType: 'complete', content: [{ type: 'image', data: 'aGVsbG8=', mimeType }] }, MCP_TOOL_RESULT_MODERN_VERSION), McpToolResultError);
+  `
+  const result = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 5_000 })
+  assert.equal(result.error, undefined, `MIME parsing must terminate: ${result.error?.message}`)
+  assert.equal(result.status, 0, result.stderr)
+})
 
 test('parses a modern complete result and detaches structured JSON', () => {
   const source = { resultType: 'complete', content: [{ type: 'text', text: 'ok' }], structuredContent: { answer: ['one'] }, isError: true }

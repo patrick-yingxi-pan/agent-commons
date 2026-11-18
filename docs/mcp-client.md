@@ -338,6 +338,9 @@ value, including arrays and null. Text bodies and embedded resource text retain
 well-formed Unicode verbatim, including JSON-escaped control characters such as
 form feeds in returned file text. They are data, not display labels: names,
 titles, URIs, MIME types and annotation timestamps retain their printable checks.
+MIME types retain the 256-character bound and are split into media type and
+parameters before validation, so hostile parameter whitespace cannot cause
+exponential regular-expression backtracking in the service event loop.
 The complete escaped JSON still counts against the same byte bound, and
 malformed surrogate sequences are refused. Local-authored stdio, JSON/SQLite
 restart and model-history tests lock this distinction; they do not establish

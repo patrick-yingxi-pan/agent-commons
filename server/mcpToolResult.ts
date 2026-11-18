@@ -59,7 +59,22 @@ function printable(value: unknown, max = 4096, multiline = false): value is stri
   return true
 }
 const optionalText = (value: unknown, max = 4096, multiline = false): value is string | undefined => value === undefined || printable(value, max, multiline)
-const mime = (value: unknown): value is string => typeof value === 'string' && value.length <= 256 && printable(value) && /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+(?:\s*;\s*[A-Za-z0-9!#$&^_.+-]+=[^;\s][^;\u0000-\u001f\u007f-\u009f]*)*$/.test(value)
+function mime(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 256 || !printable(value)) return false
+  // Split before validating: whitespace at a parameter boundary must never
+  // create overlapping repetition paths in a regex over untrusted metadata.
+  const [mediaType, ...parameters] = value.split(';')
+  const essence = parameters.length ? mediaType.trimEnd() : mediaType
+  if (!/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/.test(essence)) return false
+  return parameters.every((part) => {
+    const parameter = part.trimStart()
+    const equals = parameter.indexOf('=')
+    return equals > 0
+      && /^[A-Za-z0-9!#$&^_.+-]+$/.test(parameter.slice(0, equals))
+      && equals + 1 < parameter.length
+      && !/\s/.test(parameter[equals + 1])
+  })
+}
 const uri = (value: unknown): value is string => {
   if (!printable(value, 8192) || value.length === 0) return false
   try { const parsed = new URL(value); return parsed.protocol.length > 1 }
