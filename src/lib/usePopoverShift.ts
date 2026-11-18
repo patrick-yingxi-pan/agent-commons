@@ -7,9 +7,8 @@ import { POPOVER_MARGIN, shiftIntoSpan } from './popover'
  *  while `open`, the hook measures the anchored rect before paint, clamps the
  *  surface's height to the available workspace (scrolling inside when taller), and applies
  *  a `translate(dx, dy)` that brings it inside the viewport margins. Re-runs on
- *  window resize and on the surface's or workspace body's size changes (a
- *  popover that swaps views or a growing recovery notice), so containment is
- *  continuous, not measured-once.
+ *  window, workspace, or surface resize and when scrolling or reflow moves
+ *  the anchored surface.
  *
  *  The transform is written to the element directly (not React state): the
  *  correction is derived layout, never rendering input, so a state round-trip
@@ -29,6 +28,7 @@ export function usePopoverShift<T extends HTMLElement = HTMLDivElement>(
     const el = ref.current
     if (!open || !el) return
     const viewport = el.closest<HTMLElement>('[data-popover-viewport]')
+    let placed: DOMRect
     const apply = () => {
       // Shell notices sit above this live body. Reserve their actual height
       // instead of allowing a window-contained menu to slide underneath them.
@@ -51,16 +51,32 @@ export function usePopoverShift<T extends HTMLElement = HTMLDivElement>(
       const r = el.getBoundingClientRect()
       const dx = shiftIntoSpan(r.left, r.right, window.innerWidth)
       const dy = shiftIntoSpan(r.top - top, r.bottom - top, height)
-      if (dx || dy) el.style.transform = `translate(${dx}px, ${dy}px)`
+      if (dx || dy) {
+        el.style.transform = `translate(${dx}px, ${dy}px)`
+        placed = el.getBoundingClientRect()
+      } else {
+        placed = r
+      }
     }
     el.dataset.popover = 'true'
     apply()
     const ro = new ResizeObserver(apply)
     ro.observe(el)
     if (viewport) ro.observe(viewport)
+    // A pane can scroll or a sibling can reflow without any observed box
+    // resizing. While the menu is open, read its painted origin each frame.
+    // A stationary menu (including a scroll inside its choices) needs no writes.
+    let frame: number
+    const followAnchor = () => {
+      const rect = el.getBoundingClientRect()
+      if (rect.x !== placed.x || rect.y !== placed.y) apply()
+      frame = requestAnimationFrame(followAnchor)
+    }
+    frame = requestAnimationFrame(followAnchor)
     window.addEventListener('resize', apply)
     return () => {
       ro.disconnect()
+      cancelAnimationFrame(frame)
       window.removeEventListener('resize', apply)
     }
   }, [open])

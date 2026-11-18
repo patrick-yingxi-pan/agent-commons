@@ -88,12 +88,57 @@ test('missing Routine Agent is explicit on mount and while editing, with owner-o
       await expect(select.locator('option:checked')).toHaveText('Unavailable Agent')
       await expect(picker.getByRole('button', { name: 'Apply', exact: true })).toBeDisabled()
       await settledOpaquePaint(picker)
-      await expect.poll(async () => {
-        const box = await picker.boundingBox()
-        return !!box && box.x >= 7 && box.y >= 7 && box.x + box.width <= viewport.width - 7
-          && box.y + box.height <= viewport.height - 7
-          && await picker.evaluate(element => element.scrollWidth <= element.clientWidth)
-      }).toBe(true)
+      const expectPickerContained = () => expect.poll(() => picker.evaluate((element, size) => {
+        const box = element.getBoundingClientRect()
+        return {
+          left: Math.max(0, 7 - box.left), right: Math.max(0, box.right - size.width + 7),
+          top: Math.max(0, 7 - box.top), bottom: Math.max(0, box.bottom - size.height + 7),
+          content: Math.max(0, element.scrollWidth - element.clientWidth),
+        }
+      }, viewport), { message: `Routine picker overflow at ${viewport.width}×${viewport.height}` })
+        .toEqual({ left: 0, right: 0, top: 0, bottom: 0, content: 0 })
+      await expectPickerContained()
+      if (viewport.width === 320) {
+        // Simulate late content adding space above the trigger. Keep scroll
+        // anchoring off so only the trigger's position changes in this fixture.
+        const position = () => picker.evaluate(element => {
+          const anchor = (element as HTMLElement).offsetParent!.getBoundingClientRect()
+          return {
+            top: anchor.top, width: anchor.width, height: anchor.height,
+            scrollTop: element.closest('[data-resource-page]')!.scrollTop,
+            pickerBottom: element.getBoundingClientRect().bottom,
+          }
+        })
+        const before = await position()
+        const gap = Math.ceil(viewport.height - before.pickerBottom) + 32
+        const style = await page.addStyleTag({ content: `
+          [data-resource-page] { overflow-anchor: none }
+          .relative:has(> [data-routine-agent]) { margin-top: ${gap}px }
+        ` })
+        try {
+          const after = await position()
+          expect(after).toMatchObject({ width: before.width, height: before.height, scrollTop: before.scrollTop })
+          expect(before.pickerBottom + after.top - before.top,
+            'the measured reflow would move the previous picker below the viewport').toBeGreaterThan(viewport.height)
+          await expectPickerContained()
+        } finally { await style.evaluate(element => element.remove()) }
+      }
+      if (viewport.height === 390) {
+        // The tall menu fills the landscape viewport. Scrolling the Routine
+        // page moves its anchor even though neither the page nor menu resizes.
+        const moved = await picker.evaluate(element => {
+          const page = element.closest<HTMLElement>('[data-resource-page]')!
+          const before = page.scrollTop
+          const box = element.getBoundingClientRect()
+          page.scrollBy({ top: before >= 32 ? -32 : 32, behavior: 'instant' })
+          const delta = page.scrollTop - before
+          return { delta, unshiftedTop: box.top - delta, unshiftedBottom: box.bottom - delta }
+        })
+        expect(Math.abs(moved.delta), 'the real Routine page scrolled').toBeGreaterThanOrEqual(31)
+        expect(moved.unshiftedTop < 7 || moved.unshiftedBottom > viewport.height - 7,
+          'the measured scroll would put the previous picker position outside the viewport').toBe(true)
+        await expectPickerContained()
+      }
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
       await assertWcag22Aa(page, `missing Routine Agent ${viewport.width}x${viewport.height}`)
       await page.screenshot({ path: info.outputPath(`missing-agent-${viewport.width}x${viewport.height}.png`) })
