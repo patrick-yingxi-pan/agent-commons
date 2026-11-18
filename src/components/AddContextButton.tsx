@@ -152,8 +152,12 @@ export function AddContextButton({
           ref={popRef}
           role="dialog"
           aria-label="Add context"
-          className={`absolute z-20 w-[340px] overflow-hidden ${
-            variant === 'section' ? 'right-0 top-full mt-1.5' : 'bottom-full left-0 mb-2'
+          // Section actions share a 24px column. Leave it available beside this
+          // nonmodal picker, including the reading pane’s two 16px phone gutters.
+          className={`absolute z-20 overflow-hidden ${
+            variant === 'section'
+              ? 'right-full top-full mt-1.5 w-[min(340px,calc(100cqw-3.5rem))]'
+              : 'bottom-full left-0 mb-2 w-[340px]'
           } ${POPOVER_SURFACE}`}
         >
           {activeType === null ? (
