@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { bundleBudgetPlugin } from './scripts/bundleBudget.ts'
 import { thirdPartyNoticesPlugin } from './scripts/thirdPartyNotices.ts'
+import { checkProjectBuildMatchers } from './scripts/hardenBuildMatchers.mjs'
+
+checkProjectBuildMatchers(import.meta.url, 'vite')
 
 // Minimal ambient `process` so the config can read env-driven ports without
 // pulling in @types/node (the UI tsconfig ships no Node types by design).

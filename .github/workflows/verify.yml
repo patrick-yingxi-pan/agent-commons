@@ -93,6 +93,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Verify installed build matcher guards
+        run: node scripts/hardenBuildMatchers.mjs --check
+
       - name: Install the Playwright browser and system dependencies
         if: matrix.lane == 'e2e'
         run: npx playwright install --with-deps chromium

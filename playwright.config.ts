@@ -1,6 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
 import { availableParallelism } from 'node:os'
 import { budget, resolvedFactor } from './scripts/hostSpeed.mjs'
+import { checkProjectBuildMatchers } from './scripts/hardenBuildMatchers.mjs'
+
+checkProjectBuildMatchers(import.meta.url, 'playwright')
 
 /** End-to-end UI tests (P8 Phase 3 — the checked-in E2E harness).
  *

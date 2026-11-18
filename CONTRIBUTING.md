@@ -34,6 +34,11 @@ The [README](README.md) explains setup. Use Node 26 or newer, install the locked
 dependencies with `npm ci`, and read [AGENTS.md](AGENTS.md) plus the scoped context
 for the part of the repository you are changing.
 
+Use the normal `npm ci` lifecycle for development. Its installation hook guards
+the build toolchain against a `picomatch` advisory. If you installed with
+`--ignore-scripts`, repeat `npm ci` before starting the dev server or building.
+See the [mitigation and upgrade instructions](docs/security-alert-review-2026-11-17.md#temporary-mitigation-for-the-picomatch-advisory).
+
 Keep changes focused, include regression checks for behavioral changes, and update
 the relevant requirement in `docs/spec/`. Follow the verification and review
 procedure in [docs/agent-workflow.md](docs/agent-workflow.md), including the complete
