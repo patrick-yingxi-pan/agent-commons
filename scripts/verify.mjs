@@ -139,6 +139,7 @@ const lanes = [
         cmd: 'npx',
         args: ['playwright', 'test', ...files],
         env: {
+          VERIFY_BROWSER_COVERAGE: '1',
           E2E_SHARD: String(PARTITION.parts > 1 ? PARTITION.part - 1 : i),
           E2E_SHARDS: String(E2E_GROUPS.length),
           E2E_HOST_FACTOR: String(HOST_FACTOR),
@@ -306,7 +307,7 @@ function recordWeights(rs) {
   if (e2eLanes.length !== SHARDS) return
   const durations = {}
   for (const lane of e2eLanes) {
-    for (const m of lane.out.matchAll(/› (e2e[\\/][A-Za-z0-9._-]+\.spec\.ts):\d+:\d+ ›.*?\(([\d.]+)(ms|s)\)/g)) {
+    for (const m of lane.out.matchAll(/› (e2e[\\/][^:\r\n]+\.spec\.ts):\d+:\d+ ›.*?\(([\d.]+)(ms|s)\)/g)) {
       const file = m[1].split('\\').join('/')
       durations[file] = (durations[file] ?? 0) + Number(m[2]) * (m[3] === 'ms' ? 0.001 : 1)
     }

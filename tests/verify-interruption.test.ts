@@ -26,7 +26,7 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       const baseline = await within(verifier.closed, 10_000, 'green fixture verifier')
       assert.equal(baseline.code, 0, verifier.output())
       const weights = JSON.parse(await readFile(join(fixture.root, '.data', 'spec-weights.json'), 'utf8'))
-      assert.deepEqual(Object.keys(weights).sort(), ['e2e/first.spec.ts', 'e2e/second.spec.ts'])
+      assert.deepEqual(Object.keys(weights).sort(), ['e2e/first.spec.ts', 'e2e/nested/second.spec.ts'])
       assert.match(verifier.output(), /all 2 lanes green/)
       await removeVerifyInterruptionFixture(fixture, verifier)
 

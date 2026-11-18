@@ -30,7 +30,7 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { ROOT, stripComments } from './helpers/source.ts'
-import { suiteFiles, suiteRoots } from '../scripts/verifyPlan.mjs'
+import { suiteFiles } from '../scripts/verifyPlan.mjs'
 
 /** Every suite in the repo — the RUNNER's own enumeration, not a second one.
  *
@@ -40,11 +40,7 @@ import { suiteFiles, suiteRoots } from '../scripts/verifyPlan.mjs'
  *  set than `npm test` executes. Reusing `suiteFiles` means there is nothing to
  *  keep in step. */
 function everySuite(): string[] {
-  // ABSOLUTE, because `suiteFiles` prefixes whatever roots it is handed and
-  // these are absolute — re-joining them to ROOT builds `C:\repo\C:\repo\…`.
-  const out = suiteFiles(suiteRoots(join(ROOT, 'package.json')).map((r) => join(ROOT, r))).map((f) =>
-    f.split('\\').join('/'),
-  )
+  const out = suiteFiles(undefined, join(ROOT, 'package.json'))
   assert.ok(out.length > 100, `found only ${out.length} suites — this scan has no subject`)
   return out
 }

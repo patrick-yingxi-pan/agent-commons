@@ -10,10 +10,11 @@
  *  by a real defect in the first cut of the runner (2026-08-11 review). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, execSync } from 'node:child_process'
+import { globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { ROOT, filesUnder, stripComments } from './helpers/source.ts'
 import { createVerifyInterruptionFixture, removeVerifyInterruptionFixture, startFixtureVerifier, waitForFixtureFile } from './helpers/verifyInterruptionFixture.mjs'
 import { e2ePartition, envCount, specFiles, specGroups, specWeights, suiteBatches, suiteConcurrency, suiteDirs, suiteFiles, suiteRoots, weightsFrom } from '../scripts/verifyPlan.mjs'
@@ -130,6 +131,7 @@ test('parallel verifier partitions own distinct absolute Playwright transform ca
     const caches = [0, 1].map(shard => {
       const env = JSON.parse(readFileSync(join(fixture.state, `npx-env-${shard}.json`), 'utf8'))
       assert.equal(env.shard, String(shard))
+      assert.equal(env.coverage, '1', 'every verifier partition requires all of its browser cases to run')
       assert.equal(env.cacheDir, join(fixture.root, '.data', 'playwright-transform-cache', `shard-${shard}`),
         'each actual browser lane receives its own project-local absolute cache directory')
       return env.cacheDir
@@ -178,14 +180,9 @@ test('the sweep runs every node suite the `npm test` glob does', () => {
     `these directories contain suites that \`npm test\` never runs: ${unglobbed.join(', ')} — add them to the test script`,
   )
 
-  const planned = new Set(suiteFiles(roots.map((r) => join(ROOT, r))).map((f) => f.split('\\').join('/')))
-  const onDisk: string[] = []
-  for (const root of roots) {
-    for (const f of readdirSync(join(ROOT, root), { recursive: true })) {
-      const p = String(f).split('\\').join('/')
-      if (p.endsWith('.test.ts')) onDisk.push(`${join(ROOT, root).split('\\').join('/')}/${p}`)
-    }
-  }
+  const planned = new Set(suiteFiles(undefined, join(ROOT, 'package.json')))
+  const npmGlobs = [...script.matchAll(/"([^"]+)"/g)].map((match) => match[1])
+  const onDisk = globSync(npmGlobs, { cwd: ROOT }).map((file) => join(ROOT, file).split('\\').join('/'))
   assert.ok(onDisk.length > 0, 'there are suites to find')
   for (const f of onDisk) assert.ok(planned.has(f), `the sweep would skip ${f}`)
   assert.equal(planned.size, onDisk.length, 'and it invents nothing')
@@ -202,12 +199,32 @@ test('the sweep runs every node suite the `npm test` glob does', () => {
     mkdirSync(join(tmp, 'nested'))
     writeFileSync(join(tmp, 'top.test.ts'), '')
     writeFileSync(join(tmp, 'nested', 'deep.test.ts'), '')
+    writeFileSync(join(tmp, 'nested', 'unlisted.test.tsx'), '')
     writeFileSync(join(tmp, 'nested', 'notatest.ts'), '')
     assert.deepEqual(
       suiteFiles(tmp).map((f) => f.slice(tmp.length + 1)),
       ['nested/deep.test.ts', 'top.test.ts'],
       'a suite in a subdirectory is found, and a non-suite beside it is not',
     )
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test('the default Node plan preserves the extensions declared for each npm suite root', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'verify-extensions-'))
+  try {
+    const script = 'node --test "ui/**/*.test.ts" "ui/**/*.test.tsx" "server/**/*.test.ts" "views/**/*.test.tsx"'
+    writeFileSync(join(tmp, 'package.json'), JSON.stringify({ scripts: { test: script } }))
+    for (const dir of ['ui', 'server', 'views']) {
+      mkdirSync(join(tmp, dir, 'nested'), { recursive: true })
+      for (const suffix of ['ts', 'tsx']) writeFileSync(join(tmp, dir, 'nested', `one.test.${suffix}`), '')
+    }
+    const moduleUrl = pathToFileURL(join(ROOT, 'scripts', 'verifyPlan.mjs')).href
+    const program = `import { suiteFiles } from ${JSON.stringify(moduleUrl)}; console.log(JSON.stringify(suiteFiles()))`
+    const planned = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', program], { cwd: tmp, encoding: 'utf8' }))
+    assert.deepEqual(planned, ['server/nested/one.test.ts', 'ui/nested/one.test.ts', 'ui/nested/one.test.tsx', 'views/nested/one.test.tsx'])
+    assert.deepEqual(suiteRoots(join(tmp, 'package.json')), ['ui', 'server', 'views'])
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
@@ -275,6 +292,26 @@ test('verification keeps complete suite coverage and uses the npm test concurren
     /suiteBatches\(SUITE\)\.map\(\(files\) => \(\{[\s\S]*?args: \['--test', `--test-concurrency=\$\{NODE_TEST_CONCURRENCY\}`, \.\.\.files\]/,
     'the verifier passes the npm-owned concurrency without changing the suite manifest',
   )
+})
+
+test('browser discovery counts nested spec files and skips dependency directories', () => {
+  const tmp = mkdtempSync(join(tmpdir(), 'browser-spec-discovery-'))
+  try {
+    const nestedSpec = 'features/review/actions.spec.ts'
+    mkdirSync(join(tmp, 'features', 'review'), { recursive: true })
+    mkdirSync(join(tmp, 'features', 'node_modules'), { recursive: true })
+    writeFileSync(join(tmp, 'home.spec.ts'), "test('home', () => {})\n")
+    writeFileSync(join(tmp, nestedSpec), "test('open', () => {})\ntest('save', () => {})\n")
+    writeFileSync(join(tmp, 'features', 'review', 'helper.ts'), '')
+    writeFileSync(join(tmp, 'features', 'node_modules', 'vendor.spec.ts'), '')
+
+    assert.deepEqual(specFiles(tmp, { [`${tmp}/${nestedSpec}`]: 0.75 }), [
+      { file: `${tmp}/${nestedSpec}`, tests: 2, weight: 0.75 },
+      { file: `${tmp}/home.spec.ts`, tests: 1, weight: 1 / 3 },
+    ])
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
 })
 
 test('the shard groups PARTITION the spec files — every one, exactly once', () => {

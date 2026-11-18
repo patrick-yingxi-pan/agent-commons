@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { availableParallelism } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { budget, resolvedFactor } from './scripts/hostSpeed.mjs'
 import { checkProjectBuildMatchers } from './scripts/hardenBuildMatchers.mjs'
 
@@ -32,6 +33,11 @@ checkProjectBuildMatchers(import.meta.url, 'playwright')
  *  `E2E_SHARD` unset ⇒ 0 ⇒ exactly the ports and store this config always used,
  *  so a bare `npm run e2e` is unchanged. */
 const SHARD = Number(process.env.E2E_SHARD ?? 0)
+
+const reporters: [string][] = process.env.CI ? [['github'], ['list']] : [['list']]
+if (process.env.VERIFY_BROWSER_COVERAGE === '1') {
+  reporters.push([fileURLToPath(new URL('./scripts/rejectSkippedBrowserTests.mjs', import.meta.url))])
+}
 
 /** How slow this machine is relative to the box every timing in
  *  scripts/verify.mjs's header was measured on, and how many shards are
@@ -71,7 +77,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [['github'], ['list']] : [['list']],
+  reporter: reporters,
   use: {
     // The E2E stack's OWN ports (UI 5183, backend 5184 via dev.mjs's PORT+1 rule) —
     // never 5173, so a developer's running `npm run dev` (mock backend, live store)

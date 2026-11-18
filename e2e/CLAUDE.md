@@ -156,4 +156,7 @@ Spec gotchas: the app **opens on a fresh draft** (sending materializes a new ses
 - **Model-turn specs own a usage partition.** A balanced shard is not a stable test order; multi-turn recovery walks use an explicit non-default tenant so unrelated coverage cannot exhaust their plan window first.
 - **Stop recovery owns the model terminal.** Its six real-turn cases sign in a fresh test owner and configure an authored Messages peer that holds after its first text. Audits cannot race a finite canned reply; the genuine cancellation must close that upstream stream before fixture teardown, while the exact partial and normal server lifecycle remain real.
 ## Verification
+The verifier discovers `.spec.ts` files throughout `e2e/`. If Playwright skips
+a case, including one marked `fixme`, verification fails and reports its title.
+
 Declare each test with a top-level `test(` call so the verifier can count and weight it; nested `describe` tests escape its manifest. Run the affected spec locally. GitHub runs the complete suite before merge. Clear only the isolated E2E store when diagnosing accumulated-state flakiness, never as a precondition.
