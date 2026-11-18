@@ -1,4 +1,4 @@
-/** Required GitHub checks project the repository's mandatory local verifier.
+/** Required GitHub checks run the repository's complete verifier before merge.
  * Their source is scanned here because a workflow
  * that quietly drops E2E, floats executable actions, or gains write authority
  * can stay green while ceasing to be evidence. */
@@ -48,9 +48,22 @@ test('required GitHub checks retain the complete verifier plan with bounded read
     'each CI runner must retain one CPU-safe local stack rather than oversubscribing')
   assert.match(workflow, /run: npm ci/)
   assert.match(workflow, /if: matrix\.lane == 'e2e'\s*\n\s*run: npx playwright install --with-deps chromium/)
-  assert.match(workflow, /run: npm run verify -- \$\{\{ matrix\.lane \}\}/)
   assert.doesNotMatch(workflow, /run: npm (?:test|run (?:typecheck|build|e2e))\s*$/m,
     'the workflow must not hand-maintain a partial copy of the verifier')
+})
+
+test('every required verifier job runs its lane and propagates failure', () => {
+  const job = workflow.match(/^  full-product:\s*\n([\s\S]*?)(?=^  [\w-]+:|(?![\s\S]))/m)
+  assert.ok(job, 'the required matrix job exists')
+  assert.match(job[1], /^    name: \$\{\{ matrix\.label \}\}\s*$/m)
+  assert.doesNotMatch(job[1], /^    (?:if|needs|continue-on-error):/m,
+    'a required verifier job must run for every pull request and propagate a failing exit')
+
+  const step = job[1].match(/^      - name: Verify \$\{\{ matrix\.label \}\}\s*\n([\s\S]*?)(?=^      - |(?![\s\S]))/m)
+  assert.ok(step, 'the required job contains the verifier step')
+  assert.match(step[1], /^        run: npm run verify -- \$\{\{ matrix\.lane \}\}[ \t]*\r?$/m)
+  assert.doesNotMatch(step[1], /^        (?:if|continue-on-error):/m,
+    'a required lane cannot skip its verifier or treat a failure as success')
 })
 
 test('third-party workflow actions are immutable and checkout leaves no push credential', () => {

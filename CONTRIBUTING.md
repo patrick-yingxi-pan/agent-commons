@@ -40,10 +40,10 @@ the build toolchain against a `picomatch` advisory. If you installed with
 See the [mitigation and upgrade instructions](docs/security-alert-review-2026-11-17.md#temporary-mitigation-for-the-picomatch-advisory).
 
 Keep changes focused, include regression checks for behavioral changes, and update
-the relevant requirement in `docs/spec/`. Follow the verification and review
-procedure in [docs/agent-workflow.md](docs/agent-workflow.md), including the complete
-local `npm run verify` before pushing. Open a pull request targeting `main` and
-describe what changed and which checks passed. The required GitHub `Checks`,
-all six E2E jobs (`E2E 1/6` through `E2E 6/6`), and `Dependency review` must pass
-before merging; resolve review conversations and update the branch when GitHub
-requires it.
+the relevant requirement in `docs/spec/`. Review the diff and open a pull
+request targeting `main`. Running the complete `npm run verify` locally before
+pushing is optional. GitHub runs the full verifier in `Checks` and `E2E 1/6`
+through `E2E 6/6`. Those jobs, `Dependency review`, and the CodeQL merge rule
+must pass before merging. Resolve review conversations and keep the branch
+up to date. See the [delivery policy](docs/agent-workflow.md) for review and
+acceptance requirements.

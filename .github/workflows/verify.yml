@@ -1,6 +1,6 @@
 name: Verify
 
-# Local npm run verify gates pushes; required GitHub checks gate merging to main.
+# The required jobs run the complete verifier before a pull request can merge to main.
 on:
   pull_request:
     branches: [main]

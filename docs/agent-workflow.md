@@ -9,8 +9,9 @@ procedure so the always-loaded map stays small.
   requirement row in [`docs/spec/`](spec/README.md) names the implementation,
   lock, and shipped/mock status. Detailed testing discipline lives in
   [`tests/CLAUDE.md`](../tests/CLAUDE.md).
-- Run `npm run typecheck` and `node --test` before declaring a code change done.
-  Use `npm run verify` for the complete static/build/E2E sweep.
+- During development, use `npm run typecheck` and the tests that exercise the
+  change for local feedback. Running the complete `npm run verify` locally
+  before pushing is optional.
 - Prefer `npm test` for the complete Node suite: it bounds concurrency to four
   workers. The full verifier derives the same setting from that script without
   reducing the suite manifest. This avoids observed native-helper timeouts under
@@ -19,8 +20,8 @@ procedure so the always-loaded map stays small.
   sequential batches to stay below process command-line limits. Every batch
   retains the npm-owned worker count; no suite is omitted or rediscovered.
   Some native filesystem fixtures still assume POSIX permissions, symlinks, and
-  path separators. Use a Linux or macOS checkout for complete suite acceptance;
-  the Windows launcher checks do not establish native Windows support.
+  path separators. Use Linux or macOS when running the complete suite locally.
+  The Windows launcher checks do not establish native Windows support.
 - Each browser lane owns a separate absolute Playwright transform-cache path
   under ignored `.data/`, so concurrent collectors cannot rewrite each other's
   compiled modules. Suite selection, timeouts and retries are unchanged.
@@ -39,20 +40,20 @@ procedure so the always-loaded map stays small.
   scripts and documentation. Vite can reload after watched-file changes outside
   the product modules; a code-only freeze is insufficient. Apply review findings
   between runs, then verify the final revision without edits or relaxed retries.
-- The complete local `npm run verify` is the mandatory pre-push gate. Record
-  the local command and outcome in the pull request and checkpoint handoff,
-  including any separate UI or packaged-native acceptance. GitHub runs the
-  same complete verifier plan for every pull request targeting `main` and every
-  push to `main`; manual dispatch remains available for diagnostics. The
-  required `Checks`, all six E2E jobs (`E2E 1/6` through `E2E 6/6`), and
-  `Dependency review` must pass before merging. Dependency review rejects newly
-  introduced dependencies with high or critical vulnerabilities and posts no
-  pull-request comments.
+- GitHub enforces the complete verifier on every pull request to `main`.
+  `Checks` runs typecheck, the full Node suite and the production build. All six
+  browser jobs (`E2E 1/6` through `E2E 6/6`) must also pass. GitHub reruns the
+  verifier on pushes to `main` and supports manual dispatch for diagnostics.
+  The rules for `main` also require `Dependency review` and CodeQL code scanning.
+  Dependency review rejects newly introduced high or critical vulnerabilities.
+  The pull request contains the GitHub results. Record any local checks
+  performed and applicable signed-in UI or packaged-native acceptance in the
+  pull request and checkpoint handoff.
   The checks lane and six deterministic E2E manifest partitions run on
   isolated Node 26 hosts. Local runs retain their own shard selection and
   calibrated timing; hosted runs retain the measured bounded runner profile.
-- Review the working diff adversarially after tests pass. Fix confirmed findings
-  before commit; do not leave finished work uncommitted.
+- Review the working diff and fix confirmed findings before committing. After
+  GitHub checks pass, review the diff on the tested revision before merging.
 - Diagnose intermittent first-attempt browser failures with
   `E2E_TRACE=1 npm run verify`. This runs the same complete plan and retains failed
   browser traces in shard-owned directories under `test-results/` without adding
@@ -88,13 +89,13 @@ Full boundary rules: [`docs/mcp-access.md`](mcp-access.md).
 
 ## Land the change
 
-After local verification and diff review, commit and push a branch over HTTPS,
-then open a pull request targeting `main`. Preserve unrelated work in a dirty
-tree; never erase or rewrite it to make a patch easier.
+After diff review, commit and push a branch over HTTPS, then open a pull
+request targeting `main`. Preserve unrelated work in a dirty tree; never
+erase or rewrite it to make a patch easier.
 
 Wait for the required GitHub checks on the current revision, fix failures, and
 resolve review conversations before merging. Keep the branch up to date when
-GitHub requires it, and rerun local verification after changes. Do not bypass
-the pull-request or required-check rules. A separate approving reviewer is not
-required for the solo-maintainer workflow; maintainer diff review remains
-mandatory.
+GitHub requires it. After a fix or base update, wait for GitHub to verify the
+new revision. Do not bypass the pull-request or required-check rules. A
+separate approving reviewer is not required for the solo-maintainer workflow;
+maintainer diff review remains mandatory.
