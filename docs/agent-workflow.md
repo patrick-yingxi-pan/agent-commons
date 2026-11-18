@@ -99,3 +99,23 @@ GitHub requires it. After a fix or base update, wait for GitHub to verify the
 new revision. Do not bypass the pull-request or required-check rules. A
 separate approving reviewer is not required for the solo-maintainer workflow;
 maintainer diff review remains mandatory.
+
+### Commit attribution
+
+For model-assisted changes, use the human contributor's GitHub-linked identity
+as the Git author. If the clone uses a different identity, set `user.name` and
+`user.email` for the individual `git commit` with `git -c`.
+
+Credit the contributing model by its session model ID and reasoning effort. Read
+both from the session or confirm them with the contributor. Separate the trailer
+block from the commit body with a blank line. Use this format.
+
+```text
+Co-authored-by: gpt-6.2-astra (ultra) <gpt-6.2-astra-ultra@models.agent-commons.invalid>
+```
+
+The reserved `.invalid` address identifies the model and effort for display.
+GitHub can then show the trailer's name without substituting a linked account's
+username. Preserve all contributor trailers in the final squash commit message
+(`gh pr merge --squash --body-file` accepts a message body). Verify the authors
+GitHub displays on the merged commit.
