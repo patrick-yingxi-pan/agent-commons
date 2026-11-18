@@ -1,5 +1,8 @@
 # Desktop preview plan
 
+The checkpoints below record the verification policy in effect at each milestone.
+For current changes, follow the [delivery policy](agent-workflow.md).
+
 Reviewed 2026-10-30. The standing goal remains production readiness for Agent
 Commons, with desktop first and a hosted service later. Progress is judged by
 complete user workflows and release evidence, not the number of hardened

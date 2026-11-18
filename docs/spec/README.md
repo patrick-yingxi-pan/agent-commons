@@ -34,6 +34,10 @@ Three layers, drill down only as far as you need:
   requirement, traced to its **implementation** and what **verifies** it, with a
   **status**.
 
+Status cells record the acceptance requirements and results of their checkpoint.
+For new changes, the [delivery policy](../agent-workflow.md) defines the current
+GitHub merge gates and optional local verifier.
+
 ### Where the L2 rows live
 
 Colocation applies to the spec too: when a pillar's rows are owned by **one

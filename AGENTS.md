@@ -51,7 +51,7 @@ their local implementation and evidence.
 | ROOT-D1 | data-access | Absence and identity have fixed contract meaning; convenience never guesses mutable or privileged state. | [`contract/`](contract/) · [`server/http/router.ts`](server/http/router.ts) | [`tests/spec-conformance.test.ts`](tests/spec-conformance.test.ts) | requires ROOT-A2 |
 | ROOT-D2 | data-access | UI, permitted in-session MCP, and authenticated remote MCP share semantic capabilities and authorization. | [`server/apiSurface.ts`](server/apiSurface.ts) · [`server/mcp.ts`](server/mcp.ts) | [`tests/access-surface-parity.test.ts`](tests/access-surface-parity.test.ts) · [`server/mcp-parity.test.ts`](server/mcp-parity.test.ts) | requires ROOT-A1; requires ROOT-D1 |
 | ROOT-V1 | verification | A rule lives with its owner and names both implementation and a lock that has been watched fail. | [`tests/CLAUDE.md`](tests/CLAUDE.md) · [`docs/spec/`](docs/spec/) | [`tests/context-structure.test.ts`](tests/context-structure.test.ts) · [`tests/suite-paths.test.ts`](tests/suite-paths.test.ts) | root |
-| ROOT-V2 | verification | Every proposed or pushed revision passes the complete local verifier; changes land through pull requests with all required GitHub checks passing. | [`docs/agent-workflow.md`](docs/agent-workflow.md) · [`.github/workflows/verify.yml`](.github/workflows/verify.yml) · [`scripts/verify.mjs`](scripts/verify.mjs) · [`scripts/verifyPlan.mjs`](scripts/verifyPlan.mjs) | [`tests/ci-workflow.test.ts`](tests/ci-workflow.test.ts) · [`tests/verify-plan.test.ts`](tests/verify-plan.test.ts) | requires ROOT-V1 |
+| ROOT-V2 | verification | GitHub requires the complete verifier and security checks to pass before a pull request can merge to main. Running the complete verifier locally before pushing is optional. | [`docs/agent-workflow.md`](docs/agent-workflow.md) · [`.github/workflows/verify.yml`](.github/workflows/verify.yml) · [`scripts/verify.mjs`](scripts/verify.mjs) · [`scripts/verifyPlan.mjs`](scripts/verifyPlan.mjs) | [`tests/ci-workflow.test.ts`](tests/ci-workflow.test.ts) · [`tests/verify-plan.test.ts`](tests/verify-plan.test.ts) | requires ROOT-V1 |
 <!-- context-rules:end -->
 
 ## Read path
@@ -79,9 +79,9 @@ detail needed for the change; do not preload neighboring manuals.
 - Every feature updates its automated locks and spec-ledger rows.
 - Verify UI changes in the running app with demo accounts stacked; leave Ada
   signed in so the owner can continue testing.
-- Review the diff after tests pass, fix findings, commit, and push a branch over
-  HTTPS. Open a pull request to `main` and merge only after required GitHub checks
-  pass. Preserve unrelated user changes.
+- Review the diff, fix findings, commit, and push a branch over HTTPS. Open a
+  pull request to `main`. After the required GitHub checks pass, review the
+  tested diff before merging. Preserve unrelated user changes.
 - Keep the MCP door and quoted UI copy synchronized with the route-owned access
   model. Details and procedures live in
   [`docs/agent-workflow.md`](docs/agent-workflow.md).
