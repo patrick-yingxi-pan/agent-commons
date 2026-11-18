@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { availableParallelism } from 'node:os'
+import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { budget, resolvedFactor } from './scripts/hostSpeed.mjs'
 import { checkProjectBuildMatchers } from './scripts/hardenBuildMatchers.mjs'
@@ -34,8 +35,19 @@ checkProjectBuildMatchers(import.meta.url, 'playwright')
  *  so a bare `npm run e2e` is unchanged. */
 const SHARD = Number(process.env.E2E_SHARD ?? 0)
 
+// Playwright's positional file arguments are case-insensitive regular
+// expressions. Match each planned file by its exact native absolute path.
+function verifierFileMatchers(manifest: string): RegExp[] {
+  const files: unknown = JSON.parse(manifest)
+  if (!Array.isArray(files) || !files.length || !files.every(file => typeof file === 'string' && file.length > 0)) {
+    throw new Error('VERIFY_BROWSER_FILES must specify a nonempty array of file paths')
+  }
+  return files.map(file => new RegExp(`^${RegExp.escape(resolve(file))}$`))
+}
+const manifest = process.env.VERIFY_BROWSER_FILES
+const testMatch = manifest === undefined ? undefined : verifierFileMatchers(manifest)
 const reporters: [string][] = process.env.CI ? [['github'], ['list']] : [['list']]
-if (process.env.VERIFY_BROWSER_COVERAGE === '1') {
+if (testMatch) {
   reporters.push([fileURLToPath(new URL('./scripts/rejectSkippedBrowserTests.mjs', import.meta.url))])
 }
 
@@ -63,6 +75,7 @@ const STORE = SHARD === 0 ? '.data/e2e-store.json' : `.data/e2e-store-${SHARD}.j
 
 export default defineConfig({
   testDir: './e2e',
+  testMatch,
   // Each Playwright process also owns its artifact scratch space. Sharing the
   // root lets a sibling worker delete live trace resources during cleanup.
   outputDir: `test-results/shard-${SHARD}`,

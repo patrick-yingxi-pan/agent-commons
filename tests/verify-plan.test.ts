@@ -10,8 +10,8 @@
  *  by a real defect in the first cut of the runner (2026-08-11 review). */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync, execSync } from 'node:child_process'
-import { globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, execSync, spawnSync } from 'node:child_process'
+import { globSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -128,10 +128,12 @@ test('parallel verifier partitions own distinct absolute Playwright transform ca
   try {
     const results = await Promise.all(verifiers.map(verifier => verifier.closed))
     results.forEach((result, i) => assert.equal(result.code, 0, verifiers[i].output()))
+    const files = ['e2e/first.spec.ts', 'e2e/nested/second.spec.ts']
     const caches = [0, 1].map(shard => {
       const env = JSON.parse(readFileSync(join(fixture.state, `npx-env-${shard}.json`), 'utf8'))
       assert.equal(env.shard, String(shard))
-      assert.equal(env.coverage, '1', 'every verifier partition requires all of its browser cases to run')
+      assert.deepEqual(JSON.parse(env.files), [files[shard]],
+        'each partition must run its assigned browser file')
       assert.equal(env.cacheDir, join(fixture.root, '.data', 'playwright-transform-cache', `shard-${shard}`),
         'each actual browser lane receives its own project-local absolute cache directory')
       return env.cacheDir
@@ -312,6 +314,42 @@ test('browser discovery counts nested spec files and skips dependency directorie
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
+})
+
+test('the real verifier runs each nested browser file literally across partitions', (t) => {
+  const tmp = mkdtempSync(join(tmpdir(), 'verify-browser-paths-'))
+  t.after(() => rmSync(tmp, { recursive: true, force: true }))
+  symlinkSync(join(ROOT, 'node_modules'), join(tmp, 'node_modules'), 'junction')
+  writeFileSync(join(tmp, 'package.json'), JSON.stringify({ scripts: { test: 'node --test --test-concurrency=1 "tests/**/*.test.ts"' } }))
+  mkdirSync(join(tmp, 'tests'))
+  writeFileSync(join(tmp, 'tests', 'placeholder.test.ts'), '')
+  const config = pathToFileURL(join(ROOT, 'playwright.config.ts')).href
+  writeFileSync(join(tmp, 'playwright.config.mjs'), `import config from ${JSON.stringify(config)}
+export default { ...config, webServer: undefined }`)
+
+  // A positional Playwright filter for [id] silently selects i. Both files
+  // have one case, so both partitions can report full coverage of the wrong file.
+  const folders = ['[id]', 'i']
+  const executed = join(tmp, 'executed.txt')
+  for (const folder of folders) {
+    const dir = join(tmp, 'e2e', 'routes', folder)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'edit.spec.ts'), `import { test } from '@playwright/test'
+import { appendFileSync } from 'node:fs'
+test('record selected route', () => { appendFileSync(${JSON.stringify(executed)}, ${JSON.stringify(folder + '\n')}) })
+`)
+  }
+  for (const part of [1, 2]) {
+    const result = spawnSync(process.execPath, [join(ROOT, 'scripts', 'verify.mjs'), 'e2e'], {
+      cwd: tmp, encoding: 'utf8', env: {
+        ...process.env, E2E_HOST_FACTOR: '1', VERIFY_E2E_PART: String(part), VERIFY_E2E_PARTS: '2',
+        npm_config_offline: 'true',
+      },
+    })
+    assert.ifError(result.error)
+    assert.equal(result.status, 0, result.stdout + result.stderr)
+  }
+  assert.deepEqual(readFileSync(executed, 'utf8').trim().split('\n').sort(), folders)
 })
 
 test('the shard groups PARTITION the spec files — every one, exactly once', () => {

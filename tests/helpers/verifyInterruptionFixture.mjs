@@ -50,7 +50,7 @@ const state = process.env.VERIFY_FIXTURE_STATE
 writeFileSync(join(state, 'npx-finished'), 'finished')
 writeFileSync(join(state, 'npx-env-' + process.env.E2E_SHARD + '.json'), JSON.stringify({
   shard: process.env.E2E_SHARD, cacheDir: process.env.PWTEST_CACHE_DIR,
-  coverage: process.env.VERIFY_BROWSER_COVERAGE,
+  files: process.env.VERIFY_BROWSER_FILES,
 }))
 process.stdout.write('› e2e/first.spec.ts:1:1 › first fixture (11ms)\\n')
 process.stdout.write('› e2e/nested/second.spec.ts:1:1 › second fixture (13ms)\\n')

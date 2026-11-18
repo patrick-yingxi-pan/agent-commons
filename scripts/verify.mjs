@@ -137,9 +137,9 @@ const lanes = [
     steps: [
       {
         cmd: 'npx',
-        args: ['playwright', 'test', ...files],
+        args: ['playwright', 'test'],
         env: {
-          VERIFY_BROWSER_COVERAGE: '1',
+          VERIFY_BROWSER_FILES: JSON.stringify(files),
           E2E_SHARD: String(PARTITION.parts > 1 ? PARTITION.part - 1 : i),
           E2E_SHARDS: String(E2E_GROUPS.length),
           E2E_HOST_FACTOR: String(HOST_FACTOR),

@@ -33,7 +33,7 @@ test('runtime skip', () => { test.skip(true, 'condition is true') })
     if (grep) args.push('--grep', grep)
     const result = spawnSync(process.execPath, args, {
       cwd: root, encoding: 'utf8', env: {
-        ...process.env, VERIFY_BROWSER_COVERAGE: '1', E2E_HOST_FACTOR: '1', PWTEST_CACHE_DIR: join(root, 'cache'),
+        ...process.env, VERIFY_BROWSER_FILES: JSON.stringify(['coverage.spec.cjs']), E2E_HOST_FACTOR: '1', PWTEST_CACHE_DIR: join(root, 'cache'),
       },
     })
     assert.ifError(result.error)
