@@ -134,3 +134,30 @@ current 6.4.6 security-fix line. Upgrade when a compatible supported release
 removes the affected `picomatch` range; verify the resolved lock, audit result,
 build and required checks before landing that follow-up. No unreviewed fork or
 unsupported override is substituted for an upstream fix.
+
+## Temporary mitigation for the picomatch advisory
+
+A normal `npm ci` applies the repository's guard to the installed development
+toolchain. It covers the standalone matcher and the bundled matcher copies in
+the locked dependencies. Across eight installed files, the guard checks both
+entry points for each of twelve parser copies before they can compile a glob
+containing `+(` or `*(`. Ordinary wildcards, including the repository's
+`src/**/*.worker.ts` entry pattern, continue to work. The check examines the
+raw pattern, so it also refuses those two character sequences when they were
+meant literally or escaped.
+
+`npm ci --ignore-scripts` skips the installation hook. Use a normal, clean
+`npm ci` before running the development server, browser tests or builds from
+such a checkout. A production-only `npm ci --omit=dev` excludes the affected
+development packages. The guard covers this repository's locked installation.
+Tools installed globally, separately or by another project have their own
+dependency trees. GitHub and npm inspect published dependency versions, so the
+upstream advisory remains visible in [Dependabot alert #21](https://github.com/patrick-yingxi-pan/agent-commons/security/dependabot/21).
+
+When upgrading a dependency that contains a matcher, review its published
+files and inventory both standalone and bundled parser copies. An unfamiliar
+file or entry point needs a new review before the guard can cover it. Once a
+supported release addresses the advisory, update the lockfile, verify that all
+copies have incorporated the fix, and remove the installation hook and its
+temporary checks. Confirm the dependency audit and exercise a clean install,
+development server, production build and required GitHub checks on that revision.

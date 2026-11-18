@@ -12,6 +12,7 @@
     "node": ">=26"
   },
   "scripts": {
+    "postinstall": "node scripts/hardenBuildMatchers.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:ui": "vite",
     "server": "node --watch server/index.ts",
