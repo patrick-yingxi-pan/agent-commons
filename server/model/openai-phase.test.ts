@@ -5,7 +5,7 @@
  * readable as text without inventing provider metadata.
  */
 import assert from 'node:assert/strict'
-import { after, before, test } from 'node:test'
+import { after, afterEach, before, test } from 'node:test'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { generateReply, type ReplyHistoryTurn, type ReplySession } from '../generate.ts'
 import type { ProviderConfig } from '../data/providers.ts'
@@ -17,6 +17,7 @@ type SeenRequest = { method: string; path: string; body?: any }
 type Script = (request: SeenRequest, response: ServerResponse) => void | Promise<void>
 
 const requests: SeenRequest[] = []
+const fixtureErrors: unknown[] = []
 let server: Server
 let baseURL = ''
 let script: Script = defaultScript
@@ -134,8 +135,9 @@ before(async () => {
       requests.push(seen)
       await script(seen, res)
     } catch (error) {
+      fixtureErrors.push(error)
       if (!res.headersSent) res.writeHead(500, { 'content-type': 'text/plain' })
-      res.end(error instanceof Error ? error.message : String(error))
+      res.end('Fixture request failed')
     }
   })
   await new Promise<void>((resolve, reject) => {
@@ -147,6 +149,8 @@ before(async () => {
   process.env.PROVIDER_OPENAI_PHASE_TEST_KEY = 'openai-phase-loopback-key'
   process.env.PROVIDER_MESSAGES_PHASE_TEST_KEY = 'messages-phase-loopback-key'
 })
+
+afterEach(() => assert.deepEqual(fixtureErrors.splice(0), [], 'unexpected loopback fixture errors remain local test failures'))
 
 after(() => {
   delete process.env.PROVIDER_OPENAI_PHASE_TEST_KEY
@@ -184,6 +188,18 @@ function assertItemsMatchContent(message: { content: string; assistantTextItems?
   assert.ok(message.assistantTextItems, 'completed native Responses prose records ordered assistant message items')
   assert.equal(message.assistantTextItems!.map(item => item.text).join(''), message.content)
 }
+
+test('loopback phase fixture keeps unexpected errors out of HTTP responses', async () => {
+  const marker = 'private-phase-fixture-detail'
+  script = () => { throw new Error(marker) }
+  const response = await fetch(`${baseURL}/responses`, { method: 'POST', body: '{}' })
+  assert.equal(response.status, 500)
+  assert.equal(await response.text(), 'Fixture request failed')
+  assert.equal(fixtureErrors.length, 1)
+  assert.ok(fixtureErrors[0] instanceof Error)
+  assert.equal(fixtureErrors[0].message, marker, 'the original error remains available to local test diagnostics')
+  fixtureErrors.length = 0
+})
 
 test('Responses assistant message items preserve item boundaries, phases, and joined multipart text', async () => {
   requests.length = 0

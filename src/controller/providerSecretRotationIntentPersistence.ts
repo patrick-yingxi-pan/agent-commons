@@ -8,6 +8,20 @@ interface RetainedProviderSecretRotationIntent extends ProviderSecretRotationInt
 const STORAGE_KEY = 'agent-commons.provider-secret-rotation-intents.v1'
 const MAX_RETAINED_ACCOUNTS = 6
 
+function recoveryCoordinates(intent: ProviderSecretRotationIntent): ProviderSecretRotationIntent {
+  return {
+    identityKey: intent.identityKey,
+    tenantId: intent.tenantId,
+    providerId: intent.providerId,
+    expectedRevision: intent.expectedRevision,
+    intentId: intent.intentId,
+  }
+}
+
+const retainedCoordinates = (row: RetainedProviderSecretRotationIntent): RetainedProviderSecretRotationIntent => ({
+  ...recoveryCoordinates(row), retainedAt: row.retainedAt,
+})
+
 export function parseRetainedProviderSecretRotationIntents(
   raw: string | null,
 ): RetainedProviderSecretRotationIntent[] {
@@ -35,7 +49,7 @@ export function parseRetainedProviderSecretRotationIntents(
         && row.intentId.length <= 128
         && typeof row.retainedAt === 'number'
         && Number.isFinite(row.retainedAt)
-    }).sort((a, b) => b.retainedAt - a.retainedAt).slice(0, MAX_RETAINED_ACCOUNTS)
+    }).map(retainedCoordinates).sort((a, b) => b.retainedAt - a.retainedAt).slice(0, MAX_RETAINED_ACCOUNTS)
   } catch {
     return []
   }
@@ -51,7 +65,9 @@ function loadAll(): RetainedProviderSecretRotationIntent[] {
 
 function saveAll(rows: RetainedProviderSecretRotationIntent[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows.slice(0, MAX_RETAINED_ACCOUNTS)))
+    // Revealed secrets belong only in memory, including when a caller supplies
+    // extra runtime fields or an older storage row contains unexpected data.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows.slice(0, MAX_RETAINED_ACCOUNTS).map(retainedCoordinates)))
   } catch {
     // Recovery remains available in memory when browser storage is unavailable.
   }
@@ -59,7 +75,7 @@ function saveAll(rows: RetainedProviderSecretRotationIntent[]): void {
 
 export function retainProviderSecretRotationIntent(intent: ProviderSecretRotationIntent): void {
   saveAll([
-    { ...intent, retainedAt: Date.now() },
+    { ...recoveryCoordinates(intent), retainedAt: Date.now() },
     ...loadAll().filter((row) => row.identityKey !== intent.identityKey),
   ])
 }
@@ -69,8 +85,7 @@ export function retainedProviderSecretRotationIntent(
 ): ProviderSecretRotationIntent | null {
   const row = loadAll().find((candidate) => candidate.identityKey === identityKey)
   if (!row) return null
-  const { retainedAt: _, ...intent } = row
-  return intent
+  return recoveryCoordinates(row)
 }
 
 export function releaseProviderSecretRotationIntent(intent: ProviderSecretRotationIntent): void {

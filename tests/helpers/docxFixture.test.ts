@@ -33,7 +33,7 @@ test('DOCX fixture is deterministic and contains a real OOXML package with escap
     const document = entries.get('word/document.xml')!.toString('utf8')
     assert.match(document, /A &amp; &lt;B&gt;/)
     assert.match(document, /café 世界 😀/)
-    assert.match(document, /http:\/\/schemas.openxmlformats.org\/wordprocessingml\/2006\/main/)
+    assert.match(document, /http:\/\/schemas\.openxmlformats\.org\/wordprocessingml\/2006\/main/)
     assert.match(entries.get('_rels/.rels')!.toString('utf8'), /Target="word\/document\.xml"/)
 })
 

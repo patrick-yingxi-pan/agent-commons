@@ -492,7 +492,11 @@ export function oauthSmokePatches(origin) {
   assert.equal(url.hostname, '127.0.0.1')
   assert.equal(url.protocol, 'http:')
   assert.equal(url.origin, origin)
-  const local = JSON.stringify(origin)
+  const port = Number(url.port || 80)
+  assert.ok(Number.isInteger(port) && port >= 1 && port <= 65_535)
+  // Generated code contains only a fixed loopback address and a numeric port,
+  // never caller-supplied source text or a purportedly escaped URL.
+  const local = `"http://127.0.0.1:${port}"`
   const socket = `(url, options, callback) => fixtureHttpRequest(new URL(url.pathname + url.search, ${local}), { ...options, lookup: undefined }, callback)`
   return [
     { path: 'desktop/mcpOAuthHttp.mjs', before: "import { request as httpsRequest } from 'node:https'",

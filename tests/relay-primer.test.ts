@@ -61,7 +61,8 @@ test('the primer is cross-linked: deep docs from it, and back-pointers from the 
   assert.ok(primer.includes('spec/06-model-and-tools.md'), 'primer must link the requirement ledger')
   // Behavior-owning files → primer (the "update me too" pointer).
   for (const file of ['../connector/relay-connector.ts', '../server/connectorSetup.ts', '../docs/delegated-cognition-provider.md']) {
-    assert.ok(read(file).includes('session-relay-primer.md'), `${file.replace('../', '')} must point at the primer so edits there prompt a primer update`)
+    const label = file.startsWith('../') ? file.slice(3) : file
+    assert.ok(read(file).includes('session-relay-primer.md'), `${label} must point at the primer so edits there prompt a primer update`)
   }
   // Boot map → scoped connector context → primer. Requiring every deep document
   // directly in AGENTS.md was the flat-manual shape the context refactor removes.

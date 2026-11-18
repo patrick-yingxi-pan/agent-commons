@@ -192,7 +192,7 @@ test('release identity is read from the app and its executable, not inferred for
   ]) {
     assert.throws(
       () => validateReleaseBundleIdentity({ ...actual, [field]: value }, expected),
-      new RegExp(field === 'binaryArchitectures' ? 'binary architectures' : field),
+      new RegExp(RegExp.escape(field === 'binaryArchitectures' ? 'binary architectures' : field)),
     )
   }
 

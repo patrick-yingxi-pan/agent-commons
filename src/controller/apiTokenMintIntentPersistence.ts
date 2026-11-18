@@ -12,6 +12,18 @@ interface RetainedApiTokenMintIntent extends ApiTokenMintIntent {
 const STORAGE_KEY = 'agent-commons.api-token-mint-intents.v1'
 const MAX_RETAINED_ACCOUNTS = 6
 
+function recoveryCoordinates(intent: ApiTokenMintIntent): ApiTokenMintIntent {
+  return {
+    identityKey: intent.identityKey,
+    intentId: intent.intentId,
+    ...(intent.label === undefined ? {} : { label: intent.label }),
+  }
+}
+
+const retainedCoordinates = (row: RetainedApiTokenMintIntent): RetainedApiTokenMintIntent => ({
+  ...recoveryCoordinates(row), retainedAt: row.retainedAt,
+})
+
 export function parseRetainedApiTokenMintIntents(raw: string | null): RetainedApiTokenMintIntent[] {
   if (!raw) return []
   try {
@@ -29,7 +41,7 @@ export function parseRetainedApiTokenMintIntents(raw: string | null): RetainedAp
         && (row.label === undefined || (typeof row.label === 'string' && row.label.length <= 80))
         && typeof row.retainedAt === 'number'
         && Number.isFinite(row.retainedAt)
-    }).sort((a, b) => b.retainedAt - a.retainedAt).slice(0, MAX_RETAINED_ACCOUNTS)
+    }).map(retainedCoordinates).sort((a, b) => b.retainedAt - a.retainedAt).slice(0, MAX_RETAINED_ACCOUNTS)
   } catch {
     return []
   }
@@ -45,7 +57,9 @@ function loadAll(): RetainedApiTokenMintIntent[] {
 
 function saveAll(rows: RetainedApiTokenMintIntent[]): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows.slice(0, MAX_RETAINED_ACCOUNTS)))
+    // Project both fresh and recovered rows; structural types do not exclude
+    // extra runtime fields containing a revealed bearer or response object.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rows.slice(0, MAX_RETAINED_ACCOUNTS).map(retainedCoordinates)))
   } catch {
     // Recovery remains available in memory when storage is unavailable.
   }
@@ -53,7 +67,7 @@ function saveAll(rows: RetainedApiTokenMintIntent[]): void {
 
 export function retainApiTokenMintIntent(intent: ApiTokenMintIntent): void {
   saveAll([
-    { ...intent, retainedAt: Date.now() },
+    { ...recoveryCoordinates(intent), retainedAt: Date.now() },
     ...loadAll().filter((row) => row.identityKey !== intent.identityKey),
   ])
 }
@@ -61,8 +75,7 @@ export function retainApiTokenMintIntent(intent: ApiTokenMintIntent): void {
 export function retainedApiTokenMintIntent(identityKey: string): ApiTokenMintIntent | null {
   const row = loadAll().find((candidate) => candidate.identityKey === identityKey)
   if (!row) return null
-  const { retainedAt: _, ...intent } = row
-  return intent
+  return recoveryCoordinates(row)
 }
 
 export function releaseApiTokenMintIntent(intent: ApiTokenMintIntent): void {

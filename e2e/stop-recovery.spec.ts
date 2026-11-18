@@ -253,6 +253,7 @@ test('Stop pending, failure, and acknowledgement recovery at 1280×800', async (
 
 test('Stop is available and Retry remains after cancellation before first assistant output', async ({ page }, testInfo) => {
   test.setTimeout(ms(60_000))
+  const allowedOrigin = new URL(testInfo.project.use.baseURL!).origin
   const fixtureTurnId = `pre-output-${randomUUID()}`
   const fixtureUserMessageId = `persisted-user-${randomUUID()}`
   const message = `Stop before the first output ${randomUUID()}`
@@ -265,8 +266,13 @@ test('Stop is available and Retry remains after cancellation before first assist
 
   fixture = createServer(async (request, response) => {
     const origin = request.headers.origin
+    if (origin !== undefined && origin !== allowedOrigin) {
+      response.writeHead(403)
+      response.end('Unexpected fixture origin')
+      return
+    }
     const cors = {
-      'Access-Control-Allow-Origin': origin ?? '*',
+      'Access-Control-Allow-Origin': allowedOrigin,
       'Access-Control-Allow-Credentials': 'true',
       'Access-Control-Allow-Headers': request.headers['access-control-request-headers'] ?? 'content-type,idempotency-key',
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
@@ -336,6 +342,18 @@ test('Stop is available and Retry remains after cancellation before first assist
   const fixtureOrigin = `http://127.0.0.1:${fixturePort}`
   let sessionId: string | undefined
   try {
+    const deniedPreflight = await page.request.fetch(`${fixtureOrigin}/__complete`, {
+      method: 'OPTIONS', headers: { Origin: 'https://untrusted.example' },
+    })
+    expect(deniedPreflight.status()).toBe(403)
+    expect(deniedPreflight.headers()['access-control-allow-origin']).toBeUndefined()
+    expect(deniedPreflight.headers()['access-control-allow-credentials']).toBeUndefined()
+    const allowedPreflight = await page.request.fetch(`${fixtureOrigin}/__complete`, {
+      method: 'OPTIONS', headers: { Origin: allowedOrigin },
+    })
+    expect(allowedPreflight.status()).toBe(204)
+    expect(allowedPreflight.headers()['access-control-allow-origin']).toBe(allowedOrigin)
+    expect(allowedPreflight.headers()['access-control-allow-credentials']).toBe('true')
     const created = await page.request.post('/api/v1/sessions', { data: {} })
     expect(created.ok(), 'the normal API creates a real conversation shell for the UI').toBe(true)
     sessionId = ((await created.json()) as { id: string }).id

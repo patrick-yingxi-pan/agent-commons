@@ -56,3 +56,27 @@ test('retained rotation parsing rejects malformed rows and bounds account histor
   assert.equal(parsed[0]?.intentId, 'key-8')
   assert.deepEqual(parseRetainedProviderSecretRotationIntents('{bad'), [])
 })
+
+test('rotation retention writes only recovery coordinates when runtime input contains a secret', (t) => {
+  const values = installStorage()
+  t.after(() => { delete (globalThis as { localStorage?: unknown }).localStorage })
+  const intent = { identityKey: 'user-a:tenant-a:session', tenantId: 'tenant-a', providerId: 'provider-a', expectedRevision: 4, intentId: 'logical-rotation-a' }
+  const input = { ...intent, secret: 'synthetic-secret-must-not-persist', provider: { apiKey: 'synthetic-api-key' } }
+  retainProviderSecretRotationIntent(input)
+  assert.deepEqual(retainedProviderSecretRotationIntent(intent.identityKey), intent)
+  assert.doesNotMatch([...values.values()].join(''), /synthetic-secret|synthetic-api-key|"secret"|"apiKey"/)
+})
+
+test('rotation recovery strips unexpected stored properties before returning or rewriting them', (t) => {
+  const values = installStorage()
+  t.after(() => { delete (globalThis as { localStorage?: unknown }).localStorage })
+  const intent = { identityKey: 'user-a:tenant-a:session', tenantId: 'tenant-a', providerId: 'provider-a', expectedRevision: 4, intentId: 'logical-rotation-a' }
+  retainProviderSecretRotationIntent(intent)
+  const storageKey = [...values.keys()][0]
+  const raw = JSON.stringify([{ ...intent, retainedAt: 1, secret: 'synthetic-secret-must-not-persist' }])
+  values.set(storageKey, raw)
+  assert.deepEqual(parseRetainedProviderSecretRotationIntents(raw), [{ ...intent, retainedAt: 1 }])
+  assert.deepEqual(retainedProviderSecretRotationIntent(intent.identityKey), intent)
+  retainProviderSecretRotationIntent({ ...intent, identityKey: 'user-b:tenant-b:session', intentId: 'logical-rotation-b' })
+  assert.doesNotMatch(values.get(storageKey)!, /synthetic-secret|"secret"/)
+})

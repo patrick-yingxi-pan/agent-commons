@@ -49,3 +49,27 @@ test('retained mint parsing rejects malformed rows and bounds account history', 
   assert.equal(parsed[0]?.intentId, 'key-8')
   assert.deepEqual(parseRetainedApiTokenMintIntents('{bad'), [])
 })
+
+test('mint retention writes only recovery coordinates even when runtime input contains a bearer', (t) => {
+  const values = installStorage()
+  t.after(() => { delete (globalThis as { localStorage?: unknown }).localStorage })
+  const intent = { identityKey: 'user-a:tenant-a:session', label: 'Laptop', intentId: 'logical-key-a' }
+  const input = { ...intent, token: 'synthetic-bearer-must-not-persist', session: { secret: 'synthetic-session-secret' } }
+  retainApiTokenMintIntent(input)
+  assert.deepEqual(retainedApiTokenMintIntent(intent.identityKey), intent)
+  assert.doesNotMatch([...values.values()].join(''), /synthetic-bearer|synthetic-session|"token"|"session"/)
+})
+
+test('mint recovery strips unexpected stored properties before returning or rewriting them', (t) => {
+  const values = installStorage()
+  t.after(() => { delete (globalThis as { localStorage?: unknown }).localStorage })
+  const intent = { identityKey: 'user-a:tenant-a:session', intentId: 'logical-key-a' }
+  retainApiTokenMintIntent(intent)
+  const storageKey = [...values.keys()][0]
+  const raw = JSON.stringify([{ ...intent, retainedAt: 1, token: 'synthetic-bearer-must-not-persist' }])
+  values.set(storageKey, raw)
+  assert.deepEqual(parseRetainedApiTokenMintIntents(raw), [{ ...intent, retainedAt: 1 }])
+  assert.deepEqual(retainedApiTokenMintIntent(intent.identityKey), intent)
+  retainApiTokenMintIntent({ identityKey: 'user-b:tenant-b:session', intentId: 'logical-key-b' })
+  assert.doesNotMatch(values.get(storageKey)!, /synthetic-bearer|"token"/)
+})
