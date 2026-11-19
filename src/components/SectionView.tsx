@@ -737,6 +737,10 @@ class DelegationPanelBoundary extends Component<{ children: ReactNode }, { faile
   }
 }
 
+const TaskPartnersPage = lazy(() => import('./TaskPartnersPage'))
+const TaskWorkList = lazy(() => import('./TaskWorkPage').then(module => ({default: module.TaskWorkList})))
+const TaskWorkDetail = lazy(() => import('./TaskWorkPage').then(module => ({default: module.TaskWorkDetail})))
+
 export function SectionView({
   section,
   subview,
@@ -766,6 +770,8 @@ export function SectionView({
   focusToolId = null,
   focusContextId = null,
   focusAdminUserId = null,
+  partnerApplication = null,
+  onOpenPartnerApplication,
   focusDiscussionId = null,
   focusArtifactId = null,
   focusArtifactRevision = null,
@@ -841,6 +847,8 @@ export function SectionView({
   /** An account's detail page under the maintainer console (FWD-7 v1.1);
    *  null = the console's panels. */
   focusAdminUserId?: string | null
+  partnerApplication?: string | null
+  onOpenPartnerApplication: (id: string) => void
   /** A discussion's own page under Discussions (social S2); null = the hub. */
   focusDiscussionId?: string | null
   /** An artifact open on its standard main page (UI-19 — `/artifacts/:id`, so a
@@ -858,7 +866,12 @@ export function SectionView({
   onOpenRequest: (requestId: string) => void
 }) {
   const body =
-    section === 'projects' ? (
+    section === 'task-partners' ? (
+      <Suspense fallback={<p role="status">Loading task partners…</p>}>
+        <TaskPartnersPage subview={subview} application={partnerApplication} onOpen={onOpenPartnerApplication}
+          onSwitch={onOpenSubview} onBack={onBack} />
+      </Suspense>
+    ) : section === 'projects' ? (
       <ProjectsSection
         projectId={focusProjectId}
         projectSectionId={focusProjectSectionId}
@@ -3023,9 +3036,10 @@ function OpenWorkList({ projectId, shared, guarded }: { projectId: string; share
           Posting and reading the backlog does not claim an item or require Guardian coordination. Reservations and standing coordination are unavailable until this Project has a Guardian.
         </p>
       )}
+      <Suspense fallback={<p role="status">Loading coordinated tasks…</p>}><TaskWorkList projectId={projectId}/></Suspense>
       {items.length === 0 ? (
         <p className="text-[12px] text-ink-faint">
-          Nothing posted. Post a work item to keep it in the Project backlog.
+          No published work items on this project.
         </p>
       ) : (
         <CardList>
@@ -3343,7 +3357,7 @@ function WorkItemRow({
             native post today, carried on A2A/seeded items). Revealed, not hidden. */}
         {o.note && <p className="mt-0.5 text-[12px] leading-snug text-ink-soft">{o.note}</p>}
         <div className="text-[11px] text-ink-faint">
-          {o.type} → {o.target}
+          {o.type === 'task' ? 'Task offer · ' : `${o.type} → `}{o.target}
           {/* Provenance, not authority (D20): an A2A-posted item passed the same walls.
               A verified peer credential (D28) upgrades the stamp with its registered name. */}
           {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
@@ -3366,7 +3380,7 @@ function WorkItemRow({
                   {' '}· landed by{' '}
                   <OwnerLink bare ownerName={o.contributionResolution.by} onClick={() => rel.openOwner(o.contributionResolution!.by)} />
                 </>
-              ) : (
+              ) : o.type === 'task' ? ' · Closed' : (
                 <>
                   {' · '}{resolvedWorkKindLabel(o)} · done by <AgentActor label={o.resolvedByLabel} />
                   {o.resolvedByOwner ? (
@@ -3574,6 +3588,9 @@ function WorkItemPage({
     mention.close()
   })
 
+  if (!o && /^task-[0-9a-f]{32}$/.test(workItemId)) {
+    return <Suspense fallback={<p role="status">Loading task offer…</p>}><TaskWorkDetail key={workItemId} projectId={project.id} workId={workItemId} onBack={onBack} /></Suspense>
+  }
   if (!o) {
     return (
       <AtomicResourcePage>
@@ -3643,7 +3660,7 @@ function WorkItemPage({
                 {relativeTime(o.postedAt)}
               </span>
               <span>
-                · {o.type} → {o.target}
+                · {o.type === 'task' ? 'Task offer · ' : `${o.type} → `}{o.target}
                 {o.via === 'a2a' ? (o.verifiedPeer ? ` · via A2A · ${o.verifiedPeer} ✓` : ' · via A2A') : ''}
               </span>
               <span>
@@ -3670,6 +3687,8 @@ function WorkItemPage({
         )}
       </header>
 
+      {o.type === 'task' && <Suspense fallback={<p role="status">Loading task terms…</p>}><TaskWorkDetail key={workItemId} projectId={project.id} workId={workItemId} onBack={onBack} embedded /></Suspense>}
+
       {/* The timeline — transitions + conversation, interleaved in time order. */}
       <div className="space-y-3 border-l-2 border-line pl-4">
         {events.map((ev) =>
@@ -3680,7 +3699,7 @@ function WorkItemPage({
                   {o.postedByKind === 'agent' ? ' (agent)' : ''} · {relativeTime(o.postedAt)}
                 </div>
                 <div className="mt-1 whitespace-pre-wrap text-[13px] leading-snug text-ink">
-                  {o.note?.trim() ? o.note : <span className="text-ink-faint">No description given.</span>}
+                  {o.type === 'task' && o.note === o.subGoal ? null : o.note?.trim() ? o.note : o.type === 'task' ? null : <span className="text-ink-faint">No description given.</span>}
                 </div>
               </div>
             ) : ev.kind === 'comment' ? (
@@ -3720,7 +3739,7 @@ function WorkItemPage({
                       {' '}· landed by{' '}
                       <OwnerLink bare ownerName={o.contributionResolution.by} onClick={() => rel.openOwner(o.contributionResolution!.by)} />
                     </>
-                  ) : (
+                  ) : o.type === 'task' ? 'Task closed' : (
                     <>
                       {resolvedWorkKindLabel(o)} · done by <AgentActor label={o.resolvedByLabel} />
                       {o.resolvedByOwner ? (
@@ -3758,7 +3777,7 @@ function WorkItemPage({
         onOpenContribution={(contributionId) => rel.navigate('projects', project.id, `changes/${contributionId}`)}
       />}
 
-      <FoldSection
+      {o.type !== 'task' && <FoldSection
         title="Draft response"
         summary="Choose your Commission and an endpoint model to prepare a private first reply."
         heldOpen={projectWorkDraftOpen}
@@ -3772,7 +3791,7 @@ function WorkItemPage({
         />}
       >
         {projectWorkDraftOpen && <DeferredProjectWorkDraftPanel project={project} item={o} onOpenSession={onOpenSession} onCommentPosted={() => { setDraft(''); mention.close() }} />}
-      </FoldSection>
+      </FoldSection>}
 
       {o.type === 'mcp.mutate' && <DeferredWorkItemContributionPanel
         projectId={project.id}

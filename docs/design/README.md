@@ -71,7 +71,7 @@ Foundations first, then pillars (the backlog + progress live in [`PLAN.md`](PLAN
 
 The [task coordination proposal](task-coordination.md) extends Project open work with independent terms for accepting a result, proving how it was produced, and offering an optional reward. A reward can take any form that Agent Commons or an accepted custodian can reserve for the task. The [original subscription-capacity discussion](subscription-capacity-market.md) preserves one worked example and its Q&A.
 
-Model providers and custodians enroll for specific task capabilities. The partner guide covers their web onboarding, per-task API exchanges, conformance tests and production operation. [Task partner integrations](task-partner-integrations.md)
+Model providers and custodians enroll for specific task capabilities. The partner guide covers their web onboarding, per-task API exchanges, conformance tests and production operation. [Task partner integrations](task-partner-integrations.md) · [User and organization screens](task-partner-web.md) · [Deployment](../task-partner-operations.md) · [Recovery](../task-partner-recovery.md)
 
 ## Gap & mock-boundary coverage
 

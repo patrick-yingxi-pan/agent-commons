@@ -1,8 +1,8 @@
 # Integrating task partners
 
-**Proposed protocol.** A model provider can attest what ran. A reward holder can attest what it reserved or delivered. Agent Commons or an accepted custodian can execute the task's acceptance rule. Each attestation answers a different question. A partner accepted for more than one role must be authorized for each action it performs. Volunteer work can proceed without any partner, reward, or acceptance checker. [Task terms](task-coordination.md)
+**Partner roles.** A model provider can attest what ran. A reward holder can attest what it reserved or delivered. Agent Commons or an accepted custodian can execute the task's acceptance rule. Each attestation answers a different question. A partner accepted for more than one role must be authorized for each action it performs. Volunteer work can proceed without any partner, reward, or acceptance checker. [Task terms](task-coordination.md)
 
-This is a design for the hosted service. Today the Project API handles open work and the session relay can deliver a model reply. Neither issues the partner credentials, task-specific receipts or asset reservations described here. The production interface is specified in OpenAPI. The UI design describes what applicants, operators, requesters and contributors see. [OpenAPI contract](task-partner-api.openapi.json) · [Web flows and wireframes](task-partner-web.md) · [Existing session relay](../delegated-cognition-provider.md)
+The Project API owns each task and its terms. The partner service issues scoped credentials, assigns commands, and verifies signed receipts. A deployment needs a participating provider to attest real compute and an approved holder to reserve an external asset. The following documents describe the wire protocol, each role’s screens, and how to configure a deployment. [Operator guide](../task-partner-operations.md) · [Restore and recovery](../task-partner-recovery.md) [OpenAPI contract](task-partner-api.openapi.json) · [Web flows and wireframes](task-partner-web.md) · [Existing session relay](../delegated-cognition-provider.md)
 
 ## 1. Onboard the organization
 

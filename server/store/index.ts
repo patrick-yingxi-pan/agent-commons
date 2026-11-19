@@ -33,6 +33,10 @@ import { contributionMcpProposalOwner } from '../contributionMcpAuthority.ts'
 import { executeBoundMcpCall, type McpBoundExecutionOutcome } from '../mcpBoundExecution.ts'
 import { RoutineMcpRegistry, validateRoutineMcpRegistryJoins } from '../routineMcpRegistry.ts'
 import { CommissionMcpRegistry, commissionMcpClaimActive, emptyCommissionMcpRegistry } from '../commissionMcpRegistry.ts'
+import { PartnerRegistry, PartnerRegistryError } from '../taskPartners/registry.ts'
+import { PartnerWorkService } from '../taskPartners/taskWork.ts'
+import { deploymentAudience, verifyOfflineStatement } from '../taskPartners/deployment.ts'
+import { partnerOrigins } from '../taskPartners/publicHttp.ts'
 import { commissionMcpClaimId } from '../commissionMcpClaim.ts'
 import { CommissionMcpExecution } from '../commissionMcpExecution.ts'
 import { commissionMcpLegacyDispatchBlocked, type CommissionMcpQueueCandidate } from '../commissionMcpRunner.ts'
@@ -603,6 +607,7 @@ function publicWorkItemComment(c: StoredWorkItemComment): WorkItemComment {
  *  function below. A legacy item with no `postedByTenant` is poster-
  *  unretractable (fail-closed); its Project owner still holds the act. */
 function canRetractItem(item: StoredOpenSubGoal, viewerTenant: string): boolean {
+  if (item.type === 'task') return false // Cancellation checks entitlements and returns the original reservation.
   const isPoster = item.postedByTenant !== undefined && item.postedByTenant === viewerTenant
   return isPoster || tenantWritesAs(viewerTenant, findProject(item.projectId)?.tenantId ?? defaultTenantId())
 }
@@ -1753,7 +1758,7 @@ function retractNotifications(doomed: (n: StoredNotification) => boolean): void 
  *  Project the audience collapses to the owner alone). */
 function workItemAudience(item: StoredOpenSubGoal): Set<string> {
   const project = findProject(item.projectId)
-  const ownerTenant = project?.tenantId ?? defaultTenantId()
+  const ownerTenant = project?.tenantId ?? (item.type === 'task' ? item.postedByTenant : undefined) ?? defaultTenantId()
   if (project?.shared !== true) return new Set([ownerTenant])
   const out = new Set<string>(watches.get(watchKey(projectRef(item.projectId))) ?? [])
   out.add(ownerTenant)
@@ -2635,6 +2640,35 @@ const contextRegistry = createContextRegistry({
 const mcpConnectionRegistry = createMcpConnectionRegistry()
 const routineMcpRegistry = new RoutineMcpRegistry()
 const commissionMcpRegistry = new CommissionMcpRegistry()
+const taskPartners = new PartnerRegistry({ changed: persist, audience: deploymentAudience })
+const partnerWork: PartnerWorkService = new PartnerWorkService({
+  directory: taskPartners, changed: persist,
+  tenantLabel: tenantName,
+  onPublish: view => {
+    const nativeCount = openSubGoals.filter(item => item.projectId === view.projectId && item.status === 'open').length
+    if (nativeCount + partnerWork.publishedThreads(view.projectId).filter(item => item.status === 'open').length > MAX_OPEN_WORK_PER_PROJECT)
+      throw new PartnerRegistryError(409, 'backlog_full', 'This Project has reached its open-work limit.')
+  },
+  onBacklogChanged: (item, transition) => {
+    const allowed = [...workItemAudience(item)].filter(tenant => store.grantSubjectVisible({kind:'project',id:item.projectId},tenant))
+    if (transition === 'posted') {
+      notifyTenants(allowed, item.postedByTenant!, {
+        kind: 'work.posted', actor: item.postedBy, projectId: item.projectId,
+        projectName: findProject(item.projectId)?.name ?? '', subGoal: item.subGoal, workItemId: item.id,
+      })
+    } else if (transition === 'closed') {
+      for (const tenantId of allowed) appendNotification(tenantId, {
+        kind: item.status === 'done' ? 'work.resolved' : 'work.retracted', actor: 'Agent Commons',
+        projectId: item.projectId, projectName: findProject(item.projectId)?.name ?? '',
+        subGoal: item.subGoal, workItemId: item.id,
+      })
+    }
+    emit({ type: 'openwork.changed', projectId: item.projectId })
+  },
+  get audience() { return deploymentAudience('production') },
+  canAccessProject: (actor, projectId): boolean => store.grantSubjectVisible({ kind: 'project', id: projectId }, actor.tenantId),
+  verifyRecovery: verifyOfflineStatement,
+})
 const commissionMcpHost = new CommissionMcpHost({
   registry: commissionMcpRegistry, source: commissionMcpLiveSource, now: () => Date.now(),
   allowLocalPrograms: () => mcpRuntimeCapabilities().localProcesses === true,
@@ -3469,6 +3503,8 @@ function snapshot(): PersistedState {
     mcpInputFlows: structuredClone([...mcpInputFlows.values()]),
     routineMcp: routineMcpRegistry.snapshot(),
     commissionMcp: commissionMcpRegistry.snapshot(),
+    taskPartners: taskPartners.snapshot(),
+    partnerWork: partnerWork.snapshot(),
     usageMeters: usageRegistry.snapshot(),
     usageReservations: usageRegistry.snapshotReservations(),
     // The Agent Commons registries (D6/D9/D10/D7) — provider configs ride alongside
@@ -3585,6 +3621,8 @@ function cleanFirstBootState(): PersistedState {
   clean.mcpConnections = { connections: [], retired: [] }
   clean.routineMcp = { policies: [], runs: [], decisions: [] }
   clean.commissionMcp = emptyCommissionMcpRegistry()
+  delete clean.taskPartners
+  delete clean.partnerWork
   clean.usageMeters = []
   clean.usageReservations = []
   clean.providers = [[DEFAULT_PROVIDER.id, DEFAULT_PROVIDER]]
@@ -4191,6 +4229,8 @@ function rehydrate(s: PersistedState): boolean {
   openSubGoals.splice(0, openSubGoals.length, ...(s.openSubGoals ?? []).map(stripStoredCommissionResolution))
   openSubGoalSeq = s.seq.openSubGoal ?? openSubGoals.length
   commissionMcpRegistry.replace(s.commissionMcp ?? emptyCommissionMcpRegistry())
+  taskPartners.restore(s.taskPartners)
+  partnerWork.restore(s.partnerWork)
   if (!validateCommissionMcpRegistryJoins(commissionMcpRegistry.snapshot(), {
     commissions: [...COMMISSIONS.values()], agents: [...WORKER_AGENTS.values()], work: openSubGoals,
     connections: mcpConnectionRegistry.snapshot(), defaultTenantId: defaultTenantId(),
@@ -4723,6 +4763,10 @@ function commitSessionContextState(
 }
 
 export const store = {
+  taskPartners,
+  partnerWork,
+  partnerOrigins,
+  commitPartnerChange: commitMutationBatch,
   epoch: EPOCH,
 
   // ── Native-runner registry + effect journal ──
@@ -9066,7 +9110,8 @@ export const store = {
           own: owner === tenantId,
           guarded: !!p.guardianId,
           contributorCount: this.activeCommissionCount(p.id),
-          openWorkCount: openSubGoals.filter((o) => o.projectId === p.id && o.status === 'open').length,
+          openWorkCount: openSubGoals.filter((o) => o.projectId === p.id && o.status === 'open').length +
+            partnerWork.publishedThreads(p.id).filter(item => item.status === 'open').length,
           updatedAt: p.updatedAt,
         }
       })
@@ -9729,7 +9774,7 @@ export const store = {
     const owners = [...new Set([...projectDir.map((p) => p.owner), ...agentDir.map((a) => a.owner)])]
     // Open work is findable exactly where its backlog is readable: on a project the
     // caller owns, or on any shared project (the project page's own wall).
-    const openItems = openSubGoals.filter((o) => {
+    const openItems = [...openSubGoals, ...partnerWork.publishedThreads()].filter((o) => {
       const p = findProject(o.projectId)
       return o.status === 'open' && !!p && (p.shared === true || rowVisibleTo(p, tenantId))
     })
@@ -9811,7 +9856,7 @@ export const store = {
             type: 'openWork',
             id: o.id,
             title: o.subGoal,
-            subtitle: `${findProject(o.projectId)?.name ?? ''} · needs ${o.type}`,
+            subtitle: `${findProject(o.projectId)?.name ?? ''} · ${o.type === 'task' ? o.target : 'needs ' + o.type}`,
             ref: o.projectId,
           }))),
       ],
@@ -9914,7 +9959,7 @@ export const store = {
    *  Served through the `publicOpenSubGoal` redaction (the poster's raw tenant id
    *  never crosses; the display name is the public face). */
   listOpenSubGoals(projectId: string, viewerTenant?: string): OpenSubGoal[] {
-    const items = openSubGoals.filter((o) => o.projectId === projectId)
+    const items = [...openSubGoals.filter((o) => o.projectId === projectId), ...partnerWork.publishedThreads(projectId)]
     const band = (o: OpenSubGoal) => (o.status === 'open' ? 0 : 1)
     return [...items]
       .sort((a, b) => band(a) - band(b) || b.postedAt - a.postedAt)
@@ -9931,12 +9976,13 @@ export const store = {
    *  Open items first, newest within each band. */
   myWork(tenantId: string): MyWork {
     const posted: MyWorkItem[] = []
-    for (const o of openSubGoals) {
+    for (const o of [...openSubGoals, ...partnerWork.publishedThreads()]) {
       if (o.postedByTenant !== tenantId) continue
       const project = findProject(o.projectId)
       if (!project) continue
       const owner = project.tenantId ?? defaultTenantId()
-      const reads = owner === tenantId || accounts.seatIn(tenantId, owner) !== undefined
+      const reads = o.type === 'task' ? this.grantSubjectVisible({kind:'project',id:o.projectId},tenantId) :
+        owner === tenantId || accounts.seatIn(tenantId, owner) !== undefined
       if (!reads && project.shared !== true) continue
       posted.push({ ...publicOpenSubGoal(o), projectName: project.name })
     }
@@ -9993,7 +10039,8 @@ export const store = {
     // holds too many OPEN items (a hostile poster otherwise grows another
     // tenant's backlog + the snapshot without limit), and cap every free-text
     // field at the post funnel (the proposeAgentChange pattern).
-    if (openSubGoals.filter((o) => o.projectId === projectId && o.status === 'open').length >= MAX_OPEN_WORK_PER_PROJECT) {
+    if (openSubGoals.filter((o) => o.projectId === projectId && o.status === 'open').length +
+      partnerWork.publishedThreads(projectId).filter(item => item.status === 'open').length >= MAX_OPEN_WORK_PER_PROJECT) {
       return 'capped'
     }
     return commitMutationBatch(() => {
@@ -10043,6 +10090,7 @@ export const store = {
    *  accepts); a `GuardianError` (someone already holds the sub-goal) skips to the next
    *  candidate rather than failing the post. */
   dispatchOpenSubGoal(item: OpenSubGoal): boolean {
+    if (item.type === 'task') return false
     // Posting and commission configuration remain real coordination operations;
     // a release cannot convert them into synthetic completion or credit.
     if (automationRuntimeMode() !== 'fixture') return false
@@ -10101,10 +10149,11 @@ export const store = {
     viewerTenant: string,
   ): OpenSubGoal | 'invalid' | undefined {
     if (!isWorkItemCommentCreationId(id)) return 'invalid'
-    const item = openSubGoals.find((candidate) => candidate.id === itemId && candidate.projectId === projectId)
+    const item = openSubGoals.find((candidate) => candidate.id === itemId && candidate.projectId === projectId) ??
+      partnerWork.publishedThread(projectId, itemId)
     if (!item) return undefined
     if (!item.comments?.some((comment) => comment.id === id)) {
-      const collision = openSubGoals.some((candidate) => candidate.comments?.some((comment) => comment.id === id))
+      const collision = [...openSubGoals, ...partnerWork.publishedThreads()].some((candidate) => candidate.comments?.some((comment) => comment.id === id))
       return collision ? 'invalid' : undefined
     }
     return publicOpenSubGoal(item, viewerTenant)
@@ -10131,7 +10180,8 @@ export const store = {
         throw new ValidationError('That comment creation identity is not valid for this work item.')
       }
     }
-    const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId)
+    const item = openSubGoals.find((o) => o.id === itemId && o.projectId === projectId) ??
+      partnerWork.publishedThread(projectId, itemId)
     if (!item) return undefined
     const comments = (item.comments ??= [])
     if (comments.length >= MAX_WORK_ITEM_COMMENTS) return 'capped'
@@ -10150,6 +10200,7 @@ export const store = {
         at: Date.now(),
       }
       comments.push(comment)
+      if (item.type === 'task') partnerWork.appendThreadComment(projectId, itemId, comment)
       const project = findProject(projectId)
       const projectName = project?.name ?? ''
       // D29 — `@mention` fan-out, but ONLY on a shared Project: its backlog is already
@@ -10180,7 +10231,7 @@ export const store = {
           commentId: comment.id,
         })
       }
-      emit({ type: 'openwork.changed', projectId })
+      if (item.type !== 'task') emit({ type: 'openwork.changed', projectId })
       persist()
       return publicOpenSubGoal(item, tenantId)
     })

@@ -58,6 +58,7 @@ export type NavLocation =
       /** An account's detail page under the maintainer console (FWD-7 v1.1 —
        *  `/admin/users/:id`, maintainers only). Absent ≡ null. */
       adminUserId?: string | null
+      partnerApplication?: string | null
       /** A discussion's own page under the discussions section (social S2 —
        *  `/discussions/:did`; the timeline form). Absent ≡ null. */
       discussionId?: string | null
@@ -71,6 +72,7 @@ export type NavLocation =
 
 /** The display name for each cross-cutting section (its list page). */
 export const SECTION_LABELS: Record<SectionId, string> = {
+  'task-partners': 'Task partners',
   commons: 'Commons',
   projects: 'Projects',
   artifacts: 'Artifacts',
@@ -110,6 +112,7 @@ export function sameLocation(a: NavLocation, b: NavLocation): boolean {
       (a.agentRequestId ?? null) === (b.agentRequestId ?? null) &&
       (a.contextId ?? null) === (b.contextId ?? null) &&
       (a.adminUserId ?? null) === (b.adminUserId ?? null) &&
+      (a.partnerApplication ?? null) === (b.partnerApplication ?? null) &&
       (a.discussionId ?? null) === (b.discussionId ?? null) &&
       (a.artifactId ?? null) === (b.artifactId ?? null) &&
       (a.artifactRevision ?? null) === (b.artifactRevision ?? null) &&
@@ -175,6 +178,7 @@ const DETAIL_LABEL: {
   // fetched only by the console itself, so a back label would mean a
   // cross-tenant read from every page in the app. "Maintain" it is.
   adminUserId: () => undefined,
+  partnerApplication: () => undefined,
   discussionId: (id, n) => n.discussion?.[id],
   artifactId: (id, n) => n.artifact?.[id],
   artifactRevision: (id) => `Version ${id}`,

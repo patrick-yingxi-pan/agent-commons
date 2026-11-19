@@ -18,6 +18,8 @@ import { serveSessionTurn } from './sessionTurnStream.ts'
 import { updateArtifactContent } from './artifactContent.ts'
 import { registerArtifactHistoryRoutes } from './artifactHistory.ts'
 import { registerProviderUsageRoutes } from './providerUsage.ts'
+import { registerTaskPartnerRoutes } from './taskPartners.ts'
+import { isPartnerMachineRequest } from './taskPartnerWorkers.ts'
 import { parseArtifactDeletionRequest } from '../../contract/artifactDeletion.ts'
 import { MAX_ARTIFACT_VERSION_SEARCH_QUERY_CHARS, MAX_SEARCH_QUERY_CHARS, SEARCH_HIT_TYPES, parseSearchPage } from '../../contract/search.ts'
 import { MAX_CONVERSATION_SEARCH_QUERY_CHARS } from '../../contract/conversationSearch.ts'
@@ -409,7 +411,7 @@ export function buildRouter(): Router {
     if (store.identity(ctx.req.headers).via !== 'default') return true
     const path = ctx.url.pathname
     const open = (GATE_OPEN_EXACT.has(path) || GATE_OPEN_PREFIX.some((p) => path.startsWith(p))) && !underClosed(path)
-    if (open) return true
+    if (open || isPartnerMachineRequest(path, ctx.req)) return true
     sendError(ctx.res, 'unauthorized', 'Sign in to use this backend (AUTH_GATE is on).')
     return false
   })
@@ -642,14 +644,14 @@ export function buildRouter(): Router {
     if (transport === 'bearer') {
       const row = accounts.mintApiToken(userId, 'sign-in')
       store.accountsMutated()
-      const token = signSession({ userId, tenantId, iat: Date.now(), jti: row.id })
+      const token = signSession({ userId, tenantId, iat: Date.now(), jti: row.id, ...(join ? { authenticatedAt: Date.now() } : {}) })
       const identity = store.identity({ ...req.headers, cookie: undefined, authorization: `Bearer ${token}` })
       res.setHeader('x-resolved-tenant', identity.tenant.id)
       const session: BearerSession = { token, identity, tokenId: row.id }
       sendJson(res, session)
       return
     }
-    const token = signSession({ userId, tenantId, iat: Date.now() })
+    const token = signSession({ userId, tenantId, iat: Date.now(), ...(join ? { authenticatedAt: Date.now() } : {}) })
     const stack = verifyStack(parseCookies(headerValue(req.headers, 'cookie'))[STACK_COOKIE])
     const remembered = join || stack.some((e) => e.userId === userId)
     const cookies = [sessionSetCookie(token)]
@@ -1539,6 +1541,7 @@ export function buildRouter(): Router {
     sendJson(res, store.listProviders(store.identity(req.headers).tenant.id))
   })
   registerProviderUsageRoutes(r, accountTransitionSourceMatches)
+  registerTaskPartnerRoutes(r, accountTransitionSourceMatches)
   // Transient endpoint listing is a product capability, not a credential form
   // or a saved-catalog mutation. A selected model still must pass registration.
   r.post('/providers/models/discover', async ({ req, res, body }) => {
@@ -5184,7 +5187,8 @@ export function buildRouter(): Router {
               pending.op.path,
               req.headers,
               pending.op.body,
-              { idempotencyKey: logicalDecisionId },
+              { idempotencyKey: /^\/(?:task-partners\/|projects\/[^/]+\/(?:task-drafts$|work\/[^/]+\/))/.test(pending.op.path)
+                ? toolActivityDecisionId(who.tenant.id, params.id, params.activityId, 'partner-confirmation') : logicalDecisionId },
             )
             if (out.status >= 400) {
               let detail = `HTTP ${out.status}`

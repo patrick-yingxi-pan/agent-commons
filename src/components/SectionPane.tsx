@@ -193,6 +193,8 @@ export function SectionPane({
         focusRequestId={focus.agentRequestId}
         focusContextId={focus.contextId}
         focusAdminUserId={focus.adminUserId}
+        partnerApplication={focus.partnerApplication}
+        onOpenPartnerApplication={id => navigate({partnerApplication: id})}
         focusDiscussionId={focus.discussionId}
         focusArtifactId={focus.artifactId}
         focusArtifactRevision={focus.artifactRevision}

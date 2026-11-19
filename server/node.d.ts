@@ -34,6 +34,7 @@ declare module 'node:http' {
   }
   export function request(url: URL, options: RequestOptions, callback: (response: IncomingMessage) => void): ClientRequest
   export interface ServerResponse {
+    getHeader?(name: string): string | number | string[] | undefined
     writeHead(status: number, headers?: Record<string, string>): ServerResponse
     setHeader(name: string, value: string | number | string[]): void
     write(chunk: string): boolean

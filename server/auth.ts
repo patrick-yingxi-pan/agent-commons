@@ -51,6 +51,9 @@ export interface SessionClaims {
   tenantId: string
   /** Issued-at (epoch ms) — lets `verifySession` expire old tokens. */
   iat: number
+  /** Time of an actual credential challenge. Session switching and ordinary
+   * bearer creation do not establish fresh authentication for sensitive work. */
+  authenticatedAt?: number
   /** Token REGISTRY id (JWT's `jti`), stamped on bearer mints: a jti-carrying
    *  token is valid only while its registry row exists (revocation authority —
    *  server/accounts.ts; checked in identity resolution, not here, so this

@@ -11,6 +11,7 @@
  *  time; `generate.ts` and the routes reach dispatch through it without
  *  importing the router (which imports them — the binding breaks the cycle). */
 import type { IncomingMessage } from 'node:http'
+import { partnerToolContract } from './taskPartners/toolContract.ts'
 import type { RouteAccess, Router } from './http/router.ts'
 import { dispatch, type InnerResponse } from './http/dispatch.ts'
 
@@ -21,6 +22,7 @@ export interface ApiOperation {
    *  Doors prefix it for their namespace (MCP uses it bare; the model leg
    *  prefixes `api__`). */
   name: string
+  contract?: { summary: string; body?: Record<string, unknown>; bodyRequired?: boolean }
   /** The `:param` names in registration order (`*` tail → `rest`). */
   params: string[]
   /** Route-owned access classification. Product operations project into every
@@ -39,6 +41,16 @@ const snake = (s: string) => s.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`).r
 /** Deterministic tool name for a route. Uniqueness across the catalog is
  *  locked by `server/mcp-parity.test.ts`. */
 export function toolNameFor(method: string, pattern: string): string {
+  // Both MCP doors share these names. Scope and resource IDs remain explicit
+  // input parameters when omitted from a provider's length-limited tool name.
+  const partner = pattern.startsWith('/task-partners/') || pattern === '/projects/:id/task-drafts' ||
+    pattern.startsWith('/projects/:id/work/:workId/')
+  if (partner) {
+    const parts = pattern.split('/').filter(Boolean)
+    const nouns = parts.filter(part => !part.startsWith(':')).map(snake)
+    if (parts.at(-1)?.startsWith(':')) nouns.push('by_id')
+    return [method.toLowerCase(), ...nouns].join('_')
+  }
   const segs = pattern
     .split('/')
     .filter(Boolean)
@@ -52,6 +64,7 @@ export function catalogOf(router: Router): ApiOperation[] {
     method,
     pattern,
     name: toolNameFor(method, pattern),
+    ...(access.kind === 'product' && { contract: partnerToolContract(method, pattern) }),
     access,
     ...(access.kind === 'product' && access.query ? { query: access.query } : {}),
     ...(access.kind === 'product' ? { capability: access.capability ?? `${method} ${pattern}` } : {}),

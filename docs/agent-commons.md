@@ -929,6 +929,8 @@ subscription buys latency and token spend without buying authority. Server-side 
 keeps the walls where they already are; a cognition-loop taker can be layered on later as
 just another poster/claimant.
 
+**Task offers in the Project backlog.** A requester can publish versioned terms for a deliverable, an optional compute receipt and an optional reward. A volunteer request can accept feedback without an automated verdict. For a rewarded offer, an executable rule and a full reservation are publication requirements. Contributors open the ordinary Project work page to discuss the task, submit an answer and follow delivery. Partners enroll separately and vouch only for the capabilities approved for their organization. [Task coordination](design/task-coordination.md) · [User and organization workflows](design/task-partner-web.md)
+
 ### D20 — A2A is an edge dialect: the protocol translates, the walls authorize
 
 **Decision.** The platform speaks Google's **A2A (Agent2Agent) protocol** at its edge, as a

@@ -1,6 +1,8 @@
 # Task partners in the web workspace
 
-**Proposed web UI.** A partner organization registers capabilities in a **Task partners** collection. A requester or contributor uses those capabilities on the existing Project work item. The work item owns its terms, discussion and submission timeline. Its compact Project row and MCP projection read the same authorized task state. The integration API supplies the partner's evidence. [Task terms](task-coordination.md) · [Resource page templates](resource-page-templates.md) · [Partner OpenAPI contract](task-partner-api.openapi.json)
+Requesters and contributors use **Project → Work**. Organization administrators open **Task partners** to register their service and manage its approvals. Site operators review applications in a separate queue. The work item owns its terms, discussion and submission timeline. [Requester](#publishing-a-task) · [Contributor](#consent-submission-and-settlement) · [Organization administrator and site operator](#registering-a-partner) · [Website visitor](#publishing-a-badge-on-the-partners-website)
+
+The Project row and MCP tools read the same authorized task state. The integration API supplies the partner's evidence. [Task terms](task-coordination.md) · [Resource page templates](resource-page-templates.md) · [Partner OpenAPI contract](task-partner-api.openapi.json)
 
 ## Registering a partner
 

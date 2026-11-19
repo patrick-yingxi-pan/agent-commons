@@ -73,7 +73,12 @@ export function mcpToolRoutes(router: Router): ApiOperation[] {
 
 /** Artifact creation and historical restore require durable exact identities,
  * not optional replay optimization. Keep schema and protocol aligned. */
+function partnerMutation(operation: ApiOperation): boolean {
+  return operation.method === 'POST' && (operation.pattern.startsWith('/task-partners/') ||
+    operation.pattern.startsWith('/projects/:id/work/:workId/') || operation.pattern === '/projects/:id/task-drafts')
+}
 function requiresIdempotencyKey(operation: ApiOperation): boolean {
+  if (partnerMutation(operation)) return true
   return operation.method === 'POST' && (operation.pattern === '/artifacts' ||
     /^\/artifacts\/:id\/history\/:revision\/restore$/.test(operation.pattern)) ||
     operation.method === 'DELETE' && operation.pattern === '/artifacts/:id'
@@ -90,12 +95,13 @@ function toolDefinition(t: ApiOperation) {
   if (t.method !== 'GET') {
     properties.idempotencyKey = {
       type: 'string',
-      minLength: 1,
-      maxLength: IDEMPOTENCY_KEY_MAX_LENGTH,
-      description: `${requiresIdempotencyKey(t) ? 'Required logical identity' : 'Optional bounded retry identity'} for this mutation (maximum ${IDEMPOTENCY_KEY_MAX_LENGTH} characters).`,
+      minLength: partnerMutation(t) ? 16 : 1,
+      maxLength: partnerMutation(t) ? 128 : IDEMPOTENCY_KEY_MAX_LENGTH,
+      ...(partnerMutation(t) ? { pattern: '^[A-Za-z0-9_-]+$' } : {}),
+      description: `${requiresIdempotencyKey(t) ? 'Required logical identity' : 'Optional bounded retry identity'} for this mutation (maximum ${partnerMutation(t) ? 128 : IDEMPOTENCY_KEY_MAX_LENGTH} characters).`,
     }
     const example = API_BODY_EXAMPLES.get(`${t.method} ${t.pattern}`)
-    properties.body = {
+    properties.body = t.contract?.body ?? {
       type: 'object',
       description:
         'JSON request body — shapes follow the HTTP contract (contract/api.ts and siblings); a malformed body is refused, never guessed at (INV-9).',
@@ -107,12 +113,13 @@ function toolDefinition(t: ApiOperation) {
   return {
     name: t.name,
     description:
+      (t.contract ? t.contract.summary + ' ' : '') +
       `${t.method} ${API_BASE_PATH}${t.pattern} — dispatched through the website's own route table, auth wall, and tenancy checks. ` +
       `Returns {status, body} of the HTTP response.`,
     inputSchema: {
       type: 'object',
       properties,
-      required: requiresIdempotencyKey(t) ? [...t.params, 'idempotencyKey'] : t.params,
+      required: [...t.params, ...(requiresIdempotencyKey(t) ? ['idempotencyKey'] : []), ...(t.contract?.bodyRequired ? ['body'] : [])],
       additionalProperties: false,
     },
     // MCP tool annotations, derived MECHANICALLY from the operation shape (so
@@ -220,7 +227,7 @@ export const MCP_UI_COPY = {
 const SHARED_INSTRUCTIONS = [
   'Every tool is one HTTP operation of this workspace, dispatched through the same route table, auth wall, and tenancy checks as the web UI (access-parity INV-11) — the three access methods (UI, in-app session, MCP) differ in form, never in capability or policy.',
   'Tool results are the JSON {status, body} of the underlying HTTP response; the send-message tool returns the reply stream as a parsed event array.',
-  'Mutation tools accept an idempotencyKey argument separate from body; direct Artifact creation and historical body restore require it because their keys own durable identities/receipts, while other mutations leave it optional. Reuse it for one exact logical retry, not a new edit. Outer transport keys are not forwarded, and durable restart replay depends on the underlying route.',
+  'Mutation tools accept an idempotencyKey argument separate from body; task partner changes, direct Artifact creation and historical body restore require it because their keys own durable identities/receipts, while other mutations leave it optional. Reuse it for one exact logical retry, not a new edit. Outer transport keys are not forwarded, and durable restart replay depends on the underlying route.',
   "Connecting with ?toolset=core on the endpoint URL lists only the curated everyday subset (sessions, messages, projects, artifacts, schedules, search, usage) — tools/call still accepts the full catalog either way, so any operation remains callable by name.",
   'Tool annotations mark reads (readOnlyHint) and deletes (destructiveHint) mechanically; where a mutation has a curated body example it rides in the input schema (properties.body.examples) — bodies follow the HTTP contract, and a malformed one is refused, never guessed at.',
   'For live push, keep the Mcp-Session-Id this initialize returned and open GET /mcp with it (SSE): ambient workspace events arrive as notifications/message frames, and subscribed resources signal notifications/resources/updated.',
@@ -520,12 +527,15 @@ export function registerMcp(router: Router): void {
       }
       let innerKey: string | undefined
       if (requiresIdempotencyKey(tool) && !Object.hasOwn(args, 'idempotencyKey')) {
-        return sendRpc(res, rpcError(id, -32602, 'Missing required idempotencyKey for this Artifact mutation.'))
+        return sendRpc(res, rpcError(id, -32602, 'Missing required idempotencyKey for this mutation.'))
       }
       if (tool.method !== 'GET' && Object.hasOwn(args, 'idempotencyKey')) {
         const candidate = args.idempotencyKey
         if (typeof candidate !== 'string' || candidate.trim().length === 0 || candidate.length > IDEMPOTENCY_KEY_MAX_LENGTH) {
           return sendRpc(res, rpcError(id, -32602, `idempotencyKey must be a non-blank string of at most ${IDEMPOTENCY_KEY_MAX_LENGTH} characters.`))
+        }
+        if (partnerMutation(tool) && !/^[A-Za-z0-9_-]{16,128}$/.test(candidate)) {
+          return sendRpc(res, rpcError(id, -32602, 'Partner changes require a 16–128 character idempotencyKey using letters, digits, underscores or hyphens.'))
         }
         innerKey = candidate
       }
@@ -541,7 +551,7 @@ export function registerMcp(router: Router): void {
       let timer: ReturnType<typeof setTimeout> | undefined
       const outcome = await Promise.race([
         dispatch(router, tool.method, inner, req.headers, tool.method === 'GET' ? undefined : args.body, innerKey
-          ? { idempotencyKey: innerIdempotencyKey(tool.name, inner, innerKey) }
+          ? { idempotencyKey: partnerMutation(tool) ? innerKey : innerIdempotencyKey(tool.name, inner, innerKey) }
           : undefined),
         new Promise<'timeout'>((resolveTimeout) => {
           timer = setTimeout(() => resolveTimeout('timeout'), ms)

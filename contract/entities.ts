@@ -18,6 +18,7 @@ export type Capability = 'chat' | 'workspace' | 'repo'
 /** An account-resource root in the rail. Each opens as an equal main-workspace
  *  pane beside conversations and other resources. */
 export type SectionId =
+  | 'task-partners'
   | 'commons'
   | 'projects'
   | 'artifacts'

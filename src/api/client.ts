@@ -17,16 +17,19 @@ export const API_BASE: string =
 export class ApiRequestError extends Error {
   readonly code: ApiError['error']['code']
   readonly status: number
+  readonly reason?: string
 
   constructor(
     code: ApiError['error']['code'],
     message: string,
     status: number,
+    reason?: string,
   ) {
     super(message)
     this.name = 'ApiRequestError'
     this.code = code
     this.status = status
+    this.reason = reason
   }
 }
 
@@ -104,7 +107,8 @@ async function request<T>(method: string, path: string, body?: unknown, options:
   const json = text ? JSON.parse(text) : undefined
   if (!res.ok) {
     const e = (json as ApiError | undefined)?.error
-    throw new ApiRequestError(e?.code ?? 'internal', e?.message ?? res.statusText, res.status)
+    const detail = e as {reason?:unknown} | undefined
+    throw new ApiRequestError(e?.code ?? 'internal', e?.message ?? res.statusText, res.status, typeof detail?.reason === 'string' ? detail.reason : undefined)
   }
   return json as T
 }

@@ -16,6 +16,11 @@ export const SECTION_META: Record<
     availability?: 'instance-admin'
   }
 > = {
+  'task-partners': {
+    label: 'Task partners',
+    subtitle: 'Find a verified partner or register your organization.',
+    Icon: Briefcase,
+  },
   commons: {
     label: 'Commons',
     subtitle: 'What your world shares — published resources, their threads, and what just landed.',
@@ -120,6 +125,7 @@ export const SECTION_ORDER: SectionId[] = [
   'sessions',
   'commons',
   'projects',
+  'task-partners',
   'artifacts',
   'contexts',
   'models',

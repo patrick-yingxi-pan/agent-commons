@@ -23,6 +23,7 @@ export interface CompositeFeatureSpec {
 
 /** Complete over SectionId so a new rail root cannot silently skip the audit. */
 export const COMPOSITE_FEATURES: Record<SectionId, CompositeFeatureSpec> = {
+  'task-partners': {},
   commons: {},
   projects: { primaryAction: 'New project', search: 'Search projects', fold: true },
   artifacts: { primaryAction: 'New artifact', search: 'Search artifacts', fold: true },

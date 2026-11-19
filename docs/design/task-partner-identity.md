@@ -1,6 +1,6 @@
 # Recognizing a task partner
 
-Two providers called **Orchard Services** can both be legitimate. A requester looking for the provider at `orchard.example` should be able to find it by that address. A saved task should keep using the same provider even if a second organization adopts its name. The proposed identity system gives people a verified website to recognize, binds permissions to a permanent partner ID, and gives visitors a first-party page where they can check a website badge. [Integration guide](task-partner-integrations.md) · [Web flows](task-partner-web.md) · [OpenAPI contract](task-partner-api.openapi.json)
+Two providers called **Orchard Services** can both be legitimate. A requester looking for the provider at `orchard.example` should be able to find it by that address. A saved task should keep using the same provider even if a second organization adopts its name. The partner registry gives people a verified website to recognize, binds permissions to a permanent partner ID, and gives visitors a first-party page where they can check a website badge. [Integration guide](task-partner-integrations.md) · [Web flows](task-partner-web.md) · [OpenAPI contract](task-partner-api.openapi.json)
 
 ## Establish the public identity
 

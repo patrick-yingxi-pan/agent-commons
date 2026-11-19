@@ -92,7 +92,7 @@ export function deriveApiTools(catalog: ApiOperation[]): DerivedApiTools {
     }
     if (op.method !== 'GET') {
       const example = API_BODY_EXAMPLES.get(`${op.method} ${op.pattern}`)
-      properties.body = {
+      properties.body = op.contract?.body ?? {
         type: 'object',
         description: 'JSON request body — shapes follow the HTTP contract.',
         // The shared curated example (apiSurface.ts) — same payload the MCP
@@ -106,8 +106,8 @@ export function deriveApiTools(catalog: ApiOperation[]): DerivedApiTools {
         : `${op.method} ${API_BASE_PATH}${op.pattern} — PROPOSES this ${familyFor(op)} to the user; nothing changes until they confirm. Prefer the purpose-built tools when one covers the request.`
     definitions.push({
       name,
-      description,
-      input_schema: { type: 'object', properties, required: op.params },
+      description: op.contract ? op.contract.summary + ' ' + description : description,
+      input_schema: { type: 'object', properties, required: op.contract?.bodyRequired ? [...op.params, 'body'] : op.params },
     })
     byName.set(name, op)
   }
