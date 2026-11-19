@@ -59,50 +59,106 @@ test('surface readiness requires visible content in the focused pane, never a lo
   assert.match(frame, /if \(layout === 'workspace'\)[\s\S]*?data-resource-page/)
 })
 
-test('canonical navigation cannot release checks or coverage before bounded surface readiness', async () => {
-  const start = SWEEP.indexOf('async function goTo(')
-  const end = SWEEP.indexOf('\n/** The sharing editor', start)
-  assert.ok(start >= 0 && end > start)
-  const body = SWEEP.slice(start, end)
-  assert.match(body, /await page\.waitForFunction\(surfaceReady, null, \{ timeout: 8000 \}\)/)
-  assert.match(body, /await page\.waitForFunction\(deferredSurfaceReady, null, \{ timeout: Math\.max\(1, readyDeadline - Date\.now\(\)\) \}\)/)
-  assert.doesNotMatch(body, /await tick\(/, 'elapsed time cannot substitute for rendered content')
-  let release!: () => void
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  let entered!: () => void
-  const entering = new Promise<void>(resolve => { entered = resolve })
+type NavigationStage = 'document commit' | 'focused resource page' | 'deferred controls'
+const navigationStages: NavigationStage[] = ['document commit', 'focused resource page', 'deferred controls']
+const navigationBudget = 60_000
+const navigationPath = '/projects'
+const navigationCell = '320x700/projects'
+
+// Run the real navigation flow against Playwright-shaped waits and a monotonic
+// clock. A wait that takes longer than the supplied timeout rejects immediately.
+async function navigateWithClock(elapsed: (stage: NavigationStage) => number | Promise<number>) {
+  const source = SWEEP.match(/async function goTo\([^)]*\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(source)
   let now = 1000
-  const failures: string[] = []
-  const readiness = () => true
+  const failures: { cell: string; reason: string }[] = []
+  const calls: { stage: NavigationStage; timeout: number | undefined }[] = []
+  const focused = () => true
   const deferred = () => true
-  const gates: unknown[] = []
-  const goTo = vm.runInNewContext(`(${body})`, {
-    BASE: 'http://127.0.0.1:5193', surfaceReady: readiness, deferredSurfaceReady: deferred,
-    Date: { now: () => now },
-    unreachable: (_cell: string, why: string) => failures.push(why),
+  const goTo = vm.runInNewContext('(' + source + ')', {
+    BASE: 'http://127.0.0.1:5193', SWEEP_NAVIGATION_TIMEOUT: navigationBudget,
+    surfaceReady: focused, deferredSurfaceReady: deferred,
+    performance: { now: () => now }, Date: { now: () => 0 },
+    unreachable: (cell: string, reason: string) => failures.push({ cell, reason }),
     firstLine: (error: Error) => error.message,
   })
-  let finished = false
-  const pending = goTo({
-    goto: async () => {},
-    waitForFunction: async (predicate: unknown, argument: unknown, options: { timeout: number }) => {
-      gates.push(predicate)
-      assert.equal(argument, null)
-      assert.equal(options.timeout, predicate === readiness ? 8000 : 6000, 'nested readiness uses the remaining navigation budget')
-      if (predicate === readiness) now += 2000
-      if (predicate === deferred) { entered(); await gate }
+  async function wait(stage: NavigationStage, timeout?: number) {
+    calls.push({ stage, timeout })
+    const duration = await elapsed(stage)
+    if (timeout !== undefined && timeout > 0 && duration > timeout) {
+      now += timeout
+      throw new Error('Playwright timed out after ' + timeout + 'ms')
+    }
+    now += duration
+  }
+  let commit: { url: string; waitUntil?: string } | undefined
+  const ready = await goTo({
+    goto: (url: string, options?: { waitUntil: string; timeout: number }) => {
+      commit = { url, waitUntil: options?.waitUntil }
+      return wait('document commit', options?.timeout)
     },
-  }, '/projects', '320x700/projects').then((result: boolean) => { finished = true; return result })
-  await entering
-  assert.equal(finished, false, 'callers cannot audit, capture or mark coverage while readiness is pending')
-  assert.deepEqual(gates, [readiness, deferred], 'nested controls must settle before any caller measures the page')
-  release()
-  assert.equal(await pending, true)
-  const rejected = await goTo({ goto: async () => {}, waitForFunction: async () => { throw new Error('still loading') } },
-    '/projects', '320x700/projects')
-  assert.equal(rejected, false, 'readiness failure does not enter the cell checks')
-  assert.equal(failures.length, 1)
-  assert.match(failures[0], /8s/)
+    waitForFunction: (predicate: unknown, argument: unknown, options: { timeout: number }) => {
+      assert.equal(argument, null)
+      assert.ok(predicate === focused || predicate === deferred)
+      return wait(predicate === focused ? 'focused resource page' : 'deferred controls', options.timeout)
+    },
+  }, navigationPath, navigationCell)
+  return { ready, commit, calls, failures }
+}
+
+test('canonical navigation shares the calibrated budget from commit through deferred readiness', async () => {
+  let release!: () => void
+  let reached!: () => void
+  const held = new Promise<void>(resolve => { release = resolve })
+  const waiting = new Promise<void>(resolve => { reached = resolve })
+  const navigation = navigateWithClock(async stage => {
+    if (stage === 'document commit') return 6000
+    if (stage === 'focused resource page') return 12_000
+    reached()
+    await held
+    return 500
+  })
+  try {
+    assert.equal(await Promise.race([waiting.then(() => 'waiting'), navigation.then(() => 'finished')]), 'waiting',
+      'a healthy surface that needs 12 seconds must reach deferred readiness')
+    const finishedEarly = await Promise.race([navigation.then(() => true), new Promise(resolve => setImmediate(() => resolve(false)))])
+    assert.equal(finishedEarly, false, 'callers cannot audit, capture or mark a cell while its controls are still loading')
+  } finally { release() }
+  const { ready, commit, calls, failures } = await navigation
+  assert.equal(ready, true)
+  assert.deepEqual(failures, [])
+  assert.deepEqual(commit, { url: 'http://127.0.0.1:5193/projects', waitUntil: 'commit' })
+  assert.deepEqual(calls, [
+    { stage: 'document commit', timeout: navigationBudget },
+    { stage: 'focused resource page', timeout: navigationBudget - 6000 },
+    { stage: 'deferred controls', timeout: navigationBudget - 18_000 },
+  ])
+  assert.match(SWEEP, /const SWEEP_NAVIGATION_TIMEOUT = budget\(30_000, resolvedFactor\(\), 1\)/,
+    'canonical navigation uses the measured host factor for one sweep stack')
+})
+
+test('canonical navigation reports the failing stage and cause and stops at an exhausted deadline', async () => {
+  for (const [index, stage] of navigationStages.entries()) {
+    const { ready, failures, calls } = await navigateWithClock(current => {
+      if (current === stage) throw new Error('injected browser failure')
+      return 200
+    })
+    assert.equal(ready, false)
+    assert.deepEqual(calls.map(call => call.stage), navigationStages.slice(0, index + 1))
+    assert.deepEqual(failures.map(failure => failure.cell), [navigationCell])
+    for (const detail of [navigationPath, stage, 'injected browser failure']) {
+      assert.ok(failures[0].reason.includes(detail), failures[0].reason)
+    }
+  }
+  for (const [index, stage] of navigationStages.slice(0, 2).entries()) {
+    const { ready, failures, calls } = await navigateWithClock(current => current === stage ? navigationBudget : 0)
+    assert.equal(ready, false, 'a stage that consumed the deadline leaves no time to establish readiness')
+    assert.deepEqual(calls.map(call => call.stage), navigationStages.slice(0, index + 1),
+      'an exhausted budget must not start another Playwright wait, where timeout 0 means unlimited')
+    assert.deepEqual(failures.map(failure => failure.cell), [navigationCell])
+    assert.ok(failures[0].reason.includes(navigationPath), failures[0].reason)
+    assert.ok(failures[0].reason.includes(navigationStages[index + 1]), failures[0].reason)
+  }
 })
 
 test('conversation paint rejects fading, moving, disconnected and changed rows across two frames', async () => {

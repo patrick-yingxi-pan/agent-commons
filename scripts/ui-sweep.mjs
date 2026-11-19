@@ -69,6 +69,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { fileURLToPath } from 'node:url'
 import { sep } from 'node:path'
+import { budget, resolvedFactor } from './hostSpeed.mjs'
 import { CELLS, SECTIONS, createLedger } from './ui-sweep-ledger.mjs'
 
 // fileURLToPath, not URL.pathname — the latter yields "/C:/…" on Windows, which
@@ -92,6 +93,7 @@ const BASE = EXTERNAL ?? `http://127.0.0.1:${PORT}`
 const STORE = `.data${sep}ui-sweep-store.json`
 
 const MARGIN = 7 // POPOVER_MARGIN − 1px rounding allowance
+const SWEEP_NAVIGATION_TIMEOUT = budget(30_000, resolvedFactor(), 1)
 
 const VIEWPORTS = [
   { name: '320x700', width: 320, height: 700, narrow: true },
@@ -497,20 +499,23 @@ function repoPanelsReady(sessionId) {
  *  Returns false (and records the cell unreachable) if the address renders no
  *  workspace — a blank page must not be swept and reported clean. */
 async function goTo(page, path, cell) {
-  try {
-    await page.goto(`${BASE}${path}`)
-  } catch (e) {
-    unreachable(cell, `${path} failed to load: ${firstLine(e)}`)
-    return false
+  // A deep link boots a fresh document. Give the whole navigation one bounded
+  // interval, including the lazy section import and any deferred controls.
+  const deadline = performance.now() + SWEEP_NAVIGATION_TIMEOUT
+  let stage = 'document commit'
+  const remaining = () => {
+    const ms = Math.ceil(deadline - performance.now())
+    if (ms <= 0) throw new Error('navigation deadline expired')
+    return ms
   }
-  // Main chrome exists during lazy loading. Require its real body before any
-  // caller measures, captures or marks this cell covered, within the same budget.
   try {
-    const readyDeadline = Date.now() + 8000
-    await page.waitForFunction(surfaceReady, null, { timeout: 8000 })
-    await page.waitForFunction(deferredSurfaceReady, null, { timeout: Math.max(1, readyDeadline - Date.now()) })
-  } catch {
-    unreachable(cell, `${path} exposed no ready focused resource page in 8s — the workspace was absent, hidden, loading or unavailable`)
+    await page.goto(`${BASE}${path}`, { waitUntil: 'commit', timeout: remaining() })
+    stage = 'focused resource page'
+    await page.waitForFunction(surfaceReady, null, { timeout: remaining() })
+    stage = 'deferred controls'
+    await page.waitForFunction(deferredSurfaceReady, null, { timeout: remaining() })
+  } catch (error) {
+    unreachable(cell, `${path} failed at ${stage} (navigation budget ${SWEEP_NAVIGATION_TIMEOUT}ms): ${firstLine(error)}`)
     return false
   }
   return true
