@@ -23,6 +23,15 @@ const at = Date.parse('2026-11-19T09:00:00Z')
 const iso = (date) => new Date(date).toISOString()
 const version = (t) => ({ taskId: t.taskId, termsDigest: t.termsDigest, termsVersion: t.termsVersion })
 const updated = (t) => ({ termsDigest: t.termsDigest, termsVersion: t.termsVersion })
+
+test('rehydrating a workspace without a partner slice replaces all prior task records', () => {
+  const { service } = fixture()
+  const empty = service.snapshot()
+  service.createDraft(alice, project, { description: 'Draft in the previous workspace' })
+  assert.equal(service.list(alice, project).length, 1)
+  service.restore(undefined)
+  assert.deepEqual(service.snapshot(), empty)
+})
 const jws = (typ, claims, keys) => {
   const payload = [{ alg: 'Ed25519', typ, kid: 'k1' }, claims]
     .map((x) => Buffer.from(JSON.stringify(x)).toString('base64url'))

@@ -7,7 +7,6 @@ export const SECTION_META: Record<
   SectionId,
   {
     label: string
-    subtitle: string
     Icon: typeof Box
     beta?: boolean
     /** A chrome gate, never an authorization wall. The server remains the
@@ -18,47 +17,38 @@ export const SECTION_META: Record<
 > = {
   'task-partners': {
     label: 'Task partners',
-    subtitle: 'Find a verified partner or register your organization.',
     Icon: Briefcase,
   },
   commons: {
     label: 'Commons',
-    subtitle: 'What your world shares — published resources, their threads, and what just landed.',
     Icon: Newspaper,
   },
   projects: {
     label: 'Projects',
-    subtitle: 'Group related work and the context it shares.',
     Icon: Box,
   },
   artifacts: {
     label: 'Artifacts',
-    subtitle: 'Every document, deck, sheet, and image you’ve made.',
     Icon: Shapes,
   },
   contexts: {
     label: 'Contexts',
-    subtitle: 'Accounts, servers, and repos you’ve set up once and reuse across sessions.',
     Icon: Cable,
   },
   models: {
     label: 'Models',
-    subtitle: 'The models your sessions run on — built-in Claude, endpoints you register, and your own delegated sessions.',
     Icon: Cpu,
   },
   agents: {
     label: 'Agents',
-    subtitle: 'Worker agents, the prompts they start from, and where they’re commissioned.',
     Icon: Bot,
   },
   scheduled: {
     label: 'Routines',
-    subtitle: 'Recurring workflows Claude runs for you on a cadence.',
     Icon: Clock,
   },
   discussions: {
     label: 'Discussions',
-    subtitle: 'Threads on the resources you share and follow.',
     Icon: MessagesSquare,
   },
   // S7 — the DM inbox. A message IS a discussion anchored to a person, so this
@@ -67,7 +57,6 @@ export const SECTION_META: Record<
   // and the server lists each row in exactly one of them.
   messages: {
     label: 'Messages',
-    subtitle: 'Direct conversations with the people you can reach.',
     Icon: Mail,
   },
   // The inbox (D24). A PAGE, not the overlay it began as (owner directive
@@ -77,23 +66,19 @@ export const SECTION_META: Record<
   // is what makes "answer a bell, come back for the next one" work at all.
   notifications: {
     label: 'Notifications',
-    subtitle: 'What happened to what you own, watch, or posted — while you weren’t looking.',
     Icon: Bell,
   },
   sessions: {
     label: 'Sessions',
-    subtitle: 'Your conversations with Claude, ready to resume or organize.',
     Icon: MessageSquareText,
   },
   dispatch: {
     label: 'Dispatch',
-    subtitle: 'One-off task history and execution availability.',
     Icon: SendHorizontal,
     beta: true,
   },
   customize: {
     label: 'Customize',
-    subtitle: 'Make the workspace yours.',
     Icon: Briefcase,
   },
   // The maintainer console — rail row rendered ONLY for principals whose
@@ -101,7 +86,6 @@ export const SECTION_META: Record<
   // server's 404 wall is the gate, this visibility is chrome.
   admin: {
     label: 'Maintain',
-    subtitle: 'Instance administration for website maintainers.',
     Icon: Wrench,
     availability: 'instance-admin',
   },

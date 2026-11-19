@@ -1,3 +1,5 @@
+import { CheckboxRow } from './Checkbox'
+import { partnerCollisionLabel } from '../../contract/taskPartners'
 import { PartnerObligations } from './PartnerOperations'
 import { useState } from 'react'
 import type {
@@ -52,14 +54,14 @@ function DomainProof({ app, purpose }: { app: PartnerApplication; purpose: Partn
   return (
     <fieldset className="space-y-2 border-l border-line pl-3">
       <legend className="px-1 font-medium">{label}</legend>
-      <p className="break-all text-sm">{purpose === 'website' ? app.organizationUrl : app.handoffUrl}</p>
+      <p className="break-all text-[13px]">{purpose === 'website' ? app.organizationUrl : app.handoffUrl}</p>
       {challenge && <PartnerQueryStatus query={result} retry={refreshPartnerRegistry} />}
       {current && (
         <>
-          <p className="text-sm">Domain proof · {current.state}</p>
+          <p className="text-[13px]">Domain proof · {current.state}</p>
           {current.state === 'pending' && (
             <>
-              <p className="text-sm">
+              <p className="text-[13px]">
                 Publish this TXT record in your DNS, then check again. Expires{' '}
                 {new Date(current.expiresAt).toLocaleString()}.
               </p>
@@ -73,7 +75,7 @@ function DomainProof({ app, purpose }: { app: PartnerApplication; purpose: Partn
         <div className="flex flex-wrap gap-2">
           {current?.state === 'pending' && (
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={action.pending}
               onClick={() =>
                 void action.run(
@@ -93,7 +95,7 @@ function DomainProof({ app, purpose }: { app: PartnerApplication; purpose: Partn
           )}
           {(!current || current.state !== 'pending') && (
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={action.pending || (!!challenge && !current)}
               onClick={() =>
                 void action.run(['domain', purpose, app.revision], (key) =>
@@ -132,11 +134,11 @@ function DomainProof({ app, purpose }: { app: PartnerApplication; purpose: Partn
               value={replacement}
               onChange={(e) => setReplacement(e.target.value)}
             />
-            <p className="text-sm text-ink-faint">
+            <p className="text-[13px] text-ink-faint">
               A verified change requires fresh authorization for new work.
             </p>
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={action.pending}
             >
               Request replacement proof
@@ -157,7 +159,7 @@ function SigningKeys({ app }: { app: PartnerApplication }) {
   return (
     <PartnerGroup title="Service signing keys">
       {app.keys.map((k) => (
-        <div key={k.kid} className="break-all text-sm">
+        <div key={k.kid} className="break-all text-[13px]">
           <strong>{k.kid}</strong> · {k.state}
           <p className="font-mono">{k.thumbprint}</p>
         </div>
@@ -177,7 +179,7 @@ function SigningKeys({ app }: { app: PartnerApplication }) {
             )
           }}
         >
-          <p className="text-sm">
+          <p className="text-[13px]">
             Sign this challenge on your server with the matching private key. It expires{' '}
             {new Date(app.challenge.expiresAt).toLocaleString()}.
           </p>
@@ -191,7 +193,7 @@ function SigningKeys({ app }: { app: PartnerApplication }) {
             spellCheck={false}
           />
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             disabled={action.pending}
           >
             Verify signing key
@@ -225,7 +227,7 @@ function SigningKeys({ app }: { app: PartnerApplication }) {
               required
             />
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={action.pending}
             >
               Register and request proof
@@ -263,7 +265,7 @@ function SigningKeys({ app }: { app: PartnerApplication }) {
               maxLength={300}
             />
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={action.pending || !revoke}
             >
               Revoke selected key
@@ -290,10 +292,10 @@ function Decision({ app }: { app: PartnerApplication }) {
   const action = usePartnerAction()
   return (
     <PartnerGroup title="Production review">
-      <p className="text-sm">
+      <p className="text-[13px]">
         Requested capabilities · {app.requestedCapabilities.map((c) => roleNames[c]).join(', ')}
       </p>
-      <p className="text-sm">
+      <p className="text-[13px]">
         Operational contact · {app.contact}
         <br />
         Recovery contact · {app.recoveryContact}
@@ -331,14 +333,13 @@ function Decision({ app }: { app: PartnerApplication }) {
             <fieldset>
               <legend>Capabilities to approve</legend>
               {app.requestedCapabilities.map((c) => (
-                <label key={c} className="flex gap-2">
-                  <input
-                    type="checkbox"
-                    checked={scope.includes(c)}
-                    onChange={(e) => setScope(e.target.checked ? [...scope, c] : scope.filter((r) => r !== c))}
-                  />
+                <CheckboxRow
+                  key={c}
+                  checked={scope.includes(c)}
+                  onToggle={() => setScope(scope.includes(c) ? scope.filter((r) => r !== c) : [...scope, c])}
+                >
                   {roleNames[c]}
-                </label>
+                </CheckboxRow>
               ))}
             </fieldset>
           )}
@@ -386,6 +387,7 @@ function Badge({
         ) : (
           <BadgeMarkup
             displayName={partner.displayName}
+            collision={partnerCollisionLabel(partner.identity.collisionSignals)}
             host={partner.identity.domainAscii}
             roles={partner.capabilities}
             profile={new URL(partner.identity.profilePath, webOrigin).href}
@@ -405,12 +407,14 @@ function Badge({
 }
 function BadgeMarkup({
   displayName,
+  collision,
   host,
   roles,
   profile,
   frame,
 }: {
   displayName: string
+  collision: string
   host: string
   roles: PartnerCapability[]
   profile: string
@@ -421,12 +425,12 @@ function BadgeMarkup({
   const html =
     '<iframe src="' +
     escapeAttribute(frame) +
-    '" title="Agent Commons partner" referrerpolicy="no-referrer" width="290" height="100"></iframe>\n<a href="' +
+    '" title="Agent Commons partner" referrerpolicy="no-referrer" width="290" height="150"></iframe>\n<a href="' +
     escapeAttribute(profile) +
     '" rel="noopener noreferrer">View partner on Agent Commons</a>'
   return (
     <>
-      <p className="text-sm">
+      <p className="text-[13px]">
         Eligible website ·{' '}
         <bdi className="break-all font-mono" dir="ltr">
           {host}
@@ -444,6 +448,7 @@ function BadgeMarkup({
         <br />
         <bdi dir="ltr">{host}</bdi>
         <br />
+        {collision && <>{collision}<br /></>}
         {roles.map((c) => roleNames[c]).join(' · ')} · View profile
       </a>
       <CopyPartnerValue label="Embed code" value={html} />
@@ -468,7 +473,7 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
         subtitle={environmentName(env) + ' · ' + applicationStates[app.state]}
       />
       <p className="break-all font-mono">{new URL(app.organizationUrl).hostname}</p>
-      <p className="text-sm text-ink-faint">
+      <p className="text-[13px] text-ink-faint">
         {app.organization} · {app.requestedCapabilities.map((c) => roleNames[c]).join(' · ')}
       </p>
       {app.viewer?.canManage && (
@@ -495,7 +500,7 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
               defaultValue={app.displayName}
             />
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={action.pending}
             >
               Save display name
@@ -503,8 +508,8 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
           </form>
         </details>
       )}
-      <p className="text-xs text-ink-faint">Partner ID · {app.partnerId}</p>
-      {app.decisionReason && <p className="text-sm">Latest decision · {app.decisionReason}</p>}
+      <p className="text-[12px] text-ink-faint">Partner ID · {app.partnerId}</p>
+      {app.decisionReason && <p className="text-[13px]">Latest decision · {app.decisionReason}</p>}
       <PartnerGroup title="Verify domain ownership">
         <DomainProof app={app} purpose="website" />
         <DomainProof app={app} purpose="handoff" />
@@ -520,7 +525,7 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
                 <CopyPartnerValue label="Report ID" value={report.data.reportId} />
                 <ul>
                   {report.data.checks.map((c) => (
-                    <li key={c.name} className="py-1 text-sm">
+                    <li key={c.name} className="py-1 text-[13px]">
                       {c.name} · {c.status}
                       {c.detail && <p>{c.detail}</p>}
                     </li>
@@ -532,7 +537,7 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
         )}
         {env === 'sandbox' && app.viewer?.canManage && (
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             disabled={
               action.pending ||
               app.state !== 'sandbox_testing' ||
@@ -552,7 +557,7 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
           </button>
         )}
         <button
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={refreshPartnerRegistry}
         >
           Refresh status
@@ -578,7 +583,7 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
         <PartnerQueryStatus query={audit} retry={refreshPartnerRegistry} />
         <ol>
           {audit.data?.items.map((v) => (
-            <li key={v.eventId} className="py-1 text-sm">
+            <li key={v.eventId} className="py-1 text-[13px]">
               <time dateTime={v.recordedAt}>{new Date(v.recordedAt).toLocaleString()}</time> ·{' '}
               {v.action.replaceAll('_', ' ')}
               {v.reason && <p>{v.reason}</p>}

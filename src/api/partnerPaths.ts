@@ -1,5 +1,6 @@
 /** Loaded with the partner screens and enumerated alongside the main routes by access parity. */
 export const partnerPaths = {
+  partnerContinue: (id: string) => '/auth/task-partner-handoffs/' + encodeURIComponent(id),
   partnerRevision: (project: string, work: string) =>
     `/projects/${encodeURIComponent(project)}/work/${encodeURIComponent(work)}/revisions`,
   partnerRename: (env: string, id: string) =>

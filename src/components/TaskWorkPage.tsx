@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
+import { partnerCollisionLabel } from '../../contract/taskPartners'
 import type { PartnerTaskView } from '../../contract/taskPartnerWork'
 import {
   useMe,
@@ -34,7 +35,8 @@ import {
 import TaskTermsEditor from './TaskTermsEditor'
 import { SECONDARY_BUTTON_CLASS, PAGE_ACTION_BUTTON_CLASS } from '../lib/button'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
-import type { HandoffStart } from '../api/taskPartners'
+import { apiNavigationHref } from '../api/client'
+import { partnerPaths as paths } from '../api/partnerPaths'
 
 export function TaskWorkList({ projectId }: { projectId: string }) {
   const [cursors, setCursors] = useState<string[]>([])
@@ -49,7 +51,7 @@ export function TaskWorkList({ projectId }: { projectId: string }) {
         <h3 className="font-medium">Your task drafts</h3>
         {!editing && (
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             onClick={() => setEditing(true)}
           >
             Create task offer
@@ -77,7 +79,7 @@ export function TaskWorkList({ projectId }: { projectId: string }) {
       {drafts?.map((t) => (
         <button
           key={t.taskId}
-          className="block w-full border-t border-line py-2 text-left text-sm"
+          className="block w-full border-t border-line py-2 text-left text-[13px]"
           onClick={() => rel.navigate('projects', projectId, t.taskId)}
         >
           <span className="block line-clamp-2 font-medium">{t.terms.description}</span>
@@ -89,7 +91,7 @@ export function TaskWorkList({ projectId }: { projectId: string }) {
       ))}
       <PartnerPagination next={tasks.data?.nextCursor} cursors={cursors} set={setCursors} />
       {drafts?.length === 0 && (
-        <p className="text-sm text-ink-faint">
+        <p className="text-[13px] text-ink-faint">
           Offer volunteer work or reserve a reward for a verified result.
         </p>
       )}
@@ -110,7 +112,7 @@ function PartnerIssuer({ task, id }: { task: PartnerTaskView; id: string }) {
   return (
     <span className="block break-words">
       <PartnerProfileName name={name} path={identity.profilePath} origin={data?.webOrigin} />
-      <span className="block break-all font-mono text-sm">
+      <span className="block break-all font-mono text-[13px]">
         <bdi dir="ltr">{identity.domainAscii}</bdi>
       </span>
       {frozen && frozen.status !== 'active' && (
@@ -136,7 +138,6 @@ function AccountHandoff({
   }
   const action = usePartnerAction()
   const [known, setKnown] = useState('')
-  const [start, setStart] = useState<HandoffStart | null>(null)
   const catalogue = usePartnerCatalog({ partnerId: id })
   const partner = catalogue.data?.items.find((p) => p.partnerId === id)
   const cacheKey = me
@@ -144,7 +145,6 @@ function AccountHandoff({
     : null
   const [handoffId, setHandoffId] = useState<string | null>(null)
   useEffect(() => {
-    setStart(null)
     setKnown('')
     setHandoffId(cacheKey ? sessionStorage.getItem(cacheKey) : null)
   }, [cacheKey])
@@ -165,7 +165,6 @@ function AccountHandoff({
   const reset = () => {
     if (cacheKey) sessionStorage.removeItem(cacheKey)
     setHandoffId(null)
-    setStart(null)
     setKnown('')
   }
   const decide = (decision: 'confirm' | 'decline' | 'withdraw') => {
@@ -183,23 +182,6 @@ function AccountHandoff({
       },
     )
   }
-  let safeStart: string | null = null
-  if (start) {
-    try {
-      const u = new URL(start.startUrl)
-      if (
-        u.protocol === 'https:' &&
-        u.hostname === start.handoffDomainAscii &&
-        !u.username &&
-        !u.password &&
-        !u.port &&
-        start.identity.domainAscii === partner?.identity.domainAscii
-      )
-        safeStart = u.href
-    } catch {
-      /* Unusable response. */
-    }
-  }
   const bound =
     current &&
     current.partnerId === id &&
@@ -209,7 +191,7 @@ function AccountHandoff({
     <PartnerGroup title={labels[purpose]}>
       {!handoffId && (
         <>
-          <p className="text-sm">
+          <p className="text-[13px]">
             You will sign in on the partner’s website and confirm the selected account here.
           </p>
           <PartnerQueryStatus query={catalogue} retry={() => refreshPartnerWork(task.projectId)} />
@@ -224,6 +206,7 @@ function AccountHandoff({
                   {partner.identity.domainAscii}
                 </bdi>
               </p>
+              {partner.identity.collisionSignals.length > 0 && <p>{partnerCollisionLabel(partner.identity.collisionSignals)}</p>}
               {!partner.trustedForActor && (
                 <PartnerField
                   label="Independently known website domain"
@@ -231,7 +214,7 @@ function AccountHandoff({
                   onChange={(e) => setKnown(e.target.value)}
                   hint={
                     partner.identity.collisionSignals.length
-                      ? 'This partner resembles another. Enter the domain from your own supplier records.'
+                      ? 'Enter the domain from your own supplier records.'
                       : 'Optional unless your previously trusted domain changed. Use a domain you obtained independently.'
                   }
                   autoComplete="off"
@@ -240,7 +223,7 @@ function AccountHandoff({
                 />
               )}
               <button
-                className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+                className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
                 disabled={
                   action.pending ||
                   !cacheKey ||
@@ -267,7 +250,6 @@ function AccountHandoff({
                     (k) => startTaskHandoff(body, k),
                     (r) => {
                       if (cacheKey) sessionStorage.setItem(cacheKey, r.handoffId)
-                      setStart(r)
                       setHandoffId(r.handoffId)
                     },
                   )
@@ -286,7 +268,7 @@ function AccountHandoff({
           <PartnerQueryStatus query={result} retry={() => refreshHandoffStatus(handoffId)} />
           {bound && (
             <>
-              <p className="text-sm">Authorization · {current.state}</p>
+              <p className="text-[13px]">Authorization · {current.state}</p>
               {current.grant.kind === 'run' ? (
                 <p>
                   {current.grant.model} · up to {current.grant.maxInputTokens} input and{' '}
@@ -297,21 +279,11 @@ function AccountHandoff({
                   {current.grant.asset.quantity} {current.grant.asset.unit} · {current.grant.asset.assetId}
                 </p>
               )}
-              {current.state === 'started' && safeStart && start && (
-                <form action={safeStart} method="post" target="_blank" rel="noopener noreferrer">
-                  <input type="hidden" name="handoffId" value={start.handoffId} />
-                  <input type="hidden" name="startCode" value={start.startCode} />
-                  <p className="break-all text-sm">
-                    Partner sign-in · <bdi dir="ltr">{start.handoffDomainAscii}</bdi>
-                  </p>
-                  <button className={PAGE_ACTION_BUTTON_CLASS}>Continue to partner</button>
-                </form>
-              )}
-              {current.state === 'started' && !safeStart && (
-                <p className="text-sm">
-                  If you have already opened the partner, finish there. Otherwise decline this authorization and
-                  start a new one.
-                </p>
+              <p className="break-all text-[13px]">Verified website · <bdi dir="ltr">{current.identity.domainAscii}</bdi></p>
+              {current.identity.collisionSignals.length > 0 && <p>{partnerCollisionLabel(current.identity.collisionSignals)}</p>}
+              {current.state === 'started' && (
+                <a className={PAGE_ACTION_BUTTON_CLASS} href={apiNavigationHref(paths.partnerContinue(current.handoffId))}
+                  target="_blank" rel="noopener noreferrer">Continue to partner · <bdi dir="ltr">{current.handoffDomainAscii}</bdi></a>
               )}
               {current.state === 'attested' && (
                 <>
@@ -327,7 +299,7 @@ function AccountHandoff({
               )}
               {['started', 'exchanged', 'attested'].includes(current.state) && (
                 <button
-                  className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+                  className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
                   disabled={action.pending}
                   onClick={() => decide('decline')}
                 >
@@ -336,7 +308,7 @@ function AccountHandoff({
               )}
               {current.state === 'confirmed' && (
                 <button
-                  className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+                  className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
                   disabled={action.pending}
                   onClick={() => decide('withdraw')}
                 >
@@ -344,7 +316,7 @@ function AccountHandoff({
                 </button>
               )}
               {['expired', 'declined', 'withdrawn'].includes(current.state) && (
-                <button className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'} onClick={reset}>
+                <button className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`} onClick={reset}>
                   Start a new authorization
                 </button>
               )}
@@ -354,7 +326,7 @@ function AccountHandoff({
             <p role="alert">Task terms have changed. Review the current terms before authorizing work.</p>
           )}
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             onClick={() => refreshHandoffStatus(handoffId)}
           >
             Refresh authorization
@@ -421,7 +393,7 @@ export function TaskWorkDetail({
     return (
       <Frame>
         {!embedded && (
-          <button className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'} onClick={onBack}>
+          <button className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`} onClick={onBack}>
             Back to project
           </button>
         )}
@@ -453,7 +425,7 @@ export function TaskWorkDetail({
     <Frame>
       {!embedded && (
         <>
-          <button className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'} onClick={onBack}>
+          <button className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`} onClick={onBack}>
             Back to project
           </button>
           <ResourcePageHeader
@@ -464,7 +436,7 @@ export function TaskWorkDetail({
         </>
       )}
       <PartnerGroup title="Task terms">
-        <dl className="grid gap-3 text-sm">
+        <dl className="grid gap-3 text-[13px]">
           <div>
             <dt className="font-semibold">Reward</dt>
             <dd>
@@ -532,7 +504,7 @@ export function TaskWorkDetail({
       </PartnerGroup>
       {task.previousOffer && (
         <button
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={() => navigation.navigate('projects', task.projectId, task.previousOffer!.taskId)}
         >
           View previous offer · version {task.previousOffer.termsVersion}
@@ -542,7 +514,7 @@ export function TaskWorkDetail({
         <PartnerGroup title="Revise offer">
           {editing ? (
             <>
-              <p className="text-sm">
+              <p className="text-[13px]">
                 Saving creates a new private offer. Existing commitments stay with this version. Reserve the new
                 reward before publication.
               </p>
@@ -561,7 +533,7 @@ export function TaskWorkDetail({
             </>
           ) : (
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               onClick={() => setEditing(true)}
             >
               Create revised offer
@@ -586,7 +558,7 @@ export function TaskWorkDetail({
             />
           ) : (
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={task.funding !== 'volunteer' && task.funding !== 'awaiting'}
               onClick={() => setEditing(true)}
             >
@@ -601,7 +573,7 @@ export function TaskWorkDetail({
               <AccountHandoff task={task} id={terms.reward.partnerId} purpose="reserve" />
             ))}
           {terms.reward && task.funding !== 'held' && (
-            <p className="text-sm">Publication is waiting for confirmation of the full reward.</p>
+            <p className="text-[13px]">Publication is waiting for confirmation of the full reward.</p>
           )}
           {Array.from(
             new Set([
@@ -636,7 +608,7 @@ export function TaskWorkDetail({
       )}
       {task.status === 'published' && terms.participation === 'single-claim' && task.claim === 'available' && (
         <button
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           disabled={action.pending}
           onClick={() => cmd('claim')}
         >
@@ -680,13 +652,13 @@ export function TaskWorkDetail({
           <ol className="space-y-3">
             {task.submissions.map((s) => (
               <li key={s.submissionId} className="border-l border-line pl-3">
-                <p className="text-sm">
+                <p className="text-[13px]">
                   {s.mine ? 'Your submission' : 'Submission'} · {new Date(s.submittedAt).toLocaleString()}
                 </p>
                 <p className="whitespace-pre-wrap break-words">{s.text}</p>
                 {s.digest && (
                   <button
-                    className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+                    className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
                     disabled={action.pending}
                     onClick={() =>
                       void action.run(
@@ -706,7 +678,7 @@ export function TaskWorkDetail({
                     Download submission
                   </button>
                 )}
-                <p className="text-sm">
+                <p className="text-[13px]">
                   Acceptance · {s.verdict === 'unavailable' ? 'provider or verifier unavailable' : s.verdict} ·
                   Compute proof · {s.provenance}
                 </p>
@@ -716,12 +688,12 @@ export function TaskWorkDetail({
         )}
       </PartnerGroup>
       <div className="flex flex-wrap gap-2">
-        <button className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'} onClick={refresh}>
+        <button className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`} onClick={refresh}>
           Refresh task
         </button>
         {task.requester && ['draft', 'published'].includes(task.status) && (
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             onClick={() => setCancel(!cancel)}
           >
             Cancel task
@@ -732,7 +704,7 @@ export function TaskWorkDetail({
         <div className="space-y-1">
           <p>Close this task and request the return of any eligible held reward?</p>
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             disabled={action.pending}
             onClick={() => cmd('cancel')}
           >
@@ -758,9 +730,10 @@ function PublicationIdentity({
   if (!partner) return <PartnerQueryStatus query={catalog} retry={() => refreshPartnerWork('')} />
   if (partner.trustedForActor)
     return (
-      <p className="break-words text-sm">
+      <p className="break-words text-[13px]">
         Previously confirmed · <bdi>{partner.displayName}</bdi> ·{' '}
         <bdi dir="ltr">{partner.identity.domainAscii}</bdi>
+        {partner.identity.collisionSignals.length > 0 && <> · {partnerCollisionLabel(partner.identity.collisionSignals)}</>}
       </p>
     )
   return (
@@ -788,7 +761,7 @@ function PublicationIdentity({
         }}
         hint={
           partner.identity.collisionSignals.length
-            ? 'Similar names found. For a first authorization, enter the domain from your own records.'
+            ? partnerCollisionLabel(partner.identity.collisionSignals) + '. For a first authorization, enter the domain from your own records.'
             : 'Enter an independently known domain if your prior authorization has changed.'
         }
         autoComplete="off"

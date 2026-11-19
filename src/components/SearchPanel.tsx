@@ -3,6 +3,7 @@ import { ArrowRight, FileText, Globe, History, ListChecks, MessageSquare, Search
 import { MAX_SEARCH_QUERY_CHARS, SEARCH_PAGE_SIZE, type SearchHitType, type SearchPage } from '../../contract/index.ts'
 import type { Session, SectionId } from '../types'
 import { SECTION_META, SECTION_ORDER } from '../lib/sections'
+import { SECTION_DESCRIPTIONS } from '../lib/sectionDescriptions'
 import { useFocusTrap } from '../lib/useFocusTrap'
 import { SCRIM_CLASS } from '../lib/scrim'
 import { BOUNDED_DIALOG_BODY_CLASS, BOUNDED_DIALOG_LAYER_CLASS, BOUNDED_DIALOG_PANEL_CLASS, DIALOG_SURFACE_CLASS } from '../lib/dialog'
@@ -113,11 +114,11 @@ export function SearchPanel({
       (id) =>
         needle === '' ||
         SECTION_META[id].label.toLowerCase().includes(needle.toLowerCase()) ||
-        SECTION_META[id].subtitle.toLowerCase().includes(needle.toLowerCase()),
+        SECTION_DESCRIPTIONS[id].toLowerCase().includes(needle.toLowerCase()),
     ).map((id) => ({
       key: `pg-${id}`,
       title: SECTION_META[id].label,
-      subtitle: SECTION_META[id].subtitle,
+      subtitle: SECTION_DESCRIPTIONS[id],
       Icon: SECTION_META[id].Icon,
       run: goSection(id),
     }))

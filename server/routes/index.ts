@@ -5088,7 +5088,11 @@ export function buildRouter(): Router {
     if (decision !== 'confirm' && decision !== 'decline') {
       return sendError(res, 'bad_request', "decision must be 'confirm' or 'decline'")
     }
-    const idempotencyKey = headerValue(req.headers, 'idempotency-key')
+    const pending = store.getToolActivity(params.id, params.activityId)
+    // A partner mutation also needs a retry identity for a keyless confirmation.
+    // The decision and the operation it authorizes share the resulting receipt.
+    const requiresPartnerKey = pending?.op && /^\/(?:task-partners\/|projects\/[^/]+\/(?:task-drafts$|work\/[^/]+\/))/.test(pending.op.path)
+    const idempotencyKey = headerValue(req.headers, 'idempotency-key') ?? (requiresPartnerKey ? 'partner-confirmation' : undefined)
     const logicalDecisionId = idempotencyKey
       ? toolActivityDecisionId(who.tenant.id, params.id, params.activityId, idempotencyKey)
       : undefined
@@ -5112,7 +5116,6 @@ export function buildRouter(): Router {
     // effect stays proposed so Retry and Decline both remain available.
     let doneSummary: string | undefined
     let claimed = false
-    const pending = store.getToolActivity(params.id, params.activityId)
     try {
       if (pending?.kind === 'action' && pending.status === 'proposed') {
         if (pending.mcp && !logicalDecisionId) {
@@ -5187,8 +5190,7 @@ export function buildRouter(): Router {
               pending.op.path,
               req.headers,
               pending.op.body,
-              { idempotencyKey: /^\/(?:task-partners\/|projects\/[^/]+\/(?:task-drafts$|work\/[^/]+\/))/.test(pending.op.path)
-                ? toolActivityDecisionId(who.tenant.id, params.id, params.activityId, 'partner-confirmation') : logicalDecisionId },
+              { idempotencyKey: logicalDecisionId },
             )
             if (out.status >= 400) {
               let detail = `HTTP ${out.status}`

@@ -1,3 +1,6 @@
+import { CheckboxRow } from './Checkbox'
+import { partnerCollisionLabel } from '../../contract/taskPartners'
+import { DOOR_CLASS } from '../lib/textDoor'
 import { parsePartnerKey } from '../lib/partnerSigningKey'
 import { PartnerCredits } from './PartnerOperations'
 import { useState } from 'react'
@@ -109,7 +112,7 @@ function RegistrationForm({ env, onOpen }: { env: PartnerEnvironment; onOpen: (a
         )
       }}
     >
-      <p className="text-sm text-ink-faint">
+      <p className="text-[13px] text-ink-faint">
         {env === 'sandbox'
           ? 'Start in the sandbox to test your integration before applying for production.'
           : 'Use a separate production signing key and your passing sandbox report.'}
@@ -136,32 +139,31 @@ function RegistrationForm({ env, onOpen }: { env: PartnerEnvironment; onOpen: (a
       </PartnerGroup>
       <PartnerGroup title="Capabilities offered">
         {roles.map((role) => (
-          <label className="flex items-center gap-2" key={role}>
-            <input
-              type="checkbox"
-              checked={selected.includes(role)}
-              disabled={role === 'custodian' && selected.includes('verifier')}
-              onChange={(e) => {
-                if (!e.target.checked) setSelected(selected.filter((c) => c !== role))
-                else if (role === 'verifier') setSelected([...new Set<PartnerCapability>([...selected, 'custodian', role])])
-                else setSelected([...selected, role])
-              }}
-            />
+          <CheckboxRow
+            key={role}
+            checked={selected.includes(role)}
+            disabled={role === 'custodian' && selected.includes('verifier')}
+            onToggle={() => {
+              if (selected.includes(role)) setSelected(selected.filter((c) => c !== role))
+              else if (role === 'verifier') setSelected([...new Set<PartnerCapability>([...selected, 'custodian', role])])
+              else setSelected([...selected, role])
+            }}
+          >
             {roleNames[role]}
-          </label>
+          </CheckboxRow>
         ))}
-        {selected.includes('verifier') && <p className="text-sm text-ink-faint">Acceptance verifiers must also qualify as custodians.</p>}
+        {selected.includes('verifier') && <p className="text-[13px] text-ink-faint">Acceptance verifiers must also qualify as custodians.</p>}
         {selected.includes('model-provider') && (
           <fieldset className="space-y-2">
             <legend>Attested models</legend>
             {Array.from({ length: counts.models }, (_, i) => (
-              <div key={i} className="grid gap-2 sm:grid-cols-2">
+              <div key={i} className="grid gap-2 @sm:grid-cols-2">
                 <PartnerField label="Model ID" name={'model' + i} required />
                 <PartnerField label="Effort levels (comma separated)" name={'effort' + i} />
               </div>
             ))}
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               type="button"
               onClick={() => add('models')}
             >
@@ -173,13 +175,13 @@ function RegistrationForm({ env, onOpen }: { env: PartnerEnvironment; onOpen: (a
           <fieldset className="space-y-2">
             <legend>Reward inventory</legend>
             {Array.from({ length: counts.assets }, (_, i) => (
-              <div key={i} className="grid gap-2 sm:grid-cols-2">
+              <div key={i} className="grid gap-2 @sm:grid-cols-2">
                 <PartnerField label="Issuer-qualified asset ID" name={'asset' + i} required />
                 <PartnerField label="Deliverable unit" name={'unit' + i} required />
               </div>
             ))}
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               type="button"
               onClick={() => add('assets')}
             >
@@ -211,7 +213,7 @@ function RegistrationForm({ env, onOpen }: { env: PartnerEnvironment; onOpen: (a
               </div>
             ))}
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               type="button"
               onClick={() => add('rules')}
             >
@@ -228,7 +230,7 @@ function RegistrationForm({ env, onOpen }: { env: PartnerEnvironment; onOpen: (a
           required
           hint="The HTTPS page where people authorize work on your service."
         />
-        <label className="grid gap-1 text-sm">
+        <label className="grid gap-1 text-[13px]">
           Public signing key (JWK)
           <textarea
             name="publicKey"
@@ -239,7 +241,7 @@ function RegistrationForm({ env, onOpen }: { env: PartnerEnvironment; onOpen: (a
             spellCheck={false}
           />
         </label>
-        <p className="text-xs text-ink-faint">
+        <p className="text-[12px] text-ink-faint">
           Provide the public portion of an Ed25519 key. A private key stays on your server.
         </p>
       </PartnerGroup>
@@ -278,13 +280,13 @@ export function PartnerDirectory() {
           onChange={(e) => setText(e.target.value)}
           maxLength={253}
         />
-        <button className={SECONDARY_BUTTON_CLASS + ' justify-self-start'}>Search partners</button>
+        <button className={`${SECONDARY_BUTTON_CLASS} min-h-8 justify-self-start px-3 py-1 text-[13px]`}>Search partners</button>
       </form>
       <PartnerQueryStatus query={found} retry={refreshPartnerRegistry} />
       {found.data && found.status !== 'error' && (
         <>
           {found.data.items.length === 0 ? (
-            <p role="status" className="text-sm text-ink-faint">
+            <p role="status" className="text-[13px] text-ink-faint">
               {query.text
                 ? 'No approved partners match this search.'
                 : 'No partners have been approved for production yet.'}
@@ -298,15 +300,15 @@ export function PartnerDirectory() {
                     path={p.identity.profilePath}
                     name={p.displayName}
                   />
-                  <p className="break-all font-mono text-sm">
+                  <p className="break-all font-mono text-[13px]">
                     <bdi dir="ltr">{p.identity.domainAscii}</bdi>
                   </p>
-                  <p className="text-sm text-ink-faint">
+                  <p className="text-[13px] text-ink-faint">
                     {p.capabilities.map((c) => roleNames[c]).join(' · ')}
                   </p>
                   {p.identity.collisionSignals.length > 0 && (
-                    <p className="text-sm">
-                      Similar names or websites. Check the full domain before choosing this partner.
+                    <p className="text-[13px]">
+                      {partnerCollisionLabel(p.identity.collisionSignals)}. Check the full domain before choosing this partner.
                     </p>
                   )}
                 </li>
@@ -336,19 +338,19 @@ function Applications({ onOpen }: { onOpen: (id: string) => void }) {
       {page.data && <PartnerCredits canIssue={page.data.canReview} />}
       {page.data && page.status !== 'error' && (
         <>
-          {page.data.items.length === 0 && <p className="text-sm">No applications in this environment.</p>}
+          {page.data.items.length === 0 && <p className="text-[13px]">No applications in this environment.</p>}
           <ul className="divide-y divide-line">
             {page.data.items.map((a) => (
               <li key={a.applicationId}>
                 <button
-                  className="w-full py-3 text-left hover:underline"
+                  className={DOOR_CLASS + ' w-full py-3 text-left'}
                   onClick={() => onOpen(env + '/' + a.applicationId)}
                 >
                   <strong>
                     <bdi>{a.displayName}</bdi>
                   </strong>{' '}
                   · {applicationStates[a.state]}
-                  <span className="block break-all text-sm">{a.organizationUrl}</span>
+                  <span className="block break-all text-[13px]">{a.organizationUrl}</span>
                 </button>
               </li>
             ))}
@@ -376,7 +378,7 @@ export default function TaskPartnersPage({
   if (id && (env === 'sandbox' || env === 'production'))
     return (
       <AtomicResourcePage>
-        <button className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'} onClick={onBack}>
+        <button className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`} onClick={onBack}>
           Back
         </button>
         <PartnerApplicationDetail key={application} env={env} id={id} />
@@ -399,7 +401,7 @@ export default function TaskPartnersPage({
       <div className="mb-4 flex flex-wrap gap-2">
         {subview && (
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             onClick={() => onSwitch(null)}
           >
             Partner directory
@@ -407,7 +409,7 @@ export default function TaskPartnersPage({
         )}
         {subview !== 'applications' && (
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             onClick={() => onSwitch('applications')}
           >
             Partner applications
@@ -415,7 +417,7 @@ export default function TaskPartnersPage({
         )}
         {subview !== 'register' && (
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             onClick={() => onSwitch('register')}
           >
             Register partner

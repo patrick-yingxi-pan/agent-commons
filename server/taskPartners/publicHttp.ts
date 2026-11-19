@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import type { PartnerPublicProfile } from '../../contract/taskPartners.ts'
+import { partnerCollisionLabel, type PartnerPublicProfile } from '../../contract/taskPartners.ts'
 
 export interface PartnerOrigins {
   webOrigin: string | null
@@ -72,13 +72,14 @@ export function servePublicPartner(req: IncomingMessage, res: ServerResponse, ur
   const roles = profile.capabilities.map(c => labels[c]).join(', ')
   const active = profile.status === 'active' && !!roles && Date.parse(profile.identity.verifiedAt) <= Date.now() && Date.now() < Date.parse(profile.identity.validUntil)
   const currentStatus = profile.status === 'active' && !active ? 'verification_lapsed' : profile.status
+  const collision = partnerCollisionLabel(profile.identity.collisionSignals)
   if (servingBadge) {
     const supplied = url.searchParams.get('domain')
     if (!supplied || !domainPattern.test(supplied) || [...url.searchParams.keys()].length !== 1) return send(400, neutral)
     if (!active || supplied !== domain) return send(200, neutral)
     const link = escape(origins.webOrigin + profilePath(id))
     const body = '<a target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" href="' + link + '"><strong>' + isolate(profile.displayName) +
-      '</strong><br>' + hostText(domain) + '<br>Agent Commons · ' + escape(roles) + ' · View active profile</a>'
+      '</strong><br>' + hostText(domain) + (collision ? '<br>' + escape(collision) : '') + '<br>Agent Commons · ' + escape(roles) + ' · View active profile</a>'
     return send(200, html(profile.displayName, body), 'text/html', 'https://' + domain)
   }
   if (publicApi) return send(200, JSON.stringify({ ...profile, status: currentStatus, capabilities: active ? profile.capabilities : [] }), 'application/json')
@@ -88,6 +89,7 @@ export function servePublicPartner(req: IncomingMessage, res: ServerResponse, ur
   const contents = '<main><header>Agent Commons · Partner directory</header><h1>' + isolate(profile.displayName) +
     '</h1><dl><dt>Website</dt><dd>' + website + '</dd><dt>Partner status</dt><dd>' + escape(statuses[currentStatus]) +
     '</dd><dt>Current approvals</dt><dd>' + (active ? escape(roles) : 'No active approvals') + '</dd><dt>Permanent partner ID</dt><dd>' + escape(id) + '</dd></dl>' +
-    (peers.length ? '<section><h2>Similar organizations</h2><p>Check the full website address before choosing a partner.</p><ul>' + peers.join('') + '</ul></section>' : '') + '</main>'
+    (collision ? '<section><h2>' + escape(collision) + '</h2><p>Check the full website address before choosing a partner.</p>' +
+      (peers.length ? '<ul>' + peers.join('') + '</ul>' : '') + '</section>' : '') + '</main>'
   return send(200, html(profile.displayName, contents, true), 'text/html', undefined, true)
 }

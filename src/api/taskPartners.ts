@@ -104,6 +104,7 @@ export function usePartnerCatalog(
     capability?: PartnerCapability
     cursor?: string | null
   } = {},
+  enabled = true,
 ) {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(options)) if (value) search.set(key, value)
@@ -114,7 +115,7 @@ export function usePartnerCatalog(
       apiGet<PartnerPage<PartnerCatalogEntry> & { webOrigin: string | null }>(
         paths.partnerCatalog('production') + query,
       ),
-    true,
+    enabled,
   )
 }
 export function usePartnerConformance(env: PartnerEnvironment, id: string, report?: string) {

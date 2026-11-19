@@ -58,6 +58,7 @@ const apiMethods = new Map<string, Method>([
   ['apiGet', 'GET'],
   ['apiUrl', 'GET'],
   ['apiPost', 'POST'],
+  ['apiNavigationHref', 'GET'],
   ['apiPatch', 'PATCH'],
   ['apiDelete', 'DELETE'],
 ])

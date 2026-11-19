@@ -77,6 +77,7 @@ import {
 } from 'lucide-react'
 import type { AddedContext, ApiToken, AppNotification, ArtifactKind, Connector, SavedContext, SavedContextKind, SectionId, Session } from '../types'
 import { SECTION_META } from '../lib/sections'
+import { SECTION_DESCRIPTIONS } from '../lib/sectionDescriptions'
 import { FOLD_HOVER } from '../lib/foldHeader'
 import { audienceLabel } from '../lib/audienceLabel'
 import { collectionEmptyCopy } from '../lib/collectionEmpty'
@@ -1026,7 +1027,7 @@ function SessionsSection({
 
   return (
     <CompositeResourcePage section="sessions">
-      <PageHeader title="Sessions" subtitle={SECTION_META.sessions.subtitle}>
+      <PageHeader title="Sessions" subtitle={SECTION_DESCRIPTIONS.sessions}>
         <PageActionButton
           icon={<Plus size={15} />}
           onClick={onNewSession}
@@ -3036,7 +3037,6 @@ function OpenWorkList({ projectId, shared, guarded }: { projectId: string; share
           Posting and reading the backlog does not claim an item or require Guardian coordination. Reservations and standing coordination are unavailable until this Project has a Guardian.
         </p>
       )}
-      <Suspense fallback={<p role="status">Loading coordinated tasks…</p>}><TaskWorkList projectId={projectId}/></Suspense>
       {items.length === 0 ? (
         <p className="text-[12px] text-ink-faint">
           No published work items on this project.
@@ -3128,6 +3128,9 @@ function OpenWorkList({ projectId, shared, guarded }: { projectId: string; share
         {error && <p className="text-[11px] text-removed">{error}</p>}
       </div>
       )}
+      <Suspense fallback={<p role="status">Loading coordinated tasks…</p>}>
+        <TaskWorkList projectId={projectId} />
+      </Suspense>
     </FoldSection>
   )
 }
@@ -3355,7 +3358,7 @@ function WorkItemRow({
         </button>
         {/* S3 — the prose written to help a taker decide (server-stamped; empty for a
             native post today, carried on A2A/seeded items). Revealed, not hidden. */}
-        {o.note && <p className="mt-0.5 text-[12px] leading-snug text-ink-soft">{o.note}</p>}
+        {o.note && (o.type !== 'task' || o.note !== o.subGoal) && <p className="mt-0.5 text-[12px] leading-snug text-ink-soft">{o.note}</p>}
         <div className="text-[11px] text-ink-faint">
           {o.type === 'task' ? 'Task offer · ' : `${o.type} → `}{o.target}
           {/* Provenance, not authority (D20): an A2A-posted item passed the same walls.
@@ -11353,7 +11356,7 @@ function AdminSection({
             : 'Accounts'
   return (
     <CompositeResourcePage section="admin">
-      <PageHeader title={`${meta.label} · ${surfaceTitle}`} subtitle={meta.subtitle} />
+      <PageHeader title={`${meta.label} · ${surfaceTitle}`} subtitle={SECTION_DESCRIPTIONS.admin} />
       {!granted ? (
         <PageEmpty>
           This console is for instance maintainers. Sign in as an account on the server’s
@@ -11940,7 +11943,7 @@ function GenericSection({ section, onOpenSession }: { section: SectionId; onOpen
             </span>
           ) : undefined
         }
-        subtitle={meta.subtitle}
+        subtitle={SECTION_DESCRIPTIONS[section]}
       >
         {section === 'dispatch' && (
           <PageActionButton

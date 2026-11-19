@@ -19,14 +19,14 @@ export function PartnerCredits({ canIssue }: { canIssue: boolean }) {
     <PartnerGroup title="Work credits">
       <PartnerQueryStatus query={balance} retry={refreshPartnerRegistry} />
       {balance.data && (
-        <p className="text-sm">
+        <p className="text-[13px]">
           Available · <strong>{balance.data.available}</strong> credits. Reserved · {balance.data.held} credits.
         </p>
       )}
       {canIssue && (
         <details>
           <summary>Issue site work credits</summary>
-          <p className="my-2 text-sm">
+          <p className="my-2 text-[13px]">
             Credit an account with site-issued work credits. Use a unique reference for each issuance.
           </p>
           <form
@@ -93,7 +93,7 @@ function RecoveryCase({ item, canOpen }: { item: PartnerObligation; canOpen: boo
       <summary>
         {item.taskId} · {item.state.replaceAll('_', ' ')}
       </summary>
-      <p className="break-all text-sm">Command · {item.commandId}</p>
+      <p className="break-all text-[13px]">Command · {item.commandId}</p>
       {item.asset && (
         <p>
           {item.asset.quantity} {item.asset.unit}
@@ -120,7 +120,7 @@ function RecoveryCase({ item, canOpen }: { item: PartnerObligation; canOpen: boo
             maxLength={300}
           />
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             disabled={action.pending}
           >
             Open recovery case
@@ -136,7 +136,7 @@ function RecoveryCase({ item, canOpen }: { item: PartnerObligation; canOpen: boo
           <p>{recovery.reason}</p>
           {recovery.availableActions.includes('authorize') && (
             <button
-              className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+              className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               disabled={action.pending}
               onClick={() =>
                 apply({
@@ -185,7 +185,7 @@ function RecoveryCase({ item, canOpen }: { item: PartnerObligation; canOpen: boo
               />
               <button
                 disabled={action.pending}
-                className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+                className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
               >
                 Submit evidence
               </button>
@@ -195,7 +195,7 @@ function RecoveryCase({ item, canOpen }: { item: PartnerObligation; canOpen: boo
             <>
               <p className="break-all">Evidence digest · {recovery.evidenceDigest}</p>
               <button
-                className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+                className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
                 disabled={action.pending}
                 onClick={() =>
                   apply({
@@ -222,7 +222,7 @@ export function PartnerObligations({ partnerId, canOpen }: { partnerId: string; 
   return (
     <PartnerGroup title="Outstanding obligations">
       <PartnerQueryStatus query={read} retry={refreshPartnerRegistry} />
-      {read.data?.items.length === 0 && <p className="text-sm">No outstanding obligations.</p>}
+      {read.data?.items.length === 0 && <p className="text-[13px]">No outstanding obligations.</p>}
       {read.data?.items.map((item) => (
         <RecoveryCase key={item.obligationId} item={item} canOpen={canOpen} />
       ))}

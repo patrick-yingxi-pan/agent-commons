@@ -122,3 +122,6 @@ export const apiDelete = <T>(path: string, body?: unknown, options?: ApiMutation
  *  `<img src>` — the browser fetches it through the same proxy the API uses. Bytes
  *  can't go through `apiGet`, which JSON-parses the response. */
 export const apiUrl = (path: string): string => `${API_BASE}${path}`
+
+/** Read-only API document reached by a browser navigation (for example a consent form). */
+export function apiNavigationHref(path: string) { return API_BASE + path }

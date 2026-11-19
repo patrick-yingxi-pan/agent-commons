@@ -213,7 +213,12 @@ export class WorkStorage {
     }) as PartnerWorkSnapshot
   }
   restore(raw: unknown) {
-    if (raw === undefined) return
+    if (raw === undefined) {
+      // An older workspace has no partner journal. Rehydration replaces the
+      // in-memory workspace, including any records from its previous image.
+      for (const table of tables) this.rows[table].clear()
+      return
+    }
     const snapshot = raw as PartnerWorkSnapshot
     if (!snapshot || snapshot.version !== 1 || !tables.every((k) => Array.isArray(snapshot[k])))
       throw new Error('Unrecognized partner work snapshot.')

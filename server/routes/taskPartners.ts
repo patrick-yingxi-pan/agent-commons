@@ -6,6 +6,7 @@ import { store } from '../store/index.ts'
 import { fail, record, tokenId } from '../taskPartners/protocol.ts'
 import { bearer, environmentOf, jsonInput, listPage, partnerActor, requestKey, respond } from '../taskPartners/transport.ts'
 import type { PartnerEnvironment } from '../../contract/taskPartners.ts'
+import { registerPartnerHandoffPage } from './taskPartnerHandoffPage.ts'
 import { registerPartnerWorkerRoutes } from './taskPartnerWorkers.ts'
 
 const base = '/task-partners/:environment'
@@ -169,5 +170,6 @@ export function registerTaskPartnerRoutes(router: Router, accountMatches: (req: 
     if (!i.actor.operator || !i.actor.freshAuth || !i.actor.recoveryRole) fail(403,'fresh_auth_required','Recovery requires a freshly signed-in incident or settlement operator.')
   })
   get(obligations + '/:obligationId/recoveries/:recoveryId', i => work.recovery(i.actor, i.env, i.p.obligationId!, i.p.recoveryId!))
+  registerPartnerHandoffPage(router)
   registerPartnerWorkerRoutes(router)
 }

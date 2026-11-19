@@ -58,3 +58,27 @@ test('trusted partner origins reject paths, credentials, mixed environments and 
   }
   assert.throws(() => partnerOrigins({ TASK_PARTNER_WEB_ORIGIN: 'https://commons.example', TASK_PARTNER_BADGE_ORIGIN: 'https://commons.example:8443' }))
 })
+
+test('active website badges and public profiles identify the actual collision and preserve the exact host', () => {
+  const comparisons: [PartnerPublicProfile['identity']['collisionSignals'], string][] = [
+    [[], ''],
+    [['exact_name'], 'Identical name'],
+    [['normalized_name'], 'Similar name'],
+    [['confusable_name'], 'Similar name'],
+    [['similar_name'], 'Similar name'],
+    [['confusable_domain'], 'Similar website domain'],
+    [['confusable_domain', 'similar_name', 'normalized_name', 'exact_name'], 'Identical name · Similar name · Similar website domain'],
+  ]
+  for (const [collisionSignals, label] of comparisons) {
+    const current = { ...profile, identity: { ...profile.identity, collisionSignals, domainAscii: 'xn--pple-43d.example' } }
+    const badge = visit('badges.commons.example', '/v1/task-partners/public/partners/org-1/badge?domain=' + current.identity.domainAscii, current)
+    const publicPage = visit('commons.example', '/partners/org-1', current)
+    for (const result of [badge, publicPage]) {
+      assert.equal(result.status, 200)
+      assert.match(result.body, /<bdi dir="ltr">xn--pple-43d\.example<\/bdi>/)
+      // The profile may summarize more matches than can be listed as public peers.
+      assert.deepEqual(result.body.match(/Identical name|Similar name|Similar website domain/g) ?? [], label ? label.split(' · ') : [])
+    }
+    assert.match(badge.headers['Content-Security-Policy']!, /frame-ancestors https:\/\/xn--pple-43d\.example$/)
+  }
+})

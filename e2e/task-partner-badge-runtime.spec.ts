@@ -14,7 +14,7 @@ test('the issued badge checks the entire ancestor chain and opens the live canon
     partnerId: 'org-orchard', displayName: 'Orchard Works', status: 'active', capabilities: ['custodian'],
     asOf: new Date().toISOString(), identity: { domainAscii: domain, identityRevision: 1,
       profilePath: '/partners/org-orchard', verifiedAt: new Date(Date.now() - 60000).toISOString(),
-      validUntil: new Date(Date.now() + 600000).toISOString(), collisionSignals: [], relatedPartners: [] },
+      validUntil: new Date(Date.now() + 600000).toISOString(), collisionSignals: ['exact_name', 'confusable_domain'], relatedPartners: [] },
   }
   const canonical = origins.webOrigin + profile.identity.profilePath
   const badge = origins.badgeOrigin + '/v1/task-partners/public/partners/org-orchard/badge?domain=' + domain
@@ -49,11 +49,13 @@ test('the issued badge checks the entire ancestor chain and opens the live canon
     const link = page.frameLocator('iframe').getByRole('link')
     await expect(link).toContainText(domain)
     await expect(link).toContainText('Reward custodian')
+    await expect(link).toContainText('Identical name · Similar website domain')
     const opened = page.waitForEvent('popup')
     await link.click()
     const popup = await opened
     await expect(popup).toHaveURL(canonical)
     await expect(popup.getByRole('heading', { name: profile.displayName })).toBeVisible()
+    await expect(popup.getByRole('heading', { name: 'Identical name · Similar website domain' })).toBeVisible()
     await expect(popup.getByText(profile.partnerId, { exact: true })).toBeVisible()
     expect(await popup.evaluate(() => [window.opener, document.referrer])).toEqual([null, ''])
     await popup.close()

@@ -1,3 +1,5 @@
+import { CopyButton } from './CopyButton'
+import { STANDING_DOOR_CLASS } from '../lib/textDoor'
 import { openAuthScreen } from '../controller/useAuthScreen'
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
@@ -27,11 +29,11 @@ export function PartnerField({
 }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
   const id = useId()
   return (
-    <label className="grid min-w-0 gap-1 text-sm text-ink">
+    <label className="grid min-w-0 gap-1 text-[13px] text-ink">
       <span>{label}</span>
       <input {...props} className={FORM_INPUT_CLASS + ' w-full'} aria-describedby={hint ? id : undefined} />
       {hint && (
-        <span id={id} className="text-xs text-ink-faint">
+        <span id={id} className="text-[12px] text-ink-faint">
           {hint}
         </span>
       )}
@@ -51,10 +53,12 @@ export function PartnerSelect({
   children: ReactNode
   required?: boolean
 }) {
+  const labelId = useId()
   return (
-    <label className="grid min-w-0 gap-1 text-sm">
-      <span>{label}</span>
+    <label className="grid min-w-0 gap-1 text-[13px]">
+      <span id={labelId}>{label}</span>
       <select
+        aria-labelledby={labelId}
         className={FORM_INPUT_CLASS + ' w-full'}
         required={required}
         value={value}
@@ -73,20 +77,20 @@ export function PartnerNotice({
   return (
     <>
       {action.error && (
-        <p role="alert" className="break-words text-sm text-removed">
+        <p role="alert" className="break-words text-[13px] text-removed">
           {action.error}
         </p>
       )}
       {action.signInRequired && (
         <button
           type="button"
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={() => openAuthScreen({ kind: 'signin' })}
         >
           Sign in again
         </button>
       )}
-      <p role="status" className="text-sm text-ink-faint">
+      <p role="status" className="text-[13px] text-ink-faint">
         {action.pending ? 'Working…' : action.notice}
       </p>
     </>
@@ -105,20 +109,20 @@ export function PartnerQueryStatus({
         <p>{query.error?.message ?? 'Could not load this information.'}</p>
         {(query.error as { status?: number })?.status === 401 && (
           <button
-            className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
             onClick={() => openAuthScreen({ kind: 'signin' })}
           >
             Sign in
           </button>
         )}
-        <button className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'} onClick={retry}>
+        <button className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`} onClick={retry}>
           Try again
         </button>
       </div>
     )
   if (!query.data)
     return (
-      <p role="status" className="text-sm text-ink-faint">
+      <p role="status" className="text-[13px] text-ink-faint">
         Loading…
       </p>
     )
@@ -127,31 +131,20 @@ export function PartnerQueryStatus({
 export function PartnerGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="min-w-0 space-y-3 border-t border-line py-4">
-      <h2 className="text-base font-semibold text-ink">{title}</h2>
+      <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
       {children}
     </section>
   )
 }
 export function CopyPartnerValue({ label, value }: { label: string; value: string }) {
   const id = useId()
-  async function copy() {
-    const field = document.getElementById(id) as HTMLTextAreaElement
-    try {
-      await navigator.clipboard.writeText(value)
-    } catch {
-      field.focus()
-      field.select()
-    }
-  }
   return (
     <div className="grid min-w-0 gap-1">
-      <label htmlFor={id} className="text-sm">
+      <label htmlFor={id} className="text-[13px]">
         {label}
       </label>
       <textarea id={id} className={FORM_INPUT_CLASS + ' w-full font-mono'} rows={2} value={value} readOnly />
-      <button type="button" className={SECONDARY_BUTTON_CLASS + ' justify-self-start'} onClick={copy}>
-        Copy {label.toLowerCase()}
-      </button>
+      <CopyButton text={value} label={'Copy ' + label} />
     </div>
   )
 }
@@ -170,7 +163,7 @@ export function PartnerPagination({
     <nav aria-label="Results pages" className="flex gap-2">
       {cursors.length > 0 && (
         <button
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={() => set(cursors.slice(0, -1))}
         >
           Previous page
@@ -178,7 +171,7 @@ export function PartnerPagination({
       )}
       {next && (
         <button
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={() => set([...cursors, next])}
         >
           Next page
@@ -205,7 +198,7 @@ export function PartnerProfileName({
     )
   return (
     <a
-      className="font-semibold underline"
+      className={STANDING_DOOR_CLASS + ' font-semibold text-accent-strong'}
       href={new URL(path, origin).href}
       target="_blank"
       rel="noopener noreferrer"

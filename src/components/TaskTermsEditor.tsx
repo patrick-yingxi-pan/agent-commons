@@ -1,39 +1,55 @@
+import { CheckboxRow } from './Checkbox'
+import { partnerCollisionLabel } from '../../contract/taskPartners'
 import { useState } from 'react'
-import { usePartnerCatalog } from '../api/hooks'
+import { refreshPartnerRegistry, usePartnerCatalog } from '../api/hooks'
 import { PartnerField, PartnerSelect, PartnerGroup, roleNames, PartnerQueryStatus } from './PartnerFields'
-import { refreshPartnerRegistry } from '../api/hooks'
-import type { PartnerCapability, PartnerCatalogEntry } from '../../contract/taskPartners'
+import type { PartnerCapability, PartnerCatalogEntry, PartnerRule } from '../../contract/taskPartners'
 import type { PartnerTaskTerms } from '../../contract/taskPartnerWork'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { SECONDARY_BUTTON_CLASS, PAGE_ACTION_BUTTON_CLASS } from '../lib/button'
+
+function taskVerifierRules(partner?: PartnerCatalogEntry): PartnerRule[] {
+  return partner?.capabilities.includes('custodian') && partner.capabilities.includes('verifier')
+    ? partner.catalog.rules
+    : []
+}
+function ruleKey(rule: PartnerRule) {
+  return JSON.stringify([rule.ruleId, rule.version, rule.digest])
+}
 
 function SelectPartner({
   role,
   value,
   onPick,
   site,
+  selected,
 }: {
   role: PartnerCapability
   value: string
   onPick: (value: string, party?: PartnerCatalogEntry) => void
   site?: boolean
+  selected?: PartnerCatalogEntry
 }) {
   const [q, setQ] = useState('')
   const [search, setSearch] = useState('')
   const [cursor, setCursor] = useState<string | null>(null)
   const partners = usePartnerCatalog({ capability: role, name: search, cursor })
+  const items = (partners.data?.items ?? []).filter((p) => role !== 'verifier' || taskVerifierRules(p).length > 0)
+  const options = selected && !items.some((p) => p.partnerId === selected.partnerId)
+    ? [...items, selected]
+    : items
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-end gap-2">
         <PartnerField
-          label={'Find a ' + roleNames[role].toLowerCase()}
+          label={role === 'verifier' ? 'Find an acceptance verifier' : 'Find a ' + roleNames[role].toLowerCase()}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           maxLength={100}
         />
         <button
           type="button"
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={() => {
             setSearch(q.trim())
             setCursor(null)
@@ -50,26 +66,28 @@ function SelectPartner({
         onChange={(id) =>
           onPick(
             id,
-            partners.data?.items.find((p) => p.partnerId === id),
+            options.find((p) => p.partnerId === id),
           )
         }
       >
         <option value="">Choose a partner</option>
         {site && <option value="agent-commons">Agent Commons · Site-held work credits</option>}
-        {partners.data?.items.map((p) => (
+        {options.map((p) => (
           <option key={p.partnerId} value={p.partnerId}>
-            {p.displayName} · {p.identity.domainAscii}
-            {p.identity.collisionSignals.length ? ' · Similar names' : ''}
+            {[p.displayName, p.identity.domainAscii, partnerCollisionLabel(p.identity.collisionSignals)].filter(Boolean).join(' · ')}
           </option>
         ))}
-        {value && value !== 'agent-commons' && !partners.data?.items.some((p) => p.partnerId === value) && (
-          <option value={value}>Previously selected partner · {value}</option>
+        {value && value !== 'agent-commons' && !options.some((p) => p.partnerId === value) && (
+          <option value={value} disabled={role === 'verifier'}>Previously selected partner · {value}</option>
         )}
       </PartnerSelect>
+      {role === 'verifier' && partners.data && !items.length && (
+        <p className="text-[13px] text-ink-faint">No matching custodian with published acceptance rules on this page.</p>
+      )}
       {partners.data?.nextCursor && (
         <button
           type="button"
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={() => setCursor(partners.data!.nextCursor!)}
         >
           More matching partners
@@ -78,7 +96,7 @@ function SelectPartner({
       {cursor && (
         <button
           type="button"
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={() => setCursor(null)}
         >
           First page
@@ -115,8 +133,13 @@ export default function TaskTermsEditor({
   const [verifierId, setVerifierId] = useState(
     initial?.acceptance?.kind === 'partner' ? initial.acceptance.partnerId : '',
   )
-  const [verifier, setVerifier] = useState<PartnerCatalogEntry>()
-  const [ruleIndex, setRuleIndex] = useState('')
+  const selectedPartner = usePartnerCatalog({ partnerId: verifierId }, accept === 'partner' && !!verifierId)
+  const verifier = selectedPartner.data?.items.find((p) => p.partnerId === verifierId)
+  const rules = taskVerifierRules(verifier)
+  const [rule, setRule] = useState<PartnerRule | undefined>(
+    initial?.acceptance?.kind === 'partner' ? initial.acceptance.rule : undefined,
+  )
+  const exactRule = rule && rules.find((r) => ruleKey(r) === ruleKey(rule))
   const [error, setError] = useState('')
   return (
     <form
@@ -139,13 +162,8 @@ export default function TaskTermsEditor({
               difficultyBits: Number(str('bits')),
             }
           if (accept === 'partner') {
-            const rule =
-              verifier?.catalog.rules[Number(ruleIndex)] ??
-              (initial?.acceptance?.kind === 'partner' && initial.acceptance.partnerId === verifierId
-                ? initial.acceptance.rule
-                : undefined)
-            if (!rule) throw new Error('Choose the executable rule for this task.')
-            terms.acceptance = { kind: 'partner', partnerId: verifierId, rule }
+            if (!exactRule) throw new Error('Choose a published rule from a custodian approved to run it.')
+            terms.acceptance = { kind: 'partner', partnerId: verifierId, rule: exactRule }
           }
           if (reward) {
             if (!terms.deadline || Date.parse(str('holdUntil')) <= Date.parse(terms.deadline))
@@ -181,7 +199,7 @@ export default function TaskTermsEditor({
         }
       }}
     >
-      <label className="grid gap-1 text-sm">
+      <label className="grid gap-1 text-[13px]">
         What should the contributor deliver?
         <textarea
           name="description"
@@ -192,7 +210,7 @@ export default function TaskTermsEditor({
           maxLength={2000}
         />
       </label>
-      <label className="grid gap-1 text-sm">
+      <label className="grid gap-1 text-[13px]">
         Participation
         <select
           className={FORM_INPUT_CLASS}
@@ -211,11 +229,10 @@ export default function TaskTermsEditor({
         defaultValue={localDateTime(initial?.deadline)}
       />
       <PartnerGroup title="Reward">
-        <label className="flex gap-2">
-          <input type="checkbox" checked={reward} onChange={(e) => setReward(e.target.checked)} />
+        <CheckboxRow checked={reward} onToggle={() => setReward(!reward)}>
           Offer a reserved reward
-        </label>
-        {!reward && <p className="text-sm text-ink-faint">Volunteer task. No reward is promised.</p>}
+        </CheckboxRow>
+        {!reward && <p className="text-[13px] text-ink-faint">Volunteer task. No reward is promised.</p>}
         {reward && (
           <>
             <SelectPartner
@@ -254,17 +271,24 @@ export default function TaskTermsEditor({
               required
               defaultValue={localDateTime(initial?.reward?.holdUntil)}
             />
-            <p className="text-sm text-ink-faint">
+            <p className="text-[13px] text-ink-faint">
               The full reward must be held before this task can be published.
             </p>
           </>
         )}
       </PartnerGroup>
       <PartnerGroup title="Acceptance">
-        <PartnerSelect label="How is a submission accepted?" value={accept} onChange={setAccept}>
-          <option value="none">Open-ended feedback</option>
+        <PartnerSelect
+          label="How is a submission accepted?"
+          required={reward}
+          value={reward && accept === 'none' ? '' : accept}
+          onChange={setAccept}
+        >
+          {reward
+            ? <option value="" disabled>Choose an executable acceptance rule</option>
+            : <option value="none">Open-ended feedback</option>}
           <option value="sha256-prefix">Agent Commons · SHA-256 nonce check</option>
-          <option value="partner">Accepted verifier · Published rule</option>
+          <option value="partner">Accepted custodian · Published rule</option>
         </PartnerSelect>
         {accept === 'sha256-prefix' && (
           <>
@@ -293,37 +317,43 @@ export default function TaskTermsEditor({
             <SelectPartner
               role="verifier"
               value={verifierId}
-              onPick={(id, p) => {
+              selected={rules.length ? verifier : undefined}
+              onPick={(id) => {
                 setVerifierId(id)
-                setVerifier(p)
-                setRuleIndex('')
+                setRule(undefined)
               }}
             />
+            {verifierId && <PartnerQueryStatus query={selectedPartner} retry={refreshPartnerRegistry} />}
             <PartnerSelect
               label="Executable rule"
-              value={ruleIndex}
-              required={!initial?.acceptance || !!verifier}
-              onChange={setRuleIndex}
+              value={exactRule ? ruleKey(exactRule) : ''}
+              required
+              onChange={(value) => setRule(rules.find((r) => ruleKey(r) === value))}
             >
-              <option value="">
-                {!verifier && initial?.acceptance?.kind === 'partner'
-                  ? initial.acceptance.rule.ruleId
-                  : 'Choose a rule'}
-              </option>
-              {verifier?.catalog.rules.map((r, i) => (
-                <option key={i} value={String(i)}>
+              <option value="">Choose a rule</option>
+              {rules.map((r) => (
+                <option key={ruleKey(r)} value={ruleKey(r)}>
                   {r.ruleId} · version {r.version}
                 </option>
               ))}
             </PartnerSelect>
+            {verifierId && selectedPartner.data && !rules.length && (
+              <p className="text-[13px] text-ink-faint">
+                This partner has no current approval to run an acceptance rule. Choose another custodian or the site check.
+              </p>
+            )}
+            {rule && rules.length > 0 && !exactRule && (
+              <p className="text-[13px] text-ink-faint">
+                The selected version of {rule.ruleId} is unavailable. Choose a current rule or another acceptance method.
+              </p>
+            )}
           </>
         )}
       </PartnerGroup>
       <PartnerGroup title="Compute provenance">
-        <label className="flex gap-2">
-          <input type="checkbox" checked={provenance} onChange={(e) => setProvenance(e.target.checked)} />
+        <CheckboxRow checked={provenance} onToggle={() => setProvenance(!provenance)}>
           Require a model provider receipt
-        </label>
+        </CheckboxRow>
         {provenance && (
           <>
             <SelectPartner
@@ -342,7 +372,7 @@ export default function TaskTermsEditor({
               ))}
               {!provider && model && <option>{model}</option>}
             </PartnerSelect>
-            <label className="grid gap-1 text-sm">
+            <label className="grid gap-1 text-[13px]">
               Effort level
               <select
                 key={model}
@@ -359,7 +389,7 @@ export default function TaskTermsEditor({
                 {!provider && initial?.provenance?.effort && <option>{initial.provenance.effort}</option>}
               </select>
             </label>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 @sm:grid-cols-2">
               <PartnerField
                 label="Maximum input tokens"
                 name="maxInput"
@@ -387,7 +417,7 @@ export default function TaskTermsEditor({
         </button>
         <button
           type="button"
-          className={SECONDARY_BUTTON_CLASS + ' min-h-8 px-3 py-1 text-[13px]'}
+          className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
           onClick={onClose}
           disabled={pending}
         >

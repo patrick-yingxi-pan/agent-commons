@@ -89,6 +89,11 @@ test('a conversation can propose a private task and the signed-in requester can 
   const first = await call('POST', path, { decision: 'confirm' }, headers)
   assert.equal(first.status, 200, JSON.stringify(first.json))
   assert.equal(first.json.status, 'done')
+  assert.equal(typeof first.json.decisionId, 'string')
+  const receiptReplay = await call('POST', '/projects/p-insights/task-drafts', { description }, {
+    ...headers, 'idempotency-key': first.json.decisionId,
+  })
+  assert.equal(receiptReplay.status, 201, JSON.stringify(receiptReplay.json))
   assert.equal(await countDrafts(), 1)
   const replay = await call('POST', path, { decision: 'confirm' }, headers)
   assert.equal(replay.json.status, 'done')

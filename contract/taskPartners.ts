@@ -49,6 +49,14 @@ export interface PartnerConformanceRun {
   catalogDigest: string; suiteVersion: string
 }
 export type PartnerCollisionSignal = 'exact_name' | 'normalized_name' | 'confusable_name' | 'similar_name' | 'confusable_domain'
+/** Signals summarize all published peers, so several distinct reasons can apply. */
+export function partnerCollisionLabel(signals: readonly PartnerCollisionSignal[]): string {
+  const reasons: string[] = []
+  if (signals.includes('exact_name')) reasons.push('Identical name')
+  if (signals.includes('normalized_name') || signals.includes('confusable_name') || signals.includes('similar_name')) reasons.push('Similar name')
+  if (signals.includes('confusable_domain')) reasons.push('Similar website domain')
+  return reasons.join(' · ')
+}
 export interface PartnerIdentity {
   domainAscii: string; identityRevision: number; profilePath: string; verifiedAt: string; validUntil: string
   collisionSignals: PartnerCollisionSignal[]; relatedPartners: string[]
