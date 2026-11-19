@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
+import { isTaskPartnerContinuation } from './taskPartnerContinuation.mjs'
 import { app, autoUpdater, BrowserWindow, Menu, dialog, ipcMain, safeStorage, session, shell, utilityProcess } from 'electron'
 import credentialChannels from './credential-channels.cjs'
 import contextChannels from './context-channels.cjs'
@@ -995,7 +996,8 @@ async function createMainWindow(url, origin) {
     if (isMainFrame && !_inPlace) resetMcpOAuthFlows()
   })
   win.webContents.setWindowOpenHandler(({ url: candidate }) => {
-    if (isTrustedAppUrl(candidate, origin)) void win.loadURL(candidate)
+    if (isTaskPartnerContinuation(candidate, origin)) void shell.openExternal(candidate)
+    else if (isTrustedAppUrl(candidate, origin)) void win.loadURL(candidate)
     else leaveApp(candidate)
     return { action: 'deny' }
   })

@@ -82,7 +82,7 @@ export interface OpenSubGoal {
   /** The sub-goal label — the Guardian reservation key when it's taken (D11). */
   subGoal: string
   /** The effect the item needs (decides monotonic vs guarded, and D12 reach). */
-  type: ProjectEffectType
+  type: ProjectEffectType | 'task'
   /** The connector / MCP id (or charge descriptor) the effect acts on. */
   target: string
   /** Free-text context for a would-be taker. `''` when none. */

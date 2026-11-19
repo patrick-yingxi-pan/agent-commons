@@ -104,6 +104,11 @@ class ShellMutationNoticesBoundary extends Component<{ children: ReactNode }, { 
  *  verified session) or when the user opened it (sign in / create account /
  *  add account / after sign-out — useAuthScreen). It REPLACES the workspace
  *  frame — a dedicated onboarding surface, not a dialog over the product. */
+function ResumePartnerSignIn({ id }: { id: string }) {
+  useEffect(() => { window.location.replace('/api/v1/auth/task-partner-handoffs/' + id) }, [id])
+  return <AppBootstrapScreen status="loading" onRetry={retryAppBootstrap} />
+}
+
 export default function App() {
   const capabilities = useCapabilities()
   const identity = useMe()
@@ -126,7 +131,9 @@ export default function App() {
   const resolvedCapabilities = bootstrap.capabilities
   const resolvedIdentity = bootstrap.identity
 
-  const gated = resolvedCapabilities.features.authGate && resolvedIdentity.via !== 'session'
+  const handoff = /^\/sign-in\/task-partner\/(grant-[a-f0-9]{32})$/.exec(window.location.pathname)?.[1]
+  if (handoff && resolvedIdentity.via === 'session') return <ResumePartnerSignIn id={handoff} />
+  const gated = (resolvedCapabilities.features.authGate || Boolean(handoff)) && resolvedIdentity.via !== 'session'
   if (gated || authView) {
     // Gated with no explicit view: land on the picker — it falls through to
     // the sign-in form when no account is remembered on this browser.
@@ -134,7 +141,7 @@ export default function App() {
     return (
       <AuthScreenLoadBoundary>
         <Suspense fallback={<AppBootstrapScreen status="loading" onRetry={retryAppBootstrap} />}>
-          <AuthScreen view={authView ?? { kind: 'picker' }} gated={gated} />
+          <AuthScreen view={authView ?? { kind: handoff ? 'signin' : 'picker' }} gated={gated} />
         </Suspense>
       </AuthScreenLoadBoundary>
     )

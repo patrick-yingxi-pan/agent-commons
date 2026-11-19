@@ -25,6 +25,8 @@ import { startModelServer } from './model/index.ts'
 import { positiveNumberEnv } from './env.ts'
 import { closePersistence } from './persistence/persist.ts'
 import { enforceOrigin } from './http/origin.ts'
+import { servePublicPartner } from './taskPartners/publicHttp.ts'
+import { PartnerRegistryError } from './taskPartners/protocol.ts'
 import { initializeMcpRuntime } from './mcpRuntime.ts'
 
 const PORT = Number(process.env.PORT ?? 8787)
@@ -54,6 +56,16 @@ await initializeMcpRuntime(store.mcpCredentialBindings(), store.mcpStdioBindings
 process.on('exit', closePersistence)
 
 const router = buildRouter()
+const publicOrigins = store.partnerOrigins()
+let checkingPartnerDomains = false
+const domainChecks = setInterval(async () => {
+  if (checkingPartnerDomains || !store.persistenceHealthy()) return
+  checkingPartnerDomains = true
+  try { store.partnerWork.maintain(); await store.taskPartners.recheckDue() }
+  catch { console.error('[task-partners] Domain verification sweep did not finish.') }
+  finally { checkingPartnerDomains = false }
+}, 5 * 60_000)
+domainChecks.unref?.()
 const routineRunner = createRoutineRunner(store)
 configureScheduleExecutor(
   (taskId, runId) => routineRunner.enqueue(taskId, runId),
@@ -78,6 +90,18 @@ const MIME: Record<string, string> = {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`)
+  if (servePublicPartner(req, res, url, publicOrigins, id => {
+    try { return store.taskPartners.publicProfile(id) }
+    catch (error) { if (error instanceof PartnerRegistryError && error.status === 404) return null; throw error }
+  }, store.persistenceHealthy())) return
+
+  // The sandbox hostname serves its own protocol audience. Keep accounts,
+  // production management, and the workspace shell on their configured origin.
+  const requestHost = typeof req.headers.host === 'string' ? req.headers.host.toLowerCase() : undefined
+  if (publicOrigins.sandboxOrigin && requestHost === new URL(publicOrigins.sandboxOrigin).host &&
+      !url.pathname.startsWith('/v1/task-partners/')) {
+    return sendError(res, 'not_found', 'This host serves the task partner sandbox.')
+  }
 
   // With an exact deployment origin, browser traffic from anywhere else is
   // refused before static, API, MCP, or preflight handling. This is especially
@@ -111,6 +135,16 @@ const server = createServer(async (req, res) => {
   }
 
   // API requests: strip the version prefix and route.
+  if (url.pathname.startsWith('/v1/task-partners/')) {
+    const host = typeof req.headers.host === 'string' ? req.headers.host.toLowerCase() : undefined
+    const env = publicOrigins.webOrigin && host === new URL(publicOrigins.webOrigin).host ? 'production'
+      : publicOrigins.sandboxOrigin && host === new URL(publicOrigins.sandboxOrigin).host ? 'sandbox' : undefined
+    if (!env) return sendError(res, 'not_found', 'Partner service unavailable on this host.')
+    const mounted = new URL(url.href)
+    mounted.pathname = '/task-partners/' + env + url.pathname.slice('/v1/task-partners'.length)
+    if (!await router.handle(req, res, mounted) && !res.writableEnded) sendError(res, 'not_found', 'No such task partner operation.')
+    return
+  }
   if (url.pathname === API_BASE_PATH || url.pathname.startsWith(API_BASE_PATH + '/')) {
     const apiUrl = new URL(url.href)
     apiUrl.pathname = url.pathname.slice(API_BASE_PATH.length) || '/'
@@ -201,6 +235,7 @@ server.listen(PORT, HOST, () => {
     unsubscribeAgentRequestFault()
     const backgroundStopped = Promise.all([commissionMcpRunner.stop(), store.stopAgentRequests()])
     clearInterval(inputReviewExpiry)
+    clearInterval(domainChecks)
     // Wait within the process drain bound. If the hard fallback wins, an
     // already-sent call keeps its durable pending receipt; startup converts it
     // to uncertainty and never replays it. Shutdown cannot undo a remote effect.

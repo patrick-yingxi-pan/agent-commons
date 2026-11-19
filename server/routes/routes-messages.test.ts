@@ -155,11 +155,16 @@ test('confirming a proposed connector action executes it (mock) + records an aud
   assert.equal(redirected.status, 400, 'a terminal activity cannot be claimed by a different receipt')
 })
 
+// Each independent consent scenario pays for its model turn in its own tenant.
 test('release posture refuses connector confirmation without claiming an external effect', async () => {
-  const s = store.createSession('connector release refusal')
+  const tenant = 'tenant-connector-release-refusal'
+  const headers = { 'x-tenant-id': tenant }
+  const s = store.createSession('connector release refusal', tenant)
   store.attachContext(s.id, { id: 'mcp-fs', type: 'mcp', label: 'MCP · filesystem', scope: '*' })
-  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'write a file via filesystem' })
-  const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
+  const turn = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'write a file via filesystem' }, headers)
+  assert.equal(turn.status, 200, turn.body)
+  assert.match(turn.body, /"type":"message\.end"/)
+  const thread = (await call('GET', `/sessions/${s.id}`, undefined, headers)).json.messages ?? []
   const proposed = thread
     .flatMap((m: { toolActivities?: { id: string; status?: string; kind?: string }[] }) => m.toolActivities ?? [])
     .find((a: { status?: string; kind?: string }) => a.kind === 'action' && a.status === 'proposed')
@@ -168,12 +173,12 @@ test('release posture refuses connector confirmation without claiming an externa
   const prior = process.env.CONNECTOR_RUNTIME
   process.env.CONNECTOR_RUNTIME = 'unconfigured'
   try {
-    const auditBefore = store.listAuditLog().filter((e) => e.capability === 'connector.write' && e.outcome === 'denied').length
-    const res = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'confirm' })
+    const auditBefore = store.listAuditLog(tenant).filter((e) => e.capability === 'connector.write' && e.outcome === 'denied').length
+    const res = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'confirm' }, headers)
     assert.equal(res.status, 409)
     assert.match(res.json.error.message, /not configured/i)
     assert.equal(store.getToolActivity(s.id, proposed.id)?.status, 'proposed', 'retry and decline remain open')
-    const auditAfter = store.listAuditLog().filter((e) => e.capability === 'connector.write' && e.outcome === 'denied').length
+    const auditAfter = store.listAuditLog(tenant).filter((e) => e.capability === 'connector.write' && e.outcome === 'denied').length
     assert.equal(auditAfter, auditBefore + 1, 'the refused external attempt is detective-audited')
   } finally {
     if (prior === undefined) delete process.env.CONNECTOR_RUNTIME
@@ -182,17 +187,22 @@ test('release posture refuses connector confirmation without claiming an externa
 })
 
 test('declining a proposed connector action marks it declined + records no audit', async () => {
-  const s = store.createSession('connector write decline')
+  const tenant = 'tenant-connector-write-decline'
+  const headers = { 'x-tenant-id': tenant }
+  const s = store.createSession('connector write decline', tenant)
   store.attachContext(s.id, { id: 'mcp-fs', type: 'mcp', label: 'MCP · filesystem', scope: '*' })
-  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'write a file via filesystem' })
-  const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
+  const turn = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'write a file via filesystem' }, headers)
+  assert.equal(turn.status, 200, turn.body)
+  assert.match(turn.body, /"type":"message\.end"/)
+  const thread = (await call('GET', `/sessions/${s.id}`, undefined, headers)).json.messages ?? []
   const proposed = thread
     .flatMap((m: { toolActivities?: { id: string; status?: string; kind?: string }[] }) => m.toolActivities ?? [])
     .find((a: { status?: string; kind?: string }) => a.kind === 'action' && a.status === 'proposed')
-  const before = store.listAuditLog().filter((e) => e.capability === 'connector.write').length
-  const res = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'decline' })
+  assert.ok(proposed, 'the model proposed the action being declined')
+  const before = store.listAuditLog(tenant).filter((e) => e.capability === 'connector.write').length
+  const res = await call('POST', `/sessions/${s.id}/tool-activities/${proposed.id}`, { decision: 'decline' }, headers)
   assert.equal(res.json.status, 'declined', 'decline marks it declined')
-  assert.equal(store.listAuditLog().filter((e) => e.capability === 'connector.write').length, before, 'a declined action records no audit')
+  assert.equal(store.listAuditLog(tenant).filter((e) => e.capability === 'connector.write').length, before, 'a declined action records no audit')
 })
 
 test('a durable running external MCP receipt replays without dispatch and a different receipt is refused', async () => {
@@ -223,17 +233,25 @@ test('a durable running external MCP receipt replays without dispatch and a diff
 })
 
 test('an attached connector the message does NOT name drives no tool activity', async () => {
-  const s = store.createSession('connector attached but unnamed')
+  const tenant = 'tenant-connector-unnamed'
+  const headers = { 'x-tenant-id': tenant }
+  const s = store.createSession('connector attached but unnamed', tenant)
   store.attachContext(s.id, { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' })
-  const { body } = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'what should we ship next quarter?', ephemeral: true })
-  assert.doesNotMatch(body, /"type":"message\.toolActivity"/, 'naming no connector ⇒ no call, even with one attached')
+  const turn = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'what should we ship next quarter?', ephemeral: true }, headers)
+  assert.equal(turn.status, 200, turn.body)
+  assert.match(turn.body, /"type":"message\.end"/)
+  assert.doesNotMatch(turn.body, /"type":"message\.toolActivity"/, 'naming no connector ⇒ no call, even with one attached')
 })
 
 test('a non-ephemeral connector turn persists its toolActivities (survives reload)', async () => {
-  const s = store.createSession('connector persistence')
+  const tenant = 'tenant-connector-persistence'
+  const headers = { 'x-tenant-id': tenant }
+  const s = store.createSession('connector persistence', tenant)
   store.attachContext(s.id, { id: 'conn-slack', type: 'connector', label: 'Slack', scope: '*' })
-  await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'list my slack channels' }) // not ephemeral → persisted
-  const thread = (await call('GET', `/sessions/${s.id}`)).json.messages ?? []
+  const turn = await callRaw('POST', `/sessions/${s.id}/messages`, { text: 'list my slack channels' }, headers)
+  assert.equal(turn.status, 200, turn.body)
+  assert.match(turn.body, /"type":"message\.end"/)
+  const thread = (await call('GET', `/sessions/${s.id}`, undefined, headers)).json.messages ?? []
   const assistant = thread.find((m: { role: string; toolActivities?: unknown[] }) => m.role === 'assistant' && (m.toolActivities?.length ?? 0) > 0)
   assert.ok(assistant, 'the persisted assistant turn carries its toolActivities')
   assert.equal(assistant.toolActivities[0].tool, 'connector__slack__list')

@@ -87,7 +87,7 @@ test('conditional section availability has one registry rule for rail chrome and
   const sidebar = stripComments(read(join(ROOT, 'src', 'components', 'Sidebar.tsx'))).replace(/\s+/g, ' ')
   const app = stripComments(read(join(ROOT, 'src', 'App.tsx'))).replace(/\s+/g, ' ')
 
-  assert.ok(registry.includes("admin: { label: 'Maintain', subtitle: 'Instance administration for website maintainers.', Icon: Wrench, availability: 'instance-admin'"))
+  assert.ok(registry.includes("admin: { label: 'Maintain', Icon: Wrench, availability: 'instance-admin'"))
   assert.ok(registry.includes("export function sectionAvailable("), 'the section registry owns the availability predicate')
   assert.ok(sidebar.includes('SECTION_ORDER.filter((id) => sectionAvailable(id, { instanceAdmin }))'))
   assert.ok(app.includes("content.kind !== 'msection' || sectionAvailable(content.id, { instanceAdmin })"))

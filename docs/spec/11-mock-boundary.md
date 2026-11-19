@@ -168,6 +168,8 @@ actual chooser, signed/Intel or paid-service acceptance.
 
 ## The declared fixtures (L2)
 
+Task partner sandbox exercises use sample commands and independently checked expected results. Their credentials and receipts apply only in the sandbox. Production domain checks, signatures, task grants and the site's work-credit ledger run in the backend. An external payout or model execution requires an enrolled partner to perform the operation and sign its result. Operators configure verified origins, eligible participants and recovery keys for their deployment. [Partner operations](../task-partner-operations.md)
+
 `GET /context-catalog` projects fixture candidates only from the persisted demo
 world; a clean world returns empty candidates. Both UI entry points share this
 read and disclose loading, failure and demo data without a bundled fallback.

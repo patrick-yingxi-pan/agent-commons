@@ -525,3 +525,6 @@ export function useRecents(): QueryState<RecentsSnapshot> {
 export function useAuditLog(): QueryState<AuditEntry[]> {
   return useQuery(keys.auditLog, () => apiGet<AuditEntry[]>(paths.audit))
 }
+export { usePartnerApplications, usePartnerApplication, usePartnerAudit, usePartnerCatalog, usePartnerConformance, usePartnerDomainChallenge, refreshPartnerRegistry, usePartnerTask, usePartnerTasks, useTaskHandoff, refreshPartnerWork, refreshHandoffStatus, usePartnerBalance } from './taskPartners.ts'
+
+export { usePartnerObligations, usePartnerRecovery } from './taskPartners.ts'

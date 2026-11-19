@@ -1,6 +1,6 @@
 # Recognizing a task partner
 
-Two providers called **Orchard Services** can both be legitimate. A requester looking for the provider at `orchard.example` should be able to find it by that address. A saved task should keep using the same provider even if a second organization adopts its name. The proposed identity system gives people a verified website to recognize, binds permissions to a permanent partner ID, and gives visitors a first-party page where they can check a website badge. [Integration guide](task-partner-integrations.md) · [Web flows](task-partner-web.md) · [OpenAPI contract](task-partner-api.openapi.json)
+Two providers called **Orchard Services** can both be legitimate. A requester looking for the provider at `orchard.example` should be able to find it by that address. A saved task should keep using the same provider even if a second organization adopts its name. The partner registry gives people a verified website to recognize, binds permissions to a permanent partner ID, and gives visitors a first-party page where they can check a website badge. [Integration guide](task-partner-integrations.md) · [Web flows](task-partner-web.md) · [OpenAPI contract](task-partner-api.openapi.json)
 
 ## Establish the public identity
 
@@ -24,6 +24,8 @@ Compare a proposed or changed display name against other partner identities befo
 2. Compare UTS #39 confusable skeletons of those normalized names. This catches visually similar characters within and across scripts. Use the full versioned Unicode tables and bidirectional processing. A skeleton is internal comparison data.
 3. Compare the normalized code points for small edits, including adjacent transpositions. The initial policy uses optimal string alignment distance of at most one when the shorter name has at least five code points, or at most two when it has at least twelve. Shorter names still receive exact, normalized and skeleton checks.
 4. Check distinct canonical domains for visually confusable Unicode host forms, preserving label boundaries and suffixes. Domain comparison for **authorization** always uses the exact ASCII host. A similarity match can never grant domain control.
+
+The directory, task selector, consent screen, public profile and website badge use the same three labels. **Identical name** means another published partner uses the exact display name. **Similar name** covers normalized, visually confusable and near-match names. **Similar website domain** means two distinct verified domains can look alike. Show every applicable label alongside the full ASCII host. A domain-only match shows only the website label.
 
 Compute the strongest name signal for each pair and the domain signal when applicable. The public profile summarizes those signals and links to related published partners. Show peers side by side with their domains. For example, a directory search for “Orchard Services” can show two exact names and also flag “Orchard Servcies,” while an exact-domain lookup of `orchard.example` selects just its bound ID. Show the same context on both profiles. A new applicant gains no priority over an existing partner by triggering a collision. Keep unpublished applicants and their contacts out of public comparison results.
 

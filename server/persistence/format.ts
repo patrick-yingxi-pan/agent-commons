@@ -87,6 +87,8 @@ import { validateContributionMcpAuthorities } from '../contributionMcpAuthority.
 import { parseRoutineMcpRegistryState, validateRoutineMcpRegistryJoins, type RoutineMcpRegistryState } from '../routineMcpRegistry.ts'
 import { validateRoutineMcpAuthorities } from '../routineMcpAuthority.ts'
 import { parseCommissionMcpRegistryState, type CommissionMcpRegistryState } from '../commissionMcpRegistry.ts'
+import { PartnerRegistry, type PartnerRegistrySnapshot } from '../taskPartners/registry.ts'
+import { WorkStorage, type PartnerWorkSnapshot } from '../taskPartners/taskStorage.ts'
 import { validateCommissionMcpRegistryJoins } from '../commissionMcpAuthority.ts'
 import { parseUsageMeterEntries, parseUsageReservations, type UsageMeterEntries, type UsageReservationState } from '../usageRegistry.ts'
 import { parseScheduleStanding } from '../scheduleStanding.ts'
@@ -510,6 +512,8 @@ export interface PersistedState {
   /** Private fresh Commission grants, pre-model claims and exact effect receipts.
    * Missing legacy state is empty, never inferred from standing configuration. */
   commissionMcp?: CommissionMcpRegistryState
+  taskPartners?: PartnerRegistrySnapshot
+  partnerWork?: PartnerWorkSnapshot
   /** Private durable model-usage receipts/holds, exactly joined to Commission
    * claims. Optional only when claimless; v6's absent legacy slice is normalized
    * by migration because that release had no Commission model-I/O execution. */
@@ -639,6 +643,8 @@ export const SLICE_KIND: Record<keyof PersistedState, SliceKind> = {
   mcpInputFlows: 'array',
   routineMcp: 'singleton',
   commissionMcp: 'singleton',
+  taskPartners: 'singleton',
+  partnerWork: 'singleton',
   usageReservations: 'array',
   accountUsers: 'mapEntries',
   accountTenants: 'mapEntries',
@@ -1115,6 +1121,12 @@ export function hasCorePersistedShape(state: PersistedState | null): state is Pe
       (state.views ?? []).some((entry) => Array.isArray(entry) && retiredSubject(entry[1], entry[2])) ||
       (state.discussionReads ?? []).some((entry) => Array.isArray(entry) && Array.isArray(entry[1]) &&
         entry[1].some((read) => Array.isArray(read) && retiredDiscussionIds.has(read[0])))) return false
+  }
+  if (state?.taskPartners !== undefined || state?.partnerWork !== undefined) {
+    try {
+      new PartnerRegistry().restore(state.taskPartners)
+      new WorkStorage(() => {}).restore(state.partnerWork)
+    } catch { return false }
   }
   if (state?.usageMeters !== undefined) {
     try { parseUsageMeterEntries(state.usageMeters) } catch { return false }

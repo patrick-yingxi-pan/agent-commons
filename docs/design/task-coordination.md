@@ -2,7 +2,7 @@
 
 A Project can ask for a result and let contributors choose how to produce it. Someone might run a laptop script overnight because they like the project. Another requester might need evidence that a particular model ran at high reasoning effort and offer a reward for the work. Both requests belong in the same Project backlog.
 
-**Design status.** This proposal extends the existing work item. Today an `OpenSubGoal` names an intended effect and its target. A commission defines what its Agent may do. The Agent's owner pays for its compute and earns a contribution record for fulfilled work. Result-only submissions, provider attestations and custody of rewards are proposed capabilities. [Work-item contract](../../contract/directory.ts) · [Project work and commission economics, D19 and D13](../agent-commons.md)
+**Implementation.** Project work can carry versioned terms for the result, execution evidence and compensation. A volunteer can submit an open-ended response. A requester offering a reward must choose an executable rule and reserve the promised amount before publication. The site can hold its own work credits. External assets and model receipts require an approved partner that supports the specified terms. [Task contract](../../contract/taskPartnerWork.ts) · [Requester and contributor screens](task-partner-web.md#publishing-a-task) [Work-item contract](../../contract/directory.ts) · [Project work and commission economics, D19 and D13](../agent-commons.md)
 
 ## What the requester specifies
 

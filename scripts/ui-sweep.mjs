@@ -778,10 +778,28 @@ for (const vp of VIEWPORTS) {
     for (const section of SECTIONS) {
       cell = at(section)
       if (!(await goTo(page, `/${section}`, cell))) continue
+      if (section === 'task-partners') {
+        await page.locator('main').getByRole('button', { name: 'Search partners' }).waitFor({ state: 'visible' })
+      }
       await noHScroll(page, cell)
       await shot(page, cell.replace('/', '_'))
       await sweepTriggers(page, vp, cell)
       covered(cell)
+    }
+
+    cell = at('partner-registration')
+    if (await goTo(page, '/task-partners/register', cell)) {
+      const form = page.locator('main')
+      try {
+        await form.getByRole('checkbox', { name: 'Model provider' }).check()
+        await form.getByLabel('Model ID', { exact: true }).waitFor({ state: 'visible' })
+        await form.getByRole('button', { name: 'Submit application' }).waitFor({ state: 'visible' })
+        await noHScroll(page, cell)
+        await shot(page, cell.replace('/', '_'))
+        covered(cell)
+      } catch (e) {
+        unreachable(cell, `partner enrollment did not expose the provider catalog and submission controls: ${firstLine(e)}`)
+      }
     }
 
     // ── the DETAIL cells, addressed by canonical URL from real ids ──

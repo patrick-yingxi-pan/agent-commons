@@ -139,7 +139,7 @@ test('EVERY detail kind names itself — a back label never says the section for
   // (which the walk reaches first — asserted below), and the
   // console's account roster is grant-walled, so naming it would mean a
   // cross-tenant read from every page in the app.
-  const UNNAMED = ['workItemId', 'contributionId', 'adminUserId', 'artifactMatch'] as const
+  const UNNAMED = ['workItemId', 'contributionId', 'adminUserId', 'partnerApplication', 'artifactMatch'] as const
   for (const key of PANE_SEED_KEYS) {
     const spec = NAMED[key]
     if (!spec) {

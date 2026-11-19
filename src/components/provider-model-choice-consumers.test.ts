@@ -18,12 +18,17 @@ test('explicit model selectors derive choices from their canonical registered or
     ['ProviderDialogs.tsx', /useProviderModelDiscovery\(tenantId/, /discovery\.models\.some\(choice => choice\.id === model\)/, /discovery\.models\.map\(choice =>/],
   ] as const
 
+  // A task attestation names a model approved for this external organization.
+  // The model and efforts come from its partner catalog.
+  const partnerConsumers = [
+    ['TaskTermsEditor.tsx', /provider\?\.catalog\.models\.map\(/, /\.find\(\(m\) => m\.model === model\)/, /\.efforts\.map\(/],
+  ] as const
   const explicitSelectors = filesUnder('src').filter((path) => path.endsWith('.tsx') &&
     /Choose a model/.test(stripComments(read(path)))).map((path) => basename(path)).sort()
-  assert.deepEqual(explicitSelectors, [...consumers, ...draftConsumers].map(([file]) => file).filter((file) => file !== 'ModelPickerMenuBody.tsx').sort(),
+  assert.deepEqual(explicitSelectors, [...consumers, ...draftConsumers, ...partnerConsumers].map(([file]) => file).filter((file) => file !== 'ModelPickerMenuBody.tsx').sort(),
     'every explicit model chooser belongs to this enumeration, not just the original four')
 
-  for (const [filename, ...checks] of [...consumers, ...draftConsumers]) {
+  for (const [filename, ...checks] of [...consumers, ...draftConsumers, ...partnerConsumers]) {
     const source = stripComments(read(join(ROOT, 'src', 'components', filename)))
     for (const check of checks) assert.match(source, check, `${filename} must use its canonical model choices`)
     if (filename !== 'ModelPickerMenuBody.tsx') assert.match(source, /Choose a model/)

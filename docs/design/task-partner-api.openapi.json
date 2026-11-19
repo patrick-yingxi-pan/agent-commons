@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Agent Commons task partner API",
-    "version": "1.0.0-proposal",
-    "description": "Proposed partner protocol. Standard Project operations own task drafting, publication, claiming and submission. This API owns partner enrollment, consent handoffs, assigned commands and signed evidence. Example hosts and data are reserved for documentation."
+    "version": "1.0.0",
+    "description": "Project operations own task drafting, publication, claiming and submission. This API owns partner enrollment, consent handoffs, assigned commands and signed evidence. Example hosts and data are reserved for documentation."
   },
   "servers": [
     {
@@ -15,6 +15,7 @@
       "description": "Production example; discover the deployment origin in the operator-approved partner console."
     }
   ],
+  "x-partner-name-vector-description": "Each example compares two organizations. leftName and leftDomain identify the first organization in the comparison. rightName and rightDomain identify the second. expectedSignals lists the similarities the registry should flag. Either organization can appear on either side.",
   "x-partner-name-vectors": [
     {
       "leftName": "Orchard Works",
@@ -113,6 +114,707 @@
     "operations": "At-least-once delivery. Record commandId before executing. A definitive no-effect failure is terminal for that command. Unknown moves to uncertain and permits only lookup of that ID or reconciled terminal evidence. Refuse inconsistent terminal evidence and place it in operator review. Timeout cannot prove an external effect was absent. A reservation remains exclusively assigned until a confirmed terminal release or return. If a partner is suspended or revoked, revoke all online access immediately, preserve old evidence and reconcile legal outstanding obligations through the two-person recovery procedure."
   },
   "paths": {
+    "/projects/{id}/task-drafts": {
+      "get": {
+        "operationId": "listTaskOffers",
+        "summary": "List visible Project offers and the requester’s drafts.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/Cursor"},
+          {"$ref":"#/components/parameters/Limit"},
+          {
+            "name": "state",
+            "in": "query",
+            "description": "Filter visible tasks by state before pagination.",
+            "schema": { "type": "string", "enum": ["draft", "published", "closed", "cancelled"] }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferPage"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "createTaskOffer",
+        "summary": "Create a private Project task draft.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferTerms"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/terms": {
+      "get": {
+        "operationId": "getTaskOffer",
+        "summary": "Read the exact visible offer and its work.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "editTaskOffer",
+        "summary": "Save a new version of an uncommitted draft.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferEdit"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/publish": {
+      "post": {
+        "operationId": "publishTaskOffer",
+        "summary": "Publish after checking the rule, selected partner identities, and full reward coverage.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferSelection"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/claim": {
+      "post": {
+        "operationId": "claimTaskOffer",
+        "summary": "Claim a published offer under its frozen participation policy.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferVersion"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/revisions": {
+      "post": {
+        "operationId": "reviseTaskOffer",
+        "summary": "Start a private successor and preserve the earlier offer and its obligations.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferRevision"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/cancel": {
+      "post": {
+        "operationId": "cancelTaskOffer",
+        "summary": "Cancel an eligible offer and return a reserved reward under the terms.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferVersion"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/fund": {
+      "post": {
+        "operationId": "fundSiteTaskReward",
+        "summary": "Reserve the exact site-issued reward from the requester’s available balance.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferVersion"}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/submissions": {
+      "post": {
+        "operationId": "submitTaskOfferWork",
+        "summary": "Submit work against the exact published terms.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/TaskOfferSubmission"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOfferView"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{id}/work/{workId}/submissions/{submissionId}/output": {
+      "get": {
+        "operationId": "readTaskSubmissionOutput",
+        "summary": "Read an authorized bounded chunk of immutable submission output.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "workId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "submissionId",
+            "in": "path",
+            "required": true,
+            "schema": {"$ref":"#/components/schemas/Identifier"}
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {"type":"integer","minimum":0}
+          },
+          {
+            "name": "length",
+            "in": "query",
+            "schema": {"type":"integer","minimum":1,"maximum":65536}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/TaskOutputChunk"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/task-partners/balance": {
+      "get": {
+        "operationId": "getSiteCreditBalance",
+        "summary": "Read the signed-in account’s available and reserved site work credits.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/SiteCreditBalance"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/task-partners/credit-grants": {
+      "post": {
+        "operationId": "grantSiteCredits",
+        "summary": "Issue site work credits to an existing account as a freshly authenticated operator.",
+        "servers": [
+          {"url":"/api/v1","description":"Signed-in workspace API and MCP operation source."}
+        ],
+        "security": [
+          {
+            "Session": []
+          },
+          {
+            "HumanBearer": []
+          }
+        ],
+        "parameters": [
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {"$ref":"#/components/schemas/SiteCreditGrant"}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Authorized result.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/SiteCreditBalance"}
+              }
+            }
+          },
+          "default": {
+            "description": "The request was refused.",
+            "content": {
+              "application/json": {
+                "schema": {"$ref":"#/components/schemas/Problem"}
+              }
+            }
+          }
+        }
+      }
+    },
     "/applications/{applicationId}/domain-challenges": {
       "post": {
         "operationId": "issuePartnerDomainChallenge",
@@ -347,6 +1049,28 @@
           "404": {"$ref": "#/components/responses/NotFound"},
           "429": {"$ref": "#/components/responses/RateLimited"},
           "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/name": {
+      "post": {
+        "operationId": "renameTaskPartner",
+        "summary": "Change the name shown for an organization",
+        "description": "An administrator of the applicant organization submits the current application revision. Recompute comparison signals for all affected published partners. A display-name edit preserves the permanent ID, exact domain and identity revision used by current grants.",
+        "security": [{"Session":[]},{"HumanBearer":[]}],
+        "parameters": [
+          {"name":"applicationId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}},
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/PartnerRename"}}}},
+        "responses":{
+          "200":{"description":"Renamed application.","content":{"application/json":{"schema":{"$ref":"#/components/schemas/Application"}}}},
+          "400":{"$ref":"#/components/responses/BadRequest"},
+          "401":{"$ref":"#/components/responses/Unauthorized"},
+          "403":{"$ref":"#/components/responses/Forbidden"},
+          "404":{"$ref":"#/components/responses/NotFound"},
+          "409":{"$ref":"#/components/responses/Conflict"},
+          "429":{"$ref":"#/components/responses/RateLimited"}
         }
       }
     },
@@ -765,6 +1489,7 @@
         "description": "Project actors discover eligible provider, holder and verification capabilities. Filter by capability and paginate; responses are projections, so publication and assignment recheck eligibility against the pinned profile. Provide either domainAscii for exact eligible-primary-host lookup or name for display-name comparison. If both are present return 400. A domain read plus any capability filter returns at most one current production partner; an empty result never falls back to a name match. A name search includes exact, normalized, confusable and near candidates, ordered by stable canonical domain and ID with no implicit selection. Bind cursor to actor, environment and all filters.",
         "security": [{"Session": []}, {"HumanBearer": []}],
         "parameters": [
+          {"name":"partnerId","in":"query","schema":{"$ref":"#/components/schemas/Identifier"},"description":"Exact immutable ID. Supply only one of partnerId, domainAscii or name."},
           {"name":"domainAscii","in":"query","schema":{"$ref":"#/components/schemas/DomainAscii"},"description":"Exact canonical website host. Mutually exclusive with name."},
           {"name":"name","in":"query","schema":{"type":"string","minLength":1,"maxLength":100},"description":"Compare the supplied display name using the enrolled name-comparison policy. Mutually exclusive with domainAscii."},
           {"$ref": "#/components/parameters/Cursor"},
@@ -1036,6 +1761,269 @@
       }
     },
     "schemas": {
+      "TaskOfferTerms": {
+        "type": "object",
+        "properties": {
+          "description": {"type":"string","minLength":1,"maxLength":2000},
+          "acceptance": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {"const":"sha256-prefix"},
+                  "prefix": {"type":"string","maxLength":256},
+                  "difficultyBits": {"type":"integer","minimum":1,"maximum":256}
+                },
+                "required": ["kind","prefix","difficultyBits"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {"const":"partner"},
+                  "partnerId": {"$ref":"#/components/schemas/Identifier"},
+                  "rule": {"$ref":"#/components/schemas/Rule"}
+                },
+                "required": ["kind","partnerId","rule"],
+                "additionalProperties": false
+              }
+            ],
+            "description": "Required to publish a rewarded task. Optional on volunteer work."
+          },
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "partnerId": {"$ref":"#/components/schemas/Identifier"},
+              "model": {"type":"string"},
+              "effort": {"type":"string"},
+              "maxInputTokens": {"type":"integer","minimum":1},
+              "maxOutputTokens": {"type":"integer","minimum":1}
+            },
+            "required": ["partnerId","model","maxInputTokens","maxOutputTokens"],
+            "additionalProperties": false,
+            "description": "Require a receipt from the approved provider for this model and usage limit."
+          },
+          "reward": {
+            "type": "object",
+            "properties": {
+              "partnerId": {"$ref":"#/components/schemas/Identifier"},
+              "asset": {"$ref":"#/components/schemas/Asset"},
+              "holdUntil": {"$ref":"#/components/schemas/Timestamp"}
+            },
+            "required": ["partnerId","asset","holdUntil"],
+            "additionalProperties": false,
+            "description": "The holder must reserve the entire asset before publication. Specify a deadline earlier than holdUntil."
+          },
+          "deadline": {"$ref":"#/components/schemas/Timestamp"},
+          "participation": {
+            "type": "string",
+            "enum": ["first-valid","single-claim"]
+          }
+        },
+        "required": ["description"],
+        "additionalProperties": false,
+        "dependentRequired": {
+          "reward": ["deadline"]
+        }
+      },
+      "TaskOfferVersion": {
+        "type": "object",
+        "properties": {
+          "termsVersion": {"type":"integer","minimum":1},
+          "termsDigest": {"$ref":"#/components/schemas/Digest"}
+        },
+        "required": ["termsVersion","termsDigest"],
+        "additionalProperties": false
+      },
+      "TaskOfferSelection": {
+        "type": "object",
+        "properties": {
+          "termsVersion": {"type":"integer","minimum":1},
+          "termsDigest": {"$ref":"#/components/schemas/Digest"},
+          "expectedIdentities": {
+            "type": "object",
+            "additionalProperties": {"$ref":"#/components/schemas/ExpectedPartnerIdentity"}
+          }
+        },
+        "required": ["termsVersion","termsDigest"],
+        "additionalProperties": false
+      },
+      "TaskOfferEdit": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {"type":"integer","minimum":1},
+          "terms": {"$ref":"#/components/schemas/TaskOfferTerms"}
+        },
+        "required": ["expectedVersion","terms"],
+        "additionalProperties": false
+      },
+      "TaskOfferRevision": {
+        "type": "object",
+        "properties": {
+          "termsVersion": {"type":"integer","minimum":1},
+          "termsDigest": {"$ref":"#/components/schemas/Digest"},
+          "terms": {"$ref":"#/components/schemas/TaskOfferTerms"}
+        },
+        "required": ["termsVersion","termsDigest","terms"],
+        "additionalProperties": false
+      },
+      "TaskOfferSubmission": {
+        "type": "object",
+        "properties": {
+          "termsVersion": {"type":"integer","minimum":1},
+          "termsDigest": {"$ref":"#/components/schemas/Digest"},
+          "text": {"type":"string","minLength":1,"maxLength":16384}
+        },
+        "required": ["termsVersion","termsDigest","text"],
+        "additionalProperties": false
+      },
+      "TaskOfferView": {
+        "type": "object",
+        "properties": {
+          "termsVersion": {"type":"integer","minimum":1},
+          "termsDigest": {"$ref":"#/components/schemas/Digest"},
+          "taskId": {"$ref":"#/components/schemas/Identifier"},
+          "projectId": {"$ref":"#/components/schemas/Identifier"},
+          "terms": {"$ref":"#/components/schemas/TaskOfferTerms"},
+          "status": {
+            "type": "string",
+            "enum": ["draft","published","closed","cancelled"]
+          },
+          "claim": {
+            "type": "string",
+            "enum": ["available","mine","taken"]
+          },
+          "requester": {"type":"boolean"},
+          "funding": {
+            "type": "string",
+            "enum": [
+              "volunteer",
+              "awaiting",
+              "reserving",
+              "held",
+              "delivering",
+              "delivered",
+              "returning",
+              "returned",
+              "uncertain"
+            ]
+          },
+          "submissions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "submissionId": {"$ref":"#/components/schemas/Identifier"},
+                "submittedAt": {"$ref":"#/components/schemas/Timestamp"},
+                "mine": {"type":"boolean"},
+                "text": {"type":"string"},
+                "digest": {"$ref":"#/components/schemas/Digest"},
+                "verdict": {
+                  "type": "string",
+                  "enum": ["open", "pending", "passed", "rejected", "unavailable"]
+                },
+                "provenance": {
+                  "type": "string",
+                  "enum": ["optional","pending","attested","failed"]
+                }
+              },
+              "required": ["submissionId","submittedAt","mine","verdict","provenance"],
+              "additionalProperties": false
+            }
+          },
+          "partners": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partnerId": {"$ref":"#/components/schemas/Identifier"},
+                "displayName": {"type":"string"},
+                "domainAscii": {"$ref":"#/components/schemas/DomainAscii"},
+                "identityRevision": {"type":"integer","minimum":1},
+                "profilePath": {"type":"string"},
+                "status": {
+                  "enum": ["active","verification_lapsed","suspended","revoked","unavailable"]
+                }
+              },
+              "required": ["partnerId","displayName","domainAscii","identityRevision","profilePath","status"],
+              "additionalProperties": false
+            }
+          },
+          "winnerId": {"$ref":"#/components/schemas/Identifier"},
+          "publishedAt": {"$ref":"#/components/schemas/Timestamp"},
+          "previousOffer": {
+            "type": "object",
+            "properties": {
+              "taskId": {"$ref":"#/components/schemas/Identifier"},
+              "termsVersion": {"type":"integer","minimum":1},
+              "termsDigest": {"$ref":"#/components/schemas/Digest"}
+            },
+            "required": ["taskId","termsVersion","termsDigest"],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "taskId",
+          "projectId",
+          "termsVersion",
+          "termsDigest",
+          "terms",
+          "status",
+          "claim",
+          "requester",
+          "funding",
+          "submissions",
+          "partners"
+        ],
+        "additionalProperties": false
+      },
+      "TaskOfferPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {"$ref":"#/components/schemas/TaskOfferView"}
+          },
+          "nextCursor": {"type":"string"}
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "TaskOutputChunk": {
+        "type": "object",
+        "properties": {
+          "artifact": {"$ref":"#/components/schemas/Artifact"},
+          "byteLength": {"type":"integer","minimum":0},
+          "offset": {"type":"integer","minimum":0},
+          "dataBase64": {"type":"string","contentEncoding":"base64"},
+          "nextOffset": {"type":"integer","minimum":1}
+        },
+        "required": ["artifact","byteLength","offset","dataBase64"],
+        "additionalProperties": false
+      },
+      "SiteCreditBalance": {
+        "type": "object",
+        "properties": {
+          "assetId": {"const":"commons.work-credit"},
+          "unit": {"const":"credit"},
+          "available": {"type":"string","pattern":"^(0|[1-9][0-9]*)$"},
+          "held": {"type":"string","pattern":"^(0|[1-9][0-9]*)$"}
+        },
+        "required": ["assetId","unit","available","held"],
+        "additionalProperties": false
+      },
+      "SiteCreditGrant": {
+        "type": "object",
+        "properties": {
+          "userId": {"$ref":"#/components/schemas/Identifier"},
+          "tenantId": {"$ref":"#/components/schemas/Identifier"},
+          "quantity": {"type":"string","pattern":"^[1-9][0-9]{0,37}$"},
+          "reference": {"$ref":"#/components/schemas/Identifier"},
+          "reason": {"type":"string","minLength":1,"maxLength":300}
+        },
+        "required": ["userId","tenantId","quantity","reference","reason"],
+        "additionalProperties": false
+      },
       "DomainAscii": {
         "type": "string",
         "minLength": 3,
@@ -1351,10 +2339,17 @@
         "required": ["kid", "state", "validFrom", "thumbprint"],
         "additionalProperties": false
       },
+      "PartnerRename": {
+        "type":"object",
+        "properties":{"displayName":{"type":"string","minLength":1,"maxLength":100},"expectedRevision":{"type":"integer","minimum":1,"maximum":2147483647}},
+        "required":["displayName","expectedRevision"],
+        "additionalProperties":false
+      },
       "Application": {
         "type": "object",
         "description": "Organization administrators and independent reviewers see the current application. challenge is present while proof is pending. Approved capabilities must be a subset of the request. Enrollment detail only. Contact details and key diagnostics are private. Suspension and revocation invalidate all online tokens for the application immediately; review a new approval before admitting a different capability set. domainChallengeIds identifies the most recent website and handoff challenges for authorized polling. A pending domain replacement never overwrites the verified binding.",
         "properties": {
+          "viewer": {"type":"object","description":"Private abilities derived from the current viewer and the application owner.","properties":{"canManage":{"type":"boolean"},"canReview":{"type":"boolean"}},"required":["canManage","canReview"],"additionalProperties":false},
           "domainChallengeIds": {"type":"object","properties":{"website":{"$ref":"#/components/schemas/Identifier"},"handoff":{"$ref":"#/components/schemas/Identifier"}},"additionalProperties":false},
           "applicationId": {"$ref": "#/components/schemas/Identifier"},
           "partnerId": {"$ref": "#/components/schemas/Identifier"},
@@ -1412,7 +2407,12 @@
       "ApplicationPage": {
         "type": "object",
         "properties": {
+          "recoveryRole": { "enum": ["incident", "settlement", null], "description": "The signed-in operator’s assigned recovery role." },
           "items": {"type": "array", "items": {"$ref": "#/components/schemas/Application"}, "minItems": 0, "maxItems": 100},
+          "canReview": {"type": "boolean", "description": "Current viewer can review applications as a site operator."},
+          "canManage": {"type": "boolean", "description": "Current viewer can manage applications in the acting tenant."},
+          "webOrigin": {"type": ["string", "null"], "description": "Configured public HTTPS profile origin."},
+          "badgeOrigin": {"type": ["string", "null"], "description": "Configured dedicated HTTPS host for website badges."},
           "nextCursor": {"type": "string", "minLength": 1, "maxLength": 512}
         },
         "required": ["items"],
@@ -2233,6 +3233,7 @@
         "type": "object",
         "description": "Only capabilities and catalog entries currently approved for this caller and environment. Exclude internal contact details, key material, pending applications and personal account data. Production eligibility requires a current verified binding. Display the complete primary host and link to the full immutable ID from identity. Sandbox projections use the sandbox origin, carry a Sandbox label, and confer no public listing.",
         "properties": {
+          "trustedForActor": {"type":"boolean","description":"True when the authenticated viewer already pinned this exact current identity."},
           "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
           "partnerId": {"$ref": "#/components/schemas/Identifier"},
           "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
@@ -2253,6 +3254,7 @@
       "ProfilePage": {
         "type": "object",
         "properties": {
+          "webOrigin": { "type": ["string", "null"], "format": "uri", "description": "Canonical origin of public organization pages when configured." },
           "items": {"type": "array", "items": {"$ref": "#/components/schemas/PartnerProfile"}, "minItems": 0, "maxItems": 100},
           "nextCursor": {"type": "string", "minLength": 1, "maxLength": 512}
         },
@@ -2365,6 +3367,7 @@
       "Recovery": {
         "type": "object",
         "properties": {
+          "availableActions": { "type": "array", "uniqueItems": true, "items": { "enum": ["authorize", "submit_evidence", "confirm_evidence"] }, "description": "Actions this operator may take at the current case revision." },
           "recoveryId": {"$ref": "#/components/schemas/Identifier"},
           "obligationId": {"$ref": "#/components/schemas/Identifier"},
           "commandId": {"$ref": "#/components/schemas/Identifier"},

@@ -24,6 +24,7 @@ import { resolveIdentity } from '../identity.ts'
 import { prepareCommissionRestoreState } from './commissionRestore.ts'
 import { prepareRoutineRestoreState } from './routineRestore.ts'
 import { prepareAgentRequestRestoreState } from './agentRequestRestore.ts'
+import { prepareTaskPartnerRestoreState } from './taskPartnerRestore.ts'
 
 function artifactHistoryReferencesAreCanonical(state: PersistedState): boolean {
   if (!state.artifactHistory?.length && !state.artifactHistoryRestoreReceipts?.length) return true
@@ -146,6 +147,7 @@ export function restoreBackendState(
   if (!artifactHistoryReferencesAreCanonical(checked)) {
     throw new Error('refusing to restore orphaned or incompatible Artifact history')
   }
+  checked = prepareTaskPartnerRestoreState(checked, backend)
   checked = prepareCommissionRestoreState(checked)
   checked = prepareRoutineRestoreState(checked)
   checked = prepareAgentRequestRestoreState(checked)

@@ -59,6 +59,8 @@ export interface PaneSeed {
   agentRequestId?: string
   contextId?: string
   adminUserId?: string
+  /** Environment and private partner application ID in one address. */
+  partnerApplication?: string
   /** A discussion's page under the discussions section (social S2). */
   discussionId?: string
   /** An artifact opened in the gallery (UI-19: the rail lists artifacts, so one
@@ -78,7 +80,7 @@ export interface PaneSeed {
  *  its canonical NavLocation, a page's focus state → its reported seed) walks
  *  THIS list, so adding a detail kind is a one-line change here instead of a
  *  hunt across three hand-copied field lists. */
-export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerSectionId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'agentRequestId', 'contextId', 'adminUserId', 'discussionId', 'artifactId', 'artifactRevision', 'artifactMatch', 'providerId'] as const
+export const PANE_SEED_KEYS = ['collectionSectionId', 'projectSectionId', 'projectId', 'scheduleSectionId', 'scheduleId', 'ownerSectionId', 'ownerName', 'workItemId', 'contributionId', 'agentId', 'promptId', 'toolId', 'agentRequestId', 'contextId', 'adminUserId', 'partnerApplication', 'discussionId', 'artifactId', 'artifactRevision', 'artifactMatch', 'providerId'] as const
 type SeedKey = (typeof PANE_SEED_KEYS)[number]
 // Compile-time lock: the key list and PaneSeed stay in lock-step — adding a
 // detail id to one without the other fails typecheck here.
@@ -143,6 +145,7 @@ export function seedFor(section: SectionId, id?: string, subId?: string): PaneSe
   }
   if (section === OWNER_SECTION) return { ownerName: id }
   if (section === 'admin') return { adminUserId: id }
+  if (section === 'task-partners') return { partnerApplication: id }
   if (section === 'discussions') return { discussionId: id }
   if (section === 'artifacts') {
     const location = parseArtifactSubLocation(subId)

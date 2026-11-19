@@ -1,4 +1,4 @@
-/** Conformance of the proposed partner wire contract and its published examples.
+/** Conformance of the partner wire contract and its published examples.
  * These tests read the OpenAPI document. HTTP authorization, signature verification
  * and settlement under retries require the live implementation's integration tests. */
 import { test } from 'node:test'
@@ -53,6 +53,7 @@ test('the OpenAPI contract resolves offline and its schema examples validate', (
 test('the HTTP operations expose the enrollment, consent, command and receipt schemas used by partners', () => {
   const exchanges = [
     ['post', '/applications', 'ApplicationRequest', '201', 'Application'],
+    ['post', '/applications/{applicationId}/name', 'PartnerRename', '200', 'Application'],
     ['post', '/applications/{applicationId}/proofs', 'Proof', '200', 'Application'],
     ['post', '/handoffs', 'HandoffRequest', '201', 'HandoffStart'],
     ['post', '/handoffs/{handoffId}/exchange', 'HandoffExchange', '200', 'HandoffOffer'],

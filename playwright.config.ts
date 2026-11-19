@@ -146,6 +146,10 @@ export default defineConfig({
       // e2e/admin.spec.ts can drive the grant-gated Maintain section. The grant
       // lands only on VERIFIED resolutions, so the default (headerless) boot
       // still shows no console — exactly what the spec asserts.
+      // Task-partner enrollment binds the key proof to this isolated sandbox audience.
+      TASK_PARTNER_SANDBOX_ORIGIN: 'https://sandbox.commons.example',
+      TASK_PARTNER_WEB_ORIGIN: 'https://commons.example',
+      TASK_PARTNER_BADGE_ORIGIN: 'https://badges.commons.example',
       MAINTAINERS: 'user-ada',
     },
   },

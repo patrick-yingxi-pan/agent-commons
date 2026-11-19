@@ -16,6 +16,7 @@ import {
 
 test('the composite capability catalog is total and names the standing page features', () => {
   assert.deepEqual(Object.keys(COMPOSITE_FEATURES), [
+    'task-partners',
     'commons',
     'projects',
     'artifacts',

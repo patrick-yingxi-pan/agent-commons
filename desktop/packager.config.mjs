@@ -38,6 +38,7 @@ export function ignoreFromPackage(path) {
   if (!normalized) return false
   const [root] = normalized.split('/')
   if (['package.json', 'LICENSE', 'LICENSING.md'].includes(normalized)) return false
+  if (root === 'docs') return !['docs', 'docs/design', 'docs/design/task-partner-api.openapi.json'].includes(normalized)
   if (!SHIPPED_ROOTS.has(root)) return true
   // Packager stops traversing a directory as soon as its parent is ignored.
   // Root allowlisting therefore has to keep the directory node itself before

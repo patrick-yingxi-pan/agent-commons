@@ -13,7 +13,9 @@ import { buildRouter } from '../server/routes/index.ts'
 import { catalogOf } from '../server/apiSurface.ts'
 import { mcpToolRoutes } from '../server/mcp.ts'
 import { deriveApiTools } from '../server/model/apiTools.ts'
-import { paths } from '../src/api/keys.ts'
+import { paths as corePaths } from '../src/api/keys.ts'
+import { partnerPaths } from '../src/api/partnerPaths.ts'
+const paths = {...corePaths,...partnerPaths}
 import { filesUnder, read } from './helpers/source.ts'
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
@@ -56,6 +58,7 @@ const apiMethods = new Map<string, Method>([
   ['apiGet', 'GET'],
   ['apiUrl', 'GET'],
   ['apiPost', 'POST'],
+  ['apiNavigationHref', 'GET'],
   ['apiPatch', 'PATCH'],
   ['apiDelete', 'DELETE'],
 ])

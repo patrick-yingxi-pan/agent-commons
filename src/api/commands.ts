@@ -1314,3 +1314,10 @@ function dispatch(event: ReplyStreamEvent, h: SendHandlers): void {
       break
   }
 }
+export { registerPartner, issuePartnerDomain, provePartnerSigningKey, changePartnerKey, startPartnerConformance, reviewPartner, readPartnerDomainChallenge, createPartnerTask, savePartnerTask, actOnPartnerTask, startTaskHandoff, decideTaskHandoff, grantPartnerCredits, fundPartnerTask } from './taskPartners.ts'
+
+export { reconcilePartner, downloadPartnerOutput } from './taskPartners.ts'
+
+export { renameTaskPartner } from './taskPartners.ts'
+
+export { revisePartnerTask } from './taskPartners.ts'

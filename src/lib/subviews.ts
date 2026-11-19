@@ -80,6 +80,10 @@ export const COMMONS_LENSES: SubView[] = [
 ]
 
 export const SECTION_CHILDREN: Partial<Record<SectionId, SectionChild[]>> = {
+  'task-partners': [
+    {id: 'applications', label: 'Partner applications'},
+    {id: 'register', label: 'Register partner'},
+  ].map(subviewChild),
   // The Commons' standing LENSES (owner request, 2026-07-24: "add sub-entries
   // that filter contents … this helps the user find things"). They are children
   // rather than filter-menu options because they are not a partition of the

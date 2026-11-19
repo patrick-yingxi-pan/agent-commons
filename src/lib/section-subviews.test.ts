@@ -38,8 +38,8 @@ test('the fixed-child registry owns shared order while URL subviews remain canon
   // PAGES. The Commons' five lenses are the viewer's own standing collections — not a
   // slice of the feed's content, which is why they are places and `shares` /
   // `landings` is a filter.
-  assert.deepEqual(Object.keys(SECTION_CHILDREN).sort(), ['admin', 'agents', 'commons'])
-  assert.deepEqual(Object.keys(SECTION_SUBVIEWS).sort(), ['admin', 'agents', 'commons'])
+  assert.deepEqual(Object.keys(SECTION_CHILDREN).sort(), ['admin', 'agents', 'commons', 'task-partners'])
+  assert.deepEqual(Object.keys(SECTION_SUBVIEWS).sort(), ['admin', 'agents', 'commons', 'task-partners'])
   // `following` (S7) joins them as the fifth — and the only one keyed on WHO
   // ACTED rather than on the subject, which is what makes the feed social.
   assert.deepEqual(COMMONS_LENSES.map((s) => s.id), ['following', 'watched', 'liked', 'posted', 'viewed'])

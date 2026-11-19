@@ -158,6 +158,20 @@ export const keys = {
   adminOps: 'admin-ops',
 }
 
+/** Shared, encoded resource roots keep the workspace and lazy task routes small. */
+const childPath = (prefix: string) => (id: string) => prefix + '/' + encodePathSegment(id)
+const projectPath = childPath('/projects')
+const sessionPath = childPath('/sessions')
+const discussionPath = childPath('/discussions')
+const artifactPath = childPath('/artifacts')
+const agentPath = childPath('/agents')
+const connectionPath = childPath('/mcp-connections')
+const providerPath = childPath('/providers')
+const agentRequestPath = childPath('/agent-requests')
+const runnerPath = childPath('/runners')
+const schedulePath = childPath('/schedules')
+const contributionPath = (projectId: string, cid: string) => projectPath(projectId) + '/contributions/' + encodePathSegment(cid)
+
 export const paths = {
   modelPreferences: '/viewer-preferences/model',
   imageAssets: '/image-assets',
@@ -196,15 +210,15 @@ export const paths = {
   /** Reattach to a live server-owned turn (multi-account §5.2): replay after
    *  `after`, then the live tail. 404 once persisted (refetch the session). */
   turnStream: (id: string, turnId: string, after: number) =>
-    `/sessions/${encodePathSegment(id)}/turns/${encodePathSegment(turnId)}/stream?after=${after}`,
+    `${sessionPath(id)}/turns/${encodePathSegment(turnId)}/stream?after=${after}`,
   turnCancel: (id: string, turnId: string) =>
-    `/sessions/${encodePathSegment(id)}/turns/${encodePathSegment(turnId)}/cancel`,
+    `${sessionPath(id)}/turns/${encodePathSegment(turnId)}/cancel`,
   providers: '/providers',
   providerModelsDiscover: '/providers/models/discover',
-  provider: (id: string) => `/providers/${encodePathSegment(id)}`,
-  providerConnection: (id: string) => `/providers/${encodePathSegment(id)}/connection`,
-  providerRotate: (id: string) => `/providers/${encodePathSegment(id)}/rotate`,
-  providerModelsRefresh: (id: string) => `/providers/${encodePathSegment(id)}/models/refresh`,
+  provider: (id: string) => `${providerPath(id)}`,
+  providerConnection: (id: string) => `${providerPath(id)}/connection`,
+  providerRotate: (id: string) => `${providerPath(id)}/rotate`,
+  providerModelsRefresh: (id: string) => `${providerPath(id)}/models/refresh`,
   systemPrompts: '/system-prompts',
   systemPrompt: (id: string) => `/system-prompts/${encodePathSegment(id)}`,
   agentTools: '/agent-tools',
@@ -212,22 +226,22 @@ export const paths = {
   agents: '/agents',
   agentRequests: '/agent-requests',
   agentRequestOptions: '/agent-request-options',
-  agentRequest: (id: string) => `/agent-requests/${encodePathSegment(id)}`,
-  agentRequestReview: (id: string) => `/agent-requests/${encodePathSegment(id)}/review`,
-  agentRequestReplyReview: (id: string) => `/agent-requests/${encodePathSegment(id)}/reply-review`,
-  agentRequestDecision: (id: string) => `/agent-requests/${encodePathSegment(id)}/decision`,
+  agentRequest: (id: string) => `${agentRequestPath(id)}`,
+  agentRequestReview: (id: string) => `${agentRequestPath(id)}/review`,
+  agentRequestReplyReview: (id: string) => `${agentRequestPath(id)}/reply-review`,
+  agentRequestDecision: (id: string) => `${agentRequestPath(id)}/decision`,
   agent: (id: string) => `/agents/${encodePathSegment(id)}`,
   commissions: (projectId?: string) =>
     projectId ? `/commissions?project=${encodePathSegment(projectId)}` : '/commissions',
   commission: (id: string) => `/commissions/${encodePathSegment(id)}`,
   commissionAuthority: (id: string) => `/commissions/${encodePathSegment(id)}/authority`,
-  projectSubGoals: (projectId: string) => `/projects/${encodePathSegment(projectId)}/subgoals`,
-  openSubGoals: (projectId: string) => `/projects/${encodePathSegment(projectId)}/open-subgoals`,
+  projectSubGoals: (projectId: string) => `${projectPath(projectId)}/subgoals`,
+  openSubGoals: (projectId: string) => `${projectPath(projectId)}/open-subgoals`,
   /** D23 — a work item's flat discussion thread + the honest close. */
   openSubGoalComments: (projectId: string, itemId: string) =>
-    `/projects/${encodePathSegment(projectId)}/open-subgoals/${encodePathSegment(itemId)}/comments`,
+    `${projectPath(projectId)}/open-subgoals/${encodePathSegment(itemId)}/comments`,
   openSubGoalRetract: (projectId: string, itemId: string) =>
-    `/projects/${encodePathSegment(projectId)}/open-subgoals/${encodePathSegment(itemId)}/retract`,
+    `${projectPath(projectId)}/open-subgoals/${encodePathSegment(itemId)}/retract`,
   /** A resource's grant roster (social S1) — the generic subject-ref read. */
   grants: (kind: string, id: string) => `/grants?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
   grantCreate: () => `/grants`,
@@ -236,16 +250,16 @@ export const paths = {
   /** A subject's discussions (social S2) + the per-discussion faces. */
   discussions: (kind: string, id: string) => `/discussions?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
   socialCapability: (kind: string, id: string) => `/social/capability?kind=${encodePathSegment(kind)}&id=${encodePathSegment(id)}`,
-  sessionFork: (id: string) => `/sessions/${encodePathSegment(id)}/fork`,
+  sessionFork: (id: string) => `${sessionPath(id)}/fork`,
   myDiscussions: () => `/discussions?mine=1`,
   /** The person layer (S7): the DM inbox, the follow list + its one act, and
    *  the per-thread read mark behind the inbox's unread count. */
   directMessages: () => `/discussions?direct=1`,
   follows: () => `/me/follows`,
   socialFollow: () => `/social/follow`,
-  discussionRead: (did: string) => `/discussions/${encodePathSegment(did)}/read`,
+  discussionRead: (did: string) => `${discussionPath(did)}/read`,
   discussionReadState: (did: string, throughPostId: string) =>
-    `/discussions/${encodePathSegment(did)}/read?throughPostId=${encodePathSegment(throughPostId)}`,
+    `${discussionPath(did)}/read?throughPostId=${encodePathSegment(throughPostId)}`,
   /** The Commons feed (S4) + the acts behind its lenses: a like on one item, a
    *  watch on any subject, and the note that you opened one. */
   commons: () => `/commons`,
@@ -261,61 +275,61 @@ export const paths = {
   socialProposalLand: (pid: string) => `/proposals/${encodePathSegment(pid)}/land`,
   socialProposalDecline: (pid: string) => `/proposals/${encodePathSegment(pid)}/decline`,
   discussionOpen: () => `/discussions`,
-  discussion: (did: string) => `/discussions/${encodePathSegment(did)}`,
-  discussionPosts: (did: string) => `/discussions/${encodePathSegment(did)}/posts`,
-  discussionReact: (did: string, pid: string) => `/discussions/${encodePathSegment(did)}/posts/${encodePathSegment(pid)}/react`,
+  discussion: (did: string) => `${discussionPath(did)}`,
+  discussionPosts: (did: string) => `${discussionPath(did)}/posts`,
+  discussionReact: (did: string, pid: string) => `${discussionPath(did)}/posts/${encodePathSegment(pid)}/react`,
   discussionPost: (did: string, pid: string, cascade = false) =>
-    `/discussions/${encodePathSegment(did)}/posts/${encodePathSegment(pid)}${cascade ? '?cascade=1' : ''}`,
-  discussionPostReport: (did: string, pid: string) => `/discussions/${encodePathSegment(did)}/posts/${encodePathSegment(pid)}/report`,
-  discussionResolve: (did: string) => `/discussions/${encodePathSegment(did)}/resolve`,
+    `${discussionPath(did)}/posts/${encodePathSegment(pid)}${cascade ? '?cascade=1' : ''}`,
+  discussionPostReport: (did: string, pid: string) => `${discussionPath(did)}/posts/${encodePathSegment(pid)}/report`,
+  discussionResolve: (did: string) => `${discussionPath(did)}/resolve`,
   /** The contribution ledger (agent-contribution workflow Phase A). */
-  contributions: (projectId: string) => `/projects/${encodePathSegment(projectId)}/contributions`,
+  contributions: (projectId: string) => `${projectPath(projectId)}/contributions`,
   contributionComments: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/comments`,
+    `${contributionPath(projectId,cid)}/comments`,
   contributionLand: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/land`,
+    `${contributionPath(projectId,cid)}/land`,
   contributionEnvelope: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/envelope`,
+    `${contributionPath(projectId,cid)}/envelope`,
   contributionEnvelopeApprove: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/envelope/approve`,
+    `${contributionPath(projectId,cid)}/envelope/approve`,
   contributionEffects: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/effects`,
+    `${contributionPath(projectId,cid)}/effects`,
   contributionChangeset: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/changeset`,
+    `${contributionPath(projectId,cid)}/changeset`,
   contributionReview: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/review`,
+    `${contributionPath(projectId,cid)}/review`,
   contributionRequireReview: (projectId: string, cid: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/require-review`,
-  delegations: (projectId: string) => `/projects/${encodePathSegment(projectId)}/delegations`,
+    `${contributionPath(projectId,cid)}/require-review`,
+  delegations: (projectId: string) => `${projectPath(projectId)}/delegations`,
   delegation: (projectId: string, did: string) =>
-    `/projects/${encodePathSegment(projectId)}/delegations/${encodePathSegment(did)}`,
-  attention: (projectId: string) => `/projects/${encodePathSegment(projectId)}/attention`,
+    `${projectPath(projectId)}/delegations/${encodePathSegment(did)}`,
+  attention: (projectId: string) => `${projectPath(projectId)}/attention`,
   contributionDelegated: (projectId: string, cid: string, did: string) =>
-    `/projects/${encodePathSegment(projectId)}/contributions/${encodePathSegment(cid)}/delegated/${encodePathSegment(did)}`,
+    `${contributionPath(projectId,cid)}/delegated/${encodePathSegment(did)}`,
   agentFork: (id: string) => `/agents/${encodePathSegment(id)}/fork`,
   directoryProjects: (q?: string) => (q ? `/directory/projects?q=${encodePathSegment(q)}` : '/directory/projects'),
   directoryAgents: (q?: string) => (q ? `/directory/agents?q=${encodePathSegment(q)}` : '/directory/agents'),
   /** Change proposals against a published definition (D25). */
-  agentProposals: (agentId: string) => `/agents/${encodePathSegment(agentId)}/proposals`,
-  agentResolvedWork: (agentId: string) => `/agents/${encodePathSegment(agentId)}/resolved-work`,
-  agentForks: (agentId: string) => `/agents/${encodePathSegment(agentId)}/forks`,
+  agentProposals: (agentId: string) => `${agentPath(agentId)}/proposals`,
+  agentResolvedWork: (agentId: string) => `${agentPath(agentId)}/resolved-work`,
+  agentForks: (agentId: string) => `${agentPath(agentId)}/forks`,
   agentProposalMerge: (agentId: string, pid: string) =>
-    `/agents/${encodePathSegment(agentId)}/proposals/${encodePathSegment(pid)}/merge`,
+    `${agentPath(agentId)}/proposals/${encodePathSegment(pid)}/merge`,
   agentProposalDecline: (agentId: string, pid: string) =>
-    `/agents/${encodePathSegment(agentId)}/proposals/${encodePathSegment(pid)}/decline`,
+    `${agentPath(agentId)}/proposals/${encodePathSegment(pid)}/decline`,
   agentProposalComments: (agentId: string, pid: string) =>
-    `/agents/${encodePathSegment(agentId)}/proposals/${encodePathSegment(pid)}/comments`,
+    `${agentPath(agentId)}/proposals/${encodePathSegment(pid)}/comments`,
   /** The notification inbox + watch acts (D24). */
   notifications: '/notifications',
   notificationsRead: '/notifications/read',
   notificationsReadState: (...ids: string[]) =>
     `/notifications/read?${ids.map((id) => `id=${encodePathSegment(id)}`).join('&')}`,
-  projectWatch: (projectId: string) => `/projects/${encodePathSegment(projectId)}/watch`,
+  projectWatch: (projectId: string) => `${projectPath(projectId)}/watch`,
   /** The workspace profile (D21) — the display name IS the public handle. */
   ownerProfile: (name: string) => `/directory/owners/${encodePathSegment(name)}`,
   /** Global search (D22): typed grouped hits across everything the caller can see. */
   search: (q: string, page?: SearchPage) => `/search?q=${encodePathSegment(q)}${page ? `&type=${encodePathSegment(page.type)}&offset=${page.offset}` : ''}`,
-  conversationSearch: (id: string, q: string, offset = 0) => `/sessions/${encodePathSegment(id)}/search?q=${encodePathSegment(q)}&offset=${offset}`,
+  conversationSearch: (id: string, q: string, offset = 0) => `${sessionPath(id)}/search?q=${encodePathSegment(q)}&offset=${offset}`,
   /** The A2A edge (docs/a2a-integration.md, D20). `a2aAgentCard` is a public GET a
    *  foreign agent (or a curious human) can open; `agentImportCard` is the outbound
    *  fetch-a-remote-card mint. */
@@ -326,51 +340,51 @@ export const paths = {
   // capability gate and are exercised by the contract via tests + `BACKEND=remote`
   // (which 409s them); that gate, not a client caller, is what demonstrates portability.
   runners: '/runners',
-  runner: (id: string) => `/runners/${encodePathSegment(id)}`,
-  runnerInvoke: (id: string) => `/runners/${encodePathSegment(id)}/invoke`,
-  runnerEffects: (id: string) => `/runners/${encodePathSegment(id)}/effects`,
-  runnerSync: (id: string) => `/runners/${encodePathSegment(id)}/sync`,
+  runner: (id: string) => `${runnerPath(id)}`,
+  runnerInvoke: (id: string) => `${runnerPath(id)}/invoke`,
+  runnerEffects: (id: string) => `${runnerPath(id)}/effects`,
+  runnerSync: (id: string) => `${runnerPath(id)}/sync`,
   resource: (key: string) => `/resources/${encodePathSegment(key)}`,
   resourceReserve: (key: string) => `/resources/${encodePathSegment(key)}/reserve`,
   reservationCommit: (id: string) => `/reservations/${encodePathSegment(id)}/commit`,
   reservationRelease: (id: string) => `/reservations/${encodePathSegment(id)}/release`,
   sessions: '/sessions',
   session: (id: string, page?: { limit: number; cursor?: string }) => {
-    const base = `/sessions/${encodePathSegment(id)}`
+    const base = `${sessionPath(id)}`
     if (!page) return base
     const cursor = page.cursor ? `&messageCursor=${encodePathSegment(page.cursor)}` : ''
     return `${base}?messageLimit=${page.limit}${cursor}`
   },
-  sessionMessages: (id: string) => `/sessions/${encodePathSegment(id)}/messages`,
-  sessionExport: (id: string) => `/sessions/${encodePathSegment(id)}/export`,
-  sessionContexts: (id: string) => `/sessions/${encodePathSegment(id)}/contexts`,
-  sessionContextState: (id: string) => `/sessions/${encodePathSegment(id)}/context-state`,
+  sessionMessages: (id: string) => `${sessionPath(id)}/messages`,
+  sessionExport: (id: string) => `${sessionPath(id)}/export`,
+  sessionContexts: (id: string) => `${sessionPath(id)}/contexts`,
+  sessionContextState: (id: string) => `${sessionPath(id)}/context-state`,
   toolActivityEligibility: (id: string) =>
-    `/sessions/${encodePathSegment(id)}/tool-activity-eligibility`,
-  sessionPreferences: (id: string) => `/sessions/${encodePathSegment(id)}/preferences`,
+    `${sessionPath(id)}/tool-activity-eligibility`,
+  sessionPreferences: (id: string) => `${sessionPath(id)}/preferences`,
   toolActivity: (id: string, activityId: string) =>
-    `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}`,
+    `${sessionPath(id)}/tool-activities/${encodePathSegment(activityId)}`,
   mcpInput: (id: string, activityId: string, decisionId?: string) =>
-    `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}/input${decisionId === undefined ? '' : `?decisionId=${encodeURIComponent(decisionId)}`}`,
+    `${sessionPath(id)}/tool-activities/${encodePathSegment(activityId)}/input${decisionId === undefined ? '' : `?decisionId=${encodeURIComponent(decisionId)}`}`,
   mcpInputReceipt: (id: string, activityId: string, responseId: string, decisionId: string) =>
-    `/sessions/${encodePathSegment(id)}/tool-activities/${encodePathSegment(activityId)}/input/receipts/${encodePathSegment(responseId)}?decisionId=${encodeURIComponent(decisionId)}`,
-  sessionCompact: (id: string) => `/sessions/${encodePathSegment(id)}/compact`,
+    `${sessionPath(id)}/tool-activities/${encodePathSegment(activityId)}/input/receipts/${encodePathSegment(responseId)}?decisionId=${encodeURIComponent(decisionId)}`,
+  sessionCompact: (id: string) => `${sessionPath(id)}/compact`,
   sessionCompactedMessages: (id: string, page: { limit: number; cursor?: string }) => {
     const cursor = page.cursor ? `&cursor=${encodePathSegment(page.cursor)}` : ''
-    return `/sessions/${encodePathSegment(id)}/compacted-messages?limit=${page.limit}${cursor}`
+    return `${sessionPath(id)}/compacted-messages?limit=${page.limit}${cursor}`
   },
   messageRelations: (id: string, messageId: string) =>
-    `/sessions/${encodePathSegment(id)}/messages/${encodePathSegment(messageId)}/relations`,
+    `${sessionPath(id)}/messages/${encodePathSegment(messageId)}/relations`,
   dispatch: '/dispatch',
   savedContexts: '/saved-contexts',
   contextCatalog: '/context-catalog',
   savedContext: (id: string) => `/saved-contexts/${encodePathSegment(id)}`,
   mcpConnections: '/mcp-connections',
-  mcpConnection: (id: string) => `/mcp-connections/${encodePathSegment(id)}`,
-  mcpConnectionInspect: (id: string) => `/mcp-connections/${encodePathSegment(id)}/inspect`,
-  mcpConnectionDisconnect: (id: string) => `/mcp-connections/${encodePathSegment(id)}/disconnect`,
-  mcpConnectionCleanup: (id: string) => `/mcp-connections/${encodePathSegment(id)}/credential-cleanup`,
-  mcpConnectionCredentialBinding: (id: string) => `/mcp-connections/${encodePathSegment(id)}/credential-binding`,
+  mcpConnection: (id: string) => `${connectionPath(id)}`,
+  mcpConnectionInspect: (id: string) => `${connectionPath(id)}/inspect`,
+  mcpConnectionDisconnect: (id: string) => `${connectionPath(id)}/disconnect`,
+  mcpConnectionCleanup: (id: string) => `${connectionPath(id)}/credential-cleanup`,
+  mcpConnectionCredentialBinding: (id: string) => `${connectionPath(id)}/credential-binding`,
   connectorDetail: (c: Connector) => {
     const q = new URLSearchParams({ id: c.id, label: c.label })
     if (c.kind) q.set('kind', c.kind)
@@ -383,19 +397,19 @@ export const paths = {
   posts: '/posts',
   artifactContent: '/artifact-content',
   /** The owner's body-edit door (social S3) — one addressed prose block. */
-  artifactContentEdit: (id: string) => `/artifacts/${encodePathSegment(id)}/content`,
+  artifactContentEdit: (id: string) => `${artifactPath(id)}/content`,
   /** Owner-only reviewed permanent deletion from Trash. */
-  artifactDeletionPreview: (id: string) => `/artifacts/${encodePathSegment(id)}/deletion-preview`,
+  artifactDeletionPreview: (id: string) => `${artifactPath(id)}/deletion-preview`,
   /** Owner-only retained Artifact body history and exact revision restore. */
   artifactHistory: (id: string, beforeRevision?: number, limit = 50) => {
     const query = new URLSearchParams({ limit: String(limit) })
     if (beforeRevision !== undefined) query.set('beforeRevision', String(beforeRevision))
-    return `/artifacts/${encodePathSegment(id)}/history?${query.toString()}`
+    return `${artifactPath(id)}/history?${query.toString()}`
   },
   artifactHistoryVersion: (id: string, revision: number) =>
-    `/artifacts/${encodePathSegment(id)}/history/${encodePathSegment(String(revision))}`,
+    `${artifactPath(id)}/history/${encodePathSegment(String(revision))}`,
   artifactHistoryRestore: (id: string, revision: number) =>
-    `/artifacts/${encodePathSegment(id)}/history/${encodePathSegment(String(revision))}/restore`,
+    `${artifactPath(id)}/history/${encodePathSegment(String(revision))}/restore`,
   scheduleTemplates: '/schedule-templates',
   // Served filesystem sources (contract/fs.ts). `fsContent` returns raw bytes (an
   // image / binary), used directly as an `<img src>` — not via `apiGet` (which
@@ -415,18 +429,18 @@ export const paths = {
   fsContent: fsEntryPath('content'),
   projects: '/projects',
   artifacts: '/artifacts',
-  artifact: (id: string) => `/artifacts/${encodePathSegment(id)}`,
+  artifact: (id: string) => `${artifactPath(id)}`,
   artifactTrash: '/artifacts/trash',
-  artifactLifecycle: (id: string) => `/artifacts/${encodePathSegment(id)}/lifecycle`,
+  artifactLifecycle: (id: string) => `${artifactPath(id)}/lifecycle`,
   artifactExport: (id: string, format?: 'xlsx' | 'pptx' | 'docx') => {
-    const path = `/artifacts/${encodePathSegment(id)}/export`
+    const path = `${artifactPath(id)}/export`
     return format ? `${path}?format=${format}` : path
   },
   schedules: '/schedules',
-  schedule: (id: string) => `/schedules/${encodePathSegment(id)}`,
-  scheduleRun: (id: string) => `/schedules/${encodePathSegment(id)}/run`,
-  scheduleRunStop: (id: string, runId: string) => `/schedules/${encodePathSegment(id)}/runs/${encodePathSegment(runId)}/stop`,
-  scheduleMcpPermission: (id: string) => `/schedules/${encodePathSegment(id)}/mcp-permission`,
+  schedule: (id: string) => `${schedulePath(id)}`,
+  scheduleRun: (id: string) => `${schedulePath(id)}/run`,
+  scheduleRunStop: (id: string, runId: string) => `${schedulePath(id)}/runs/${encodePathSegment(runId)}/stop`,
+  scheduleMcpPermission: (id: string) => `${schedulePath(id)}/mcp-permission`,
   commissionMcpPermission: (id: string, selection?: { providerId: string; modelId: string }) => {
     const path = `/commissions/${encodePathSegment(id)}/mcp-permission`
     return selection ? `${path}?providerId=${encodePathSegment(selection.providerId)}&modelId=${encodePathSegment(selection.modelId)}` : path

@@ -427,6 +427,10 @@ test('Electron owns a sandboxed utility-process lifecycle and Packager ships an 
     assert.equal(ignoreFromPackage(`/node_modules/${module}/package.json`), false, `${module} is in the isolated schema worker's closure`)
   }
   assert.equal(ignoreFromPackage('/server/mcpSchemaWorker.mjs'), false)
+  for (const path of ['/docs', '/docs/design', '/docs/design/task-partner-api.openapi.json']) {
+    assert.equal(ignoreFromPackage(path), false, `the packaged MCP schema is reachable at ${path}`)
+  }
+  assert.equal(ignoreFromPackage('/docs/design/task-partner-web.md'), true)
   assert.equal(ignoreFromPackage('/node_modules/saxes/package.json'), true)
   assert.equal(ignoreFromPackage('/node_modules/json-schema-to-ts/package.json'), false)
   assert.equal(ignoreFromPackage('/node_modules/react/package.json'), true)

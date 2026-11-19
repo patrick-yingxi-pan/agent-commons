@@ -115,6 +115,10 @@ export function pathForView(loc: NavLocation, subview: string | null): string {
   }
   if (loc.providerId) return `/models/${encodeURIComponent(loc.providerId)}`
   if (loc.adminUserId) return `/admin/users/${encodeURIComponent(loc.adminUserId)}`
+  if (loc.partnerApplication) {
+    const [env, id] = loc.partnerApplication.split('/')
+    return `/task-partners/applications/${encodeURIComponent(env)}/${encodeURIComponent(id)}`
+  }
   return subview ? `/${loc.section}/${encodeURIComponent(subview)}` : `/${loc.section}`
 }
 
@@ -158,6 +162,10 @@ export function viewForPath(pathname: string): RoutedView | null {
   const section = segs[0]
   const base = { kind: 'section' as const, section, projectId: null, scheduleId: null, ownerName: null }
   if (segs.length === 1) return { loc: base, subview: null }
+  if (section === 'task-partners' && segs.length === 4 && segs[1] === 'applications'
+    && ['sandbox', 'production'].includes(segs[2]) && /^[A-Za-z0-9_.:-]+$/.test(segs[3])) {
+    return {loc: {...base, partnerApplication: segs[2] + '/' + segs[3]}, subview: null}
+  }
   if (section === 'artifacts' && segs.length === 4 && segs[1] && segs[2] === 'history') {
     const revision = artifactHistoryRevision(segs[3])
     return revision === undefined ? null : { loc: { ...base, artifactId: segs[1], artifactRevision: String(revision) }, subview: null }
