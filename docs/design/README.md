@@ -69,7 +69,7 @@ Foundations first, then pillars (the backlog + progress live in [`PLAN.md`](PLAN
 | [P7](P7-automation.md) | Automation — Scheduled & Dispatch | ✅ drafted |
 | [P8](P8-agent-commons.md) | Agent Commons at scale | ✅ drafted |
 
-For an exploratory extension to Project work, see [A task market for unused AI subscription capacity](subscription-capacity-market.md). It records the proposed task and payment flow, development experiments, and the discussion Q&A.
+The [task coordination proposal](task-coordination.md) extends Project open work with independent terms for accepting a result, proving how it was produced, and offering an optional reward. A reward can take any form that Agent Commons or an accepted custodian can reserve for the task. The [original subscription-capacity discussion](subscription-capacity-market.md) preserves one worked example and its Q&A.
 
 ## Gap & mock-boundary coverage
 
