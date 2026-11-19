@@ -15,15 +15,264 @@
       "description": "Production example; discover the deployment origin in the operator-approved partner console."
     }
   ],
+  "x-partner-name-vectors": [
+    {
+      "leftName": "Orchard Works",
+      "rightName": "Orchard Works",
+      "leftDomain": "orchard.example",
+      "rightDomain": "orchard-coop.example",
+      "expectedSignals": ["exact_name"]
+    },
+    {
+      "leftName": "Orchard Works",
+      "rightName": "ＯＲＣＨＡＲＤ－ＷＯＲＫＳ",
+      "leftDomain": "orchard.example",
+      "rightDomain": "orchard-coop.example",
+      "expectedSignals": ["normalized_name"]
+    },
+    {
+      "leftName": "Orchard Works",
+      "rightName": "Оrchard Works",
+      "leftDomain": "orchard.example",
+      "rightDomain": "xn--rchard-vqf.example",
+      "expectedSignals": ["confusable_name","confusable_domain"]
+    },
+    {
+      "leftName": "Orchard Works",
+      "rightName": "Orchard Wroks",
+      "leftDomain": "orchard.example",
+      "rightDomain": "orchard-coop.example",
+      "expectedSignals": ["similar_name"]
+    },
+    {
+      "leftName": "Orchard Works",
+      "rightName": "Cobalt Atelier",
+      "leftDomain": "orchard.example",
+      "rightDomain": "cobalt.example",
+      "expectedSignals": []
+    }
+  ],
+  "x-partner-badge-examples": [
+    {
+      "partnerId": "org-7sh8fk2n",
+      "domainAscii": "orchard.example",
+      "profileUrl": "https://commons.example/partners/org-7sh8fk2n",
+      "frameUrl": "https://badges.commons.example/v1/task-partners/public/partners/org-7sh8fk2n/badge?domain=orchard.example",
+      "active": true,
+      "frameAncestors": "https://orchard.example",
+      "snippet": "<iframe src=\"https://badges.commons.example/v1/task-partners/public/partners/org-7sh8fk2n/badge?domain=orchard.example\" title=\"Agent Commons partner orchard.example\" width=\"360\" height=\"120\" sandbox=\"allow-popups allow-popups-to-escape-sandbox\" referrerpolicy=\"no-referrer\"></iframe>\n<a href=\"https://commons.example/partners/org-7sh8fk2n\" target=\"_blank\" rel=\"noopener noreferrer\" referrerpolicy=\"no-referrer\">View orchard.example on Agent Commons</a>",
+      "body": "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Agent Commons partner</title><body><a href=\"https://commons.example/partners/org-7sh8fk2n\" target=\"_blank\" rel=\"noopener noreferrer\" referrerpolicy=\"no-referrer\"><strong><bdi>Orchard Works</bdi></strong><br><bdi dir=\"ltr\">orchard.example</bdi><br>Agent Commons · Active custodian · View profile</a></body></html>",
+      "headers": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors https://orchard.example",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "profileAsOf": "2027-01-01T12:00:00Z"
+    },
+    {
+      "partnerId": "org-4fz8rx2p",
+      "domainAscii": "cobalt.example",
+      "profileUrl": "https://commons.example/partners/org-4fz8rx2p",
+      "frameUrl": "https://badges.commons.example/v1/task-partners/public/partners/org-4fz8rx2p/badge?domain=cobalt.example",
+      "active": false,
+      "frameAncestors": "'none'",
+      "snippet": "<iframe src=\"https://badges.commons.example/v1/task-partners/public/partners/org-4fz8rx2p/badge?domain=cobalt.example\" title=\"Agent Commons partner cobalt.example\" width=\"360\" height=\"120\" sandbox=\"allow-popups allow-popups-to-escape-sandbox\" referrerpolicy=\"no-referrer\"></iframe>\n<a href=\"https://commons.example/partners/org-4fz8rx2p\" target=\"_blank\" rel=\"noopener noreferrer\" referrerpolicy=\"no-referrer\">View cobalt.example on Agent Commons</a>",
+      "body": "<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><title>Agent Commons</title><p>Partner badge unavailable</p></html>",
+      "headers": {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        "Cache-Control": "no-store",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "profileAsOf": "2027-01-03T12:00:00Z"
+    }
+  ],
+  "x-partner-selection-vectors": [
+    {"partnerId":"org-7sh8fk2n","purpose":"reserve","expectedResult":"identity_confirmation_required"},
+    {"partnerId":"org-7sh8fk2n","purpose":"reserve","expectedIdentity":{"domainAscii":"orchard-coop.example","identityRevision":1},"expectedResult":"identity_mismatch"},
+    {"partnerId":"org-7sh8fk2n","purpose":"reserve","expectedIdentity":{"domainAscii":"orchard.example","identityRevision":2},"expectedResult":"stale_identity"},
+    {"partnerId":"org-7sh8fk2n","purpose":"reserve","expectedIdentity":{"domainAscii":"orchard.example","identityRevision":1},"expectedResult":"allowed"},
+    {"partnerId":"org-7sh8fk2n","purpose":"reserve","priorPin":{"partnerId":"org-7sh8fk2n","domainAscii":"orchard.example","identityRevision":1},"expectedResult":"allowed"},
+    {"partnerId":"org-4fz8rx2p","purpose":"reserve","expectedIdentity":{"domainAscii":"cobalt.example","identityRevision":1},"expectedResult":"identity_inactive"},
+    {"partnerId":"org-7sh8fk2n","purpose":"run","expectedIdentity":{"domainAscii":"orchard.example","identityRevision":1},"expectedResult":"capability_unavailable"}
+  ],
   "x-protocol-rules": {
+    "identityBinding": "Agent Commons assigns a permanent, nonrecycled production partnerId to each public enrollment. Independently prove the exact primary website host and exact handoff authority, including a different subdomain. A host can have one current production primary identity. Retain historical binding and audit evidence on death, transfer or domain loss. An expired binding cannot be claimed as the prior identity. Never authorize work using names, a public badge, group membership or referrer alone.",
+    "domainProof": "Issue a random 256-bit TXT challenge under _agentcommons.<exact canonical host>, valid for 24 hours and bound to the application, revision, purpose, environment and candidate host. Verify the site's own authoritative DNS observations, respecting DNSSEC where deployed. Reject signed-zone validation failures and local/private names. Use a uniqueness transaction at successful activation; an outstanding unproved claim never locks the domain. DNS TXT is public; sight of the nonce alone is not evidence. Recheck presence at least daily; proofs require a fresh nonce at least every 30 days. A scoped renewal agent can rotate the TXT at day 20. Retain the last material identity revision during successful same-domain renewal. Do not extend deadlines on DNS errors. validUntil is the earlier of last successful observation plus 24 hours and fresh challenge validation plus 30 days. Confirmed loss, conflict, suspension or revocation takes effect immediately. On proof expiry block new selection, grants, commands and active badges, and preserve existing obligations for recovery. A replacement requires fresh proof before switching, freezes old grants for new effects and increments the identity revision. Historical receipts retain the old binding.",
+    "nameComparison": "Pin Unicode 17.0.0 data and compare normalized public names and full IDN hosts. Preserve validated display text; reject unsafe direction overrides and controls. The comparison key uses NFKC_Casefold, then removes Unicode White_Space and Punctuation. The strongest name reason wins in order: original scalar equality, normalized equality, UTS #39 skeleton equality of normalized keys, then restricted Damerau-Levenshtein distance (optimal string alignment on scalar values). Near match threshold is one when the shorter normalized key contains at least five scalars, two when it contains at least twelve, and zero otherwise. Distinct canonical A-label hostnames also emit confusable_domain if the UTS #39 skeletons of the complete ToUnicode hostnames match. Compare at onboarding and after name, host or policy changes. Reindex atomically, index all holders of a collision symmetrically, and provide domain-first lookup. No enrollment or public outage is caused solely by a similar name. Never disclose pending or rejected applicants in peer links or flags. A name match indicates ambiguity, not brand ownership.",
+    "identityConsent": "Show the exact primary host and permanent ID at selection, confirmation and on all trust claims. Bind new consent to the verified partner, canonical domain, handoff authority and identityRevision, and recheck before dispatch. For a first selection with collision signals, or a changed domain since an existing pin, require that actor's matching current server-side pin or an independently supplied expected domain and observed revision. Do not copy this expected domain from a candidate row, referrer or badge parameter. A disagreement returns 409 (identity_confirmation_required, identity_mismatch or stale_identity) without issuing a handoff or new effect. Collision flags alone do not invalidate an otherwise current pin. Confirmed selection can establish a new actor-scoped pin after independent domain entry. Previously recorded receipts identify the binding used at the time.",
+    "websiteBadge": "Only active production capabilities with current verified domain bindings can generate a positive badge. Build the script-free embedded document on the dedicated cookieless Agent Commons host. Every ancestor must match the exact currently verified website HTTPS origin via the HTTP CSP frame-ancestors directive. Escape all displayed text as text. Badge clicks always open the permanent first-party profile. Never use a display name or a user-supplied URL to construct the destination. Send no-store on active and inactive public responses, purge retained CDN variants on change and disallow stale-on-error; an already open frame is a snapshot, and the destination rechecks status. The shared public template serves no personalized data and sets no cookies. Canonical open-in-new-tab links remain usable without the embed. Static placements and copied pixels carry no separate authority.",
     "authorization": "Derive actor and organization from the session, partnerId from the confidential client, and environment from the serving origin. Enforce object assignment and current enrollment on every request. For a verifier role the same party must be an accepted custodian. Human mutations require same-origin and CSRF protection. Partner machine tokens cannot approve an application, create a user grant, publish tasks or trigger payout. Use TLS and Cache-Control: no-store for every private response.",
     "idempotency": "Persist a key per logical mutation under environment, authenticated actor, operation and resource. For repeated identical requests return the recorded result after checking caller access. Reuse with a different payload or conflicting terminal effect returns 409. Keep replay records through reconciliation and at least the advertised retry window of seven days thereafter. Receipt IDs, terminal commands and reservation uniqueness remain durable across retry-cache expiry. Binding checks and writes must be atomic. The OAuth token endpoint uses one-use assertion jti and fresh assertions on retry.",
     "artifacts": "Schemas use an ID plus the digest of exact immutable bytes. Execution requires task-scoped read access for each input and uploads for results; a supplied URL is never an authority. Limit JSON bodies to 64 KiB and artifact bytes to 8 MiB. Redact raw grants, JWS tokens and artifact content from ordinary logs.",
     "signatures": "Verify compact JWS with a protected alg=Ed25519, registered kid and purpose-specific typ. Select keys from the local accepted registry only. Enforce exact issuer, audience, environment and payload binding; reject private key claims, unknown critical headers and remote key URLs. The partner API base URL without trailing slash is the receipt and handoff audience. Challenge audience is separately issued. Preserve historical verification material. Reject first-seen future-dated statements beyond 60 s; issue receipts promptly and preserve evidence of the actual operation when resolving older commands. For recovery receipts, establish the alternative signatory using the independently verified enrollment recovery channel, pin its thumbprint and identity to this case under dual control, and use protected typ partner-recovery+jwt scoped to the case. RFC 9864 defines fully specified Ed25519. JWT durations are checked with at most 60 s clock tolerance. Reject duplicate JSON member names and unknown protected headers.",
-    "onboarding": "Applicant cannot approve its own organization. Sandbox key proof grants test-only scopes for synthetic inventory and obligations. Production review verifies domain ownership, passing sandbox report and exact catalog coverage before activating separate credentials. The server checks requested versus accepted capability and individual model/effort, asset or rule version again at publication and dispatch. Cadence, currency and model-specific terms are governed by the separately approved catalog.",
+    "onboarding": "Applicant cannot approve its own operational capabilities. Automated DNS proofs and comparison of public names run independently of that review. Sandbox key proof grants fixture-only scopes. Production review uses current domain evidence, a passing sandbox report and catalog coverage. Recheck identity, capability and profile at publication, consent and dispatch.",
     "operations": "At-least-once delivery. Record commandId before executing. A definitive no-effect failure is terminal for that command. Unknown moves to uncertain and permits only lookup of that ID or reconciled terminal evidence. Refuse inconsistent terminal evidence and place it in operator review. Timeout cannot prove an external effect was absent. A reservation remains exclusively assigned until a confirmed terminal release or return. If a partner is suspended or revoked, revoke all online access immediately, preserve old evidence and reconcile legal outstanding obligations through the two-person recovery procedure."
   },
   "paths": {
+    "/applications/{applicationId}/domain-challenges": {
+      "post": {
+        "operationId": "issuePartnerDomainChallenge",
+        "summary": "Start or renew proof for an exact website or handoff host",
+        "description": "A fresh applicant administrator session can start the initial claim, stage a host or handoff URL replacement, or renew an existing proof. A partner token with domains:renew is confined to the already recorded host and URL of its own application; it cannot claim a new domain, move an enrollment, or unsuspend an application. Authorize the identity-maintenance scope for an expired lease only for that existing partner and host. A pending challenge reserves no public identity. The server polls DNS, binds challenge and expected application revision atomically and audits the outcome. Reuse of a token for another partner, host, purpose or environment fails.",
+        "security": [{"Session":[]},{"HumanBearer":[]},{"PartnerOAuth":["domains:renew"]}],
+        "parameters": [
+          {"name":"applicationId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}},
+          {"$ref":"#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/DomainChallengeRequest"}}}},
+        "responses": {
+          "201": {
+            "description": "Private challenge issued. The administrator or its DNS agent installs the TXT record before expiry.",
+            "headers": {"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},
+            "content": {"application/json":{"schema":{"$ref":"#/components/schemas/DomainChallenge"}}}
+          },
+          "400": {"$ref":"#/components/responses/BadRequest"},
+          "401": {"$ref":"#/components/responses/Unauthorized"},
+          "403": {"$ref":"#/components/responses/Forbidden"},
+          "404": {"$ref":"#/components/responses/NotFound"},
+          "409": {"$ref":"#/components/responses/Conflict"},
+          "429": {"$ref":"#/components/responses/RateLimited"},
+          "503": {"$ref":"#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/domain-challenges/{challengeId}": {
+      "get": {
+        "operationId": "getPartnerDomainChallenge",
+        "summary": "Read DNS challenge state after automatic verification",
+        "security": [{"Session":[]},{"HumanBearer":[]},{"PartnerOAuth":["domains:renew"]}],
+        "description": "Only an authorized administrator or the same partner's scoped renewal worker can read the challenge. Polling does not extend its lifetime. A mismatched application returns 404.",
+        "parameters": [
+          {"name":"applicationId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}},
+          {"name":"challengeId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Current challenge state derived by the site.",
+            "headers": {"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},
+            "content": {"application/json":{"schema":{"$ref":"#/components/schemas/DomainChallenge"}}}
+          },
+          "401": {"$ref":"#/components/responses/Unauthorized"},
+          "403": {"$ref":"#/components/responses/Forbidden"},
+          "404": {"$ref":"#/components/responses/NotFound"},
+          "429": {"$ref":"#/components/responses/RateLimited"}
+        }
+      }
+    },
+    "/public/partners/{partnerId}": {
+      "get": {
+        "operationId": "getPublicPartnerProfile",
+        "summary": "Read a previously onboarded organization's public production identity",
+        "security": [],
+        "servers": [
+          {
+            "url": "https://commons.example/v1/task-partners",
+            "description": "Configured production API origin. Never serve sandbox, pending or unpublished applicants here."
+          }
+        ],
+        "description": "Use the immutable partnerId. The same canonical record backs the profile page, badge and eligible catalog projection. Derive status from current capability acceptance and proof freshness on every read. Return retained, explicitly inactive identity after suspension, revocation or proof expiry. Never reveal private applications. Serve no redirects, identity-dependent cookies, permissive cache or applicant-chosen destinations.",
+        "parameters": [{"name":"partnerId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}}],
+        "responses": {
+          "200": {
+            "description": "Public, allowlisted current profile.",
+            "headers": {"Cache-Control":{"schema":{"type":"string","const":"no-store"}}},
+            "content": {"application/json":{"schema":{"$ref":"#/components/schemas/PublicPartnerProfile"}}}
+          },
+          "404": {
+            "description": "Generic unavailable state for unpublished or unknown IDs, including sandbox and rejected applications. Same normal form for every private reason.",
+            "headers": {"Cache-Control":{"schema":{"type":"string","const":"no-store"}}}
+          }
+        }
+      }
+    },
+    "/partners/{partnerId}": {
+      "get": {
+        "operationId": "viewPublicPartnerProfile",
+        "summary": "Open an organization's canonical Agent Commons web page",
+        "description": "Public verification destination for customers arriving from a badge. Render the same public profile as the JSON operation. Show the exact full verified website hostname, current or historical status, accepted capabilities and links to published similar identities. Profile navigation stays on the configured first-party HTTPS origin and the route is stable across display-name or key changes. Treat unknown and never-onboarded IDs alike.",
+        "security": [],
+        "servers": [{"url":"https://commons.example","description":"Configured production Agent Commons website."}],
+        "parameters": [{"name":"partnerId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}}],
+        "responses": {
+          "200": {
+            "description": "Canonical public organization page with a current status or historical inactive notice.",
+            "headers": {
+              "Cache-Control": {"schema":{"type":"string","const":"no-store"}},
+              "Content-Security-Policy": {"description":"The full trust page cannot be embedded.","schema":{"type":"string"},"example":"frame-ancestors 'none'"}
+            },
+            "content": {"text/html":{"schema":{"type":"string"}}}
+          },
+          "404": {
+            "description": "Generic unavailable state for unpublished or unknown IDs, including sandbox and rejected applications. Same normal form for every private reason.",
+            "headers": {"Cache-Control":{"schema":{"type":"string","const":"no-store"}}}
+          }
+        }
+      }
+    },
+    "/public/partners/{partnerId}/badge": {
+      "get": {
+        "operationId": "getPublicPartnerBadge",
+        "summary": "Embed the current website-bound partner badge",
+        "security": [],
+        "servers": [
+          {
+            "url": "https://badges.commons.example/v1/task-partners",
+            "description": "Dedicated cookie-free production badge origin controlled by Agent Commons. Deploy with host-only login cookies on the main site."
+          }
+        ],
+        "description": "After production activation the partner console offers the fixed iframe and plain-link fallback shown in x-partner-badge-examples. Construct both URLs at the configured HTTPS origins using the immutable partner ID and validated ASCII domain. Emit a linked badge only if the requested domain exactly matches the current verified website and the public status is active. Render a neutral unframeable response for a mismatched, expired or inactive binding; unknown IDs return the same neutral body with 404. No cookies, scripts, redirects, tracking pixels or referrer-based decisions. The passive link opens /partners/{partnerId} on the trusted first-party site in a new tab with noopener and noreferrer. Archived screenshots or copied markup establish no identity.",
+        "parameters": [
+          {"name":"partnerId","in":"path","required":true,"schema":{"$ref":"#/components/schemas/Identifier"}},
+          {
+            "name": "domain",
+            "in": "query",
+            "required": true,
+            "description": "Exact verified primary A-label host for this embed. It cannot supply an origin, path, brand label or redirect URL.",
+            "schema": {"$ref":"#/components/schemas/DomainAscii"}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Live badge or neutral unavailable response.",
+            "headers": {
+              "Cache-Control": {"schema":{"type":"string","const":"no-store"}},
+              "Content-Security-Policy": {
+                "description": "Set as an HTTP header on every response. For the active state, frame-ancestors contains only the assigned exact HTTPS website origin. Every ancestor must match. For any other state use frame-ancestors 'none'. Never emit wildcard, Referer, request host or query text as a source.",
+                "schema": {"type":"string"},
+                "example": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors https://orchard.example"
+              },
+              "Referrer-Policy": {"schema":{"type":"string","const":"no-referrer"}},
+              "X-Content-Type-Options": {"schema":{"type":"string","const":"nosniff"}}
+            },
+            "content": {"text/html":{"schema":{"type":"string"}}}
+          },
+          "400": {
+            "description": "Invalid domain. Neutral response.",
+            "headers": {
+              "Cache-Control": {"schema":{"type":"string","const":"no-store"}},
+              "Content-Security-Policy": {"schema":{"type":"string","const":"default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"}},
+              "Referrer-Policy": {"schema":{"type":"string","const":"no-referrer"}},
+              "X-Content-Type-Options": {"schema":{"type":"string","const":"nosniff"}}
+            },
+            "content": {"text/html":{"schema":{"type":"string"}}}
+          },
+          "404": {
+            "description": "Generic unavailable state for unpublished or unknown IDs, including sandbox and rejected applications. Same normal form for every private reason.",
+            "headers": {
+              "Cache-Control": {"schema":{"type":"string","const":"no-store"}},
+              "Content-Security-Policy": {"schema":{"type":"string","const":"default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"}},
+              "Referrer-Policy": {"schema":{"type":"string","const":"no-referrer"}},
+              "X-Content-Type-Options": {"schema":{"type":"string","const":"nosniff"}}
+            },
+            "content": {"text/html":{"schema":{"type":"string"}}}
+          }
+        }
+      }
+    },
     "/applications": {
       "post": {
         "operationId": "applyForPartner",
@@ -213,7 +462,7 @@
       "post": {
         "operationId": "reviewPartnerApplication",
         "summary": "Review partner application",
-        "description": "Independent platform trust operator with fresh authentication. Approve an eligible in_review application and supported subset, reject, suspend, resume after revalidation or permanently revoke. Applicants cannot approve their organization. A suspended partner receives no new assignments. Keep old evidence and use supervised reconciliation for outstanding effects.",
+        "description": "Independent platform trust operator with fresh authentication. Approve an eligible in_review application and supported subset, reject, suspend, resume after revalidation or permanently revoke. Applicants cannot approve their organization. A suspended partner receives no new assignments. Keep old evidence and use supervised reconciliation for outstanding effects. Approval checks both current DNS bindings. Publish the production profile only after first activation; suspension or revocation updates the public status and disables framing of the badge immediately.",
         "security": [{"Session": []}, {"HumanBearer": []}],
         "parameters": [
           {"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
@@ -241,7 +490,7 @@
       "post": {
         "operationId": "startPartnerHandoff",
         "summary": "Start partner handoff",
-        "description": "Actor must be authorized for this task: funder for reserve, claimant for run, eligible contributor for receive. Check accepted catalog and current version. Create a short-lived consent session, then open the exact registered partner page with a form POST. No credentials in URLs. Multiple winners require separately reserved inventory and beneficiary grants.",
+        "description": "Actor must be authorized for this task: funder for reserve, claimant for run, eligible contributor for receive. Check accepted catalog and current version. Create a short-lived consent session, then open the exact registered partner page with a form POST. No credentials in URLs. Multiple winners require separately reserved inventory and beneficiary grants. Return the frozen website identity and exact separately verified handoff hostname before opening the partner login. Withhold handoff if proof, capability, identity revision or the expected domain check fails.",
         "security": [{"Session": []}, {"HumanBearer": []}],
         "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffRequest"}}}},
@@ -343,7 +592,7 @@
       "post": {
         "operationId": "decidePartnerHandoff",
         "summary": "Decide partner handoff",
-        "description": "The initiating signed-in actor confirms a live attested handoff or declines it. Recheck task eligibility, account and terms version. After confirmation only the intended partner receives grantRef on the corresponding command. Revoked or expired task grants cannot be dispatched. A subsequent charge requires fresh consent. A confirmed grant can be withdrawn by its initiating actor until first consumption. Serialize withdrawal against command creation; the losing operation re-reads state. After consumption return 409 and reconcile the original effect.",
+        "description": "The initiating signed-in actor confirms a live attested handoff or declines it. Recheck task eligibility, account and terms version. After confirmation only the intended partner receives grantRef on the corresponding command. Revoked or expired task grants cannot be dispatched. A subsequent charge requires fresh consent. A confirmed grant can be withdrawn by its initiating actor until first consumption. Serialize withdrawal against command creation; the losing operation re-reads state. After consumption return 409 and reconcile the original effect. Recheck the stored ID, identityRevision, both verified hosts and current status before confirmation and dispatch. A changed binding produces stale_identity. Consent from the old binding cannot authorize a fresh effect.",
         "security": [{"Session": []}, {"HumanBearer": []}],
         "parameters": [
           {"name": "handoffId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
@@ -513,9 +762,11 @@
       "get": {
         "operationId": "listAcceptedPartnerProfiles",
         "summary": "List accepted partner profiles",
-        "description": "Project actors discover eligible provider, holder and verification capabilities. Filter by capability and paginate; responses are projections, so publication and assignment recheck eligibility against the pinned profile.",
+        "description": "Project actors discover eligible provider, holder and verification capabilities. Filter by capability and paginate; responses are projections, so publication and assignment recheck eligibility against the pinned profile. Provide either domainAscii for exact eligible-primary-host lookup or name for display-name comparison. If both are present return 400. A domain read plus any capability filter returns at most one current production partner; an empty result never falls back to a name match. A name search includes exact, normalized, confusable and near candidates, ordered by stable canonical domain and ID with no implicit selection. Bind cursor to actor, environment and all filters.",
         "security": [{"Session": []}, {"HumanBearer": []}],
         "parameters": [
+          {"name":"domainAscii","in":"query","schema":{"$ref":"#/components/schemas/DomainAscii"},"description":"Exact canonical website host. Mutually exclusive with name."},
+          {"name":"name","in":"query","schema":{"type":"string","minLength":1,"maxLength":100},"description":"Compare the supplied display name using the enrolled name-comparison policy. Mutually exclusive with domainAscii."},
           {"$ref": "#/components/parameters/Cursor"},
           {"$ref": "#/components/parameters/Limit"},
           {
@@ -702,7 +953,8 @@
               "receipts:write": "Report signed evidence for assigned capabilities.",
               "artifacts:read": "Read artifacts bound to assigned commands.",
               "artifacts:write": "Upload output bytes for an assigned model run.",
-              "handoffs:write": "Exchange one-time codes and attest user-approved scoped grants."
+              "handoffs:write": "Exchange one-time codes and attest user-approved scoped grants.",
+              "domains:renew": "Renew proof for the existing website or handoff host of this application only."
             }
           }
         }
@@ -784,6 +1036,151 @@
       }
     },
     "schemas": {
+      "DomainAscii": {
+        "type": "string",
+        "minLength": 3,
+        "maxLength": 253,
+        "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+        "description": "Exact fully qualified lowercase DNS host in ASCII (A-label) representation, without a trailing dot. Apply Unicode 17 UTS #46 nontransitional ToASCII with STD3, Bidi, ContextJ and DNS-length checks. Registry validation also excludes public suffixes, IP literals, nonpublic hosts and wildcard names. The public suffix list includes private rules."
+      },
+      "DomainChallengeRequest": {
+        "type": "object",
+        "description": "Use the URL registered on the application. A freshly authenticated organization administrator can stage a new exact HTTPS URL using replacementUrl. Validate its host and default HTTPS port, reject credentials, queries, fragments and unapproved redirects. DNS proof covers only the named host. Renewal-only tokens must omit replacementUrl and may address only their existing bound host.",
+        "properties": {
+          "purpose": {"type":"string","enum":["website","handoff"]},
+          "expectedRevision": {"type":"integer","minimum":1,"maximum":2147483647},
+          "replacementUrl": {"type":"string","format":"uri","pattern":"^https://","maxLength":512}
+        },
+        "required": ["purpose","expectedRevision"],
+        "additionalProperties": false
+      },
+      "DomainChallenge": {
+        "type": "object",
+        "description": "Private DNS TXT challenge. Its high-entropy value binds this challenge to the application, revision, environment, purpose and exact host. Poll this resource for the site's DNS result. A consumed value cannot start another lease.",
+        "properties": {
+          "challengeId": {"$ref":"#/components/schemas/Identifier"},
+          "applicationId": {"$ref":"#/components/schemas/Identifier"},
+          "environment": {"$ref":"#/components/schemas/Environment"},
+          "purpose": {"type":"string","enum":["website","handoff"]},
+          "domainAscii": {"$ref":"#/components/schemas/DomainAscii"},
+          "recordName": {"type":"string","pattern":"^_agentcommons\\.","maxLength":253},
+          "recordValue": {"type":"string","pattern":"^agentcommons-v1=[A-Za-z0-9_-]{43}$"},
+          "expiresAt": {"$ref":"#/components/schemas/Timestamp"},
+          "state": {"type":"string","enum":["pending","verified","expired","conflict","superseded"]}
+        },
+        "required": ["challengeId","applicationId","environment","purpose","domainAscii","recordName","recordValue","expiresAt","state"],
+        "additionalProperties": false
+      },
+      "PartnerIdentity": {
+        "type": "object",
+        "description": "Public identity fields shared by the profile, selector and consent view. domainAscii is the last proved website host, interpreted with enrollment status and proof times. identityRevision changes for a different bound domain, transfer or handoff authority. Routine key rotation, fresh proof of the same host and peer collisions alone preserve it. relatedPartners lists up to 32 active, already public peer IDs in stable order; collisionSignals summarizes the whole comparison even if the list is truncated. Never disclose pending enrollment metadata.",
+        "properties": {
+          "domainAscii": {"$ref":"#/components/schemas/DomainAscii"},
+          "identityRevision": {"type":"integer","minimum":1,"maximum":2147483647},
+          "profilePath": {
+            "type": "string",
+            "pattern": "^/partners/[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
+            "description": "Deployment-owned canonical profile path using the complete immutable partnerId, resolved only against the configured first-party web origin."
+          },
+          "verifiedAt": {"$ref":"#/components/schemas/Timestamp"},
+          "validUntil": {"$ref":"#/components/schemas/Timestamp"},
+          "collisionSignals": {
+            "type": "array",
+            "items": {"type":"string","enum":["exact_name","normalized_name","confusable_name","similar_name","confusable_domain"]},
+            "maxItems": 5,
+            "uniqueItems": true
+          },
+          "relatedPartners": {"type":"array","items":{"$ref":"#/components/schemas/Identifier"},"maxItems":32,"uniqueItems":true}
+        },
+        "required": ["domainAscii","identityRevision","profilePath","verifiedAt","validUntil","collisionSignals","relatedPartners"],
+        "additionalProperties": false
+      },
+      "ExpectedPartnerIdentity": {
+        "type": "object",
+        "description": "Supply an independently known hostname and the selected profile's observed identity revision. The site compares against the selected immutable ID and current verified binding. The UI must never auto-fill the hostname from an ambiguous result. A server-side pin for this actor and current binding can supply this check.",
+        "properties": {
+          "domainAscii": {"$ref":"#/components/schemas/DomainAscii"},
+          "identityRevision": {"type":"integer","minimum":1,"maximum":2147483647}
+        },
+        "required": ["domainAscii","identityRevision"],
+        "additionalProperties": false
+      },
+      "PublicPartnerProfile": {
+        "type": "object",
+        "description": "Anonymous projection of a previously activated production partner. asOf is the calculation time. Negative states retain the last proved identity with a warning; only active current evidence may show capabilities as accepted. Raw proofs, private contacts, keys, handoff URLs, tasks and financial data are excluded.",
+        "properties": {
+          "partnerId": {"$ref":"#/components/schemas/Identifier"},
+          "displayName": {"type":"string","minLength":1,"maxLength":100},
+          "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
+          "status": {"type":"string","enum":["active","verification_lapsed","suspended","revoked"]},
+          "capabilities": {
+            "type": "array",
+            "items": {"type":"string","enum":["model-provider","custodian","verifier"]},
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "asOf": {"$ref":"#/components/schemas/Timestamp"}
+        },
+        "required": ["partnerId","displayName","identity","status","capabilities","asOf"],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {"properties":{"status":{"const":"active"}}},
+            "then": {"properties":{"capabilities":{"minItems":1}}},
+            "else": {"properties":{"capabilities":{"maxItems":0}}}
+          }
+        ],
+        "examples": [
+          {
+            "partnerId": "org-7sh8fk2n",
+            "displayName": "Orchard Works",
+            "identity": {
+              "domainAscii": "orchard.example",
+              "identityRevision": 1,
+              "profilePath": "/partners/org-7sh8fk2n",
+              "verifiedAt": "2027-01-01T10:00:00Z",
+              "validUntil": "2027-01-02T10:00:00Z",
+              "collisionSignals": ["exact_name"],
+              "relatedPartners": ["org-5kt9dp4z"]
+            },
+            "status": "active",
+            "capabilities": ["custodian"],
+            "asOf": "2027-01-01T12:00:00Z"
+          },
+          {
+            "partnerId": "org-5kt9dp4z",
+            "displayName": "Orchard Works",
+            "identity": {
+              "domainAscii": "orchard-coop.example",
+              "identityRevision": 1,
+              "profilePath": "/partners/org-5kt9dp4z",
+              "verifiedAt": "2027-01-01T10:00:00Z",
+              "validUntil": "2027-01-02T10:00:00Z",
+              "collisionSignals": ["exact_name"],
+              "relatedPartners": ["org-7sh8fk2n"]
+            },
+            "status": "active",
+            "capabilities": ["custodian"],
+            "asOf": "2027-01-01T12:00:00Z"
+          },
+          {
+            "partnerId": "org-4fz8rx2p",
+            "displayName": "Cobalt Atelier",
+            "identity": {
+              "domainAscii": "cobalt.example",
+              "identityRevision": 1,
+              "profilePath": "/partners/org-4fz8rx2p",
+              "verifiedAt": "2027-01-01T10:00:00Z",
+              "validUntil": "2027-01-02T10:00:00Z",
+              "collisionSignals": [],
+              "relatedPartners": []
+            },
+            "status": "verification_lapsed",
+            "capabilities": [],
+            "asOf": "2027-01-03T12:00:00Z"
+          }
+        ]
+      },
       "Identifier": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
       "Digest": {
         "type": "string",
@@ -876,7 +1273,7 @@
       },
       "ApplicationRequest": {
         "type": "object",
-        "description": "The authenticated organization is the applicant. Platform staff verify ownership of the registered HTTPS handoff origin and deployment identity. Production requires a passing sandbox report for the same organization and requested catalog, plus distinct production key material. Register a separate recovery contact. An operator independently verifies a prearranged authenticated channel for that contact and archives its evidence before production approval.",
+        "description": "The authenticated organization is the applicant. Agent Commons normalizes the website and handoff hosts and verifies exact control through DNS challenges. Production additionally requires a passing sandbox report, distinct key material and approval for the requested capabilities. The operator independently verifies the recovery contact channel. Display names and registration order grant no exclusive name rights.",
         "properties": {
           "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
           "organization": {"type": "string", "minLength": 1, "maxLength": 160},
@@ -956,8 +1353,9 @@
       },
       "Application": {
         "type": "object",
-        "description": "Organization administrators and independent reviewers see the current application. challenge is present while proof is pending. Approved capabilities must be a subset of the request. Enrollment detail only. Contact details and key diagnostics are private. Suspension and revocation invalidate all online tokens for the application immediately; review a new approval before admitting a different capability set.",
+        "description": "Organization administrators and independent reviewers see the current application. challenge is present while proof is pending. Approved capabilities must be a subset of the request. Enrollment detail only. Contact details and key diagnostics are private. Suspension and revocation invalidate all online tokens for the application immediately; review a new approval before admitting a different capability set. domainChallengeIds identifies the most recent website and handoff challenges for authorized polling. A pending domain replacement never overwrites the verified binding.",
         "properties": {
+          "domainChallengeIds": {"type":"object","properties":{"website":{"$ref":"#/components/schemas/Identifier"},"handoff":{"$ref":"#/components/schemas/Identifier"}},"additionalProperties":false},
           "applicationId": {"$ref": "#/components/schemas/Identifier"},
           "partnerId": {"$ref": "#/components/schemas/Identifier"},
           "environment": {"$ref": "#/components/schemas/Environment"},
@@ -1151,8 +1549,9 @@
       },
       "HandoffRequest": {
         "type": "object",
-        "description": "Use the signed-in initiating actor, never a caller-supplied account identity. The server derives immutable charge limits or asset and actorRef from the task and its claim.",
+        "description": "Use the signed-in initiating actor, never a caller-supplied account identity. The server derives immutable charge limits or asset and actorRef from the task and its claim. If this actor lacks a current pin for an ambiguous partner, or its previous binding changed, require the independently supplied expected domain and observed revision. Match the full selected partnerId, verified domain, revision and current capabilities atomically. Omission in these cases returns identity_confirmation_required.",
         "properties": {
+          "expectedIdentity": {"$ref":"#/components/schemas/ExpectedPartnerIdentity"},
           "taskId": {"$ref": "#/components/schemas/Identifier"},
           "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
           "termsDigest": {"$ref": "#/components/schemas/Digest"},
@@ -1166,12 +1565,14 @@
         "type": "object",
         "description": "The browser form POSTs handoffId and startCode to this exact registered URL. Single-use code bound to actor, partner, environment, task and terms. Site polls the authenticated status endpoint in the originating tab.",
         "properties": {
+          "handoffDomainAscii": {"$ref":"#/components/schemas/DomainAscii"},
+          "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
           "handoffId": {"$ref": "#/components/schemas/Identifier"},
           "startUrl": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 512},
           "startCode": {"$ref": "#/components/schemas/Identifier"},
           "expiresAt": {"$ref": "#/components/schemas/Timestamp"}
         },
-        "required": ["handoffId", "startUrl", "startCode", "expiresAt"],
+        "required": ["handoffId", "startUrl", "startCode", "expiresAt", "identity", "handoffDomainAscii"],
         "additionalProperties": false
       },
       "HandoffExchange": {
@@ -1293,6 +1694,8 @@
       "Handoff": {
         "type": "object",
         "properties": {
+          "handoffDomainAscii": {"$ref":"#/components/schemas/DomainAscii"},
+          "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
           "handoffId": {"$ref": "#/components/schemas/Identifier"},
           "taskId": {"$ref": "#/components/schemas/Identifier"},
           "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
@@ -1307,7 +1710,7 @@
           "grant": {"$ref": "#/components/schemas/GrantTerms"},
           "accountLabel": {"type": "string", "minLength": 1, "maxLength": 80}
         },
-        "required": ["handoffId", "taskId", "termsVersion", "termsDigest", "partnerId", "environment", "state", "expiresAt", "grant"],
+        "required": ["handoffId", "taskId", "termsVersion", "termsDigest", "partnerId", "environment", "state", "expiresAt", "grant", "identity", "handoffDomainAscii"],
         "additionalProperties": false
       },
       "HandoffDecision": {
@@ -1828,8 +2231,9 @@
       },
       "PartnerProfile": {
         "type": "object",
-        "description": "Only capabilities and catalog entries currently approved for this caller and environment. Exclude internal contact details, key material, pending applications and personal account data.",
+        "description": "Only capabilities and catalog entries currently approved for this caller and environment. Exclude internal contact details, key material, pending applications and personal account data. Production eligibility requires a current verified binding. Display the complete primary host and link to the full immutable ID from identity. Sandbox projections use the sandbox origin, carry a Sandbox label, and confer no public listing.",
         "properties": {
+          "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
           "partnerId": {"$ref": "#/components/schemas/Identifier"},
           "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
           "environment": {"$ref": "#/components/schemas/Environment"},
@@ -1843,7 +2247,7 @@
           "catalogRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
           "catalog": {"$ref": "#/components/schemas/Catalog"}
         },
-        "required": ["partnerId", "displayName", "environment", "capabilities", "catalogRevision", "catalog"],
+        "required": ["partnerId", "displayName", "environment", "capabilities", "catalogRevision", "catalog", "identity"],
         "additionalProperties": false
       },
       "ProfilePage": {
