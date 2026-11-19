@@ -1,0 +1,2073 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Agent Commons task partner API",
+    "version": "1.0.0-proposal",
+    "description": "Proposed partner protocol. Standard Project operations own task drafting, publication, claiming and submission. This API owns partner enrollment, consent handoffs, assigned commands and signed evidence. Example hosts and data are reserved for documentation."
+  },
+  "servers": [
+    {
+      "url": "https://sandbox.commons.example/v1/task-partners",
+      "description": "Sandbox examples; isolated keys, data, inventory and audience."
+    },
+    {
+      "url": "https://commons.example/v1/task-partners",
+      "description": "Production example; discover the deployment origin in the operator-approved partner console."
+    }
+  ],
+  "x-protocol-rules": {
+    "authorization": "Derive actor and organization from the session, partnerId from the confidential client, and environment from the serving origin. Enforce object assignment and current enrollment on every request. For a verifier role the same party must be an accepted custodian. Human mutations require same-origin and CSRF protection. Partner machine tokens cannot approve an application, create a user grant, publish tasks or trigger payout. Use TLS and Cache-Control: no-store for every private response.",
+    "idempotency": "Persist a key per logical mutation under environment, authenticated actor, operation and resource. For repeated identical requests return the recorded result after checking caller access. Reuse with a different payload or conflicting terminal effect returns 409. Keep replay records through reconciliation and at least the advertised retry window of seven days thereafter. Receipt IDs, terminal commands and reservation uniqueness remain durable across retry-cache expiry. Binding checks and writes must be atomic. The OAuth token endpoint uses one-use assertion jti and fresh assertions on retry.",
+    "artifacts": "Schemas use an ID plus the digest of exact immutable bytes. Execution requires task-scoped read access for each input and uploads for results; a supplied URL is never an authority. Limit JSON bodies to 64 KiB and artifact bytes to 8 MiB. Redact raw grants, JWS tokens and artifact content from ordinary logs.",
+    "signatures": "Verify compact JWS with a protected alg=Ed25519, registered kid and purpose-specific typ. Select keys from the local accepted registry only. Enforce exact issuer, audience, environment and payload binding; reject private key claims, unknown critical headers and remote key URLs. The partner API base URL without trailing slash is the receipt and handoff audience. Challenge audience is separately issued. Preserve historical verification material. Reject first-seen future-dated statements beyond 60 s; issue receipts promptly and preserve evidence of the actual operation when resolving older commands. For recovery receipts, establish the alternative signatory using the independently verified enrollment recovery channel, pin its thumbprint and identity to this case under dual control, and use protected typ partner-recovery+jwt scoped to the case. RFC 9864 defines fully specified Ed25519. JWT durations are checked with at most 60 s clock tolerance. Reject duplicate JSON member names and unknown protected headers.",
+    "onboarding": "Applicant cannot approve its own organization. Sandbox key proof grants test-only scopes for synthetic inventory and obligations. Production review verifies domain ownership, passing sandbox report and exact catalog coverage before activating separate credentials. The server checks requested versus accepted capability and individual model/effort, asset or rule version again at publication and dispatch. Cadence, currency and model-specific terms are governed by the separately approved catalog.",
+    "operations": "At-least-once delivery. Record commandId before executing. A definitive no-effect failure is terminal for that command. Unknown moves to uncertain and permits only lookup of that ID or reconciled terminal evidence. Refuse inconsistent terminal evidence and place it in operator review. Timeout cannot prove an external effect was absent. A reservation remains exclusively assigned until a confirmed terminal release or return. If a partner is suspended or revoked, revoke all online access immediately, preserve old evidence and reconcile legal outstanding obligations through the two-person recovery procedure."
+  },
+  "paths": {
+    "/applications": {
+      "post": {
+        "operationId": "applyForPartner",
+        "summary": "Apply for partner",
+        "description": "Verified organization administrator. Register the requested catalog and public key. Derive owner and environment from authentication and deployment. A fresh application returns its challenge; a proof establishes key possession only.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApplicationRequest"}}}},
+        "responses": {
+          "201": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Application"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      },
+      "get": {
+        "operationId": "listPartnerApplications",
+        "summary": "List partner applications",
+        "description": "Show applications owned by the acting organization. A separately authorized operator can inspect the review queue. Cursor is bound to environment, principal and filter.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"},
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["awaiting_proof", "sandbox_testing", "in_review", "active", "suspended", "revoked", "rejected"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApplicationPage"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}": {
+      "get": {
+        "operationId": "getPartnerApplication",
+        "summary": "Get partner application",
+        "description": "Applicant organization admin or assigned platform reviewer. Cross-organization reads receive 404. Return the current key challenge if applicable.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [{"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Application"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/keys": {
+      "post": {
+        "operationId": "managePartnerKey",
+        "summary": "Manage partner key",
+        "description": "Organization administrator with fresh authentication can register a locally generated candidate key, refresh its expired challenge, or revoke a key immediately. An independent incident operator can revoke compromised material. Each candidate must pass its own proof before activation. Reject stale expectedRevision; revoked keys cannot gain new authority.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/KeyChange"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Application"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/proofs": {
+      "post": {
+        "operationId": "provePartnerKey",
+        "summary": "Prove partner key",
+        "description": "Applicant organization administrator submits a compact JWS made by the candidate private key, bound to the issued nonce, application, deployment and key. Sandbox proof grants fixture-only access in sandbox_testing. A production application with matching passing sandbox report moves to in_review. Rotation requires active administrator authorization, valid proof, bounded overlap and an auditable old-key retirement.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Proof"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Application"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/conformance": {
+      "post": {
+        "operationId": "startPartnerConformance",
+        "summary": "Start partner conformance",
+        "description": "Sandbox only, after key proof. Platform issues fixture commands through the normal feed and tests supported capabilities. Bind report to organization, catalog digest, protocol version and suite revision; approval checks freshness and equality to the requested production catalog.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConformanceRequest"}}}},
+        "responses": {
+          "202": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConformanceRun"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/conformance/{reportId}": {
+      "get": {
+        "operationId": "getPartnerConformance",
+        "summary": "Get partner conformance",
+        "description": "Read progress, sanitized failures and immutable final report. Application owners and reviewers only. Successful completion makes the sandbox application eligible for review.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"name": "reportId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ConformanceRun"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/decisions": {
+      "post": {
+        "operationId": "reviewPartnerApplication",
+        "summary": "Review partner application",
+        "description": "Independent platform trust operator with fresh authentication. Approve an eligible in_review application and supported subset, reject, suspend, resume after revalidation or permanently revoke. Applicants cannot approve their organization. A suspended partner receives no new assignments. Keep old evidence and use supervised reconciliation for outstanding effects.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReviewDecision"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Application"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/handoffs": {
+      "post": {
+        "operationId": "startPartnerHandoff",
+        "summary": "Start partner handoff",
+        "description": "Actor must be authorized for this task: funder for reserve, claimant for run, eligible contributor for receive. Check accepted catalog and current version. Create a short-lived consent session, then open the exact registered partner page with a form POST. No credentials in URLs. Multiple winners require separately reserved inventory and beneficiary grants.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [{"$ref": "#/components/parameters/IdempotencyKey"}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffRequest"}}}},
+        "responses": {
+          "201": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffStart"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/handoffs/{handoffId}": {
+      "get": {
+        "operationId": "getPartnerHandoff",
+        "summary": "Get partner handoff",
+        "description": "Only the initiating signed-in actor can poll this resource. Display task and grant ceilings and, after attestation, the masked account label before confirmation. Return 404 to other actors.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [{"name": "handoffId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Handoff"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/handoffs/{handoffId}/exchange": {
+      "post": {
+        "operationId": "exchangePartnerHandoff",
+        "summary": "Exchange partner handoff",
+        "description": "Only the addressed partner can exchange the browser-delivered one-use code before expiry. It receives just the task-scoped offer. Present the exact grant and obtain authenticated account-holder approval before attesting.",
+        "security": [{"PartnerOAuth": ["handoffs:write"]}],
+        "parameters": [
+          {"name": "handoffId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffExchange"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffOffer"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/handoffs/{handoffId}/attestations": {
+      "post": {
+        "operationId": "attestPartnerHandoff",
+        "summary": "Attest partner handoff",
+        "description": "Verify typ partner-handoff+jwt against HandoffClaims, designated issuer, key, environment, audience, nonce, actor, grant, task and expiry. Attach verified account label for the initiating actor to confirm. Do not assign work or reserve from this step alone.",
+        "security": [{"PartnerOAuth": ["handoffs:write"]}],
+        "parameters": [
+          {"name": "handoffId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffAttestation"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Handoff"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/handoffs/{handoffId}/decisions": {
+      "post": {
+        "operationId": "decidePartnerHandoff",
+        "summary": "Decide partner handoff",
+        "description": "The initiating signed-in actor confirms a live attested handoff or declines it. Recheck task eligibility, account and terms version. After confirmation only the intended partner receives grantRef on the corresponding command. Revoked or expired task grants cannot be dispatched. A subsequent charge requires fresh consent. A confirmed grant can be withdrawn by its initiating actor until first consumption. Serialize withdrawal against command creation; the losing operation re-reads state. After consumption return 409 and reconcile the original effect.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "handoffId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/HandoffDecision"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Handoff"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/commands": {
+      "get": {
+        "operationId": "listPartnerCommands",
+        "summary": "List partner commands",
+        "description": "Pull this partner’s assigned outstanding commands in stable creation order, within the token environment and accepted catalog. The cursor is an opaque page position. Restart at the first page to rediscover still-open work. The partner persists commandId before starting any effect; repeated delivery never authorizes another charge. Uncertain commands may be reconciled only.",
+        "security": [{"PartnerOAuth": ["commands:read"]}],
+        "parameters": [{"$ref": "#/components/parameters/Cursor"}, {"$ref": "#/components/parameters/Limit"}],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CommandPage"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/commands/{commandId}": {
+      "get": {
+        "operationId": "getPartnerCommand",
+        "summary": "Get partner command",
+        "description": "Look up an assigned command by durable ID after a timeout, cursor expiry or restart. Check authoritative state before work. A successful or failed terminal command is read-only. An uncertain command requires lookup of the original execution at the partner; recover signed evidence for that same effect.",
+        "security": [{"PartnerOAuth": ["commands:read"]}],
+        "parameters": [{"name": "commandId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Command"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/commands/{commandId}/receipts": {
+      "post": {
+        "operationId": "postPartnerReceipt",
+        "summary": "Post partner receipt",
+        "description": "Submit a compact Ed25519 JWS with decoded ReceiptClaims. Check assignment, environment, audience, key, time and replay before accepting kind-specific bindings. Identical signed evidence returns its stored acknowledgement even after terminal settlement. Different terminal outcomes conflict. A failed outcome certifies absence of effect; an unknown outcome leaves settlement pending. Persist receipt, state transition and downstream outbox atomically.",
+        "security": [{"PartnerOAuth": ["receipts:write"]}],
+        "parameters": [
+          {"name": "commandId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReceiptSubmission"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReceiptAcknowledgement"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/commands/{commandId}/artifacts": {
+      "post": {
+        "operationId": "uploadPartnerArtifact",
+        "summary": "Upload partner artifact",
+        "description": "Only the assigned model-provider may upload bytes for a run within its input/output policy. Upload before signing the outcome. Server computes SHA-256 over raw bytes, verifies the supplied digest and returns a command-bound handle. Unreferenced uploads expire. Eight MiB per artifact in this profile; reject unapproved media types.",
+        "security": [{"PartnerOAuth": ["artifacts:write"]}],
+        "parameters": [
+          {"name": "commandId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"},
+          {
+            "name": "Content-Digest",
+            "in": "header",
+            "required": true,
+            "schema": {"type": "string", "pattern": "^sha-256=:[A-Za-z0-9+/]{43}=:$"},
+            "description": "RFC 9530 field for the exact body."
+          },
+          {
+            "name": "X-Artifact-Media-Type",
+            "in": "header",
+            "required": true,
+            "schema": {"type": "string", "minLength": 1, "maxLength": 128},
+            "description": "Declared logical media type, checked against the command policy."
+          }
+        ],
+        "requestBody": {"required": true, "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}},
+        "responses": {
+          "201": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Artifact"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "413": {"$ref": "#/components/responses/TooLarge"},
+          "415": {"$ref": "#/components/responses/UnsupportedMediaType"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/commands/{commandId}/artifacts/{artifactId}": {
+      "get": {
+        "operationId": "getPartnerArtifact",
+        "summary": "Get partner artifact",
+        "description": "Return only input bytes specifically referenced by a command assigned to this partner. Confirm the digest against the command before use. Binding an output from one command to a subsequent verification command is a site-authorized operation. Eight MiB per artifact.",
+        "security": [{"PartnerOAuth": ["artifacts:read"]}],
+        "parameters": [
+          {"name": "commandId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"name": "artifactId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Immutable artifact bytes, transmitted as octet stream.",
+            "headers": {
+              "Content-Digest": {"description": "SHA-256 digest of the exact returned bytes.", "schema": {"type": "string"}},
+              "Cache-Control": {"schema": {"type": "string", "const": "no-store"}}
+            },
+            "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/catalog": {
+      "get": {
+        "operationId": "listAcceptedPartnerProfiles",
+        "summary": "List accepted partner profiles",
+        "description": "Project actors discover eligible provider, holder and verification capabilities. Filter by capability and paginate; responses are projections, so publication and assignment recheck eligibility against the pinned profile.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"},
+          {
+            "name": "capability",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "enum": ["model-provider", "custodian", "verifier"]}
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ProfilePage"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/applications/{applicationId}/history": {
+      "get": {
+        "operationId": "listPartnerAuditEntries",
+        "summary": "List partner audit entries",
+        "description": "Append-only, application-scoped history ordered by revision and event ID. Owners and independent reviewers may see sanitized events and visible decision reasons. Restrict private incident evidence to the operator vault.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "applicationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"}
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/AuditPage"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/obligations": {
+      "get": {
+        "operationId": "listPartnerObligations",
+        "summary": "List partner obligations",
+        "description": "Trusted incident or settlement operator. List open holds, uncertain effects and in-progress settlements ordered by age; filter by task or partner. Include suspended and revoked partners. Expose no account numbers, prompts or credentials.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"$ref": "#/components/parameters/Cursor"},
+          {"$ref": "#/components/parameters/Limit"},
+          {"name": "partnerId", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"name": "taskId", "in": "query", "required": false, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ObligationPage"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/obligations/{obligationId}/recoveries": {
+      "post": {
+        "operationId": "reconcilePartnerObligation",
+        "summary": "Reconcile partner obligation",
+        "description": "Incident operator with fresh authentication opens a case against an existing command and freezes normal dispatch for this obligation. A different settlement operator authorizes lookup or transmission of the SAME already-eligible release/return through the holder’s independently authenticated recovery channel. Recheck winner, terms, grant and unspent hold at authorization. Consult the holder ledger before transmission and require its durable commandId deduplication, including across online and offline channels. This route cannot authorize a new run. Archive the signed external statement and channel verification under the supplied sourceReference. The evidence submitter and confirmer must differ. After validating the separately obtained recovery signer, exact original bindings, legal state transition and vault digest, apply the ordinary terminal transition and downstream outbox atomically. Missing or conflicting evidence leaves the obligation open. Block revoked online keys and expired tokens even in recovery.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "obligationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"$ref": "#/components/parameters/IdempotencyKey"}
+        ],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RecoveryRequest"}}}},
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Recovery"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "409": {"$ref": "#/components/responses/Conflict"},
+          "410": {"$ref": "#/components/responses/Gone"},
+          "422": {"$ref": "#/components/responses/InvalidEvidence"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/obligations/{obligationId}/recoveries/{recoveryId}": {
+      "get": {
+        "operationId": "getPartnerRecovery",
+        "summary": "Get partner recovery",
+        "description": "Incident and settlement operators can inspect the canonical case and pending action by ID after an ambiguous write.",
+        "security": [{"Session": []}, {"HumanBearer": []}],
+        "parameters": [
+          {"name": "obligationId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}},
+          {"name": "recoveryId", "in": "path", "required": true, "schema": {"$ref": "#/components/schemas/Identifier"}}
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authoritative resource.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Recovery"}}}
+          },
+          "400": {"$ref": "#/components/responses/BadRequest"},
+          "401": {"$ref": "#/components/responses/Unauthorized"},
+          "403": {"$ref": "#/components/responses/Forbidden"},
+          "404": {"$ref": "#/components/responses/NotFound"},
+          "429": {"$ref": "#/components/responses/RateLimited"},
+          "503": {"$ref": "#/components/responses/Unavailable"}
+        }
+      }
+    },
+    "/oauth/token": {
+      "post": {
+        "operationId": "issuePartnerToken",
+        "summary": "Exchange a signed client assertion for a scoped partner token",
+        "description": "Authenticate using the client assertion in the form body. On an ambiguous network response send a fresh signed assertion with a new jti; this operation issues credentials and never authorizes an external effect.",
+        "security": [],
+        "x-client-authentication-method": "private_key_jwt",
+        "requestBody": {
+          "required": true,
+          "content": {"application/x-www-form-urlencoded": {"schema": {"$ref": "#/components/schemas/TokenRequest"}}}
+        },
+        "responses": {
+          "200": {
+            "description": "Short-lived token authorized for this environment, admission and granted scopes.",
+            "headers": {
+              "Cache-Control": {"schema": {"type": "string", "const": "no-store"}},
+              "Pragma": {"schema": {"type": "string", "const": "no-cache"}}
+            },
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}
+          },
+          "400": {
+            "description": "Invalid grant request, client assertion or scope.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OAuthError"}}}
+          },
+          "401": {
+            "description": "Client authentication failed.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OAuthError"}}}
+          },
+          "429": {
+            "description": "Client rate limit.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OAuthError"}}},
+            "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1}}}
+          },
+          "503": {
+            "description": "Temporarily unavailable.",
+            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/OAuthError"}}}
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "Session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "uw_session",
+        "description": "Verified human session. Request authorization depends on acting organization, task rights and independent platform operator role. Browser writes require the deployment CSRF controls."
+      },
+      "PartnerOAuth": {
+        "type": "oauth2",
+        "description": "OAuth client_credentials with private_key_jwt (RFC 7523). POST form grant_type=client_credentials, client_id=partnerId, scope, client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer and client_assertion. Sign using registered kid/Ed25519 with typ partner-client-auth+jwt and iss=sub=partnerId, aud=absolute token URL, jti, iat, exp at most five minutes later. Reject reused assertions. Success follows OAuth token response semantics (access_token, token_type=Bearer, expires_in <= 300, granted scope); no refresh token. Validate the environment, issuer, audience and enrollment on every resource request. Tokens are server side only.",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "/v1/task-partners/oauth/token",
+            "scopes": {
+              "commands:read": "Read assigned commands only.",
+              "receipts:write": "Report signed evidence for assigned capabilities.",
+              "artifacts:read": "Read artifacts bound to assigned commands.",
+              "artifacts:write": "Upload output bytes for an assigned model run.",
+              "handoffs:write": "Exchange one-time codes and attest user-approved scoped grants."
+            }
+          }
+        }
+      },
+      "HumanBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "First-party user session transported as a Bearer token for permitted machine/MCP access. Resolve the same acting tenant, user, object authorization, fresh-auth and operator constraints as the browser session. A partner service token is a different issuer/audience and cannot substitute."
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "schema": {"type": "string", "minLength": 16, "maxLength": 128, "pattern": "^[A-Za-z0-9_-]+$"},
+        "description": "Client-generated high-entropy identity for one logical write. Reuse on timeout for identical intent."
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {"type": "string", "minLength": 1, "maxLength": 512},
+        "description": "Opaque nextCursor, scoped to principal and filters. Omit to start."
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50}
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Malformed request or invalid cursor.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "Unauthorized": {
+        "description": "Missing, expired, revoked or invalid authentication.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "Forbidden": {
+        "description": "Authenticated principal lacks operation scope or role.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "NotFound": {
+        "description": "Resource not visible to this principal or absent.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "Conflict": {
+        "description": "Conflicting idempotency payload, stale revision, conflicting outcome or impossible transition. Re-read current state.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "Gone": {
+        "description": "One-time grant, challenge or command-start deadline has lapsed.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "TooLarge": {
+        "description": "Request exceeds the accepted size.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "UnsupportedMediaType": {
+        "description": "Media type outside the allowed profile.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "InvalidEvidence": {
+        "description": "Authentic request has invalid schema, evidence or task/asset/rule binding.",
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "RateLimited": {
+        "description": "Rate or concurrency limit reached. Retry with jitter after the indicated delay.",
+        "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1}, "description": "Minimum delay in seconds."}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      },
+      "Unavailable": {
+        "description": "Temporarily unavailable. Retry reconciliation with the original operation identity.",
+        "headers": {"Retry-After": {"schema": {"type": "integer", "minimum": 1}, "description": "Minimum delay in seconds."}},
+        "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Problem"}}}
+      }
+    },
+    "schemas": {
+      "Identifier": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+      "Digest": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$",
+        "description": "Lowercase hex SHA-256 of the exact bytes. For terms and rule manifests, hash the immutable bytes archived by Agent Commons for that version."
+      },
+      "Timestamp": {"type": "string", "format": "date-time"},
+      "Environment": {"type": "string", "enum": ["sandbox", "production"]},
+      "Asset": {
+        "type": "object",
+        "description": "An immutable, issuer-qualified catalog ID and unit distinguish vouchers, currency subunits, compute credits or other transferable inventory. Reject cash equivalents, partial quantities or mismatched units.",
+        "properties": {
+          "assetId": {"$ref": "#/components/schemas/Identifier"},
+          "unit": {"$ref": "#/components/schemas/Identifier"},
+          "quantity": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,37}$",
+            "description": "Positive integer count of the catalogued asset’s smallest deliverable unit. Use a string to preserve exact quantities."
+          }
+        },
+        "required": ["assetId", "unit", "quantity"],
+        "additionalProperties": false
+      },
+      "Artifact": {
+        "type": "object",
+        "description": "Immutable bytes; dereference only at the artifact endpoint for the assigned command.",
+        "properties": {
+          "artifactId": {"$ref": "#/components/schemas/Identifier"},
+          "digest": {"$ref": "#/components/schemas/Digest"},
+          "mediaType": {"type": "string", "minLength": 1, "maxLength": 128}
+        },
+        "required": ["artifactId", "digest", "mediaType"],
+        "additionalProperties": false
+      },
+      "Rule": {
+        "type": "object",
+        "description": "Accepted verifier catalog entry with immutable executable identity.",
+        "properties": {
+          "ruleId": {"$ref": "#/components/schemas/Identifier"},
+          "version": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "digest": {"$ref": "#/components/schemas/Digest"}
+        },
+        "required": ["ruleId", "version", "digest"],
+        "additionalProperties": false
+      },
+      "PublicKey": {
+        "type": "object",
+        "description": "Base64url public bytes. Reject reused kid for different material, private fields and keys known to a different environment.",
+        "properties": {
+          "kid": {"$ref": "#/components/schemas/Identifier"},
+          "kty": {"type": "string", "const": "OKP"},
+          "crv": {"type": "string", "const": "Ed25519"},
+          "x": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"}
+        },
+        "required": ["kid", "kty", "crv", "x"],
+        "additionalProperties": false
+      },
+      "ModelOffer": {
+        "type": "object",
+        "description": "The provider can attest the served model. List only reasoning efforts that it can substantiate for that model. An empty list supports model-only tasks.",
+        "properties": {
+          "model": {"$ref": "#/components/schemas/Identifier"},
+          "efforts": {
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/Identifier"},
+            "minItems": 0,
+            "maxItems": 32,
+            "uniqueItems": true
+          }
+        },
+        "required": ["model", "efforts"],
+        "additionalProperties": false
+      },
+      "AssetOffer": {
+        "type": "object",
+        "properties": {"assetId": {"$ref": "#/components/schemas/Identifier"}, "unit": {"$ref": "#/components/schemas/Identifier"}},
+        "required": ["assetId", "unit"],
+        "additionalProperties": false
+      },
+      "Catalog": {
+        "type": "object",
+        "description": "Empty lists declare no support. Bind exact offered versions on approval. The verifier capability is available only to accepted custodians; check eligibility on every assignment.",
+        "properties": {
+          "models": {"type": "array", "items": {"$ref": "#/components/schemas/ModelOffer"}, "minItems": 0, "maxItems": 100},
+          "assets": {"type": "array", "items": {"$ref": "#/components/schemas/AssetOffer"}, "minItems": 0, "maxItems": 100},
+          "rules": {"type": "array", "items": {"$ref": "#/components/schemas/Rule"}, "minItems": 0, "maxItems": 100}
+        },
+        "required": ["models", "assets", "rules"],
+        "additionalProperties": false
+      },
+      "ApplicationRequest": {
+        "type": "object",
+        "description": "The authenticated organization is the applicant. Platform staff verify ownership of the registered HTTPS handoff origin and deployment identity. Production requires a passing sandbox report for the same organization and requested catalog, plus distinct production key material. Register a separate recovery contact. An operator independently verifies a prearranged authenticated channel for that contact and archives its evidence before production approval.",
+        "properties": {
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "organization": {"type": "string", "minLength": 1, "maxLength": 160},
+          "contact": {"type": "string", "format": "email", "maxLength": 254},
+          "organizationUrl": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 512},
+          "handoffUrl": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 512},
+          "capabilities": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["model-provider", "custodian", "verifier"]},
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "catalog": {"$ref": "#/components/schemas/Catalog"},
+          "publicKey": {"$ref": "#/components/schemas/PublicKey"},
+          "sandboxReportId": {"$ref": "#/components/schemas/Identifier"},
+          "recoveryContact": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "required": [
+          "displayName",
+          "organization",
+          "contact",
+          "organizationUrl",
+          "handoffUrl",
+          "capabilities",
+          "catalog",
+          "publicKey",
+          "recoveryContact"
+        ],
+        "additionalProperties": false
+      },
+      "KeyChallenge": {
+        "type": "object",
+        "description": "One-use random 256-bit nonce. Sign the exact ChallengeClaims within five minutes.",
+        "properties": {
+          "applicationId": {"$ref": "#/components/schemas/Identifier"},
+          "kid": {"$ref": "#/components/schemas/Identifier"},
+          "nonce": {"$ref": "#/components/schemas/Identifier"},
+          "audience": {"type": "string", "minLength": 1, "maxLength": 256},
+          "expiresAt": {"$ref": "#/components/schemas/Timestamp"}
+        },
+        "required": ["applicationId", "kid", "nonce", "audience", "expiresAt"],
+        "additionalProperties": false
+      },
+      "ChallengeClaims": {
+        "type": "object",
+        "description": "Compact JWS with Ed25519, candidate kid and typ partner-key-proof+jwt. iss is the assigned partnerId, aud the challenge audience. Signing and expiry times are Unix seconds.",
+        "properties": {
+          "iss": {"$ref": "#/components/schemas/Identifier"},
+          "aud": {"type": "string", "minLength": 1, "maxLength": 256},
+          "jti": {"$ref": "#/components/schemas/Identifier"},
+          "iat": {"type": "integer", "minimum": 0},
+          "applicationId": {"$ref": "#/components/schemas/Identifier"},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "kid": {"$ref": "#/components/schemas/Identifier"},
+          "nonce": {"$ref": "#/components/schemas/Identifier"},
+          "exp": {"type": "integer", "minimum": 1}
+        },
+        "required": ["iss", "aud", "jti", "iat", "applicationId", "environment", "kid", "nonce", "exp"],
+        "additionalProperties": false
+      },
+      "SigningKey": {
+        "type": "object",
+        "properties": {
+          "kid": {"$ref": "#/components/schemas/Identifier"},
+          "state": {"type": "string", "enum": ["candidate", "active", "retiring", "revoked"]},
+          "validFrom": {"$ref": "#/components/schemas/Timestamp"},
+          "validUntil": {"$ref": "#/components/schemas/Timestamp"},
+          "thumbprint": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "description": "Base64url SHA-256 JWK thumbprint of the public key, RFC 7638."
+          }
+        },
+        "required": ["kid", "state", "validFrom", "thumbprint"],
+        "additionalProperties": false
+      },
+      "Application": {
+        "type": "object",
+        "description": "Organization administrators and independent reviewers see the current application. challenge is present while proof is pending. Approved capabilities must be a subset of the request. Enrollment detail only. Contact details and key diagnostics are private. Suspension and revocation invalidate all online tokens for the application immediately; review a new approval before admitting a different capability set.",
+        "properties": {
+          "applicationId": {"$ref": "#/components/schemas/Identifier"},
+          "partnerId": {"$ref": "#/components/schemas/Identifier"},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "state": {
+            "type": "string",
+            "enum": ["awaiting_proof", "sandbox_testing", "in_review", "active", "suspended", "revoked", "rejected"]
+          },
+          "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "requestedCapabilities": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["model-provider", "custodian", "verifier"]},
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "acceptedCapabilities": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["model-provider", "custodian", "verifier"]},
+            "minItems": 0,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "catalog": {"$ref": "#/components/schemas/Catalog"},
+          "keys": {"type": "array", "items": {"$ref": "#/components/schemas/SigningKey"}, "minItems": 0, "maxItems": 16},
+          "challenge": {"$ref": "#/components/schemas/KeyChallenge"},
+          "conformanceReportId": {"$ref": "#/components/schemas/Identifier"},
+          "decisionReason": {"type": "string", "minLength": 1, "maxLength": 300},
+          "organization": {"type": "string", "minLength": 1, "maxLength": 160},
+          "contact": {"type": "string", "format": "email", "maxLength": 254},
+          "organizationUrl": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 512},
+          "handoffUrl": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 512},
+          "recoveryContact": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "required": [
+          "applicationId",
+          "partnerId",
+          "environment",
+          "state",
+          "revision",
+          "displayName",
+          "requestedCapabilities",
+          "acceptedCapabilities",
+          "catalog",
+          "keys",
+          "organization",
+          "contact",
+          "organizationUrl",
+          "handoffUrl",
+          "recoveryContact"
+        ],
+        "additionalProperties": false
+      },
+      "ApplicationPage": {
+        "type": "object",
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/Application"}, "minItems": 0, "maxItems": 100},
+          "nextCursor": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "Proof": {
+        "type": "object",
+        "properties": {
+          "signedProof": {"type": "string", "maxLength": 16384, "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"}
+        },
+        "required": ["signedProof"],
+        "additionalProperties": false
+      },
+      "KeyChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string", "const": "register"},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+              "publicKey": {"$ref": "#/components/schemas/PublicKey"}
+            },
+            "required": ["action", "expectedRevision", "publicKey"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string", "const": "revoke"},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+              "kid": {"$ref": "#/components/schemas/Identifier"},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 300}
+            },
+            "required": ["action", "expectedRevision", "kid", "reason"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ReviewDecision": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string", "const": "approve"},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+              "acceptedCapabilities": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["model-provider", "custodian", "verifier"]},
+                "minItems": 1,
+                "maxItems": 3,
+                "uniqueItems": true
+              },
+              "reason": {"type": "string", "minLength": 1, "maxLength": 300}
+            },
+            "required": ["action", "expectedRevision", "acceptedCapabilities", "reason"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string", "enum": ["reject", "suspend", "resume", "revoke"]},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 300}
+            },
+            "required": ["action", "expectedRevision", "reason"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ConformanceRequest": {
+        "type": "object",
+        "properties": {"expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647}},
+        "required": ["expectedRevision"],
+        "additionalProperties": false
+      },
+      "ConformanceRun": {
+        "type": "object",
+        "description": "The site derives results from sandbox commands, receipts and negative vectors. Applicants can start or repeat tests; they cannot supply the verdict.",
+        "properties": {
+          "reportId": {"$ref": "#/components/schemas/Identifier"},
+          "applicationId": {"$ref": "#/components/schemas/Identifier"},
+          "state": {"type": "string", "enum": ["queued", "running", "passed", "failed"]},
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {"type": "string", "minLength": 1, "maxLength": 100},
+                "status": {"type": "string", "enum": ["pending", "passed", "failed"]},
+                "detail": {"type": "string", "minLength": 1, "maxLength": 500}
+              },
+              "required": ["name", "status"],
+              "additionalProperties": false
+            },
+            "minItems": 0,
+            "maxItems": 128
+          },
+          "catalogDigest": {"$ref": "#/components/schemas/Digest"},
+          "suiteVersion": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["reportId", "applicationId", "state", "checks", "catalogDigest", "suiteVersion"],
+        "additionalProperties": false
+      },
+      "Problem": {
+        "type": "object",
+        "description": "Stable reason examples include stale_revision, idempotency_conflict, binding_mismatch, transition_conflict and insufficient_scope. Do not expose foreign resource identities.",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string",
+                "enum": [
+                  "bad_request",
+                  "unauthorized",
+                  "forbidden",
+                  "not_found",
+                  "conflict",
+                  "gone",
+                  "limit_exceeded",
+                  "capability_unavailable"
+                ]
+              },
+              "message": {"type": "string", "minLength": 1, "maxLength": 600},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 80},
+              "requestId": {"$ref": "#/components/schemas/Identifier"}
+            },
+            "required": ["code", "message", "reason", "requestId"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["error"],
+        "additionalProperties": false
+      },
+      "HandoffRequest": {
+        "type": "object",
+        "description": "Use the signed-in initiating actor, never a caller-supplied account identity. The server derives immutable charge limits or asset and actorRef from the task and its claim.",
+        "properties": {
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "partnerId": {"$ref": "#/components/schemas/Identifier"},
+          "purpose": {"type": "string", "enum": ["reserve", "run", "receive"]}
+        },
+        "required": ["taskId", "termsVersion", "termsDigest", "partnerId", "purpose"],
+        "additionalProperties": false
+      },
+      "HandoffStart": {
+        "type": "object",
+        "description": "The browser form POSTs handoffId and startCode to this exact registered URL. Single-use code bound to actor, partner, environment, task and terms. Site polls the authenticated status endpoint in the originating tab.",
+        "properties": {
+          "handoffId": {"$ref": "#/components/schemas/Identifier"},
+          "startUrl": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 512},
+          "startCode": {"$ref": "#/components/schemas/Identifier"},
+          "expiresAt": {"$ref": "#/components/schemas/Timestamp"}
+        },
+        "required": ["handoffId", "startUrl", "startCode", "expiresAt"],
+        "additionalProperties": false
+      },
+      "HandoffExchange": {
+        "type": "object",
+        "properties": {"startCode": {"$ref": "#/components/schemas/Identifier"}},
+        "required": ["startCode"],
+        "additionalProperties": false
+      },
+      "RunGrantTerms": {
+        "type": "object",
+        "description": "The provider enforces both token ceilings and authorizes at most one billable run. Omit effort for a model-only grant. When supplied, effort is an approved value for this model and must match the dispatched action.",
+        "properties": {
+          "kind": {"type": "string", "const": "run"},
+          "model": {"$ref": "#/components/schemas/Identifier"},
+          "effort": {"$ref": "#/components/schemas/Identifier"},
+          "maxInputTokens": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "maxOutputTokens": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "inputDigest": {"$ref": "#/components/schemas/Digest"}
+        },
+        "required": ["kind", "model", "maxInputTokens", "maxOutputTokens", "inputDigest"],
+        "additionalProperties": false
+      },
+      "ReserveGrantTerms": {
+        "type": "object",
+        "description": "Authority to reserve this asset once for this task until at least holdUntil.",
+        "properties": {
+          "kind": {"type": "string", "const": "reserve"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "holdUntil": {"$ref": "#/components/schemas/Timestamp"}
+        },
+        "required": ["kind", "asset", "holdUntil"],
+        "additionalProperties": false
+      },
+      "GrantTerms": {
+        "oneOf": [
+          {"$ref": "#/components/schemas/RunGrantTerms"},
+          {"$ref": "#/components/schemas/ReserveGrantTerms"},
+          {"$ref": "#/components/schemas/ReceiveGrantTerms"}
+        ]
+      },
+      "HandoffOffer": {
+        "type": "object",
+        "description": "actorRef is pairwise for this partner and actor. Partner signs the approved terms only after the account holder explicitly selects the source and approves them on the partner site.",
+        "properties": {
+          "handoffId": {"$ref": "#/components/schemas/Identifier"},
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "partnerId": {"$ref": "#/components/schemas/Identifier"},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "actorRef": {"$ref": "#/components/schemas/Identifier"},
+          "nonce": {"$ref": "#/components/schemas/Identifier"},
+          "expiresAt": {"$ref": "#/components/schemas/Timestamp"},
+          "grant": {"$ref": "#/components/schemas/GrantTerms"},
+          "workSummary": {"type": "string", "minLength": 1, "maxLength": 1000}
+        },
+        "required": [
+          "handoffId",
+          "taskId",
+          "termsVersion",
+          "termsDigest",
+          "partnerId",
+          "environment",
+          "actorRef",
+          "nonce",
+          "expiresAt",
+          "grant",
+          "workSummary"
+        ],
+        "additionalProperties": false
+      },
+      "HandoffClaims": {
+        "type": "object",
+        "description": "typ partner-handoff+jwt. iss is partnerId. aud is the deployment partner API audience. grantRef is a single-use, partner-internal reference, not a bearer credential. accountLabel is a masked human-readable source.",
+        "properties": {
+          "iss": {"$ref": "#/components/schemas/Identifier"},
+          "aud": {"type": "string", "minLength": 1, "maxLength": 256},
+          "jti": {"$ref": "#/components/schemas/Identifier"},
+          "iat": {"type": "integer", "minimum": 0},
+          "handoffId": {"$ref": "#/components/schemas/Identifier"},
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "actorRef": {"$ref": "#/components/schemas/Identifier"},
+          "nonce": {"$ref": "#/components/schemas/Identifier"},
+          "exp": {"type": "integer", "minimum": 1},
+          "grant": {"$ref": "#/components/schemas/GrantTerms"},
+          "grantRef": {"$ref": "#/components/schemas/Identifier"},
+          "accountLabel": {"type": "string", "minLength": 1, "maxLength": 80}
+        },
+        "required": [
+          "iss",
+          "aud",
+          "jti",
+          "iat",
+          "handoffId",
+          "taskId",
+          "termsVersion",
+          "termsDigest",
+          "environment",
+          "actorRef",
+          "nonce",
+          "exp",
+          "grant",
+          "grantRef",
+          "accountLabel"
+        ],
+        "additionalProperties": false
+      },
+      "HandoffAttestation": {
+        "type": "object",
+        "properties": {
+          "signedGrant": {"type": "string", "maxLength": 16384, "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"}
+        },
+        "required": ["signedGrant"],
+        "additionalProperties": false
+      },
+      "Handoff": {
+        "type": "object",
+        "properties": {
+          "handoffId": {"$ref": "#/components/schemas/Identifier"},
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "partnerId": {"$ref": "#/components/schemas/Identifier"},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "state": {
+            "type": "string",
+            "enum": ["started", "exchanged", "attested", "confirmed", "declined", "expired", "withdrawn", "consumed"]
+          },
+          "expiresAt": {"$ref": "#/components/schemas/Timestamp"},
+          "grant": {"$ref": "#/components/schemas/GrantTerms"},
+          "accountLabel": {"type": "string", "minLength": 1, "maxLength": 80}
+        },
+        "required": ["handoffId", "taskId", "termsVersion", "termsDigest", "partnerId", "environment", "state", "expiresAt", "grant"],
+        "additionalProperties": false
+      },
+      "HandoffDecision": {
+        "type": "object",
+        "description": "Only the initiating actor can confirm. Require the latest task terms and a live matching attestation; declines can close any pre-confirmation state. Withdraw a confirmed, unconsumed grant atomically against dispatch. A consumed grant cannot cancel or reverse an external effect.",
+        "properties": {
+          "decision": {"type": "string", "enum": ["confirm", "decline", "withdraw"]},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"}
+        },
+        "required": ["decision", "termsDigest"],
+        "additionalProperties": false
+      },
+      "ReceiveGrantTerms": {
+        "type": "object",
+        "description": "Authority to deliver this exact asset to the contributor-selected destination at this custodian for this task.",
+        "properties": {"kind": {"type": "string", "const": "receive"}, "asset": {"$ref": "#/components/schemas/Asset"}},
+        "required": ["kind", "asset"],
+        "additionalProperties": false
+      },
+      "ReserveAction": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "const": "reserve"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "payerRef": {"$ref": "#/components/schemas/Identifier"},
+          "grantRef": {"$ref": "#/components/schemas/Identifier"},
+          "holdUntil": {"$ref": "#/components/schemas/Timestamp"}
+        },
+        "required": ["kind", "asset", "payerRef", "grantRef", "holdUntil"],
+        "additionalProperties": false
+      },
+      "RunAction": {
+        "type": "object",
+        "description": "model and any requested effort must match the approved task terms, catalog and confirmed grant. Omitted effort leaves that setting to the provider.",
+        "properties": {
+          "kind": {"type": "string", "const": "run"},
+          "input": {"$ref": "#/components/schemas/Artifact"},
+          "grantRef": {"$ref": "#/components/schemas/Identifier"},
+          "submissionId": {"$ref": "#/components/schemas/Identifier"},
+          "model": {"$ref": "#/components/schemas/Identifier"},
+          "effort": {"$ref": "#/components/schemas/Identifier"},
+          "maxInputTokens": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "maxOutputTokens": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+        },
+        "required": ["kind", "input", "grantRef", "submissionId", "model", "maxInputTokens", "maxOutputTokens"],
+        "additionalProperties": false
+      },
+      "VerifyAction": {
+        "type": "object",
+        "description": "The rule and referenced fixtures pin the inputs for an executable check. The platform can also execute its own accepted rules internally.",
+        "properties": {
+          "kind": {"type": "string", "const": "verify"},
+          "submissionId": {"$ref": "#/components/schemas/Identifier"},
+          "submission": {"$ref": "#/components/schemas/Artifact"},
+          "rule": {"$ref": "#/components/schemas/Rule"},
+          "inputs": {"type": "array", "items": {"$ref": "#/components/schemas/Artifact"}, "minItems": 0, "maxItems": 32}
+        },
+        "required": ["kind", "submissionId", "submission", "rule", "inputs"],
+        "additionalProperties": false
+      },
+      "ReleaseAction": {
+        "type": "object",
+        "description": "grantRef is the confirmed receive handoff for the winning contributor at this holder, bound to task, terms and exact asset.",
+        "properties": {
+          "kind": {"type": "string", "const": "release"},
+          "reservationId": {"$ref": "#/components/schemas/Identifier"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "beneficiaryRef": {"$ref": "#/components/schemas/Identifier"},
+          "grantRef": {"$ref": "#/components/schemas/Identifier"},
+          "submissionId": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["kind", "reservationId", "asset", "beneficiaryRef", "grantRef", "submissionId"],
+        "additionalProperties": false
+      },
+      "ReturnAction": {
+        "type": "object",
+        "description": "Return only to the original funding source; the reservation identifies that source at its issuer.",
+        "properties": {
+          "kind": {"type": "string", "const": "return"},
+          "reservationId": {"$ref": "#/components/schemas/Identifier"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "payerRef": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["kind", "reservationId", "asset", "payerRef"],
+        "additionalProperties": false
+      },
+      "Action": {
+        "oneOf": [
+          {"$ref": "#/components/schemas/ReserveAction"},
+          {"$ref": "#/components/schemas/RunAction"},
+          {"$ref": "#/components/schemas/VerifyAction"},
+          {"$ref": "#/components/schemas/ReleaseAction"},
+          {"$ref": "#/components/schemas/ReturnAction"}
+        ]
+      },
+      "ReserveOutcome": {
+        "type": "object",
+        "description": "Confirms exclusive control of the complete reserved units. holdUntil is the earliest guaranteed holding deadline. The holder must retain control through unresolved settlement and accept only one release or return.",
+        "properties": {
+          "kind": {"type": "string", "const": "reserve"},
+          "reservationId": {"$ref": "#/components/schemas/Identifier"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "payerRef": {"$ref": "#/components/schemas/Identifier"},
+          "grantRef": {"$ref": "#/components/schemas/Identifier"},
+          "holdUntil": {"$ref": "#/components/schemas/Timestamp"}
+        },
+        "required": ["kind", "reservationId", "asset", "payerRef", "grantRef", "holdUntil"],
+        "additionalProperties": false
+      },
+      "RunOutcome": {
+        "type": "object",
+        "description": "Attest the actual model and exact input and output bytes. Include actualEffort only when the provider can substantiate it. Model-only provenance requires actualModel to match the requested model. If the task also specifies effort, the receipt must attest that value to satisfy provenance. Record truthful mismatches and missing effort as delivered evidence, withhold the required provenance badge and reward until the requirement is met, and never infer a served value from the request.",
+        "properties": {
+          "kind": {"type": "string", "const": "run"},
+          "providerRunId": {"$ref": "#/components/schemas/Identifier"},
+          "grantRef": {"$ref": "#/components/schemas/Identifier"},
+          "submissionId": {"$ref": "#/components/schemas/Identifier"},
+          "inputDigest": {"$ref": "#/components/schemas/Digest"},
+          "actualModel": {"$ref": "#/components/schemas/Identifier"},
+          "actualEffort": {"$ref": "#/components/schemas/Identifier"},
+          "output": {"$ref": "#/components/schemas/Artifact"}
+        },
+        "required": ["kind", "providerRunId", "grantRef", "submissionId", "inputDigest", "actualModel", "output"],
+        "additionalProperties": false
+      },
+      "VerifyOutcome": {
+        "type": "object",
+        "description": "A failed predicate is a completed verification with a rejected verdict; technical inability to decide is an operational outcome.",
+        "properties": {
+          "kind": {"type": "string", "const": "verify"},
+          "submissionId": {"$ref": "#/components/schemas/Identifier"},
+          "submissionDigest": {"$ref": "#/components/schemas/Digest"},
+          "rule": {"$ref": "#/components/schemas/Rule"},
+          "verdict": {"type": "string", "enum": ["passed", "rejected"]},
+          "detailCode": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["kind", "submissionId", "submissionDigest", "rule", "verdict", "detailCode"],
+        "additionalProperties": false
+      },
+      "ReleaseOutcome": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "const": "release"},
+          "reservationId": {"$ref": "#/components/schemas/Identifier"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "beneficiaryRef": {"$ref": "#/components/schemas/Identifier"},
+          "grantRef": {"$ref": "#/components/schemas/Identifier"},
+          "submissionId": {"$ref": "#/components/schemas/Identifier"},
+          "transferRef": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["kind", "reservationId", "asset", "beneficiaryRef", "grantRef", "submissionId", "transferRef"],
+        "additionalProperties": false
+      },
+      "ReturnOutcome": {
+        "type": "object",
+        "properties": {
+          "kind": {"type": "string", "const": "return"},
+          "reservationId": {"$ref": "#/components/schemas/Identifier"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "payerRef": {"$ref": "#/components/schemas/Identifier"},
+          "transferRef": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["kind", "reservationId", "asset", "payerRef", "transferRef"],
+        "additionalProperties": false
+      },
+      "FailedOutcome": {
+        "type": "object",
+        "description": "Definitive evidence this command had no external effect. A charged model run or uncertain transfer cannot report this outcome.",
+        "properties": {
+          "kind": {"type": "string", "const": "failed"},
+          "actionKind": {"type": "string", "enum": ["reserve", "run", "verify", "release", "return"]},
+          "reasonCode": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["kind", "actionKind", "reasonCode"],
+        "additionalProperties": false
+      },
+      "UnknownOutcome": {
+        "type": "object",
+        "description": "Effect may have occurred. Look up the original provider operation by commandId and reconcile. Never execute again on this evidence alone.",
+        "properties": {
+          "kind": {"type": "string", "const": "unknown"},
+          "actionKind": {"type": "string", "enum": ["reserve", "run", "verify", "release", "return"]},
+          "reasonCode": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["kind", "actionKind", "reasonCode"],
+        "additionalProperties": false
+      },
+      "Outcome": {
+        "oneOf": [
+          {"$ref": "#/components/schemas/ReserveOutcome"},
+          {"$ref": "#/components/schemas/RunOutcome"},
+          {"$ref": "#/components/schemas/VerifyOutcome"},
+          {"$ref": "#/components/schemas/ReleaseOutcome"},
+          {"$ref": "#/components/schemas/ReturnOutcome"},
+          {"$ref": "#/components/schemas/FailedOutcome"},
+          {"$ref": "#/components/schemas/UnknownOutcome"}
+        ]
+      },
+      "Command": {
+        "type": "object",
+        "description": "Immutable action and task binding. deadline is the last time to START a new effect. Late evidence about a prior effect remains admissible for reconciliation; retrieve current state before acting.",
+        "properties": {
+          "commandId": {"$ref": "#/components/schemas/Identifier"},
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "partnerId": {"$ref": "#/components/schemas/Identifier"},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "issuedAt": {"$ref": "#/components/schemas/Timestamp"},
+          "deadline": {"$ref": "#/components/schemas/Timestamp"},
+          "state": {"type": "string", "enum": ["requested", "uncertain", "succeeded", "failed"]},
+          "action": {"$ref": "#/components/schemas/Action"},
+          "receiptId": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": [
+          "commandId",
+          "taskId",
+          "termsVersion",
+          "termsDigest",
+          "partnerId",
+          "environment",
+          "issuedAt",
+          "deadline",
+          "state",
+          "action"
+        ],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "commandId": "cmd-reserve",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "environment": "sandbox",
+            "partnerId": "custody-partner",
+            "issuedAt": "2027-01-01T10:00:00Z",
+            "deadline": "2027-01-01T11:00:00Z",
+            "state": "requested",
+            "action": {
+              "kind": "reserve",
+              "asset": {"assetId": "issuer.example:render-voucher:v1", "unit": "voucher", "quantity": "3"},
+              "payerRef": "payer-31",
+              "grantRef": "grant-funding",
+              "holdUntil": "2027-01-20T12:00:00Z"
+            }
+          },
+          {
+            "commandId": "cmd-run",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "environment": "sandbox",
+            "partnerId": "model-partner",
+            "issuedAt": "2027-01-01T10:00:00Z",
+            "deadline": "2027-01-01T11:00:00Z",
+            "state": "requested",
+            "action": {
+              "kind": "run",
+              "input": {
+                "artifactId": "art-input",
+                "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                "mediaType": "text/plain"
+              },
+              "grantRef": "grant-model",
+              "submissionId": "sub-1",
+              "model": "example-model-2",
+              "effort": "high",
+              "maxInputTokens": 2000,
+              "maxOutputTokens": 512
+            }
+          },
+          {
+            "commandId": "cmd-verify",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "environment": "sandbox",
+            "partnerId": "custody-partner",
+            "issuedAt": "2027-01-01T10:00:00Z",
+            "deadline": "2027-01-01T11:00:00Z",
+            "state": "requested",
+            "action": {
+              "kind": "verify",
+              "submissionId": "sub-1",
+              "submission": {
+                "artifactId": "art-output",
+                "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "mediaType": "text/plain"
+              },
+              "rule": {
+                "ruleId": "check-schedule",
+                "version": 3,
+                "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+              },
+              "inputs": [
+                {
+                  "artifactId": "art-input",
+                  "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                  "mediaType": "text/plain"
+                }
+              ]
+            }
+          },
+          {
+            "commandId": "cmd-release",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "environment": "sandbox",
+            "partnerId": "custody-partner",
+            "issuedAt": "2027-01-01T10:00:00Z",
+            "deadline": "2027-01-01T11:00:00Z",
+            "state": "requested",
+            "action": {
+              "kind": "release",
+              "reservationId": "hold-7",
+              "asset": {"assetId": "issuer.example:render-voucher:v1", "unit": "voucher", "quantity": "3"},
+              "beneficiaryRef": "beneficiary-27",
+              "grantRef": "grant-payout",
+              "submissionId": "sub-1"
+            }
+          },
+          {
+            "commandId": "cmd-return",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "environment": "sandbox",
+            "partnerId": "custody-partner",
+            "issuedAt": "2027-01-01T10:00:00Z",
+            "deadline": "2027-01-01T11:00:00Z",
+            "state": "requested",
+            "action": {
+              "kind": "return",
+              "reservationId": "hold-8",
+              "asset": {"assetId": "issuer.example:render-voucher:v1", "unit": "voucher", "quantity": "3"},
+              "payerRef": "payer-31"
+            }
+          }
+        ]
+      },
+      "CommandPage": {
+        "type": "object",
+        "description": "Read-only at-least-once delivery; listing does not claim, acknowledge or drop a command.",
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/Command"}, "minItems": 0, "maxItems": 100},
+          "nextCursor": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "ReceiptClaims": {
+        "type": "object",
+        "description": "Decoded signed receipt. Compact JWT with protected alg Ed25519, kid and typ partner-receipt+jwt, fixed issuer and per-environment audience. The site checks all bindings against the stored command, catalog, grant, identity and actual artifact bytes. Deduplicate the signed statement by issuer and jti and the effect by commandId.",
+        "properties": {
+          "iss": {"$ref": "#/components/schemas/Identifier"},
+          "aud": {"type": "string", "minLength": 1, "maxLength": 256},
+          "jti": {"$ref": "#/components/schemas/Identifier"},
+          "iat": {"type": "integer", "minimum": 0},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "commandId": {"$ref": "#/components/schemas/Identifier"},
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "outcome": {"$ref": "#/components/schemas/Outcome"}
+        },
+        "required": ["iss", "aud", "jti", "iat", "environment", "commandId", "taskId", "termsVersion", "termsDigest", "outcome"],
+        "additionalProperties": false,
+        "examples": [
+          {
+            "iss": "custody-partner",
+            "aud": "https://sandbox.commons.example/v1/task-partners",
+            "jti": "receipt-reserve",
+            "iat": 1798797900,
+            "environment": "sandbox",
+            "commandId": "cmd-reserve",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": {
+              "kind": "reserve",
+              "asset": {"assetId": "issuer.example:render-voucher:v1", "unit": "voucher", "quantity": "3"},
+              "payerRef": "payer-31",
+              "grantRef": "grant-funding",
+              "holdUntil": "2027-01-20T12:00:00Z",
+              "reservationId": "hold-7"
+            }
+          },
+          {
+            "iss": "model-partner",
+            "aud": "https://sandbox.commons.example/v1/task-partners",
+            "jti": "receipt-run",
+            "iat": 1798797900,
+            "environment": "sandbox",
+            "commandId": "cmd-run",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": {
+              "kind": "run",
+              "providerRunId": "run-45",
+              "grantRef": "grant-model",
+              "submissionId": "sub-1",
+              "inputDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "actualModel": "example-model-2",
+              "actualEffort": "high",
+              "output": {
+                "artifactId": "art-output",
+                "digest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+                "mediaType": "text/plain"
+              }
+            }
+          },
+          {
+            "iss": "custody-partner",
+            "aud": "https://sandbox.commons.example/v1/task-partners",
+            "jti": "receipt-verify",
+            "iat": 1798797900,
+            "environment": "sandbox",
+            "commandId": "cmd-verify",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": {
+              "kind": "verify",
+              "submissionId": "sub-1",
+              "submissionDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+              "rule": {
+                "ruleId": "check-schedule",
+                "version": 3,
+                "digest": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+              },
+              "verdict": "passed",
+              "detailCode": "constraints_satisfied"
+            }
+          },
+          {
+            "iss": "custody-partner",
+            "aud": "https://sandbox.commons.example/v1/task-partners",
+            "jti": "receipt-release",
+            "iat": 1798797900,
+            "environment": "sandbox",
+            "commandId": "cmd-release",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": {
+              "kind": "release",
+              "reservationId": "hold-7",
+              "asset": {"assetId": "issuer.example:render-voucher:v1", "unit": "voucher", "quantity": "3"},
+              "beneficiaryRef": "beneficiary-27",
+              "grantRef": "grant-payout",
+              "submissionId": "sub-1",
+              "transferRef": "transfer-1"
+            }
+          },
+          {
+            "iss": "custody-partner",
+            "aud": "https://sandbox.commons.example/v1/task-partners",
+            "jti": "receipt-return",
+            "iat": 1798797900,
+            "environment": "sandbox",
+            "commandId": "cmd-return",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": {
+              "kind": "return",
+              "reservationId": "hold-8",
+              "asset": {"assetId": "issuer.example:render-voucher:v1", "unit": "voucher", "quantity": "3"},
+              "payerRef": "payer-31",
+              "transferRef": "return-2"
+            }
+          },
+          {
+            "iss": "model-partner",
+            "aud": "https://sandbox.commons.example/v1/task-partners",
+            "jti": "receipt-failed",
+            "iat": 1798797900,
+            "environment": "sandbox",
+            "commandId": "cmd-run",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": {"kind": "failed", "actionKind": "run", "reasonCode": "grant_declined_before_run"}
+          },
+          {
+            "iss": "model-partner",
+            "aud": "https://sandbox.commons.example/v1/task-partners",
+            "jti": "receipt-unknown",
+            "iat": 1798797900,
+            "environment": "sandbox",
+            "commandId": "cmd-run",
+            "taskId": "task-41",
+            "termsVersion": 2,
+            "termsDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "outcome": {"kind": "unknown", "actionKind": "run", "reasonCode": "upstream_unconfirmed"}
+          }
+        ]
+      },
+      "ReceiptSubmission": {
+        "type": "object",
+        "properties": {
+          "signedReceipt": {"type": "string", "maxLength": 16384, "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"}
+        },
+        "required": ["signedReceipt"],
+        "additionalProperties": false
+      },
+      "ReceiptAcknowledgement": {
+        "type": "object",
+        "properties": {
+          "receiptId": {"$ref": "#/components/schemas/Identifier"},
+          "commandId": {"$ref": "#/components/schemas/Identifier"},
+          "state": {"type": "string", "enum": ["uncertain", "succeeded", "failed"]}
+        },
+        "required": ["receiptId", "commandId", "state"],
+        "additionalProperties": false
+      },
+      "PartnerProfile": {
+        "type": "object",
+        "description": "Only capabilities and catalog entries currently approved for this caller and environment. Exclude internal contact details, key material, pending applications and personal account data.",
+        "properties": {
+          "partnerId": {"$ref": "#/components/schemas/Identifier"},
+          "displayName": {"type": "string", "minLength": 1, "maxLength": 100},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "capabilities": {
+            "type": "array",
+            "items": {"type": "string", "enum": ["model-provider", "custodian", "verifier"]},
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true
+          },
+          "catalogRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "catalog": {"$ref": "#/components/schemas/Catalog"}
+        },
+        "required": ["partnerId", "displayName", "environment", "capabilities", "catalogRevision", "catalog"],
+        "additionalProperties": false
+      },
+      "ProfilePage": {
+        "type": "object",
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/PartnerProfile"}, "minItems": 0, "maxItems": 100},
+          "nextCursor": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "AuditEntry": {
+        "type": "object",
+        "properties": {
+          "eventId": {"$ref": "#/components/schemas/Identifier"},
+          "recordedAt": {"$ref": "#/components/schemas/Timestamp"},
+          "actorRef": {"$ref": "#/components/schemas/Identifier"},
+          "action": {"$ref": "#/components/schemas/Identifier"},
+          "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 300},
+          "reference": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["eventId", "recordedAt", "actorRef", "action", "revision"],
+        "additionalProperties": false
+      },
+      "AuditPage": {
+        "type": "object",
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/AuditEntry"}, "minItems": 0, "maxItems": 100},
+          "nextCursor": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "Obligation": {
+        "type": "object",
+        "description": "Internal operator view. A succeeded reserve remains visible as held until exclusive confirmed settlement. An uncertain execution remains visible until resolved.",
+        "properties": {
+          "obligationId": {"$ref": "#/components/schemas/Identifier"},
+          "partnerId": {"$ref": "#/components/schemas/Identifier"},
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "openedAt": {"$ref": "#/components/schemas/Timestamp"},
+          "state": {"type": "string", "enum": ["held", "effect_uncertain", "settlement_pending", "in_recovery", "closed"]},
+          "commandId": {"$ref": "#/components/schemas/Identifier"},
+          "reservationId": {"$ref": "#/components/schemas/Identifier"},
+          "asset": {"$ref": "#/components/schemas/Asset"},
+          "latestRecoveryId": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": ["obligationId", "partnerId", "taskId", "termsVersion", "termsDigest", "revision", "openedAt", "state", "commandId"],
+        "additionalProperties": false
+      },
+      "ObligationPage": {
+        "type": "object",
+        "properties": {
+          "items": {"type": "array", "items": {"$ref": "#/components/schemas/Obligation"}, "minItems": 0, "maxItems": 100},
+          "nextCursor": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "RecoveryRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string", "const": "open"},
+              "commandId": {"$ref": "#/components/schemas/Identifier"},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+              "mode": {"type": "string", "enum": ["lookup", "release", "return"]},
+              "reason": {"type": "string", "minLength": 1, "maxLength": 300}
+            },
+            "required": ["action", "commandId", "expectedRevision", "mode", "reason"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string", "const": "authorize"},
+              "recoveryId": {"$ref": "#/components/schemas/Identifier"},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647}
+            },
+            "required": ["action", "recoveryId", "expectedRevision"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "description": "Use a compact JWS with decoded RecoveryClaims from the independently verified recovery signatory; archive the signed bytes in the restricted case vault. evidenceDigest is SHA-256 of the exact compact JWS ASCII bytes. sourceReference identifies the source record obtained through the verified channel.",
+            "properties": {
+              "action": {"type": "string", "const": "submit_evidence"},
+              "recoveryId": {"$ref": "#/components/schemas/Identifier"},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+              "sourceReference": {"type": "string", "minLength": 1, "maxLength": 160},
+              "externalEvidence": {"type": "string", "maxLength": 16384, "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"},
+              "evidenceDigest": {"$ref": "#/components/schemas/Digest"}
+            },
+            "required": ["action", "recoveryId", "expectedRevision", "sourceReference", "externalEvidence", "evidenceDigest"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {"type": "string", "const": "confirm_evidence"},
+              "recoveryId": {"$ref": "#/components/schemas/Identifier"},
+              "expectedRevision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+              "evidenceDigest": {"$ref": "#/components/schemas/Digest"}
+            },
+            "required": ["action", "recoveryId", "expectedRevision", "evidenceDigest"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Recovery": {
+        "type": "object",
+        "properties": {
+          "recoveryId": {"$ref": "#/components/schemas/Identifier"},
+          "obligationId": {"$ref": "#/components/schemas/Identifier"},
+          "commandId": {"$ref": "#/components/schemas/Identifier"},
+          "revision": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "state": {"type": "string", "enum": ["opened", "authorized", "evidence_recorded", "reconciled"]},
+          "mode": {"type": "string", "enum": ["lookup", "release", "return"]},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 300},
+          "evidenceDigest": {"$ref": "#/components/schemas/Digest"}
+        },
+        "required": ["recoveryId", "obligationId", "commandId", "revision", "state", "mode", "reason"],
+        "additionalProperties": false
+      },
+      "TokenRequest": {
+        "type": "object",
+        "properties": {
+          "grant_type": {"type": "string", "const": "client_credentials"},
+          "client_id": {"$ref": "#/components/schemas/Identifier"},
+          "scope": {"type": "string", "minLength": 1, "maxLength": 256},
+          "client_assertion_type": {"type": "string", "const": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"},
+          "client_assertion": {"type": "string", "maxLength": 16384, "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"}
+        },
+        "required": ["grant_type", "client_id", "scope", "client_assertion_type", "client_assertion"],
+        "additionalProperties": false
+      },
+      "TokenResponse": {
+        "type": "object",
+        "properties": {
+          "access_token": {"type": "string", "minLength": 1, "maxLength": 4096},
+          "token_type": {"type": "string", "const": "Bearer"},
+          "expires_in": {"type": "integer", "minimum": 1, "maximum": 300},
+          "scope": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "required": ["access_token", "token_type", "expires_in", "scope"],
+        "additionalProperties": false
+      },
+      "OAuthError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "invalid_client",
+              "unauthorized_client",
+              "unsupported_grant_type",
+              "invalid_scope",
+              "temporarily_unavailable"
+            ]
+          },
+          "error_description": {"type": "string", "minLength": 1, "maxLength": 300}
+        },
+        "required": ["error"],
+        "additionalProperties": false
+      },
+      "ClientAssertionClaims": {
+        "type": "object",
+        "description": "iss=sub=partnerId, aud=exact absolute token endpoint, exp within five minutes of iat, one-use jti, protected typ partner-client-auth+jwt.",
+        "properties": {
+          "iss": {"$ref": "#/components/schemas/Identifier"},
+          "aud": {"type": "string", "minLength": 1, "maxLength": 256},
+          "jti": {"$ref": "#/components/schemas/Identifier"},
+          "iat": {"type": "integer", "minimum": 0},
+          "sub": {"$ref": "#/components/schemas/Identifier"},
+          "exp": {"type": "integer", "minimum": 1}
+        },
+        "required": ["iss", "aud", "jti", "iat", "sub", "exp"],
+        "additionalProperties": false
+      },
+      "RecoveryClaims": {
+        "type": "object",
+        "description": "Decoded partner-recovery+jwt signed by the separately verified case signatory. aud is the absolute case resource URL. Check recoveryId, issuer, command and all ReceiptClaims bindings. The operator’s submit_evidence request supplies the vault sourceReference and digest of the compact JWS bytes; verify those against the archived statement before confirmation.",
+        "properties": {
+          "iss": {"$ref": "#/components/schemas/Identifier"},
+          "aud": {"type": "string", "minLength": 1, "maxLength": 256},
+          "jti": {"$ref": "#/components/schemas/Identifier"},
+          "iat": {"type": "integer", "minimum": 0},
+          "environment": {"$ref": "#/components/schemas/Environment"},
+          "commandId": {"$ref": "#/components/schemas/Identifier"},
+          "taskId": {"$ref": "#/components/schemas/Identifier"},
+          "termsVersion": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+          "termsDigest": {"$ref": "#/components/schemas/Digest"},
+          "outcome": {"$ref": "#/components/schemas/Outcome"},
+          "recoveryId": {"$ref": "#/components/schemas/Identifier"}
+        },
+        "required": [
+          "iss",
+          "aud",
+          "jti",
+          "iat",
+          "environment",
+          "commandId",
+          "taskId",
+          "termsVersion",
+          "termsDigest",
+          "outcome",
+          "recoveryId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "externalDocs": {
+    "description": "Task coordination design and example publication/settlement terms.",
+    "url": "https://github.com/patrick-yingxi-pan/agent-commons/blob/main/docs/design/task-coordination.md"
+  },
+  "x-receipt-test-vector": {
+    "publicKey": {"crv": "Ed25519", "x": "Y2cFeuIR9tp7InDZ7MwMpwLb1p4MlZnLs-nJeEX3mPk", "kty": "OKP", "kid": "sandbox-vector-v1"},
+    "signedReceipt": "eyJhbGciOiJFZDI1NTE5Iiwia2lkIjoic2FuZGJveC12ZWN0b3ItdjEiLCJ0eXAiOiJwYXJ0bmVyLXJlY2VpcHQrand0In0.eyJpc3MiOiJjdXN0b2R5LXBhcnRuZXIiLCJhdWQiOiJodHRwczovL3NhbmRib3guY29tbW9ucy5leGFtcGxlL3YxL3Rhc2stcGFydG5lcnMiLCJqdGkiOiJyZWNlaXB0LXJlc2VydmUiLCJpYXQiOjE3OTg3OTc5MDAsImVudmlyb25tZW50Ijoic2FuZGJveCIsImNvbW1hbmRJZCI6ImNtZC1yZXNlcnZlIiwidGFza0lkIjoidGFzay00MSIsInRlcm1zVmVyc2lvbiI6MiwidGVybXNEaWdlc3QiOiJhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhIiwib3V0Y29tZSI6eyJraW5kIjoicmVzZXJ2ZSIsImFzc2V0Ijp7ImFzc2V0SWQiOiJpc3N1ZXIuZXhhbXBsZTpyZW5kZXItdm91Y2hlcjp2MSIsInVuaXQiOiJ2b3VjaGVyIiwicXVhbnRpdHkiOiIzIn0sInBheWVyUmVmIjoicGF5ZXItMzEiLCJncmFudFJlZiI6ImdyYW50LWZ1bmRpbmciLCJob2xkVW50aWwiOiIyMDI3LTAxLTIwVDEyOjAwOjAwWiIsInJlc2VydmF0aW9uSWQiOiJob2xkLTcifX0.pfdIwxE4GKNxo5n4Fh48ADd8JR2gRvnekOwpLi2NKJWsRdliD7RWvd8-ZcBmW1XLAenEG8FkNjBZQfYryQwfCg"
+  }
+}
