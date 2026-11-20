@@ -122,6 +122,19 @@ test('focus highlights pair muted descendants with the co-tint foreground seat',
   assert.ok(classes.includes('[&_.text-ink-faint]:text-co-strong'), 'muted labels and controls need a readable highlight foreground')
 })
 
+test('active filter values keep text contrast on resting and highlighted menu rows', () => {
+  const source = read(join(ROOT, 'src', 'components', 'FilterMenu.tsx'))
+  const valueInk = source.match(/<span className=\{accent \? '[^']*\btext-([\w-]+)'[^}]*\}>\{value\}/)?.[1]
+  assert.ok(valueInk, 'the active filter value has a foreground token')
+  for (const [palette, mode] of COMBOS) {
+    const tokens = resolve(palette, mode)
+    for (const background of ['surface', 'panel-2']) {
+      const measured = contrast(tokens[`--color-${valueInk}`], tokens[`--color-${background}`])
+      assert.ok(measured >= 4.5, `${palette}/${mode} active value on ${background} = ${measured.toFixed(2)}:1`)
+    }
+  }
+})
+
 test('every palette x mode resolves a complete token set', () => {
   assert.equal(COMBOS.length, PALETTES.length * 2)
   for (const [palette, mode] of COMBOS) {
@@ -267,6 +280,7 @@ test('UI-20: sampled customization extremes preserve the contrast contract', () 
         ['--color-ink-faint', '--color-panel-2', 4.5],
         ['--color-accent', '--color-canvas', 3],
         ['--color-co', '--color-canvas', 3],
+        ['--color-accent-strong', '--color-panel-2', 4.5],
         ['--color-accent-strong', '--color-accent-tint', 4.5],
         ['--color-co-strong', '--color-co-tint', 4.5],
         ['--color-accent-solid', '--color-on-solid', 4.5],

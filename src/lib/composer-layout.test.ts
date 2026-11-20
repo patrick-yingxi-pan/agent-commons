@@ -7,7 +7,7 @@ test('composer model controls shrink at container width without clipping standin
   for (const part of Object.values(COMPOSER_MODEL_LAYOUT)) assert.ok(part.includes('min-w-0'))
   assert.ok(COMPOSER_MODEL_LAYOUT.group.includes('max-w-full'))
   assert.ok(COMPOSER_MODEL_LAYOUT.trigger.includes('max-w-full'))
-  assert.doesNotMatch(Object.values(COMPOSER_MODEL_LAYOUT).join(' '), /(?:sm|md|lg):|overflow-hidden/)
+  assert.doesNotMatch(Object.values(COMPOSER_MODEL_LAYOUT).join(' '), /(?:^|[\s:])(?:sm|md|lg):|overflow-hidden/)
   const composer = readFileSync(new URL('../components/Composer.tsx', import.meta.url), 'utf8')
   const picker = readFileSync(new URL('../components/ModelEffortControl.tsx', import.meta.url), 'utf8')
   assert.ok(composer.includes('data-composer-model-controls className={COMPOSER_MODEL_LAYOUT.group}'))
@@ -25,4 +25,12 @@ test('composer recovery guidance wraps exact identifiers and remains visible in 
   }
   const composer = readFileSync(new URL('../components/Composer.tsx', import.meta.url), 'utf8')
   assert.match(composer, /data-composer-execution-note className=\{composerExecutionNoteClass\(execution\.blocked\)\}/)
+})
+
+test('the framed composer exposes the same guarded send action to pointer and keyboard users', () => {
+  const composer = readFileSync(new URL('../components/Composer.tsx', import.meta.url), 'utf8')
+  assert.match(composer, /data-composer-frame[\s\S]*?<textarea[\s\S]*?aria-label="Send message"[\s\S]*?data-composer-tools[\s\S]*?data-composer-model-controls/)
+  assert.match(composer, /e\.key === 'Enter' && !e\.shiftKey && !e\.nativeEvent\.isComposing[\s\S]*?submit\(\)/)
+  assert.match(composer, /aria-label="Send message"[\s\S]*?disabled=\{!canSend\}[\s\S]*?onClick=\{submit\}/)
+  assert.match(composer, /const canSend = !disabled && value\.trim\(\)\.length > 0/)
 })

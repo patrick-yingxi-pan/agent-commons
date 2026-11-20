@@ -49,8 +49,10 @@ test('page identity survives compact chrome and scrollable code is keyboard reac
   const resourcePage = stripComments(read(join(ROOT, 'src', 'components', 'ResourcePage.tsx')))
   const codePanel = stripComments(read(join(ROOT, 'src', 'components', 'panels', 'CodePanel.tsx')))
 
-  assert.match(resourcePage, /<h1 className=\{`\$\{PAGE_TITLE_CLASS\} max-sm:sr-only`\}>\{title\}<\/h1>/,
-    'the narrow title remains in the heading outline while compact chrome carries its visible copy')
+  assert.match(resourcePage, /title === narrowBarTitle \? 'max-sm:sr-only' : ''/,
+    'only the exact title already present in the narrow shell yields to that shell')
+  assert.doesNotMatch(resourcePage, /max-sm:hidden[^\n]*\{badge\}/,
+    'resource status remains visible alongside the title in narrow chrome')
   assert.match(codePanel, /<pre[\s\S]*?tabIndex=\{0\}[\s\S]*?aria-label="Code changes"/,
     'a horizontally scrollable code diff is a named keyboard stop')
 })

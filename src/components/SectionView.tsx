@@ -180,6 +180,7 @@ import {
   CompositeResourcePage,
   FoldPairRow,
   MainCollectionTemplate,
+  NarrowSectionTitle,
   ResourcePageActions as SectionActions,
   ResourcePageEmpty as PageEmpty,
   ResourcePageHeader as PageHeader,
@@ -744,6 +745,7 @@ const TaskWorkDetail = lazy(() => import('./TaskWorkPage').then(module => ({defa
 
 export function SectionView({
   section,
+  isSectionIndex,
   subview,
   onOpenSubview,
   onOpenSession,
@@ -783,6 +785,7 @@ export function SectionView({
   onOpenRequest,
 }: {
   section: SectionId
+  isSectionIndex: boolean
   /** The active sub-view (lib/subviews) the rail drilled into — the section body
    *  renders it. null when the section has no sub-views. */
   subview: string | null
@@ -973,9 +976,11 @@ export function SectionView({
     // the shared PageHeader leads with the one back control. Detail pages
     // render BackButton from their props directly.
     <PageBackContext.Provider value={backTo ? { to: backTo, onBack } : null}>
-      <CompositeProjectionScope active={railProjectionActive}>
-        <div className={`flex min-h-0 flex-1 flex-col ${railCollapsed ? 'pl-8' : ''}`}>{body}</div>
-      </CompositeProjectionScope>
+      <NarrowSectionTitle.Provider value={isSectionIndex ? SECTION_META[section].label : null}>
+        <CompositeProjectionScope active={railProjectionActive}>
+          <div className={`flex min-h-0 flex-1 flex-col ${railCollapsed ? 'pl-8' : ''}`}>{body}</div>
+        </CompositeProjectionScope>
+      </NarrowSectionTitle.Provider>
     </PageBackContext.Provider>
   )
 }
@@ -1356,6 +1361,7 @@ function ProjectRow({
 }) {
   return (
     <SynopsisRow
+      compactDescription
       title={project.name}
       description={
         <>
@@ -1363,7 +1369,10 @@ function ProjectRow({
           {project.description}
         </>
       }
-      meta={`${shortRelativeTime(project.updatedAt)} · ${sessionCount} session${sessionCount === 1 ? '' : 's'}`}
+      meta={<>
+        <span className="@max-lg:hidden">{shortRelativeTime(project.updatedAt)} · </span>
+        <span className={sessionCount === 0 ? '@max-lg:hidden' : undefined}>{sessionCount} session{sessionCount === 1 ? '' : 's'}</span>
+      </>}
       onOpen={onOpen}
     />
   )
@@ -10037,6 +10046,7 @@ function SharedProjectRow({
 }) {
   return (
     <SynopsisRow
+      compactDescription
       title={p.name}
       description={
         <>
@@ -10044,11 +10054,12 @@ function SharedProjectRow({
           {p.description ? ` · ${p.description}` : ''}
         </>
       }
-      meta={`${p.openWorkCount > 0 ? `${p.openWorkCount} open · ` : ''}${
-        p.contributorCount > 0
-          ? `${p.contributorCount} contributor${p.contributorCount === 1 ? '' : 's'}`
-          : 'Open to contributors'
-      }${p.guarded ? ' · coordinated' : ''} · ${shortRelativeTime(p.updatedAt)}`}
+      meta={<>
+        {p.openWorkCount > 0 && `${p.openWorkCount} open · `}
+        {p.contributorCount > 0 ? `${p.contributorCount} contributor${p.contributorCount === 1 ? '' : 's'}` : 'Open to contributors'}
+        {p.guarded && ' · coordinated'}
+        <span className="@max-lg:hidden"> · {shortRelativeTime(p.updatedAt)}</span>
+      </>}
       onOpen={onOpen}
     />
   )

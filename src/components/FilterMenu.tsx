@@ -180,7 +180,7 @@ function FilterRow({
         }`}
       >
         <span className="flex-1 text-ink">{label}</span>
-        <span className={accent ? 'font-medium text-accent' : 'text-ink-faint'}>{value}</span>
+        <span className={accent ? 'font-medium text-accent-strong' : 'text-ink-faint'}>{value}</span>
         <ChevronRight size={14} className="shrink-0 text-ink-faint" />
       </button>
       {open && (

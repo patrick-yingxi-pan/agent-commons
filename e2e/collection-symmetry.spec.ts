@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { ms } from './budget.ts'
 import { newUser } from './social-helpers.ts'
+import { revealSessionRow } from './session-rail-helpers.ts'
 import { openOrganizePaneMenu, openSplitPaneMenu, organizePane, splitPane } from './pane-actions.ts'
 
 const sectionsNav = (page: import('@playwright/test').Page) => page.locator('nav[aria-label="Sections"]')
@@ -322,9 +323,9 @@ test('Sessions is an ordinary root with one live filter across rail and page', a
 
   await filterMenu.getByRole('menuitem', { name: /^Status/ }).hover()
   await page.getByRole('menuitemradio', { name: 'Active', exact: true }).click()
-  await expect(main.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
-  await expect(rail.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
   await page.keyboard.press('Escape')
+  await expect(main.getByText('Refactor auth middleware', { exact: true })).toBeVisible()
+  await revealSessionRow(page, 'Refactor auth middleware')
   await page.mouse.move(800, 200)
   await expect(railFilterProjection).not.toHaveAttribute('data-filter-active')
   await expect(railFilterProjection).toHaveCSS('opacity', '0')

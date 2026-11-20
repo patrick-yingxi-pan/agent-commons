@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Check,
-  CornerDownLeft,
+  SendHorizontal,
   FileText,
   FolderGit2,
   GitBranch,
@@ -36,7 +36,7 @@ import { HostsControl } from './HostsControl'
 import { ProvidersControl } from './ProvidersControl'
 import { GITHUB_CONNECTOR_ID, connectorIconFor } from '../lib/connectors'
 import { getDecision, setDecision } from '../lib/prefs'
-import { DANGER_BUTTON_CLASS } from '../lib/button'
+import { DANGER_BUTTON_CLASS, SOLID_BUTTON_CLASS } from '../lib/button'
 import { type ChipTone } from '../lib/capabilities'
 import { sameFocus } from '../lib/focus'
 import { useDismissable } from '../lib/useDismissable'
@@ -361,10 +361,10 @@ export function Composer({
 
   const hasChips = !!workspaceNode || groups.length > 0
 
+  const canSend = !disabled && value.trim().length > 0
   const submit = () => {
-    const t = value.trim()
-    if (!t || disabled) return
-    onSend(t)
+    if (!canSend) return
+    onSend(value.trim())
     setValue('')
   }
 
@@ -413,60 +413,61 @@ export function Composer({
           </div>
         )}
 
-        {/* Input — clean inside; Enter sends, Shift+Enter for a new line */}
         <div
-          // The composer is a standalone interactive OBJECT: it keeps its frame
-          // (the strong border, the accent focus ring) but nothing at rest
-          // floats — no shadow, and the radius steps down with the flat scale
-          // (collections 6px, cards 8px, standalone objects 12px — lib/ledger).
-          className={`flex items-end gap-2 rounded-xl border border-line-strong bg-surface px-4 py-3 transition focus-within:border-co ${
-            disabled ? 'opacity-60' : ''
-          }`}
+          data-composer-frame
+          className="@container rounded-xl border border-line-strong bg-surface transition focus-within:border-co"
         >
-          <textarea
-            ref={ref}
-            value={value}
-            rows={1}
-            aria-label="Message"
-            disabled={disabled}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={(e) => {
-              // Ignore the Enter that COMMITS an IME composition (Chinese/Japanese/
-              // Korean input) — it carries isComposing, and sending the half-composed
-              // text mid-composition is the bug.
-              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                submit()
-              }
-            }}
-            placeholder={disabled ? (disabledLabel ?? 'Generating a reply…') : 'Message…'}
-            className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed short:max-h-24"
-          />
-          {/* Soft keyboards have no Enter-to-send convention — hide the hint. */}
-          <span className="hidden shrink-0 self-end pb-0.5 text-ink-faint sm:inline" title="Enter to send">
-            <CornerDownLeft size={16} />
-          </span>
-        </div>
-
-        {/* Controls under the box, split left / right */}
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 px-0.5">
-          <div className="flex items-center gap-1">
-            <PermissionModeControl />
-            {contextWritable && <AddContextButton
-              sessionId={sessionId}
-              onAttach={onAddContext}
-              connectors={connectors}
-              repos={repos}
-              attachments={attachments}
-              workspaces={workspaces}
-            />}
-            <AudioInputControl />
+          <div className="flex items-center gap-2 py-1.5 pl-3.5 pr-1.5">
+            <textarea
+              ref={ref}
+              value={value}
+              rows={1}
+              aria-label="Message"
+              enterKeyHint="send"
+              disabled={disabled}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={(e) => {
+                // IME Enter commits the composition; Shift+Enter adds a line.
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  submit()
+                }
+              }}
+              placeholder={disabled ? (disabledLabel ?? 'Generating a reply…') : 'Message…'}
+              className="max-h-[180px] min-w-0 flex-1 resize-none bg-transparent text-[15px] leading-relaxed text-ink outline-none placeholder:text-ink-faint disabled:cursor-not-allowed short:max-h-24"
+            />
+            <button
+              type="button"
+              aria-label="Send message"
+              title="Send message (Enter)"
+              disabled={!canSend}
+              onClick={submit}
+              className={`${SOLID_BUTTON_CLASS} inline-flex h-11 shrink-0 items-center justify-center gap-1 self-end px-3 text-[13px] disabled:cursor-not-allowed disabled:bg-panel-2 disabled:text-ink-faint`}
+            >
+              <SendHorizontal size={16} aria-hidden />
+              Send
+            </button>
           </div>
-          <div data-composer-model-controls className={COMPOSER_MODEL_LAYOUT.group}>
-            <ModelEffortControl pick={modelPick} agentId={agentId} onSelectAgent={onSelectAgent} onSelectModel={onSelectModel} />
-            <ProvidersControl />
-            <HostsControl />
-            <UsageControl sessionId={sessionId} messageTokens={messageTokens} model={usageModel} />
+
+          <div className="grid min-w-0 gap-y-0.5 rounded-b-xl border-t border-line bg-panel/50 px-1.5 py-1 @lg:grid-cols-[auto_minmax(0,1fr)] @lg:gap-x-3">
+            <div role="group" aria-label="Message tools" data-composer-tools className="flex items-center gap-1">
+              {contextWritable && <AddContextButton
+                sessionId={sessionId}
+                onAttach={onAddContext}
+                connectors={connectors}
+                repos={repos}
+                attachments={attachments}
+                workspaces={workspaces}
+              />}
+              <AudioInputControl />
+              <PermissionModeControl />
+            </div>
+            <div role="group" aria-label="Model and connections" data-composer-model-controls className={COMPOSER_MODEL_LAYOUT.group}>
+              <ModelEffortControl pick={modelPick} agentId={agentId} onSelectAgent={onSelectAgent} onSelectModel={onSelectModel} />
+              <ProvidersControl />
+              <HostsControl />
+              <UsageControl sessionId={sessionId} messageTokens={messageTokens} model={usageModel} />
+            </div>
           </div>
         </div>
 

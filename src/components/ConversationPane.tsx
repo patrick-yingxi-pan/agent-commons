@@ -199,6 +199,7 @@ export function ConversationPane({
         sessionId={sessionId} onClose={() => setTool(null)} />}
       <ConversationView
         sessionId={sessionId}
+        draft={isDraft}
         onOpenSession={nav.onOpenSession}
         live={conv.live}
         composerText={conv.composerText}
