@@ -98,6 +98,14 @@ export class PartnerWorkService {
   projectForTask(taskId: string) {
     return this.task(taskId).projectId
   }
+  recentPartnerActivity(partnerId: string) {
+    return this.db.all('commands')
+      .map(command => command.view)
+      .filter(command => command.partnerId === partnerId && command.environment === 'production')
+      .sort((a, b) => b.issuedAt.localeCompare(a.issuedAt) || b.commandId.localeCompare(a.commandId))
+      .slice(0, 25)
+      .map(({ commandId, taskId, action, state, issuedAt }) => ({ commandId, taskId, kind: action.kind, state, issuedAt }))
+  }
   projectForHandoff(handoffId: string) {
     return this.projectForTask(this.handoffRecord(handoffId).view.taskId)
   }
@@ -212,9 +220,12 @@ export class PartnerWorkService {
     this.db.put('artifacts', artifactId, { ref, bytes: raw.toString('base64'), created: this.now(), uploadedFor })
     return ref
   }
-  createDraft(actor: WorkActor, projectId: string, body: unknown) {
+  createDraft(actor: WorkActor, projectId: string, body: unknown, seedTaskId?: string) {
     this.checkProject(actor, projectId)
-    return this.newDraft(actor, projectId, parseTerms(body, this.now()))
+    // An authored demo draft has one identity across restarts, edits and settlement.
+    // User operations never supply this argument.
+    if (seedTaskId && this.db.get('tasks', seedTaskId)) return this.view(actor, projectId, seedTaskId)
+    return this.newDraft(actor, projectId, parseTerms(body, this.now()), undefined, seedTaskId)
   }
   revise(actor: WorkActor, projectId: string, taskId: string, raw: unknown) {
     const from = this.visible(actor, projectId, taskId)
@@ -224,7 +235,7 @@ export class PartnerWorkService {
     if (!from.publishedAt) return conflict('Edit the current draft before publication.')
     return this.newDraft(actor, projectId, parseTerms(input.terms, this.now()), version(from))
   }
-  private newDraft(actor: WorkActor, projectId: string, terms: PartnerTaskTerms, previousOffer?: TaskVersion) {
+  private newDraft(actor: WorkActor, projectId: string, terms: PartnerTaskTerms, previousOffer?: TaskVersion, taskId = id('task')) {
     const owner = actorRef(actor)
     return this.db.transaction(() => {
       const tasks = this.db.all('tasks')
@@ -237,8 +248,7 @@ export class PartnerWorkService {
       }
       if (tasks.filter((t) => t.owner === owner && t.status === 'draft').length >= 100)
         return fail(429, 'draft_limit', 'Finish an existing draft before creating another.')
-      const taskId = id('task'),
-        termsVersion = (previousOffer?.termsVersion ?? 0) + 1
+      const termsVersion = (previousOffer?.termsVersion ?? 0) + 1
       const task: WorkTask = {
         projectId,
         taskId,
@@ -617,6 +627,7 @@ export class PartnerWorkService {
         handoffId,
         grant,
         identity: profile.identity,
+        ...(profile.demo && { demo: true as const }),
         handoffDomainAscii,
         expiresAt,
         state: 'started',
@@ -641,7 +652,7 @@ export class PartnerWorkService {
     const startCode = this.startCode(view, saved.owner, saved.nonce)
     if (hash(startCode) !== saved.startCodeHash) return conflict('Start a new authorization for this deployment.')
     const { handoffId, expiresAt, identity, handoffDomainAscii } = view
-    return { handoffId, startUrl: saved.startUrl, startCode, expiresAt, identity, handoffDomainAscii }
+    return { handoffId, startUrl: saved.startUrl, startCode, expiresAt, identity, handoffDomainAscii, ...(view.demo && { demo: true as const }) }
   }
   private effectiveHandoff(h: WorkHandoff): TaskHandoff['state'] {
     if (
@@ -1203,7 +1214,7 @@ export class PartnerWorkService {
       displayName,
       identity: { domainAscii, identityRevision, profilePath },
     } = profile
-    return { partnerId, displayName, domainAscii, identityRevision, profilePath }
+    return { partnerId, displayName, domainAscii, identityRevision, profilePath, ...(profile.demo && { demo: true as const }) }
   }
   private balanceFor(account: string) {
     let available = 0n,

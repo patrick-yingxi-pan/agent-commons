@@ -8,6 +8,7 @@ import {
   usePartnerTasks,
   useTaskHandoff,
   usePartnerBalance,
+  refreshPartnerTask,
   refreshPartnerWork,
   refreshHandoffStatus,
 } from '../api/hooks'
@@ -111,10 +112,11 @@ function PartnerIssuer({ task, id }: { task: PartnerTaskView; id: string }) {
   const identity = frozen ?? live!.identity
   return (
     <span className="block break-words">
-      <PartnerProfileName name={name} path={identity.profilePath} origin={data?.webOrigin} />
+      <PartnerProfileName name={name} domain={identity.domainAscii} path={identity.profilePath} origin={data?.webOrigin} />
       <span className="block break-all font-mono text-[13px]">
         <bdi dir="ltr">{identity.domainAscii}</bdi>
       </span>
+      {(frozen?.demo || live?.demo) && <span className="block text-[13px] text-ink-faint">Demo organization</span>}
       {frozen && frozen.status !== 'active' && (
         <span>Current status · {frozen.status.replaceAll('_', ' ')}</span>
       )}
@@ -150,6 +152,9 @@ function AccountHandoff({
   }, [cacheKey])
   const result = useTaskHandoff(handoffId)
   const current = result.data
+  useEffect(() => {
+    if (current?.state === 'consumed') refreshPartnerTask(task.projectId, task.taskId)
+  }, [current?.state, task.projectId, task.taskId])
   useEffect(() => {
     if (!handoffId || ['expired', 'declined', 'withdrawn', 'consumed'].includes(current?.state ?? '')) return
     const timer = window.setInterval(() => {
@@ -205,6 +210,7 @@ function AccountHandoff({
                 <bdi dir="ltr" className="break-all font-mono">
                   {partner.identity.domainAscii}
                 </bdi>
+                {partner.demo && <span className="block text-[13px] text-ink-faint">Demo organization</span>}
               </p>
               {partner.identity.collisionSignals.length > 0 && <p>{partnerCollisionLabel(partner.identity.collisionSignals)}</p>}
               {!partner.trustedForActor && (
@@ -280,6 +286,7 @@ function AccountHandoff({
                 </p>
               )}
               <p className="break-all text-[13px]">Verified website · <bdi dir="ltr">{current.identity.domainAscii}</bdi></p>
+              {current.demo && <p className="text-[13px] text-ink-faint">Demo organization</p>}
               {current.identity.collisionSignals.length > 0 && <p>{partnerCollisionLabel(current.identity.collisionSignals)}</p>}
               {current.state === 'started' && (
                 <a className={PAGE_ACTION_BUTTON_CLASS} href={apiNavigationHref(paths.partnerContinue(current.handoffId))}
@@ -388,6 +395,22 @@ export function TaskWorkDetail({
   const [text, setText] = useState('')
   const action = usePartnerAction()
   const refresh = () => refreshPartnerWork(projectId)
+  const awaitingPartner = !!task && (
+    ['reserving', 'delivering', 'returning'].includes(task.funding) ||
+    task.submissions.some(s => s.verdict === 'pending' || s.provenance === 'pending')
+  )
+  useEffect(() => {
+    if (!awaitingPartner) return
+    const check = () => {
+      if (document.visibilityState === 'visible') refreshPartnerTask(projectId, workId)
+    }
+    const timer = window.setInterval(check, 7000)
+    window.addEventListener('focus', check)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', check)
+    }
+  }, [awaitingPartner, projectId, workId])
   const Frame = embedded ? Fragment : AtomicResourcePage
   if (!task || read.status === 'error')
     return (

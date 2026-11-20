@@ -1938,6 +1938,7 @@
               "properties": {
                 "partnerId": {"$ref":"#/components/schemas/Identifier"},
                 "displayName": {"type":"string"},
+                "demo": {"const":true,"description":"Recorded issuer is a local demonstration partner."},
                 "domainAscii": {"$ref":"#/components/schemas/DomainAscii"},
                 "identityRevision": {"type":"integer","minimum":1},
                 "profilePath": {"type":"string"},
@@ -2107,7 +2108,8 @@
             "maxItems": 3,
             "uniqueItems": true
           },
-          "asOf": {"$ref":"#/components/schemas/Timestamp"}
+          "asOf": {"$ref":"#/components/schemas/Timestamp"},
+          "demo": {"const":true,"description":"This fictional organization belongs to the local review fixture."}
         },
         "required": ["partnerId","displayName","identity","status","capabilities","asOf"],
         "additionalProperties": false,
@@ -2349,7 +2351,21 @@
         "type": "object",
         "description": "Organization administrators and independent reviewers see the current application. challenge is present while proof is pending. Approved capabilities must be a subset of the request. Enrollment detail only. Contact details and key diagnostics are private. Suspension and revocation invalidate all online tokens for the application immediately; review a new approval before admitting a different capability set. domainChallengeIds identifies the most recent website and handoff challenges for authorized polling. A pending domain replacement never overwrites the verified binding.",
         "properties": {
+          "demo": {"const":true,"description":"Server-assigned marker for a fictional review organization."},
           "viewer": {"type":"object","description":"Private abilities derived from the current viewer and the application owner.","properties":{"canManage":{"type":"boolean"},"canReview":{"type":"boolean"}},"required":["canManage","canReview"],"additionalProperties":false},
+          "taskActivity": {
+            "type": "array", "maxItems": 25,
+            "description": "Recent assigned operations, newest first. Available to the managing organization on the local demo production application detail.",
+            "items": {
+              "type": "object", "additionalProperties": false, "required": ["commandId", "taskId", "kind", "state", "issuedAt"],
+              "properties": {
+                "commandId": {"type":"string"}, "taskId": {"type":"string"},
+                "kind": {"enum":["reserve","run","verify","release","return"]},
+                "state": {"enum":["requested","uncertain","succeeded","failed"]},
+                "issuedAt": {"type":"string","format":"date-time"}
+              }
+            }
+          },
           "domainChallengeIds": {"type":"object","properties":{"website":{"$ref":"#/components/schemas/Identifier"},"handoff":{"$ref":"#/components/schemas/Identifier"}},"additionalProperties":false},
           "applicationId": {"$ref": "#/components/schemas/Identifier"},
           "partnerId": {"$ref": "#/components/schemas/Identifier"},
@@ -2565,6 +2581,7 @@
         "type": "object",
         "description": "The browser form POSTs handoffId and startCode to this exact registered URL. Single-use code bound to actor, partner, environment, task and terms. Site polls the authenticated status endpoint in the originating tab.",
         "properties": {
+          "demo": {"const":true,"description":"The grant is issued by a local demonstration partner."},
           "handoffDomainAscii": {"$ref":"#/components/schemas/DomainAscii"},
           "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
           "handoffId": {"$ref": "#/components/schemas/Identifier"},
@@ -2694,6 +2711,7 @@
       "Handoff": {
         "type": "object",
         "properties": {
+          "demo": {"const":true,"description":"The grant is issued by a local demonstration partner."},
           "handoffDomainAscii": {"$ref":"#/components/schemas/DomainAscii"},
           "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
           "handoffId": {"$ref": "#/components/schemas/Identifier"},
@@ -3233,6 +3251,7 @@
         "type": "object",
         "description": "Only capabilities and catalog entries currently approved for this caller and environment. Exclude internal contact details, key material, pending applications and personal account data. Production eligibility requires a current verified binding. Display the complete primary host and link to the full immutable ID from identity. Sandbox projections use the sandbox origin, carry a Sandbox label, and confer no public listing.",
         "properties": {
+          "demo": {"const":true,"description":"This selectable partner is a fictional local review organization."},
           "trustedForActor": {"type":"boolean","description":"True when the authenticated viewer already pinned this exact current identity."},
           "identity": {"$ref":"#/components/schemas/PartnerIdentity"},
           "partnerId": {"$ref": "#/components/schemas/Identifier"},

@@ -2,7 +2,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { PartnerPublicProfile } from '../../contract/taskPartners.ts'
-import { partnerOrigins, servePublicPartner } from './publicHttp.ts'
+import { partnerOrigins, servePublicPartner, type PartnerOrigins } from './publicHttp.ts'
+import { demoPartnerConfiguration } from './demoConfiguration.ts'
 
 const origins = partnerOrigins({ TASK_PARTNER_WEB_ORIGIN: 'https://commons.example', TASK_PARTNER_BADGE_ORIGIN: 'https://badges.commons.example' })
 const profile: PartnerPublicProfile = {
@@ -11,7 +12,7 @@ const profile: PartnerPublicProfile = {
     verifiedAt: new Date(Date.now() - 1000).toISOString(), validUntil: new Date(Date.now() + 3600000).toISOString(),
     collisionSignals: [], relatedPartners: [] },
 }
-function visit(host: string, path: string, current = profile, healthy = true) {
+function visit(host: string, path: string, current = profile, healthy = true, deployment: PartnerOrigins = origins, demo?: {backendOrigin: string}) {
   let status = 0, body = ''
   let headers: Record<string, string> = {}
   const req = { method: 'GET', headers: { host, referer: 'https://unrelated.example/', 'x-forwarded-host': 'commons.example' } } as IncomingMessage
@@ -19,7 +20,7 @@ function visit(host: string, path: string, current = profile, healthy = true) {
     writeHead(code: number, fields: Record<string, string>) { status = code; headers = fields },
     end(value: string) { body = value },
   } as ServerResponse
-  const served = servePublicPartner(req, res, new URL(path, 'http://localhost'), origins, id => id === current.partnerId ? current : null, healthy)
+  const served = servePublicPartner(req, res, new URL(path, 'http://localhost'), deployment, id => id === current.partnerId ? current : null, healthy, demo)
   return { served, status, body, headers }
 }
 test('the public profile, public API and restricted badge use exact configured hosts and current identity', () => {
@@ -57,6 +58,43 @@ test('trusted partner origins reject paths, credentials, mixed environments and 
     assert.throws(() => partnerOrigins({ TASK_PARTNER_WEB_ORIGIN: s }))
   }
   assert.throws(() => partnerOrigins({ TASK_PARTNER_WEB_ORIGIN: 'https://commons.example', TASK_PARTNER_BADGE_ORIGIN: 'https://commons.example:8443' }))
+})
+
+test('demo badges grant framing only to their own mapped website and require the same local public configuration', () => {
+  const base = '/v1/task-partners/public/partners/org-1'
+  for (const port of ['80', '8787']) {
+    const local = demoPartnerConfiguration({ TASK_PARTNER_DEMO: '1', PORT: port })!
+    const badgeHost = new URL(local.badgeOrigin).host, webHost = new URL(local.webOrigin).host
+    for (const org of ['orchard-labs', 'orchard-coop']) {
+      const domain = org + '.example.com', path = base + '/badge?domain=' + domain
+      const current = { ...profile, demo: true as const, identity: { ...profile.identity, domainAscii: domain } }
+      const site = 'http://' + org + '.localhost' + (port === '80' ? '' : ':' + port)
+      const badge = visit(badgeHost, path, current, true, local, local)
+      assert.equal(badge.status, 200)
+      assert.equal(badge.headers['Content-Security-Policy'].split('; ').at(-1), 'frame-ancestors ' + site)
+      assert.ok(badge.body.includes('href="' + local.webOrigin + '/partners/org-1"'))
+      assert.match(badge.body, /Demo organization/)
+      const page = visit(webHost, '/partners/org-1', current, true, local, local)
+      assert.ok(page.body.includes('href="' + site + '/"'))
+      assert.equal(JSON.parse(visit(webHost, base, current, true, local, local).body).status, 'active')
+      const other = org === 'orchard-labs' ? 'orchard-coop' : 'orchard-labs'
+      for (const response of [
+        visit(badgeHost, base + '/badge?domain=' + other + '.example.com', current, true, local, local),
+        visit(badgeHost, path, current, true, local), visit('badges.commons.example', path, current, true, origins, local),
+        visit(badgeHost, path, current, true, local, {backendOrigin: 'http://127.0.0.1:1'}),
+      ]) {
+        assert.equal(response.headers['X-Frame-Options'], 'DENY')
+        assert.doesNotMatch(response.body, /View active profile/)
+      }
+      const inactive = JSON.parse(visit('commons.example', base, current, true, origins, local).body)
+      assert.equal(inactive.status, 'verification_lapsed')
+      assert.deepEqual(inactive.capabilities, [])
+      const real = { ...profile, identity: current.identity }
+      const verified = visit('badges.commons.example', path, real, true, origins, local)
+      assert.equal(verified.headers['Content-Security-Policy'].split('; ').at(-1), 'frame-ancestors https://' + domain)
+      assert.doesNotMatch(verified.body, /Demo organization|\.localhost/)
+    }
+  }
 })
 
 test('active website badges and public profiles identify the actual collision and preserve the exact host', () => {

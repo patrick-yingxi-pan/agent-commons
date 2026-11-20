@@ -11,6 +11,7 @@ const revision = (value: number) => Number.isSafeInteger(value) && value >= 1 &&
 const knownId = (value: unknown): value is string => typeof value === 'string' && identifier.test(value)
 export function validateEnrollmentRow(row: PartnerEnrollmentRow) {
   const a=row.app
+  if (a?.demo !== undefined && a.demo !== true) invalid()
   if (!a || !knownId(a.applicationId) || !knownId(a.partnerId) || !knownId(row.owner?.userId) || !knownId(row.owner?.tenantId) ||
       !['sandbox','production'].includes(a.environment) ||
       !['awaiting_proof','sandbox_testing','in_review','active','suspended','revoked','rejected'].includes(a.state) ||

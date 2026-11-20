@@ -202,9 +202,15 @@ export function usePartnerTasks(project: string, cursor?: string) {
     true,
   )
 }
+function partnerTaskKey(project: string, work: string) {
+  return 'partner-project:' + project + ':' + paths.partnerTaskTerms(project, work)
+}
+export function refreshPartnerTask(project: string, work: string) {
+  invalidatePrefix(partnerTaskKey(project, work), true)
+}
 export function usePartnerTask(project: string, work: string) {
   return usePartnerQuery(
-    'partner-project:' + project + ':' + paths.partnerTaskTerms(project, work),
+    partnerTaskKey(project, work),
     () => apiGet<PartnerTaskView>(paths.partnerTaskTerms(project, work)),
     true,
   )

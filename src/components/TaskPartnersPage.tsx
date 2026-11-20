@@ -15,6 +15,7 @@ import {
   PartnerSelect,
   PartnerField,
   PartnerProfileName,
+  PartnerCatalogDetails,
   PartnerPagination,
   PartnerQueryStatus,
 } from './PartnerFields'
@@ -299,18 +300,21 @@ export function PartnerDirectory() {
                     origin={found.data?.webOrigin}
                     path={p.identity.profilePath}
                     name={p.displayName}
+                    domain={p.identity.domainAscii}
                   />
                   <p className="break-all font-mono text-[13px]">
                     <bdi dir="ltr">{p.identity.domainAscii}</bdi>
                   </p>
                   <p className="text-[13px] text-ink-faint">
-                    {p.capabilities.map((c) => roleNames[c]).join(' · ')}
+                    {p.demo && 'Demo organization · '}{p.capabilities.map((c) => roleNames[c]).join(' · ')}
                   </p>
+                  {p.trustedForActor && <p className="text-[13px]">Previously confirmed by you</p>}
                   {p.identity.collisionSignals.length > 0 && (
                     <p className="text-[13px]">
                       {partnerCollisionLabel(p.identity.collisionSignals)}. Check the full domain before choosing this partner.
                     </p>
                   )}
+                  <PartnerCatalogDetails title="Approved catalog" catalog={p.catalog} />
                 </li>
               ))}
             </ul>

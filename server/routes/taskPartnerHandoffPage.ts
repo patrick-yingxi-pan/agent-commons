@@ -1,5 +1,6 @@
 import type { ServerResponse } from 'node:http'
 import { partnerCollisionLabel } from '../../contract/taskPartners.ts'
+import { demoPartnerConfiguration, demoPartnerWebsite } from '../taskPartners/demoConfiguration.ts'
 import type { Router } from '../http/router.ts'
 import { SECURITY_HEADERS } from '../http/respond.ts'
 import { store } from '../store/index.ts'
@@ -19,21 +20,29 @@ function html(res: ServerResponse, status: number, heading: string, body: string
 }
 
 type HandoffStart = ReturnType<typeof store.partnerWork.startResponse>
+let demoContinuation: ((start: HandoffStart) => string | null) | null = null
+export function setDemoPartnerContinuationResolver(resolve: typeof demoContinuation) { demoContinuation = resolve }
 
 /** The source URL is resolved from live organization authority, never a query
  * parameter. The workspace shell keeps its existing self-only form policy. */
 export function sendHandoffPage(res: ServerResponse, start: HandoffStart) {
-  const destination = new URL(start.startUrl)
-  if (destination.protocol !== 'https:' || destination.hostname !== start.handoffDomainAscii ||
-      destination.username || destination.password || destination.port || destination.hash) {
+  const verified = new URL(start.startUrl)
+  if (verified.protocol !== 'https:' || verified.hostname !== start.handoffDomainAscii ||
+      verified.username || verified.password || verified.port || verified.hash) {
     throw new Error('Invalid partner handoff destination')
   }
+  const demo = demoContinuation ? demoPartnerConfiguration() : null
+  const local = demo && demoContinuation?.(start)
+  const localOrigin = demo && demoPartnerWebsite(start.identity.domainAscii, demo.backendOrigin)
+  if (local && (!localOrigin || local !== localOrigin + '/confirm')) throw Error('Invalid demo handoff website.')
+  const destination = local ? new URL(local) : verified
   const website = '<bdi dir="ltr">' + escape(start.identity.domainAscii) + '</bdi>'
-  const host = '<bdi dir="ltr">' + escape(destination.hostname) + '</bdi>'
+  const host = '<bdi dir="ltr">' + escape(destination.host) + '</bdi>'
   const collision = partnerCollisionLabel(start.identity.collisionSignals)
   html(res, 200, 'Continue to your task partner', '<p>Verified organization website · ' + website + '</p>' +
     (collision ? '<p>' + escape(collision) + '. Check the full website address before continuing.</p>' : '') +
-    '<p>You will sign in at ' + host + '. After selecting your account, return to the original task in Agent Commons to confirm.</p>' +
+    '<p>' + (local ? 'Choose a fictional account on the local demo website at ' : 'You will sign in at ') + host +
+    '. After selecting your account, return to the original task in Agent Commons to confirm.</p>' +
     '<form method="post" action="' + escape(destination.href) + '"><input type="hidden" name="handoffId" value="' +
     escape(start.handoffId) + '"><input type="hidden" name="startCode" value="' + escape(start.startCode) +
     '"><button type="submit">Continue to ' + host + '</button></form>', destination.origin)
