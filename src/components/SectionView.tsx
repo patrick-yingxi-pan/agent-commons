@@ -869,8 +869,7 @@ export function SectionView({
   const body =
     section === 'task-partners' ? (
       <Suspense fallback={<p role="status">Loading task partners…</p>}>
-        <TaskPartnersPage subview={subview} application={partnerApplication} onOpen={onOpenPartnerApplication}
-          onSwitch={onOpenSubview} onBack={onBack} />
+        <TaskPartnersPage subview={subview} application={partnerApplication} onOpen={onOpenPartnerApplication} onBack={onBack} />
       </Suspense>
     ) : section === 'projects' ? (
       <ProjectsSection

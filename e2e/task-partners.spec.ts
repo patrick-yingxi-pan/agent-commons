@@ -22,7 +22,12 @@ test('an organization administrator can enroll, inspect separate proofs, and reo
   await page.goto('/task-partners')
   const main = page.getByRole('main')
   await expect(main.getByRole('heading', { name: 'Task partners', exact: true })).toBeVisible()
-  await main.getByRole('button', { name: 'Register partner', exact: true }).click()
+  const sections = page.getByRole('navigation', { name: 'Sections' })
+  for (const label of ['Partner applications', 'Register partner']) {
+    await expect(sections.getByRole('button', { name: label, exact: true })).toBeVisible()
+    await expect(main.getByText(label, { exact: true })).toHaveCount(0)
+  }
+  await sections.getByRole('button', { name: 'Register partner', exact: true }).click()
   const name = 'Juniper Studio ' + Date.now()
   await main.getByLabel('Public display name').fill(name)
   await main.getByLabel('Organization name', { exact: true }).fill(name)
