@@ -307,7 +307,27 @@ test('the fresh draft is an EQUAL page: a lone draft splits, and every view of i
     await expect(pane.locator('[data-session-title-bar]').getByText('New session')).toBeVisible()
     await expect(pane.getByText('What should we work on?')).toBeVisible()
     await expect(pane.getByText('Start with a repo, folder, or connector…')).toBeVisible()
+    const invitation = pane.getByRole('heading', { name: 'What should we work on?' })
+    const message = pane.getByRole('textbox', { name: 'Message', exact: true })
+    await expect(message).toBeEnabled()
+    await expect.poll(async () => {
+      const [heading, field] = await Promise.all([invitation.boundingBox(), message.boundingBox()])
+      if (!heading || !field) return false
+      const gap = field.y - (heading.y + heading.height)
+      return gap >= 0 && gap <= 96
+    }, { message: 'the invitation and first-message field form one group in each draft pane' }).toBe(true)
   }
+  // A long first message can outgrow a short pane. Both ends of the draft
+  // remain reachable through its scroll area.
+  await page.setViewportSize({ width: 844, height: 275 })
+  const focused = page.locator('[data-main-pane][data-focused="true"]')
+  await focused.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft line\n'.repeat(16))
+  const controls = focused.getByRole('group', { name: 'Model and connections' })
+  await controls.scrollIntoViewIfNeeded()
+  await expect(controls).toBeInViewport({ ratio: 1 })
+  const invitation = focused.getByRole('heading', { name: 'What should we work on?' })
+  await invitation.scrollIntoViewIfNeeded()
+  await expect(invitation).toBeInViewport({ ratio: 1 })
 })
 
 test('an entity door inside a pane-hosted section page stays IN THE PANE (the nav-bridge override)', async ({ page }) => {

@@ -40,6 +40,16 @@ test('ordinary resource indexes consume the synopsis funnel', () => {
   assert.ok((work.match(/<SynopsisRow\b/g) ?? []).length >= 2, 'both Your work collections use the synopsis funnel')
 })
 
+test('compact Project synopses keep the byline and description on a separate line before incidental metadata', () => {
+  const row = templateFn('ResourcePageSynopsisRow')
+  assert.match(row, /compactDescription[\s\S]+?order-last basis-full/, 'the shared row admits a compact second line')
+  for (const name of ['ProjectRow', 'SharedProjectRow']) {
+    const project = fn(name)
+    assert.match(project, /<SynopsisRow\s+compactDescription/, `${name} keeps the description at compact widths`)
+    assert.match(project, /@max-lg:hidden/, `${name} yields update age on compact rows`)
+  }
+})
+
 test('the Agents overview does not compress its canonical detail page into a row', () => {
   const agent = fn('AgentRow')
   for (const detail of [

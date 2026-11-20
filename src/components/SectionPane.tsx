@@ -134,6 +134,7 @@ export function SectionPane({
     setStack((s) => s.slice(0, -1))
   }
   const top = stack.at(-1)
+  const hasDetail = PANE_SEED_KEYS.some((key) => focus[key])
   const backTo: NavLocation | null =
     stack.length > 0
       ? // The whole seed, not three of its keys: back from one artifact to the
@@ -144,7 +145,7 @@ export function SectionPane({
         ? navLocationOfLoc(backOut.loc)
         : // Any detail open ⇒ back means "this section's list". Derived from the
           // one key list, so a new detail kind gets the back affordance for free.
-          PANE_SEED_KEYS.some((k) => focus[k])
+          hasDetail
           ? { kind: 'section', section, projectId: null, scheduleId: null, ownerName: null }
           : null
 
@@ -152,6 +153,7 @@ export function SectionPane({
     <SectionNavOverride.Provider value={paneNavigate}>
       <SectionView
         section={section}
+        isSectionIndex={!hasDetail && subview === null}
         subview={subview}
         onOpenSubview={(id) => {
           setSubview(id)

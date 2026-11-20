@@ -27,11 +27,11 @@ export function usePopoverShift<T extends HTMLElement = HTMLDivElement>(
   useLayoutEffect(() => {
     const el = ref.current
     if (!open || !el) return
-    const viewport = el.closest<HTMLElement>('[data-popover-viewport]')
+    const viewport = el.closest<HTMLElement>('[data-conversation-body], [data-popover-viewport]')
     let placed: DOMRect
     const apply = () => {
-      // Shell notices sit above this live body. Reserve their actual height
-      // instead of allowing a window-contained menu to slide underneath them.
+      // The conversation body starts below its title bar. Other surfaces
+      // use the workspace body below shell notices.
       const bounds = viewport?.getBoundingClientRect()
       const top = Math.max(0, bounds?.top ?? 0)
       const bottom = Math.min(window.innerHeight, bounds?.bottom ?? window.innerHeight)

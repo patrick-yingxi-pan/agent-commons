@@ -6,6 +6,8 @@ import { keys } from '../api/keys.ts'
 import { artifactContextId } from '../../contract/artifactSnapshot.ts'
 import type { AddedContext, Attachment } from '../types'
 import { SECONDARY_BUTTON_CLASS, SOFT_BUTTON_CLASS } from '../lib/button'
+import { dialogReadRegionProps } from '../lib/dialog'
+import { WRAPPING_PROSE_CLASS } from '../lib/prose'
 import { InlineOperationStatus } from './InlineOperationStatus.tsx'
 
 /** A source-read projection is the only candidate registry. Confirmation is a
@@ -37,13 +39,16 @@ export function ArtifactContextPicker({
   if (selected) {
     const title = selected.name
     return (
-      <div className="space-y-2 px-1 pb-1" data-artifact-context-confirm>
-        <p className="break-words text-[13px] font-medium text-ink">{title}</p>
-        <div className="rounded-lg border border-line bg-panel-2 px-2.5 py-2 text-[12px] leading-relaxed text-ink-soft">
-          <p>Attach a saved copy? Everyone with access to the destination conversation can read it. Revoking access to the source later won’t erase this copy or earlier replies. It won’t update live. The complete saved text and data must fit within 64 KB. Unsupported or oversized bodies are not copied.</p>
-          {isDraft && <p className="mt-1.5">This draft will capture the copy on its first send, after checking that you can still read the source. No copy is saved yet.</p>}
+      // Reserve the Add context header, border and padding above this step.
+      <div className="flex max-h-[calc(var(--popover-available-height,100dvh)-3rem)] flex-col gap-2 px-1 pb-1" data-artifact-context-confirm>
+        <div {...dialogReadRegionProps('Artifact copy details')} className="min-h-0 space-y-2 overflow-y-auto">
+          <p className={`${WRAPPING_PROSE_CLASS} text-[13px] font-medium text-ink`}>{title}</p>
+          <div className="rounded-lg border border-line bg-panel-2 px-2.5 py-2 text-[12px] leading-relaxed text-ink-soft">
+            <p>Attach a saved copy? Everyone with access to the destination conversation can read it. Revoking access to the source later won’t erase this copy or earlier replies. It won’t update live. The complete saved text and data must fit within 64 KB. Unsupported or oversized bodies are not copied.</p>
+            {isDraft && <p className="mt-1.5">This draft will capture the copy on its first send, after checking that you can still read the source. No copy is saved yet.</p>}
+          </div>
         </div>
-        <div className="flex flex-wrap justify-end gap-2 pt-1">
+        <div className="flex shrink-0 flex-wrap justify-end gap-2 pt-1">
           <button type="button" className={`${SECONDARY_BUTTON_CLASS} px-2.5 py-1 text-[12px]`} onClick={() => setSelectedId(null)}>Cancel</button>
           <button
             type="button"

@@ -230,6 +230,10 @@ export function ResourceUnavailablePage({
   )
 }
 
+/** NarrowBar shows the section label. Hide a repeated heading only when it
+ * really matches that label; a detail still needs its own visible identity. */
+export const NarrowSectionTitle = createContext<string | null>(null)
+
 /** The one page-title header for both templates. */
 export function ResourcePageHeader({
   title,
@@ -243,14 +247,15 @@ export function ResourcePageHeader({
   children?: ReactNode
 }) {
   const back = useContext(PageBackContext)
+  const narrowBarTitle = useContext(NarrowSectionTitle)
   return (
     <header className={PAGE_HEADER_CLASS}>
       <div className="flex min-w-0 grow basis-64 items-start gap-1">
         {back && <BackButton to={back.to} onBack={back.onBack} />}
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h1 className={`${PAGE_TITLE_CLASS} max-sm:sr-only`}>{title}</h1>
-            {badge && <span className="max-sm:hidden">{badge}</span>}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 [overflow-wrap:anywhere]">
+            <h1 className={`${PAGE_TITLE_CLASS} ${title === narrowBarTitle ? 'max-sm:sr-only' : ''}`}>{title}</h1>
+            {badge && <span>{badge}</span>}
           </div>
           {subtitle && <p className="mt-1 text-[13px] text-ink-soft max-sm:mt-0">{subtitle}</p>}
         </div>
@@ -590,7 +595,8 @@ export function ResourcePageList({ children, className = '' }: { children: React
  * because Projects, Agents, Models, directory entries, work queues, and run
  * ledgers are the same navigation problem even when their resource types differ.
  *
- * `description` yields before identity or metadata in a narrow pane. `trailing`
+ * In narrow panes, project descriptions and bylines take their own line.
+ * Other descriptors yield before identity or metadata. `trailing`
  * is reserved for row-local controls (edit/delete/review), whose own click is
  * spared by the shared card-door guard.
  */
@@ -599,6 +605,7 @@ export const ResourcePageSynopsisRow = forwardRef<
   {
     title: ReactNode
     description?: ReactNode
+    compactDescription?: boolean
     meta?: ReactNode
     prefix?: ReactNode
     trailing?: ReactNode
@@ -608,19 +615,22 @@ export const ResourcePageSynopsisRow = forwardRef<
     titleClassName?: string
   }
 >(function ResourcePageSynopsisRow(
-  { title, description, meta, prefix, trailing, onOpen, busy = false, className = '', titleClassName = 'text-ink' },
+  { title, description, compactDescription = false, meta, prefix, trailing, onOpen, busy = false, className = '', titleClassName = 'text-ink' },
   ref,
 ) {
   const titleClass = `min-w-0 flex-1 truncate text-left text-[13px] @lg:max-w-[55%] @lg:flex-none ${
     onOpen ? `hover:text-co ${DOOR_CLASS}` : 'font-medium'
   } ${titleClassName}`
+  const descriptionLayout = compactDescription
+    ? 'order-last basis-full line-clamp-2 [overflow-wrap:anywhere] @lg:order-none @lg:basis-0 @lg:flex-1 @lg:line-clamp-none @lg:truncate'
+    : 'hidden flex-1 truncate @lg:block'
   return (
     <div
       ref={ref}
       data-resource-synopsis-row
       aria-busy={busy}
       onClick={onOpen ? cardDoorClick(onOpen) : undefined}
-      className={`${LEDGER_ROW_CLASS} group min-w-0 @container ${onOpen ? ROW_DOOR_CLASS : ''} ${className}`}
+      className={`${LEDGER_ROW_CLASS} group min-w-0 @container ${compactDescription ? 'flex-wrap gap-y-1' : ''} ${onOpen ? ROW_DOOR_CLASS : ''} ${className}`}
     >
       {prefix}
       {onOpen ? (
@@ -629,7 +639,7 @@ export const ResourcePageSynopsisRow = forwardRef<
         <span className={titleClass}>{title}</span>
       )}
       {description !== undefined && (
-        <span className="hidden min-w-0 flex-1 truncate text-[12px] text-ink-soft @lg:block">{description}</span>
+        <span className={`min-w-0 text-[12px] text-ink-soft ${descriptionLayout}`}>{description}</span>
       )}
       {meta !== undefined && (
         <span className="ml-auto max-w-[38%] shrink-0 truncate text-right text-[11px] text-ink-faint">{meta}</span>

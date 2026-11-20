@@ -294,8 +294,11 @@ export function ConversationView({
     !typing &&
     (canRetry || (!draft && live.messages.length > 0 && live.messages[live.messages.length - 1].role === 'user'))
 
+  const showEmpty = live.messages.length === 0 && !typing && empty !== undefined
+  const readyDraft = draft && showEmpty && !execution.blocked
+
   return (
-    <>
+    <div data-conversation-body className={`flex min-h-0 flex-1 flex-col ${readyDraft ? 'justify-center-safe overflow-y-auto' : ''}`}>
       {focusState !== 'none' && focusState !== 'ready' && <InlineOperationStatus
         tone={focusState === 'loading' ? 'status' : 'alert'}
         message={focusState === 'loading' ? 'Finding message in earlier history…'
@@ -315,8 +318,9 @@ export function ConversationView({
             ? { label: 'Retry finding message', onClick: () => { void onLoadEarlier() } }
             : undefined}
       />}
-      <div ref={scrollRef} {...namedReadRegionProps('Conversation transcript', 'conversation')} className="flex-1 overflow-y-auto">
-        {live.messages.length === 0 && !typing && empty !== undefined ? (
+      <div ref={scrollRef} {...namedReadRegionProps('Conversation transcript', 'conversation')}
+        className={readyDraft ? 'shrink-0' : 'flex-1 overflow-y-auto'}>
+        {showEmpty ? (
           empty
         ) : (
           <div className={threadPadClass}>
@@ -447,6 +451,6 @@ export function ConversationView({
         onRemoveContexts={onRemoveContexts}
         onRemoveFolder={onRemoveFolder}
       />
-    </>
+    </div>
   )
 }

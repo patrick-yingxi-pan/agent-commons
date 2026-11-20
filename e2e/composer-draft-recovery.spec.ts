@@ -46,10 +46,32 @@ test('multiline drafts survive context-pane collapse at every viewport and send 
       await expect(conversation).toBeVisible()
       const composer = conversation.getByRole('textbox', { name: 'Message', exact: true })
       await expect(composer).toBeEnabled()
+      const frame = conversation.locator('[data-composer-frame]')
+      const send = frame.getByRole('button', { name: 'Send message', exact: true })
+      await expect(send).toBeDisabled()
+      await composer.fill('   ')
+      await expect(send).toBeDisabled()
+      const [frameBox, sendBox, toolsBox, modelBox] = await Promise.all([
+        frame.boundingBox(), send.boundingBox(),
+        frame.getByRole('group', { name: 'Message tools' }).boundingBox(),
+        frame.getByRole('group', { name: 'Model and connections' }).boundingBox(),
+      ])
+      expect(sendBox!.height).toBeGreaterThanOrEqual(44)
+      expect(sendBox!.width).toBeGreaterThanOrEqual(44)
+      for (const box of [sendBox!, toolsBox!, modelBox!]) {
+        expect(box.x).toBeGreaterThanOrEqual(frameBox!.x)
+        expect(box.x + box.width).toBeLessThanOrEqual(frameBox!.x + frameBox!.width)
+      }
+      if (frameBox!.width < 514) {
+        expect(modelBox!.y).toBeGreaterThanOrEqual(toolsBox!.y + toolsBox!.height)
+      } else {
+        expect(modelBox!.y).toBe(toolsBox!.y)
+      }
       await composer.click()
       const draft = `Draft across detach ${width}\nSecond line · café 世界\n${'Long continuation '.repeat(12)}`
       await composer.fill(draft)
       await expect(composer).toHaveValue(draft)
+      await expect(send).toBeEnabled()
       await page.getByRole('button', { name: 'recovery/', exact: true }).click()
       held = false
       await page.getByRole('button', { name: /Remove .*workspace/ }).first().click()
@@ -76,7 +98,8 @@ test('multiline drafts survive context-pane collapse at every viewport and send 
       await assertWcag22Aa(page, `Recovered multiline draft ${width}×${height}`)
       await page.screenshot({ path: testInfo.outputPath(`composer-recovered-${width}.png`), fullPage: true })
       const before = sends
-      await composer.press('Enter')
+      if (width <= 375) await send.click()
+      else await composer.press('Enter')
       await expect.poll(() => sends).toBe(before + 1)
       await expect(composer).toHaveValue('')
       await expect(page.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)

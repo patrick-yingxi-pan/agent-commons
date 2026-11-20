@@ -59,7 +59,9 @@ test('anchored popovers reserve live workspace space below shell recovery notice
   const app = stripComments(read(join(ROOT, 'src/App.tsx')))
   const hook = stripComments(read(join(ROOT, 'src/lib/usePopoverShift.ts')))
   assert.match(app, /<ShellMutationNotices\s*\/>[\s\S]*<div data-popover-viewport/)
-  assert.match(hook, /el\.closest<HTMLElement>\('\[data-popover-viewport\]'\)/)
+  const conversation = stripComments(read(join(ROOT, 'src/components/ConversationView.tsx')))
+  assert.match(conversation, /<div data-conversation-body/)
+  assert.match(hook, /el\.closest<HTMLElement>\('\[data-conversation-body\], \[data-popover-viewport\]'\)/)
   assert.match(hook, /Math\.max\(0, bounds\?\.top \?\? 0\)/)
   assert.match(hook, /shiftIntoSpan\(r\.top - top, r\.bottom - top, height\)/)
   assert.match(hook, /if \(viewport\) ro\.observe\(viewport\)/,

@@ -52,18 +52,14 @@ export function EmptyState({
       )
     }
     return (
-      <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+      <div className="flex flex-col items-center px-4 pb-2 pt-4 text-center">
         <div className="max-w-md">
           <h2 className="font-serif text-xl font-semibold text-ink">What should we work on?</h2>
-          <p className="mt-2 text-[13px] leading-relaxed text-ink-soft">
-            Start typing below. Attach a folder, a repo, or a connector and this one session grows a
-            workspace or a code panel as the work needs it — no tabs, no lost context.
-          </p>
           {live && onNewSessionWith && (
             // Pre-attached entry shortcuts (FWD-1): start this thread already holding a
             // repo / folder / connector — the old per-mode "New Code/Cowork" entries as
             // shortcuts, not tabs. Reuses the one attach funnel + picker.
-            <div className="mt-4 flex justify-center">
+            <div className="mt-1 flex justify-center">
               <AddContextButton
                 sessionId={DRAFT_ID}
                 variant="inline"

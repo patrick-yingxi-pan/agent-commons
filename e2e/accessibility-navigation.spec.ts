@@ -47,3 +47,45 @@ test('an established conversation has a navigable title and named message field'
   await expect(pane.getByRole('heading', { level: 1, name: 'Refactor auth middleware' })).toBeVisible()
   await expect(pane.getByRole('textbox', { name: 'Message', exact: true })).toHaveAttribute('placeholder', 'Message…')
 })
+
+test('compact resource pages preserve entity identity and shared Project attribution', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 })
+  await page.goto('/agents/agent-default')
+  const main = page.getByRole('main')
+  const heading = main.getByRole('heading', { level: 1, name: 'Default agent', exact: true })
+  // Playwright considers a 1px sr-only heading visible. Require actual painted title geometry.
+  await expect.poll(async () => (await heading.boundingBox())?.height ?? 0).toBeGreaterThan(16)
+  await expect(main.locator('header').getByText('Built in', { exact: true })).toBeVisible()
+
+  await page.goto('/projects')
+  const row = main.locator('[data-resource-synopsis-row]').filter({ has: page.getByRole('button', { name: 'Release Notes Atelier', exact: true }) })
+  const title = row.getByRole('button', { name: 'Release Notes Atelier', exact: true })
+  const description = row.getByText(/Notes per release/)
+  await expect(row.getByText(/by Grace Hopper$/)).toBeVisible()
+  await expect(description).toBeVisible()
+  await expect(row.getByText('0 sessions', { exact: true })).toBeHidden()
+  const titleBox = await title.boundingBox()
+  const descriptionBox = await description.boundingBox()
+  expect(descriptionBox!.y).toBeGreaterThanOrEqual(titleBox!.y + titleBox!.height)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await expect(row.getByText('0 sessions', { exact: true })).toBeVisible()
+})
+
+test('a compact detail keeps its heading when the resource is named after its section', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 700 })
+  // Keep this intentionally ambiguous name local to one browser context.
+  await page.route('**/api/v1/agents', async (route) => {
+    const response = await route.fetch()
+    const agents = await response.json() as { id: string }[]
+    const template = agents.find((agent) => agent.id === 'agent-default')
+    expect(template).toBeDefined()
+    await route.fulfill({ response, json: [...agents, { ...template, id: 'named-after-section', label: 'Agents', tenantId: 'tenant-acme' }] })
+  })
+  const heading = page.getByRole('main').getByRole('heading', { name: 'Agents', level: 1, exact: true })
+  await page.goto('/agents/named-after-section')
+  await expect.poll(async () => (await heading.boundingBox())?.height ?? 0).toBeGreaterThan(16)
+  await expect(page.getByRole('main').locator('header').getByText('Private', { exact: true })).toBeVisible()
+  await page.goto('/agents')
+  await expect(heading).toBeAttached()
+  await expect.poll(async () => (await heading.boundingBox())?.height).toBe(1)
+})

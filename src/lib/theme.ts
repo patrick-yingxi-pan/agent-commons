@@ -420,7 +420,15 @@ export function deriveThemeTokens(recipe: ThemeRecipe, mode: ResolvedTheme): The
   const responseTintRgb = hslToRgb(recipe.responseHue, tintSaturation, tintLightness)
   const accentLightness = readableLightness(recipe.actionHue, recipe.energy, [canvasRgb], mode, 3)
   const responseLightness = readableLightness(recipe.responseHue, recipe.energy, [canvasRgb], mode, 3)
-  const accentStrongLightness = readableLightness(recipe.actionHue, recipe.energy, [canvasRgb, accentTintRgb], mode, 4.5, isLight ? accentLightness - 4 : accentLightness + 6)
+  // Active filter values also sit on neutral menu rows, including their hover and focus highlight.
+  const accentStrongLightness = readableLightness(
+    recipe.actionHue,
+    recipe.energy,
+    [...neutralTextBackgrounds, accentTintRgb],
+    mode,
+    4.55,
+    isLight ? accentLightness - 4 : accentLightness + 6,
+  )
   const responseStrongLightness = readableLightness(recipe.responseHue, recipe.energy, [canvasRgb, responseTintRgb], mode, 4.5, isLight ? responseLightness - 4 : responseLightness + 6)
   const accentSolidLightness = solidLightness(recipe.actionHue, recipe.energy)
   const responseSolidLightness = solidLightness(recipe.responseHue, recipe.energy)

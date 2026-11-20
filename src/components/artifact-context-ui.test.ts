@@ -21,6 +21,7 @@ test('Artifact picker confirms copy disclosure and queues only an exact source i
   const picker = source('ArtifactContextPicker.tsx')
   assert.match(picker, /useArtifacts\(\)/)
   assert.match(picker, /Attach a saved copy/)
+  assert.match(picker, /dialogReadRegionProps\('Artifact copy details'\)[\s\S]*?\{title\}[\s\S]*?No copy is saved yet[\s\S]*?shrink-0[\s\S]*?Cancel/)
   assert.match(picker, /Add to draft/)
   assert.match(picker, /Everyone with access to the destination conversation can read it/)
   assert.match(picker, /Revoking access to the source later won’t erase this copy/)
