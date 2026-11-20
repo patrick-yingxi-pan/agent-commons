@@ -29,6 +29,7 @@ import {
 import { usePartnerAction } from '../controller/usePartnerAction'
 import {
   CopyPartnerValue,
+  PartnerCatalogDetails,
   PartnerField,
   PartnerGroup,
   PartnerNotice,
@@ -474,8 +475,27 @@ export default function PartnerApplicationDetail({ env, id }: { env: PartnerEnvi
       />
       <p className="break-all font-mono">{new URL(app.organizationUrl).hostname}</p>
       <p className="text-[13px] text-ink-faint">
-        {app.organization} · {app.requestedCapabilities.map((c) => roleNames[c]).join(' · ')}
+        {app.demo && 'Demo organization · '}{app.organization} · {app.requestedCapabilities.map((c) => roleNames[c]).join(' · ')}
       </p>
+      <PartnerCatalogDetails title="Requested catalog" catalog={app.catalog} />
+      {app.taskActivity && (
+        <PartnerGroup title="Task activity">
+          {app.taskActivity.length === 0 ? (
+            <p className="text-[13px] text-ink-faint">No task commands have been issued to this organization yet.</p>
+          ) : (
+            <ol>
+              {app.taskActivity.map((event) => (
+                <li key={event.commandId} className="py-1 text-[13px]">
+                  <strong>{{ reserve: 'Reserve reward', run: 'Run model', verify: 'Verify result', release: 'Deliver reward', return: 'Return reward' }[event.kind]}</strong>
+                  {' · '}{event.state.replaceAll('_', ' ')} ·{' '}
+                  <time dateTime={event.issuedAt}>{new Date(event.issuedAt).toLocaleString()}</time>
+                  <p className="break-all text-ink-faint">Task · {event.taskId}</p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </PartnerGroup>
+      )}
       {app.viewer?.canManage && (
         <details>
           <summary>Edit display name</summary>

@@ -152,6 +152,40 @@ const funded = {
   deadline: iso(at + 3_600_000),
   reward: { partnerId: custodian, asset, holdUntil: iso(at + 7_200_000) },
 }
+test('booting an existing starter preserves the requester’s edited terms and published offer', () => {
+  const f = fixture()
+  const key = 'task-' + 'a'.repeat(32)
+  const draft = f.service.createDraft(alice, project, { description: 'First review' }, key)
+  const revised = f.service.saveTerms(alice, project, key, {
+    expectedVersion: draft.termsVersion, terms: { description: 'My edited review' },
+  })
+  f.service.publish(alice, project, key, updated(revised))
+  const restored = new PartnerWorkService(f.opts)
+  restored.restore(f.service.snapshot())
+  const original = restored.createDraft(alice, project, { description: 'First review' }, key)
+  assert.equal(original.terms.description, 'My edited review')
+  assert.equal(original.status, 'published')
+  assert.equal(restored.list(alice, project).length, 1)
+})
+
+test('a simulated issuer is disclosed in the handoff, saved task identity and private operations', () => {
+  const f = fixture()
+  f.profiles[custodian].demo = true
+  const draft = f.service.createDraft(alice, project, funded)
+  const begin = f.service.startHandoff(alice, env, { ...version(draft), partnerId: custodian, purpose: 'reserve' })
+  assert.equal(begin.demo, true)
+  assert.equal(f.service.handoff(alice, env, begin.handoffId).demo, true)
+  const { cmd, signedReceipt } = reserve(f, draft)
+  f.service.receipt(payer, env, cmd.commandId, { signedReceipt })
+  f.service.publish(alice, project, draft.taskId, updated(draft))
+  const restored = new PartnerWorkService(f.opts)
+  restored.restore(f.service.snapshot())
+  assert.equal(restored.view(bob, project, draft.taskId).partners.find(p => p.partnerId === custodian).demo, true)
+  assert.deepEqual(restored.recentPartnerActivity(custodian), [
+    { kind: 'reserve', state: 'succeeded', issuedAt: cmd.issuedAt, commandId: cmd.commandId, taskId: draft.taskId },
+  ])
+  assert.deepEqual(restored.recentPartnerActivity(provider), [])
+})
 function reserve(f, t) {
   f.authorize(alice, t, payer, 'reserve')
   const [cmd] = f.service.commands(payer, env)

@@ -74,7 +74,7 @@ function SelectPartner({
         {site && <option value="agent-commons">Agent Commons · Site-held work credits</option>}
         {options.map((p) => (
           <option key={p.partnerId} value={p.partnerId}>
-            {[p.displayName, p.identity.domainAscii, partnerCollisionLabel(p.identity.collisionSignals)].filter(Boolean).join(' · ')}
+            {[p.displayName, p.identity.domainAscii, partnerCollisionLabel(p.identity.collisionSignals), p.demo && 'Demo organization'].filter(Boolean).join(' · ')}
           </option>
         ))}
         {value && value !== 'agent-commons' && !options.some((p) => p.partnerId === value) && (

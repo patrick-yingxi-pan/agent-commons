@@ -98,6 +98,23 @@ npm run dev   →  http://127.0.0.1:5173
    owned by the org (the New-project **Owner** picker) and watch it band under
    *Your organizations* for every seat.
 
+## Review a rewarded task with two similar partners
+
+`npm run dev` enrolls two fictional task partners in the local demo. Open **Task partners** to compare their verified websites, partner IDs and approved catalogs. Both carry the **Similar name** warning. Searching by exact website finds just one.
+
+| Partner | Verified website | Organization account | Approved work |
+|---|---|---|---|
+| Orchard Works | `orchard-labs.example.com` | Maya Chen | Runs the `orchard-demo` model at standard effort and signs its compute receipt. |
+| Orchard Work | `orchard-coop.example.com` | Noor Haddad | Reserves and delivers review vouchers. Its `exact-ready` rule accepts exactly the five lowercase bytes `ready`. |
+
+1. **Ada, requester.** Open **Insights dashboard → Open work → Return ready for the Orchard review**. The private draft promises three vouchers. Review the custodian authorization, enter its verified website from the table, and continue to the partner. On its local demo site choose the payer account ending in **19**. Back on the task, select **Refresh authorization → Confirm account and terms**. Once funding reads **held**, confirm the model provider’s website and choose **Publish task**.
+2. **Grace, contributor.** Switch accounts and open the same published task. Claim it and authorize the model run with Orchard Works. The model returns `ready`. Orchard Work checks the output and the task shows **Acceptance · passed · Compute proof · attested**. Authorize receipt of the vouchers with Orchard Work and select the beneficiary account ending in **42**. Once funding reads **delivered**, Ada and Grace can both see the settlement.
+3. **Maya and Noor, organization administrators.** Switch to each account and open **Task partners → Partner applications**. Choose the **Production** environment and open the account’s active application. Under **Task activity**, Maya sees the model run and Noor sees the reservation, verification and reward delivery for the same task ID. You can also inspect the roles, catalog, public profile link and website badge. From the public profile follow the verified website, then click its embedded badge to return to that same partner’s profile. The local partner pages display their fictional identity and run on separate browser origins.
+
+The partner sites offer fictional accounts ending in 19 and 42. Enter the verified `.example.com` website in identity confirmations. The browser opens a separate `.localhost` site on the API port for account selection. The model response and voucher balances are simulated. The site uses its regular enrollment, authorization, verification and settlement protocol.
+
+The starter is created once per demo database. Restarting preserves its current state. For another run, Ada can create a revised offer or a new task with the same partners and terms. Set `TASK_PARTNER_DEMO=0` to disable the fixture.
+
 6. **The maintainer console** (FWD-7) is opt-in per boot: start with
    `MAINTAINERS=user-ada npm run dev` (comma-separated user ids, or the demo
    accounts' emails — an email entry grants **seeded** accounts only, since an

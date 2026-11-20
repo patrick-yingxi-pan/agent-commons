@@ -9,6 +9,7 @@ export interface WorkCreditBalance {
   held: string
 }
 export interface FrozenTaskPartner {
+  demo?: true
   partnerId: string
   displayName: string
   domainAscii: string
@@ -95,6 +96,7 @@ export interface TaskVersion {
   termsDigest: string
 }
 export interface TaskHandoff extends TaskVersion {
+  demo?: true
   handoffId: string
   partnerId: string
   environment: 'production'

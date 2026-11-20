@@ -4,7 +4,7 @@ import { openAuthScreen } from '../controller/useAuthScreen'
 import { useId, type InputHTMLAttributes, type ReactNode } from 'react'
 import { FORM_INPUT_CLASS } from '../lib/formInput'
 import { SECONDARY_BUTTON_CLASS } from '../lib/button'
-import type { PartnerCapability } from '../../contract/taskPartners'
+import type { PartnerCapability, PartnerCatalog } from '../../contract/taskPartners'
 import type { QueryState } from '../api/cache'
 
 export const roleNames: Record<PartnerCapability, string> = {
@@ -183,10 +183,12 @@ export function PartnerPagination({
 
 export function PartnerProfileName({
   name,
+  domain,
   path,
   origin,
 }: {
   name: string
+  domain: string
   path: string
   origin?: string | null
 }) {
@@ -200,10 +202,52 @@ export function PartnerProfileName({
     <a
       className={STANDING_DOOR_CLASS + ' font-semibold text-accent-strong'}
       href={new URL(path, origin).href}
+      aria-label={name + ' · ' + domain}
       target="_blank"
       rel="noopener noreferrer"
     >
       <bdi>{name}</bdi>
     </a>
+  )
+}
+
+export function PartnerCatalogDetails({ catalog, title }: { catalog: PartnerCatalog; title: string }) {
+  return (
+    <details className="mt-2 text-[13px]">
+      <summary className="cursor-pointer">{title}</summary>
+      <dl className="mt-2 space-y-2">
+        {catalog.models.length > 0 && (
+          <div>
+            <dt className="font-semibold">Attested models</dt>
+            {catalog.models.map((entry) => (
+              <dd key={entry.model} className="break-words">
+                {entry.model}{entry.efforts.length > 0 && ' · ' + entry.efforts.join(', ')}
+              </dd>
+            ))}
+          </div>
+        )}
+        {catalog.assets.length > 0 && (
+          <div>
+            <dt className="font-semibold">Reward assets</dt>
+            {catalog.assets.map((entry) => (
+              <dd key={JSON.stringify([entry.assetId, entry.unit])} className="break-words">
+                {entry.assetId} · {entry.unit}
+              </dd>
+            ))}
+          </div>
+        )}
+        {catalog.rules.length > 0 && (
+          <div>
+            <dt className="font-semibold">Executable rules</dt>
+            {catalog.rules.map((entry) => (
+              <dd key={JSON.stringify([entry.ruleId, entry.version])} className="break-words">
+                {entry.ruleId} · version {entry.version}
+                <span className="block break-all font-mono text-[12px] text-ink-faint">SHA-256 · {entry.digest}</span>
+              </dd>
+            ))}
+          </div>
+        )}
+      </dl>
+    </details>
   )
 }

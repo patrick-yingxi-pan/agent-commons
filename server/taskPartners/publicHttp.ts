@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { partnerCollisionLabel, type PartnerPublicProfile } from '../../contract/taskPartners.ts'
+import { demoPartnerWebsite } from './demoConfiguration.ts'
 
 export interface PartnerOrigins {
   webOrigin: string | null
@@ -44,7 +45,8 @@ function html(title: string, body: string, styled = false) {
 type Lookup = (id: string) => PartnerPublicProfile | null | undefined
 /** The badge host never falls through to cookies, private APIs, or the application shell.
  * The reverse proxy terminates TLS and preserves the canonical Host. */
-export function servePublicPartner(req: IncomingMessage, res: ServerResponse, url: URL, origins: PartnerOrigins, lookup: Lookup, healthy: boolean): boolean {
+export function servePublicPartner(req: IncomingMessage, res: ServerResponse, url: URL, origins: PartnerOrigins,
+  lookup: Lookup, healthy: boolean, demo?: {backendOrigin: string}): boolean {
   const host = typeof req.headers.host === 'string' ? req.headers.host.toLowerCase() : undefined
   const badgeHost = origins.badgeOrigin !== null && host === new URL(origins.badgeOrigin).host
   const profilePage = /^\/partners\/([A-Za-z0-9_-]{1,160})$/.exec(url.pathname)
@@ -69,24 +71,26 @@ export function servePublicPartner(req: IncomingMessage, res: ServerResponse, ur
   if (!profile) return publicApi && !publicApi[2] ? send(404, JSON.stringify({ code: 'not_found' }), 'application/json') : send(404, neutral)
   const domain = profile.identity.domainAscii
   if (!domainPattern.test(domain) || profile.partnerId !== id) return send(503, neutral)
+  const websiteOrigin = profile.demo ? demo && demoPartnerWebsite(domain, demo.backendOrigin, origins) : 'https://' + domain
+  const demoLabel = profile.demo ? 'Demo organization · ' : ''
   const roles = profile.capabilities.map(c => labels[c]).join(', ')
-  const active = profile.status === 'active' && !!roles && Date.parse(profile.identity.verifiedAt) <= Date.now() && Date.now() < Date.parse(profile.identity.validUntil)
+  const active = !!websiteOrigin && profile.status === 'active' && !!roles && Date.parse(profile.identity.verifiedAt) <= Date.now() && Date.now() < Date.parse(profile.identity.validUntil)
   const currentStatus = profile.status === 'active' && !active ? 'verification_lapsed' : profile.status
   const collision = partnerCollisionLabel(profile.identity.collisionSignals)
   if (servingBadge) {
     const supplied = url.searchParams.get('domain')
     if (!supplied || !domainPattern.test(supplied) || [...url.searchParams.keys()].length !== 1) return send(400, neutral)
-    if (!active || supplied !== domain) return send(200, neutral)
+    if (!active || supplied !== domain || !websiteOrigin) return send(200, neutral)
     const link = escape(origins.webOrigin + profilePath(id))
     const body = '<a target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" href="' + link + '"><strong>' + isolate(profile.displayName) +
-      '</strong><br>' + hostText(domain) + (collision ? '<br>' + escape(collision) : '') + '<br>Agent Commons · ' + escape(roles) + ' · View active profile</a>'
-    return send(200, html(profile.displayName, body), 'text/html', 'https://' + domain)
+      '</strong><br>' + hostText(domain) + (collision ? '<br>' + escape(collision) : '') + '<br>' + demoLabel + 'Agent Commons · ' + escape(roles) + ' · View active profile</a>'
+    return send(200, html(profile.displayName, body), 'text/html', websiteOrigin)
   }
   if (publicApi) return send(200, JSON.stringify({ ...profile, status: currentStatus, capabilities: active ? profile.capabilities : [] }), 'application/json')
   const peers = profile.identity.relatedPartners.map(lookup).filter(p => !!p).map(p =>
     '<li><a href="' + escape(profilePath(p.partnerId)) + '">' + isolate(p.displayName) + ' · ' + hostText(p.identity.domainAscii) + '</a></li>')
-  const website = active ? '<a href="https://' + escape(domain) + '/" rel="noreferrer">' + hostText(domain) + '</a>' : hostText(domain)
-  const contents = '<main><header>Agent Commons · Partner directory</header><h1>' + isolate(profile.displayName) +
+  const website = active && websiteOrigin ? '<a href="' + escape(websiteOrigin) + '/" rel="noreferrer">' + hostText(domain) + '</a>' : hostText(domain)
+  const contents = '<main><header>' + demoLabel + 'Agent Commons · Partner directory</header><h1>' + isolate(profile.displayName) +
     '</h1><dl><dt>Website</dt><dd>' + website + '</dd><dt>Partner status</dt><dd>' + escape(statuses[currentStatus]) +
     '</dd><dt>Current approvals</dt><dd>' + (active ? escape(roles) : 'No active approvals') + '</dd><dt>Permanent partner ID</dt><dd>' + escape(id) + '</dd></dl>' +
     (collision ? '<section><h2>' + escape(collision) + '</h2><p>Check the full website address before choosing a partner.</p>' +

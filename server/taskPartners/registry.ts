@@ -16,6 +16,7 @@ export { PartnerRegistryError } from './protocol.ts'
 export interface PartnerActor { userId: string; tenantId: string; operator: boolean; organizationAdmin: boolean; freshAuth?: boolean }
 export interface PartnerRegistryOptions {
   now?: () => number
+  demoEnabled?: () => boolean
   resolveTxt?: (name: string) => Promise<string[][]>
   audience?: (environment: PartnerEnvironment) => string
   changed?: () => void
@@ -45,6 +46,8 @@ const inactive = (): never => fail(409, 'identity_inactive', 'Current partner au
 export class PartnerRegistry {
   private rows = new Map<string, PartnerEnrollmentRow>()
   private nameIndex?: PartnerNameIndex
+  private nameIndexDemo = false
+  private readonly demoEnabled: () => boolean
   private replays = new Map<string, Replay>()
   private workers = new PartnerWorkerTokens()
   private readonly changed: () => void
@@ -53,6 +56,7 @@ export class PartnerRegistry {
   private readonly audience: NonNullable<PartnerRegistryOptions['audience']>
   private readonly verifierSamples: VerifierSamples
   constructor(options: PartnerRegistryOptions = {}) {
+    this.demoEnabled = options.demoEnabled ?? (() => false)
     this.now = options.now ?? Date.now
     this.resolveTxt = options.resolveTxt ?? (name => dns.resolveTxt(name))
     this.changed = options.changed ?? (() => {})
@@ -67,7 +71,7 @@ export class PartnerRegistry {
     if (state !== undefined && (state.version !== 1 || !Array.isArray(state.rows) || !Array.isArray(state.replays)))
       throw new Error('Invalid persisted task-partner registry.')
     const rows = new Map<string, PartnerEnrollmentRow>(), replays = new Map<string, Replay>(), ids = new Set<string>(), hosts=new Set<string>()
-    const keys=new Set<string>(), reports=new Map<string,{tenantId:string;digest:string}>()
+    const keys=new Set<string>(), reports=new Map<string,{tenantId:string;digest:string;demo?:true}>()
     for (const row of structuredClone(state?.rows ?? [])) {
       const a = row.app
       validateEnrollmentRow(row)
@@ -78,7 +82,7 @@ export class PartnerRegistry {
       }
       for (const report of row.reports) {
         if (reports.has(report.public.reportId)) throw new Error('Duplicate persisted conformance report.')
-        reports.set(report.public.reportId,{tenantId:row.owner.tenantId,digest:report.public.catalogDigest})
+        reports.set(report.public.reportId,{tenantId:row.owner.tenantId,digest:report.public.catalogDigest,demo:a.demo})
       }
       if (row.published && a.state !== 'revoked') {
         const host=new URL(a.organizationUrl).hostname
@@ -97,7 +101,7 @@ export class PartnerRegistry {
     for (const row of rows.values()) {
       if (row.app.environment!=='production') continue
       const source=reports.get(row.sandboxReportId!)
-      if (!source || source.tenantId!==row.owner.tenantId || source.digest!==catalogDigest(row.app.catalog))
+      if (!source || source.tenantId!==row.owner.tenantId || source.digest!==catalogDigest(row.app.catalog) || source.demo!==row.app.demo)
         throw new Error('Invalid persisted sandbox report binding.')
     }
     this.workers.restore(state?.workers,(env,pid,kid)=>{
@@ -110,7 +114,7 @@ export class PartnerRegistry {
   }
   private row(actor: PartnerActor, env: PartnerEnvironment, appId: string, ownerOnly = false) {
     const row = this.rows.get(appId)
-    if (!row || row.app.environment !== env || (!(actor.operator && !ownerOnly) &&
+    if (!row || (row.app.demo && !this.demoEnabled()) || row.app.environment !== env || (!(actor.operator && !ownerOnly) &&
         (!actor.organizationAdmin || row.owner.tenantId !== actor.tenantId))) return missing()
     return row
   }
@@ -153,7 +157,8 @@ export class PartnerRegistry {
       audience: this.audience(row.app.environment) + '/applications/' + row.app.applicationId + '/proofs',
       expiresAt: iso(this.now() + 300_000) }
   }
-  apply(actor: PartnerActor, env: PartnerEnvironment, input: unknown) {
+  apply(actor: PartnerActor, env: PartnerEnvironment, input: unknown, options: {demo?: true} = {}) {
+    if (options.demo && !this.demoEnabled()) return inactive()
     if (!actor.userId || !actor.tenantId || !['sandbox','production'].includes(env)) return missing()
     if (!actor.organizationAdmin) return fail(403, 'forbidden', 'An organization administrator must open the application.')
     const req = enrollment(input)
@@ -161,13 +166,13 @@ export class PartnerRegistry {
       conflict('Use a separate signing key for each enrollment and environment.')
     if (env === 'sandbox' && req.sandboxReportId) fail(400, 'bad_request', 'Sandbox applications do not reference an earlier report.')
     if (env === 'production' && !this.qualified(actor, req.sandboxReportId, req.catalog, req.capabilities,
-      req.organizationUrl, req.publicKey)) conflict('A current passing report for this organization and catalog and a separate production key are required.')
+      req.organizationUrl, req.publicKey, false, options.demo === true)) conflict('A current passing report for this organization and catalog and a separate production key are required.')
     if ([...this.rows.values()].filter(r => r.owner.tenantId === actor.tenantId).length >= 128 || this.rows.size >= 5000)
       fail(429, 'capacity', 'The application limit has been reached.')
     const key = req.publicKey, appId = id('app')
     const row: PartnerEnrollmentRow = { owner: { userId: actor.userId, tenantId: actor.tenantId }, keyMaterial: [key],
       domains: [], reports: [], history: [], bindings: {}, identityRevision: 1, published: false, sandboxReportId: req.sandboxReportId,
-      app: { applicationId: appId, partnerId: id('org'), environment: env, revision: 0, state: 'awaiting_proof',
+      app: { applicationId: appId, partnerId: id('org'), environment: env, revision: 0, state: 'awaiting_proof', ...(options.demo && {demo: true as const}),
         displayName: req.displayName, organization: req.organization, organizationUrl: req.organizationUrl, handoffUrl: req.handoffUrl,
         contact: req.contact, recoveryContact: req.recoveryContact, catalog: req.catalog, requestedCapabilities: req.capabilities,
         acceptedCapabilities: [], domainChallengeIds: {}, keys: [{ kid: key.kid, state: 'candidate', thumbprint: thumbprint(key), validFrom: iso(this.now()) }] } }
@@ -177,7 +182,7 @@ export class PartnerRegistry {
     return structuredClone(row.app)
   }
   applications(actor: PartnerActor, env: PartnerEnvironment) {
-    return [...this.rows.values()].filter(r => r.app.environment === env && (actor.operator ||
+    return [...this.rows.values()].filter(r => (!r.app.demo || this.demoEnabled()) && r.app.environment === env && (actor.operator ||
       actor.organizationAdmin && r.owner.tenantId === actor.tenantId)).map(r => this.view(actor,r))
   }
   private view(actor:PartnerActor, row:PartnerEnrollmentRow):PartnerApplication {
@@ -349,6 +354,7 @@ export class PartnerRegistry {
    * errors leave the previous expiry intact; a definite missing record lapses immediately. */
   async recheckDue() {
     for (const row of this.rows.values()) {
+      if (row.app.demo && !this.demoEnabled()) continue
       for (const report of row.reports) {
         if (expireConformance(report,this.now())) this.note(row,'registry','conformance_expired',undefined,report.public.reportId)
       }
@@ -363,9 +369,9 @@ export class PartnerRegistry {
   }
   private qualified(actor: Pick<PartnerActor, 'userId' | 'tenantId'>, reportId: string | undefined,
     catalog: PartnerApplication['catalog'], roles: PartnerCapability[], site: string, productionKey: PartnerPublicKey,
-    acceptRenewedReport=false): string | undefined {
+    acceptRenewedReport=false, demo=false): string | undefined {
     const host=new URL(site).hostname
-    const source=[...this.rows.values()].find(row => row.app.environment === 'sandbox' && row.owner.tenantId === actor.tenantId &&
+    const source=[...this.rows.values()].find(row => !!row.app.demo === demo && row.app.environment === 'sandbox' && row.owner.tenantId === actor.tenantId &&
       row.app.state === 'sandbox_testing' && this.proved(row) &&
       new URL(row.app.organizationUrl).hostname === host && !row.keyMaterial.some(key => key.x === productionKey.x) &&
       roles.every(role => row.app.requestedCapabilities.includes(role)) && row.reports.some(r=>r.public.reportId === reportId))
@@ -404,7 +410,7 @@ export class PartnerRegistry {
       const accepted = action === 'approve' ? capabilities(body.acceptedCapabilities) : row.app.acceptedCapabilities
       if (!accepted.every(c => row.app.requestedCapabilities.includes(c))) conflict('A capability was outside the application.')
       const reportId=this.qualified(row.owner, row.sandboxReportId, row.app.catalog, accepted, row.app.organizationUrl,
-        this.key(row, row.app.keys.find(k => k.state === 'active')!.kid)!, row.published)
+        this.key(row, row.app.keys.find(k => k.state === 'active')!.kid)!, row.published, row.app.demo === true)
       if (!reportId) conflict('Run a current matching conformance report on the originating sandbox application.')
       row.sandboxReportId=reportId
       row.app.acceptedCapabilities = accepted
@@ -422,18 +428,22 @@ export class PartnerRegistry {
   }
   private publicRows() { return [...this.rows.values()].filter(row => row.published && row.app.environment === 'production') }
   private directory() {
-    return this.nameIndex ??= new PartnerNameIndex(this.publicRows().map(row=>({
+    const demo = this.demoEnabled()
+    if (demo !== this.nameIndexDemo) this.nameIndex = undefined
+    this.nameIndexDemo = demo
+    return this.nameIndex ??= new PartnerNameIndex(this.publicRows().filter(row => !row.app.demo || demo).map(row=>({
       partnerId:row.app.partnerId,displayName:row.app.displayName,domain:this.live(row,'website')!.challenge.domainAscii })))
   }
   private profile(row: PartnerEnrollmentRow) {
     const website = this.live(row, 'website') ?? missing(), handoff = this.live(row, 'handoff') ?? missing()
     const status = row.app.state === 'suspended' || row.app.state === 'revoked' ? row.app.state :
-      row.app.state === 'active' && this.proved(row) ? 'active' : 'verification_lapsed'
+      row.app.state === 'active' && (!row.app.demo || this.demoEnabled()) && this.proved(row) ? 'active' : 'verification_lapsed'
     return { partnerId: row.app.partnerId, displayName: row.app.displayName, status,
+      ...(row.app.demo && {demo: true as const}),
       capabilities: status === 'active' ? [...row.app.acceptedCapabilities] : [], asOf: iso(this.now()),
       identity: { domainAscii: website.challenge.domainAscii, identityRevision: row.identityRevision, profilePath: '/partners/' + row.app.partnerId,
         verifiedAt: iso(website.verifiedAt!), validUntil: iso(Math.min(domainUntil(website), domainUntil(handoff))),
-        ...this.directory().peers(row.app.partnerId) } } satisfies PartnerPublicProfile
+        ...(row.app.demo && !this.demoEnabled() ? {collisionSignals: [], relatedPartners: []} : this.directory().peers(row.app.partnerId)) } } satisfies PartnerPublicProfile
   }
   publicProfile(partnerId: string): PartnerPublicProfile {
     const rows = this.publicRows(), row = rows.find(r => r.app.partnerId === partnerId) ?? missing()
@@ -446,12 +456,12 @@ export class PartnerRegistry {
       fail(400, 'bad_request', 'Supply the precise ASCII hostname.')
     const found = filter.name === undefined ? undefined : this.directory().search(label(filter.name, 100, 'name'))
     return this.publicRows().flatMap(row => {
-      if (row.app.state !== 'active' || !this.proved(row) || filter.domainAscii && this.live(row,'website')!.challenge.domainAscii !== filter.domainAscii ||
+      if (row.app.state !== 'active' || row.app.demo && !this.demoEnabled() || !this.proved(row) || filter.domainAscii && this.live(row,'website')!.challenge.domainAscii !== filter.domainAscii ||
           filter.capability && !row.app.acceptedCapabilities.some(role => role === filter.capability) ||
           found && !found.has(row.app.partnerId)) return []
       const p = this.profile(row)
       const roles = p.capabilities
-      return [{ identity: p.identity, partnerId: p.partnerId, displayName: p.displayName, environment: row.app.environment,
+      return [{ identity: p.identity, partnerId: p.partnerId, displayName: p.displayName, environment: row.app.environment, ...(p.demo && {demo: true as const}),
         capabilities: roles, catalogRevision: row.identityRevision, catalog: structuredClone({
           models: roles.includes('model-provider') ? row.app.catalog.models : [],
           assets: roles.includes('custodian') ? row.app.catalog.assets : [],
@@ -460,6 +470,7 @@ export class PartnerRegistry {
   }
   private machine(row: PartnerEnrollmentRow, renewal = false) {
     const app = row.app
+    if (app.demo && !this.demoEnabled()) return inactive()
     if (!app.keys.some(k => k.state === 'active') || (renewal ?
         !['sandbox_testing','awaiting_proof','active','in_review'].includes(app.state) :
         !(app.environment === 'sandbox' ? app.state === 'sandbox_testing' : app.state === 'active') || !this.proved(row))) return inactive()

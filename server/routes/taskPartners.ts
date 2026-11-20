@@ -64,7 +64,13 @@ export function registerTaskPartnerRoutes(router: Router, accountMatches: (req: 
   post(apps, 201, (i, b) => registry.apply(i.actor, i.env, b), ({ actor }) => {
     if (!actor.organizationAdmin) fail(403, 'forbidden', 'An organization administrator must register the partner.')
   })
-  get(app, i => registry.application(i.actor, i.env, i.p.applicationId!))
+  get(app, i => {
+    const application = registry.application(i.actor, i.env, i.p.applicationId!)
+    if (application.demo && application.viewer?.canManage && i.env === 'production' && store.demoPartnersEnabled()) {
+      return { ...application, taskActivity: work.recentPartnerActivity(application.partnerId) }
+    }
+    return application
+  })
   get(app + '/history', i => listPage(i.url, i.listScope, registry.history(i.actor, i.env, i.p.applicationId!), r => r.recordedAt + r.eventId), pages)
   post(app + '/name', 200, (i, b) => registry.rename(i.actor, i.env, i.p.applicationId!, b))
   post(app + '/keys', 200, (i, b) => registry.keyChange(i.actor, i.env, i.p.applicationId!, b), i => {

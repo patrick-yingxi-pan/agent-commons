@@ -81,7 +81,10 @@ const SERVER_ARGS =
   process.env.SERVER_WATCH === 'off' ? ['server/index.ts'] : ['--watch', 'server/index.ts']
 // The server gets PORT pinned so it binds the mock port regardless of any
 // inherited PORT (which targets the UI).
-run('server', 'node', SERVER_ARGS, '36', { PORT: MOCK_PORT })
+run('server', 'node', SERVER_ARGS, '36', {
+  PORT: MOCK_PORT,
+  TASK_PARTNER_DEMO: process.env.TASK_PARTNER_DEMO ?? '1',
+})
 // Pass MOCK_PORT through so the UI's Vite proxy (vite.config.ts) targets the same
 // backend port the server just bound — including the derived one above.
 run('ui', 'node', [VITE_BIN], '35', { MOCK_PORT })

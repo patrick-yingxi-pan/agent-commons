@@ -26,6 +26,7 @@ import { positiveNumberEnv } from './env.ts'
 import { closePersistence } from './persistence/persist.ts'
 import { enforceOrigin } from './http/origin.ts'
 import { servePublicPartner } from './taskPartners/publicHttp.ts'
+import { setDemoPartnerContinuationResolver } from './routes/taskPartnerHandoffPage.ts'
 import { PartnerRegistryError } from './taskPartners/protocol.ts'
 import { initializeMcpRuntime } from './mcpRuntime.ts'
 
@@ -57,6 +58,18 @@ process.on('exit', closePersistence)
 
 const router = buildRouter()
 const publicOrigins = store.partnerOrigins()
+const demo = await store.initializeDemoPartners()
+const demoHost = demo && new URL(demo.config.backendOrigin).host
+const demoAvailable = () => store.demoPartnersEnabled() && store.persistenceHealthy()
+const demoService = demo?.workers.length ? (await import('./taskPartners/demoPartnerService.ts')).createDemoPartnerService({
+  workers: demo.workers,
+  platformApiOrigin: demo.config.backendOrigin,
+  ledgerPath: demo.ledgerPath,
+  profileUrl: worker => demo.config.webOrigin + '/partners/' + encodeURIComponent(worker.partnerId),
+  badgeUrl: worker => demo.config.badgeOrigin + '/v1/task-partners/public/partners/' +
+    encodeURIComponent(worker.partnerId) + '/badge?domain=' + encodeURIComponent(worker.domain),
+}) : null
+if (demoService) setDemoPartnerContinuationResolver(start => demoAvailable() ? demoService.continuation(start) : null)
 let checkingPartnerDomains = false
 const domainChecks = setInterval(async () => {
   if (checkingPartnerDomains || !store.persistenceHealthy()) return
@@ -90,14 +103,18 @@ const MIME: Record<string, string> = {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${HOST}:${PORT}`)
+  if (demoService && demoAvailable() && await demoService.handle(req, res, url)) return
   if (servePublicPartner(req, res, url, publicOrigins, id => {
     try { return store.taskPartners.publicProfile(id) }
     catch (error) { if (error instanceof PartnerRegistryError && error.status === 404) return null; throw error }
-  }, store.persistenceHealthy())) return
+  }, store.persistenceHealthy(), demo?.config)) return
 
   // The sandbox hostname serves its own protocol audience. Keep accounts,
   // production management, and the workspace shell on their configured origin.
   const requestHost = typeof req.headers.host === 'string' ? req.headers.host.toLowerCase() : undefined
+  if (demoHost && requestHost !== demoHost) {
+    return sendError(res, 'not_found', 'This demonstration host serves only its public partner pages.')
+  }
   if (publicOrigins.sandboxOrigin && requestHost === new URL(publicOrigins.sandboxOrigin).host &&
       !url.pathname.startsWith('/v1/task-partners/')) {
     return sendError(res, 'not_found', 'This host serves the task partner sandbox.')
@@ -185,6 +202,7 @@ function serveStatic(pathname: string, res: import('node:http').ServerResponse):
 }
 
 server.listen(PORT, HOST, () => {
+  demoService?.start()
   console.log(`[mock-backend] http://${HOST}:${PORT}${API_BASE_PATH}  ·  epoch ${store.epoch}`)
   console.log(`[mock-backend] serving ${existsSync(DIST) ? 'built UI (dist/) + ' : ''}API`)
   // In development, boot the Anthropic-compatible model server in-process so
@@ -233,7 +251,7 @@ server.listen(PORT, HOST, () => {
     routineRunner.stop()
     unsubscribeCommissionFault()
     unsubscribeAgentRequestFault()
-    const backgroundStopped = Promise.all([commissionMcpRunner.stop(), store.stopAgentRequests()])
+    const backgroundStopped = Promise.all([commissionMcpRunner.stop(), store.stopAgentRequests(), demoService?.close()])
     clearInterval(inputReviewExpiry)
     clearInterval(domainChecks)
     // Wait within the process drain bound. If the hard fallback wins, an

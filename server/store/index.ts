@@ -37,6 +37,9 @@ import { PartnerRegistry, PartnerRegistryError } from '../taskPartners/registry.
 import { PartnerWorkService } from '../taskPartners/taskWork.ts'
 import { deploymentAudience, verifyOfflineStatement } from '../taskPartners/deployment.ts'
 import { partnerOrigins } from '../taskPartners/publicHttp.ts'
+import { demoPartnerAudience, demoPartnerConfiguration } from '../taskPartners/demoConfiguration.ts'
+import { createDemoPartnerBootstrap } from '../data/taskPartnerDemo.ts'
+import { storageFilePath } from '../persistence/backup.ts'
 import { commissionMcpClaimId } from '../commissionMcpClaim.ts'
 import { CommissionMcpExecution } from '../commissionMcpExecution.ts'
 import { commissionMcpLegacyDispatchBlocked, type CommissionMcpQueueCandidate } from '../commissionMcpRunner.ts'
@@ -2640,7 +2643,15 @@ const contextRegistry = createContextRegistry({
 const mcpConnectionRegistry = createMcpConnectionRegistry()
 const routineMcpRegistry = new RoutineMcpRegistry()
 const commissionMcpRegistry = new CommissionMcpRegistry()
-const taskPartners = new PartnerRegistry({ changed: persist, audience: deploymentAudience })
+const demoPartnerConfig = demoPartnerConfiguration()
+const demoPartnerFiles = demoPartnerConfig ? storageFilePath() + '.task-partner-demo' : undefined
+const demoPartners = demoPartnerFiles ? createDemoPartnerBootstrap({
+  keyDirectory: demoPartnerFiles,
+  enabled: () => worldMode === 'demo',
+}) : undefined
+const taskAudience: typeof deploymentAudience = env =>
+  demoPartners && worldMode === 'demo' ? demoPartnerAudience(env) : deploymentAudience(env)
+const taskPartners = new PartnerRegistry({ ...demoPartners?.registryOptions, changed: persist, audience: taskAudience })
 const partnerWork: PartnerWorkService = new PartnerWorkService({
   directory: taskPartners, changed: persist,
   tenantLabel: tenantName,
@@ -2665,7 +2676,7 @@ const partnerWork: PartnerWorkService = new PartnerWorkService({
     }
     emit({ type: 'openwork.changed', projectId: item.projectId })
   },
-  get audience() { return deploymentAudience('production') },
+  get audience() { return taskAudience('production') },
   canAccessProject: (actor, projectId): boolean => store.grantSubjectVisible({ kind: 'project', id: projectId }, actor.tenantId),
   verifyRecovery: verifyOfflineStatement,
 })
@@ -4765,7 +4776,36 @@ function commitSessionContextState(
 export const store = {
   taskPartners,
   partnerWork,
-  partnerOrigins,
+  demoPartnersEnabled: () => Boolean(demoPartnerConfig && worldMode === 'demo'),
+  partnerOrigins: () => worldMode === 'demo' && demoPartnerConfig ? demoPartnerConfig : partnerOrigins(),
+  async initializeDemoPartners() {
+    if (!demoPartners || !demoPartnerFiles || !demoPartnerConfig || worldMode !== 'demo') return null
+    const workers = await demoPartners.seed(taskPartners, accounts)
+    const provider = workers.find(worker => worker.slug === 'orchard-labs')
+    const custodian = workers.find(worker => worker.slug === 'orchard-coop')
+    const actor = { userId: 'user-ada', tenantId: 'tenant-acme' }
+    if (provider && custodian && this.grantSubjectVisible({ kind: 'project', id: 'p-insights' }, actor.tenantId)) {
+      const catalog = taskPartners.catalog()
+      const rule = catalog.find(entry => entry.partnerId === custodian.partnerId)?.catalog.rules.find(r => r.ruleId === 'exact-ready')
+      if (rule && catalog.some(entry => entry.partnerId === provider.partnerId)) {
+        const day = 86_400_000
+        const now = Date.now()
+        try {
+          partnerWork.createDraft(actor, 'p-insights', {
+            description: 'Return ready for the Orchard review',
+            acceptance: { kind: 'partner', partnerId: custodian.partnerId, rule },
+            provenance: { partnerId: provider.partnerId, model: 'orchard-demo', effort: 'standard', maxInputTokens: 512, maxOutputTokens: 8 },
+            reward: { partnerId: custodian.partnerId, asset: { assetId: 'review-voucher', unit: 'voucher', quantity: '3' }, holdUntil: new Date(now + 31 * day).toISOString() },
+            deadline: new Date(now + 30 * day).toISOString(),
+          }, 'task-0d13fa45f9a449edaa91a18ae4bb86f9')
+        } catch (error) {
+          // An existing review database may already use all of Ada's draft slots.
+          if (!(error instanceof PartnerRegistryError && error.code === 'draft_limit')) throw error
+        }
+      }
+    }
+    return { config: demoPartnerConfig, workers, ledgerPath: join(demoPartnerFiles, 'wallets.sqlite') }
+  },
   commitPartnerChange: commitMutationBatch,
   epoch: EPOCH,
 

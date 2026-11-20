@@ -170,6 +170,8 @@ actual chooser, signed/Intel or paid-service acceptance.
 
 Task partner sandbox exercises use sample commands and independently checked expected results. Their credentials and receipts apply only in the sandbox. Production domain checks, signatures, task grants and the site's work-credit ledger run in the backend. An external payout or model execution requires an enrolled partner to perform the operation and sign its result. Operators configure verified origins, eligible participants and recovery keys for their deployment. [Partner operations](../task-partner-operations.md)
 
+The local demo enrolls **Orchard Works** (model provider) and **Orchard Work** (custodian and verifier) through sandbox conformance and approval. Their domain proofs, model output and voucher accounts are fixtures. They have separate identities and keys, use authenticated worker APIs, sign receipts, and keep voucher holds and transfers in a durable local ledger. The site enforces the same task terms, consent and receipt checks used for external partners. The production environment label in this demo identifies a stage of the protocol. Clean worlds, release profiles and deployments with configured partner origins do not start these workers. [Demo walkthrough](../demo-accounts.md#review-a-rewarded-task-with-two-similar-partners)
+
 `GET /context-catalog` projects fixture candidates only from the persisted demo
 world; a clean world returns empty candidates. Both UI entry points share this
 read and disclose loading, failure and demo data without a bundled fallback.

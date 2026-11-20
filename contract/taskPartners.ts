@@ -1,5 +1,7 @@
 /** Public and private projections of the task-partner protocol. Personal contact,
  * signing material and proof instructions are private application fields. */
+import type { TaskPartnerCommand } from './taskPartnerWork.ts'
+
 export const partnerCapabilities = ['model-provider', 'custodian', 'verifier'] as const
 export type PartnerCapability = typeof partnerCapabilities[number]
 export type PartnerEnvironment = 'sandbox' | 'production'
@@ -36,6 +38,11 @@ export interface PartnerDomainChallenge {
   expiresAt: string; state: 'pending' | 'verified' | 'expired' | 'conflict' | 'superseded'
 }
 export interface PartnerApplication extends Omit<PartnerApplicationRequest, 'publicKey' | 'capabilities' | 'sandboxReportId'> {
+  demo?: true
+  /** Latest assigned operations on the demo administrator's application detail. */
+  taskActivity?: (Pick<TaskPartnerCommand, 'commandId' | 'taskId' | 'state' | 'issuedAt'> & {
+    kind: TaskPartnerCommand['action']['kind']
+  })[]
   applicationId: string; partnerId: string; environment: PartnerEnvironment; revision: number
   state: 'awaiting_proof' | 'sandbox_testing' | 'in_review' | 'active' | 'suspended' | 'revoked' | 'rejected'
   requestedCapabilities: PartnerCapability[]; acceptedCapabilities: PartnerCapability[]
@@ -62,11 +69,13 @@ export interface PartnerIdentity {
   collisionSignals: PartnerCollisionSignal[]; relatedPartners: string[]
 }
 export interface PartnerPublicProfile {
+  demo?: true
   partnerId: string; displayName: string; identity: PartnerIdentity
   status: 'active' | 'verification_lapsed' | 'suspended' | 'revoked'
   capabilities: PartnerCapability[]; asOf: string
 }
 export interface PartnerCatalogEntry {
+  demo?: true
   trustedForActor?: boolean
   partnerId: string; displayName: string; environment: PartnerEnvironment; identity: PartnerIdentity
   capabilities: PartnerCapability[]; catalogRevision: number; catalog: PartnerCatalog
