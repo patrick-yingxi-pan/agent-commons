@@ -369,13 +369,11 @@ export default function TaskPartnersPage({
   subview,
   application,
   onOpen,
-  onSwitch,
   onBack,
 }: {
   subview: string | null
   application: string | null
   onOpen: (id: string) => void
-  onSwitch: (view: string | null) => void
   onBack: () => void
 }) {
   const [env, id] = (application ?? '').split('/')
@@ -402,32 +400,6 @@ export default function TaskPartnersPage({
           subview ? undefined : 'Find organizations approved to attest work, check results, or hold rewards.'
         }
       />
-      <div className="mb-4 flex flex-wrap gap-2">
-        {subview && (
-          <button
-            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
-            onClick={() => onSwitch(null)}
-          >
-            Partner directory
-          </button>
-        )}
-        {subview !== 'applications' && (
-          <button
-            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
-            onClick={() => onSwitch('applications')}
-          >
-            Partner applications
-          </button>
-        )}
-        {subview !== 'register' && (
-          <button
-            className={`${SECONDARY_BUTTON_CLASS} min-h-8 px-3 py-1 text-[13px]`}
-            onClick={() => onSwitch('register')}
-          >
-            Register partner
-          </button>
-        )}
-      </div>
       {subview === 'register' ? (
         <Registration onOpen={onOpen} />
       ) : subview === 'applications' ? (

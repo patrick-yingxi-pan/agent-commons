@@ -101,7 +101,7 @@ test('a partner administrator distinguishes similar organizations, reviews her a
   const canonical = await labs.getByRole('link').getAttribute('href')
   expect(new URL(canonical!).hostname).toBe('partner-profiles.localhost')
 
-  await directory.getByRole('button', { name: 'Partner applications' }).click()
+  await maya.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Partner applications', exact: true }).click()
   await directory.getByLabel('Environment').selectOption('production')
   await directory.getByRole('button', { name: /Orchard Works.*Active/ }).click()
   await expect(directory.getByRole('heading', { name: 'Website badge' })).toBeVisible()
@@ -193,7 +193,7 @@ test('a requester reserves the promised vouchers and a second person earns them 
     const admin = await demo.page(actor)
     await admin.goto('/task-partners')
     const main = admin.getByRole('main')
-    await main.getByRole('button', { name: 'Partner applications' }).click()
+    await admin.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Partner applications', exact: true }).click()
     await main.getByLabel('Environment').selectOption('production')
     await main.getByRole('button', { name: new RegExp(name + '.*Active') }).click()
     await expect(main.getByRole('heading', { name: 'Task activity' })).toBeVisible()
